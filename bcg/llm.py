@@ -224,7 +224,6 @@ class LLMClient:
         temperature: float = 0.0,
         max_tokens: int = 1200,
     ) -> LLMResponse:
-
         image_url = inline_image_url(image_bytes, mime_type=mime_type)
         return await self.generate(
             [
@@ -587,14 +586,12 @@ def _get_attr_or_key(item: Any, key: str) -> Any:
 def _is_retryable(exc: Exception) -> bool:
     if isinstance(
         exc,
-        (
-            APIConnectionError,
-            APITimeoutError,
-            InternalServerError,
-            RateLimitError,
-            httpx.TimeoutException,
-            httpx.TransportError,
-        ),
+        APIConnectionError
+        | APITimeoutError
+        | InternalServerError
+        | RateLimitError
+        | httpx.TimeoutException
+        | httpx.TransportError,
     ):
         return True
     if isinstance(exc, APIStatusError):
