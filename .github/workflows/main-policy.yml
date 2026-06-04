@@ -1,0 +1,20 @@
+name: Main Branch Policy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  no-direct-push:
+    name: No direct push to main
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Reject direct push by policy
+        run: |
+          echo "Direct push to main is not allowed by project policy."
+          echo "Open a pull request and merge after review instead."
+          echo "Actor: ${{ github.actor }}"
+          echo "Commit: ${{ github.sha }}"
+          exit 1
