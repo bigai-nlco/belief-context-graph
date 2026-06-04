@@ -76,6 +76,10 @@ Tracing is active only when:
 - `bcg.openai.responses.create` as a generation
 - `bcg.llm.tool_call` as a tool span
 
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. It covers branch policy, Conventional Commits, local checks, pre-commit hooks, Codex review expectations, AI-assisted PR transparency, and code style.
+
 ## Development
 
 Run the local quality checks used by CI:
