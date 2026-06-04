@@ -21,6 +21,12 @@ jobs:
           script: |
             const { owner, repo } = context.repo;
             const commitSha = context.sha;
+            const headCommitMessage = context.payload.head_commit?.message ?? "";
+
+            if (/^Merge pull request #\d+ from /m.test(headCommitMessage)) {
+              core.info(`Commit ${commitSha} is a GitHub pull request merge commit.`);
+              return;
+            }
 
             const { data: pulls } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
               owner,
