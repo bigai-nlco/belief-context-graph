@@ -1,0 +1,103 @@
+{
+  "n_beliefs": 70,
+  "relations": [
+    {
+      "from_id": 41,
+      "to_id": 25,
+      "type": "confirms",
+      "note": "The later search summary supports the earlier judgment that John Marshall footage was reused in The Gods Must Be Crazy."
+    },
+    {
+      "from_id": 46,
+      "to_id": 5,
+      "type": "confirms",
+      "note": "The tool result verifies that The Gods Must Be Crazy was released in 1980."
+    },
+    {
+      "from_id": 50,
+      "to_id": 33,
+      "type": "extends",
+      "note": "It adds details about translated Bushmen dialogue to the earlier claim about a scene from The Gods Must Be Crazy."
+    },
+    {
+      "from_id": 55,
+      "to_id": 22,
+      "type": "contradicts",
+      "note": "The final identified title rules out the earlier candidate title The !Kung."
+    },
+    {
+      "from_id": 55,
+      "to_id": 23,
+      "type": "contradicts",
+      "note": "The final identified title rules out the alternative candidate title Kung."
+    },
+    {
+      "from_id": 55,
+      "to_id": 24,
+      "type": "contradicts",
+      "note": "The final identified title rules out the alternative candidate title The !Kung People."
+    },
+    {
+      "from_id": 56,
+      "to_id": 1,
+      "type": "confirms",
+      "note": "It confirms that the sought film is a 1980 ethnographic film."
+    },
+    {
+      "from_id": 58,
+      "to_id": 3,
+      "type": "confirms",
+      "note": "It confirms the clue that John Marshall directed the film in collaboration with Adrienne."
+    },
+    {
+      "from_id": 58,
+      "to_id": 21,
+      "type": "confirms",
+      "note": "It supports the earlier recalled collaboration between John Marshall and Adrienne on a !Kung-related film."
+    },
+    {
+      "from_id": 60,
+      "to_id": 59,
+      "type": "confirms",
+      "note": "Adrienne LaFrance being a noted collaborator supports the speculation that Adrienne refers to her."
+    },
+    {
+      "from_id": 62,
+      "to_id": 4,
+      "type": "confirms",
+      "note": "It confirms that footage from the sought film was reused in The Gods Must Be Crazy."
+    },
+    {
+      "from_id": 62,
+      "to_id": 45,
+      "type": "confirms",
+      "note": "It supports the earlier judgment that The Gods Must Be Crazy reused footage from a John Marshall film."
+    },
+    {
+      "from_id": 65,
+      "to_id": 25,
+      "type": "confirms",
+      "note": "The search-results statement supports the earlier judgment about reuse of Marshall-related footage in The Gods Must Be Crazy."
+    },
+    {
+      "from_id": 65,
+      "to_id": 62,
+      "type": "confirms",
+      "note": "It provides source-based support for the earlier claim that Nǃai footage was incorporated into The Gods Must Be Crazy."
+    },
+    {
+      "from_id": 68,
+      "to_id": 67,
+      "type": "extends",
+      "note": "It specifies who Nǃai is, elaborating on the earlier description of the film's portrait subject."
+    },
+    {
+      "from_id": 69,
+      "to_id": 55,
+      "type": "confirms",
+      "note": "The later alignment judgment supports the earlier answer that the title is Nǃai, the Story of a ǃKung Woman."
+    }
+  ],
+  "raw_output": "{\"relations\":[{\"from_id\":41,\"to_id\":25,\"type\":\"confirms\",\"note\":\"The later search summary supports the earlier judgment that John Marshall footage was reused in The Gods Must Be Crazy.\"},{\"from_id\":46,\"to_id\":5,\"type\":\"confirms\",\"note\":\"The tool result verifies that The Gods Must Be Crazy was released in 1980.\"},{\"from_id\":50,\"to_id\":33,\"type\":\"extends\",\"note\":\"It adds details about translated Bushmen dialogue to the earlier claim about a scene from The Gods Must Be Crazy.\"},{\"from_id\":55,\"to_id\":22,\"type\":\"contradicts\",\"note\":\"The final identified title rules out the earlier candidate title The !Kung.\"},{\"from_id\":55,\"to_id\":23,\"type\":\"contradicts\",\"note\":\"The final identified title rules out the alternative candidate title Kung.\"},{\"from_id\":55,\"to_id\":24,\"type\":\"contradicts\",\"note\":\"The final identified title rules out the alternative candidate title The !Kung People.\"},{\"from_id\":56,\"to_id\":1,\"type\":\"confirms\",\"note\":\"It confirms that the sought film is a 1980 ethnographic film.\"},{\"from_id\":58,\"to_id\":3,\"type\":\"confirms\",\"note\":\"It confirms the clue that John Marshall directed the film in collaboration with Adrienne.\"},{\"from_id\":58,\"to_id\":21,\"type\":\"confirms\",\"note\":\"It supports the earlier recalled collaboration between John Marshall and Adrienne on a !Kung-related film.\"},{\"from_id\":60,\"to_id\":59,\"type\":\"confirms\",\"note\":\"Adrienne LaFrance being a noted collaborator supports the speculation that Adrienne refers to her.\"},{\"from_id\":62,\"to_id\":4,\"type\":\"confirms\",\"note\":\"It confirms that footage from the sought film was reused in The Gods Must Be Crazy.\"},{\"from_id\":62,\"to_id\":45,\"type\":\"confirms\",\"note\":\"It supports the earlier judgment that The Gods Must Be Crazy reused footage from a John Marshall film.\"},{\"from_id\":65,\"to_id\":25,\"type\":\"confirms\",\"note\":\"The search-results statement supports the earlier judgment about reuse of Marshall-related footage in The Gods Must Be Crazy.\"},{\"from_id\":65,\"to_id\":62,\"type\":\"confirms\",\"note\":\"It provides source-based support for the earlier claim that Nǃai footage was incorporated into The Gods Must Be Crazy.\"},{\"from_id\":68,\"to_id\":67,\"type\":\"extends\",\"note\":\"It specifies who Nǃai is, elaborating on the earlier description of the film's portrait subject.\"},{\"from_id\":69,\"to_id\":55,\"type\":\"confirms\",\"note\":\"The later alignment judgment supports the earlier answer that the title is Nǃai, the Story of a ǃKung Woman.\"}]}",
+  "skipped": false
+}

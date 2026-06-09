@@ -1,0 +1,185 @@
+{
+  "totals": {
+    "n_calls": 11,
+    "input_tokens": 37234,
+    "output_tokens": 22674,
+    "total_tokens": 59908
+  },
+  "by_label": {
+    "io:traj[1].seg[0]": {
+      "n_calls": 1,
+      "input_tokens": 1125,
+      "output_tokens": 2710,
+      "total_tokens": 3835
+    },
+    "io:traj[2].seg[1]": {
+      "n_calls": 1,
+      "input_tokens": 951,
+      "output_tokens": 362,
+      "total_tokens": 1313
+    },
+    "io:traj[4].seg[1]": {
+      "n_calls": 1,
+      "input_tokens": 949,
+      "output_tokens": 284,
+      "total_tokens": 1233
+    },
+    "io:traj[6].seg[1]": {
+      "n_calls": 1,
+      "input_tokens": 995,
+      "output_tokens": 2086,
+      "total_tokens": 3081
+    },
+    "reasoning:traj[2].seg[0]": {
+      "n_calls": 1,
+      "input_tokens": 4153,
+      "output_tokens": 1439,
+      "total_tokens": 5592
+    },
+    "reasoning:traj[3].seg[0]": {
+      "n_calls": 1,
+      "input_tokens": 5224,
+      "output_tokens": 1259,
+      "total_tokens": 6483
+    },
+    "reasoning:traj[4].seg[0]": {
+      "n_calls": 1,
+      "input_tokens": 3628,
+      "output_tokens": 1719,
+      "total_tokens": 5347
+    },
+    "reasoning:traj[5].seg[0]": {
+      "n_calls": 1,
+      "input_tokens": 4876,
+      "output_tokens": 728,
+      "total_tokens": 5604
+    },
+    "reasoning:traj[6].seg[0]": {
+      "n_calls": 1,
+      "input_tokens": 3568,
+      "output_tokens": 1972,
+      "total_tokens": 5540
+    },
+    "forward": {
+      "n_calls": 1,
+      "input_tokens": 5918,
+      "output_tokens": 5374,
+      "total_tokens": 11292
+    },
+    "backward": {
+      "n_calls": 1,
+      "input_tokens": 5847,
+      "output_tokens": 4741,
+      "total_tokens": 10588
+    }
+  },
+  "estimated_cost": {
+    "currency": "USD",
+    "input_per_1k": 0.005,
+    "output_per_1k": 0.03,
+    "input_cost": 0.18617,
+    "output_cost": 0.68022,
+    "total_cost": 0.86639
+  },
+  "calls": [
+    {
+      "index": 0,
+      "label": "io:traj[1].seg[0]",
+      "model": "gpt-5.5",
+      "input_tokens": 1125,
+      "output_tokens": 2710,
+      "total_tokens": 3835,
+      "estimated": false
+    },
+    {
+      "index": 1,
+      "label": "io:traj[2].seg[1]",
+      "model": "gpt-5.5",
+      "input_tokens": 951,
+      "output_tokens": 362,
+      "total_tokens": 1313,
+      "estimated": false
+    },
+    {
+      "index": 2,
+      "label": "io:traj[4].seg[1]",
+      "model": "gpt-5.5",
+      "input_tokens": 949,
+      "output_tokens": 284,
+      "total_tokens": 1233,
+      "estimated": false
+    },
+    {
+      "index": 3,
+      "label": "io:traj[6].seg[1]",
+      "model": "gpt-5.5",
+      "input_tokens": 995,
+      "output_tokens": 2086,
+      "total_tokens": 3081,
+      "estimated": false
+    },
+    {
+      "index": 4,
+      "label": "reasoning:traj[2].seg[0]",
+      "model": "gpt-5.5",
+      "input_tokens": 4153,
+      "output_tokens": 1439,
+      "total_tokens": 5592,
+      "estimated": false
+    },
+    {
+      "index": 5,
+      "label": "reasoning:traj[3].seg[0]",
+      "model": "gpt-5.5",
+      "input_tokens": 5224,
+      "output_tokens": 1259,
+      "total_tokens": 6483,
+      "estimated": false
+    },
+    {
+      "index": 6,
+      "label": "reasoning:traj[4].seg[0]",
+      "model": "gpt-5.5",
+      "input_tokens": 3628,
+      "output_tokens": 1719,
+      "total_tokens": 5347,
+      "estimated": false
+    },
+    {
+      "index": 7,
+      "label": "reasoning:traj[5].seg[0]",
+      "model": "gpt-5.5",
+      "input_tokens": 4876,
+      "output_tokens": 728,
+      "total_tokens": 5604,
+      "estimated": false
+    },
+    {
+      "index": 8,
+      "label": "reasoning:traj[6].seg[0]",
+      "model": "gpt-5.5",
+      "input_tokens": 3568,
+      "output_tokens": 1972,
+      "total_tokens": 5540,
+      "estimated": false
+    },
+    {
+      "index": 9,
+      "label": "forward",
+      "model": "gpt-5.5",
+      "input_tokens": 5918,
+      "output_tokens": 5374,
+      "total_tokens": 11292,
+      "estimated": false
+    },
+    {
+      "index": 10,
+      "label": "backward",
+      "model": "gpt-5.5",
+      "input_tokens": 5847,
+      "output_tokens": 4741,
+      "total_tokens": 10588,
+      "estimated": false
+    }
+  ]
+}

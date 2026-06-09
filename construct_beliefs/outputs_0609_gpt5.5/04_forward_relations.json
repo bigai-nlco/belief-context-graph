@@ -1,0 +1,397 @@
+{
+  "n_beliefs": 70,
+  "forward_relations": [
+    {
+      "from_id": 3,
+      "to_id": 21,
+      "type": "informs",
+      "note": "The user's mention of John Marshall collaborating with Adrienne prompted recall of a Marshall collaborator."
+    },
+    {
+      "from_id": 1,
+      "to_id": 22,
+      "type": "informs",
+      "note": "The 1980 ethnographic-film clue shaped the initial candidate-title judgment."
+    },
+    {
+      "from_id": 2,
+      "to_id": 22,
+      "type": "informs",
+      "note": "The clue that the film concerned the !Kung people shaped the initial candidate-title judgment."
+    },
+    {
+      "from_id": 4,
+      "to_id": 25,
+      "type": "informs",
+      "note": "The reused-footage clue led to reasoning about The Gods Must Be Crazy using Marshall-related footage."
+    },
+    {
+      "from_id": 1,
+      "to_id": 26,
+      "type": "informs",
+      "note": "The 1980 ethnographic-film clue was included in the first search query."
+    },
+    {
+      "from_id": 2,
+      "to_id": 26,
+      "type": "informs",
+      "note": "The !Kung-people clue was included in the first search query."
+    },
+    {
+      "from_id": 3,
+      "to_id": 26,
+      "type": "informs",
+      "note": "The John Marshall and Adrienne clue was included in the first search query."
+    },
+    {
+      "from_id": 6,
+      "to_id": 26,
+      "type": "informs",
+      "note": "The user's instruction to search for relevant information prompted the first web query."
+    },
+    {
+      "from_id": 21,
+      "to_id": 26,
+      "type": "informs",
+      "note": "The recalled association between Marshall, Adrienne LaFrance, and !Kung films guided the first query terms."
+    },
+    {
+      "from_id": 26,
+      "to_id": 28,
+      "type": "informs",
+      "note": "The first query produced search results about John Marshall and the !Kung Bushmen."
+    },
+    {
+      "from_id": 26,
+      "to_id": 29,
+      "type": "informs",
+      "note": "The first query produced the result identifying Nǃai as a John Marshall documentary."
+    },
+    {
+      "from_id": 26,
+      "to_id": 30,
+      "type": "informs",
+      "note": "The first query produced the result that Nǃai was first broadcast in 1980 on PBS Odyssey."
+    },
+    {
+      "from_id": 26,
+      "to_id": 31,
+      "type": "informs",
+      "note": "The first query produced descriptive information about Nǃai and Juǀʼhoan life."
+    },
+    {
+      "from_id": 26,
+      "to_id": 32,
+      "type": "informs",
+      "note": "The first query produced the result about Marshall compiling Nǃai footage over 27 years."
+    },
+    {
+      "from_id": 26,
+      "to_id": 33,
+      "type": "informs",
+      "note": "The first query produced the result connecting Nǃai to The Gods Must Be Crazy."
+    },
+    {
+      "from_id": 26,
+      "to_id": 34,
+      "type": "informs",
+      "note": "The first query produced the result characterizing Nǃai as an ethnographic film about the ǃKung."
+    },
+    {
+      "from_id": 26,
+      "to_id": 35,
+      "type": "informs",
+      "note": "The first query produced a related result about Lorna and John Marshall's !Kung films."
+    },
+    {
+      "from_id": 30,
+      "to_id": 36,
+      "type": "informs",
+      "note": "The 1980 broadcast result was restated in later reasoning."
+    },
+    {
+      "from_id": 30,
+      "to_id": 37,
+      "type": "informs",
+      "note": "The PBS Odyssey result was restated in later reasoning."
+    },
+    {
+      "from_id": 32,
+      "to_id": 38,
+      "type": "informs",
+      "note": "The 27-year footage-compilation result was processed in later reasoning."
+    },
+    {
+      "from_id": 33,
+      "to_id": 40,
+      "type": "informs",
+      "note": "The result about a scene from The Gods Must Be Crazy was processed in later reasoning."
+    },
+    {
+      "from_id": 26,
+      "to_id": 42,
+      "type": "informs",
+      "note": "Because the first query included Adrienne, the returned results were checked for an explicit Adrienne mention."
+    },
+    {
+      "from_id": 4,
+      "to_id": 44,
+      "type": "informs",
+      "note": "The user's reused-footage clue motivated a follow-up query about The Gods Must Be Crazy."
+    },
+    {
+      "from_id": 40,
+      "to_id": 44,
+      "type": "informs",
+      "note": "The reasoning about Nǃai containing a scene from The Gods Must Be Crazy prompted the follow-up search."
+    },
+    {
+      "from_id": 42,
+      "to_id": 44,
+      "type": "informs",
+      "note": "The lack of explicit Adrienne support in the first results motivated further searching."
+    },
+    {
+      "from_id": 7,
+      "to_id": 44,
+      "type": "informs",
+      "note": "The user's instruction to keep searching until concrete evidence was found prompted the follow-up query."
+    },
+    {
+      "from_id": 9,
+      "to_id": 44,
+      "type": "informs",
+      "note": "The user's instruction to vary keywords when results were incomplete prompted a new query."
+    },
+    {
+      "from_id": 4,
+      "to_id": 45,
+      "type": "informs",
+      "note": "The reused-footage clue supported the judgment behind the follow-up search."
+    },
+    {
+      "from_id": 44,
+      "to_id": 46,
+      "type": "informs",
+      "note": "The follow-up query produced the result that The Gods Must Be Crazy was released in 1980."
+    },
+    {
+      "from_id": 44,
+      "to_id": 47,
+      "type": "informs",
+      "note": "The follow-up query produced the result that Jamie Uys directed The Gods Must Be Crazy."
+    },
+    {
+      "from_id": 44,
+      "to_id": 48,
+      "type": "informs",
+      "note": "The follow-up query produced location information about The Gods Must Be Crazy."
+    },
+    {
+      "from_id": 32,
+      "to_id": 49,
+      "type": "informs",
+      "note": "The 27-year compilation result was carried into later reasoning about Nǃai."
+    },
+    {
+      "from_id": 33,
+      "to_id": 50,
+      "type": "informs",
+      "note": "The result connecting Nǃai with The Gods Must Be Crazy was elaborated in later reasoning."
+    },
+    {
+      "from_id": 47,
+      "to_id": 51,
+      "type": "informs",
+      "note": "The search result naming Jamie Uys as director informed the later statement about the film's director."
+    },
+    {
+      "from_id": 42,
+      "to_id": 52,
+      "type": "informs",
+      "note": "The earlier observation about missing explicit Adrienne evidence informed the later caveat."
+    },
+    {
+      "from_id": 21,
+      "to_id": 53,
+      "type": "informs",
+      "note": "The recalled Marshall-LaFrance association informed the later claim about Adrienne LaFrance as a collaborator."
+    },
+    {
+      "from_id": 49,
+      "to_id": 54,
+      "type": "informs",
+      "note": "The long-term footage compilation informed the judgment that the film fit a series-related clue."
+    },
+    {
+      "from_id": 2,
+      "to_id": 54,
+      "type": "informs",
+      "note": "The user's series-on-the-!Kung clue provided the criterion used in the alignment judgment."
+    },
+    {
+      "from_id": 29,
+      "to_id": 55,
+      "type": "informs",
+      "note": "The result identifying Nǃai as a John Marshall documentary supported the final title answer."
+    },
+    {
+      "from_id": 30,
+      "to_id": 55,
+      "type": "informs",
+      "note": "The 1980 PBS Odyssey result supported selecting Nǃai as the described film."
+    },
+    {
+      "from_id": 50,
+      "to_id": 55,
+      "type": "informs",
+      "note": "The connection to The Gods Must Be Crazy supported selecting Nǃai as the described film."
+    },
+    {
+      "from_id": 29,
+      "to_id": 56,
+      "type": "informs",
+      "note": "The result identifying Nǃai as a documentary by John Marshall supported the final film characterization."
+    },
+    {
+      "from_id": 30,
+      "to_id": 56,
+      "type": "informs",
+      "note": "The 1980 broadcast result supported the final statement that Nǃai was a 1980 film."
+    },
+    {
+      "from_id": 34,
+      "to_id": 56,
+      "type": "informs",
+      "note": "The ethnographic-film result supported the final statement that Nǃai was ethnographic."
+    },
+    {
+      "from_id": 29,
+      "to_id": 57,
+      "type": "informs",
+      "note": "The result stating Nǃai was by John Marshall supported the final director claim."
+    },
+    {
+      "from_id": 3,
+      "to_id": 58,
+      "type": "informs",
+      "note": "The user's collaboration clue informed the final statement about John Marshall working with Adrienne."
+    },
+    {
+      "from_id": 53,
+      "to_id": 58,
+      "type": "informs",
+      "note": "The reasoning that Adrienne LaFrance was a known Marshall collaborator informed the final collaboration claim."
+    },
+    {
+      "from_id": 53,
+      "to_id": 59,
+      "type": "informs",
+      "note": "The known-collaborator reasoning informed the speculation that Adrienne was Adrienne LaFrance."
+    },
+    {
+      "from_id": 53,
+      "to_id": 60,
+      "type": "informs",
+      "note": "The reasoning about Adrienne LaFrance as a collaborator informed the final statement about her role."
+    },
+    {
+      "from_id": 28,
+      "to_id": 61,
+      "type": "informs",
+      "note": "The result linking Marshall's work to the !Kung Bushmen supported the final subject-matter claim."
+    },
+    {
+      "from_id": 31,
+      "to_id": 61,
+      "type": "informs",
+      "note": "The result describing Nǃai as about Juǀʼhoan life supported the final claim that it is about the !Kung people."
+    },
+    {
+      "from_id": 34,
+      "to_id": 61,
+      "type": "informs",
+      "note": "The result recognizing Nǃai as an ethnographic film about the ǃKung supported the final subject claim."
+    },
+    {
+      "from_id": 50,
+      "to_id": 62,
+      "type": "informs",
+      "note": "The reasoning connecting Nǃai footage with The Gods Must Be Crazy supported the final reused-footage claim."
+    },
+    {
+      "from_id": 46,
+      "to_id": 62,
+      "type": "informs",
+      "note": "The result that The Gods Must Be Crazy was released in 1980 informed the parenthetical date in the final claim."
+    },
+    {
+      "from_id": 30,
+      "to_id": 63,
+      "type": "informs",
+      "note": "The search result that Nǃai was first broadcast in 1980 directly informed the final broadcast-date statement."
+    },
+    {
+      "from_id": 30,
+      "to_id": 64,
+      "type": "informs",
+      "note": "The search result that Nǃai was part of PBS Odyssey directly informed the final series statement."
+    },
+    {
+      "from_id": 40,
+      "to_id": 65,
+      "type": "informs",
+      "note": "The processed search result about The Gods Must Be Crazy informed the final statement about documented footage reuse."
+    },
+    {
+      "from_id": 50,
+      "to_id": 65,
+      "type": "informs",
+      "note": "The later reasoning about Nǃai footage appearing in The Gods Must Be Crazy informed the final supporting-evidence statement."
+    },
+    {
+      "from_id": 50,
+      "to_id": 66,
+      "type": "informs",
+      "note": "The reasoning about Nǃai containing footage connected to The Gods Must Be Crazy informed the final incorporation claim."
+    },
+    {
+      "from_id": 31,
+      "to_id": 67,
+      "type": "informs",
+      "note": "The search result describing Nǃai as an intimate portrait informed the final description of the film."
+    },
+    {
+      "from_id": 31,
+      "to_id": 68,
+      "type": "informs",
+      "note": "The result about Nǃai and Juǀʼhoan life informed the final identification of Nǃai."
+    },
+    {
+      "from_id": 1,
+      "to_id": 69,
+      "type": "informs",
+      "note": "The user's 1980 ethnographic-film clue provided a criterion for the final alignment judgment."
+    },
+    {
+      "from_id": 2,
+      "to_id": 69,
+      "type": "informs",
+      "note": "The user's !Kung-people clue provided a criterion for the final alignment judgment."
+    },
+    {
+      "from_id": 30,
+      "to_id": 69,
+      "type": "informs",
+      "note": "The 1980 broadcast result supported the final judgment that Nǃai fit the description."
+    },
+    {
+      "from_id": 34,
+      "to_id": 69,
+      "type": "informs",
+      "note": "The ethnographic and ǃKung-related result supported the final judgment that Nǃai fit the description."
+    }
+  ],
+  "raw_output": "{\n  \"forward_relations\": [\n    {\n      \"from_id\": 3,\n      \"to_id\": 21,\n      \"type\": \"informs\",\n      \"note\": \"The user's mention of John Marshall collaborating with Adrienne prompted recall of a Marshall collaborator.\"\n    },\n    {\n      \"from_id\": 1,\n      \"to_id\": 22,\n      \"type\": \"informs\",\n      \"note\": \"The 1980 ethnographic-film clue shaped the initial candidate-title judgment.\"\n    },\n    {\n      \"from_id\": 2,\n      \"to_id\": 22,\n      \"type\": \"informs\",\n      \"note\": \"The clue that the film concerned the !Kung people shaped the initial candidate-title judgment.\"\n    },\n    {\n      \"from_id\": 4,\n      \"to_id\": 25,\n      \"type\": \"informs\",\n      \"note\": \"The reused-footage clue led to reasoning about The Gods Must Be Crazy using Marshall-related footage.\"\n    },\n    {\n      \"from_id\": 1,\n      \"to_id\": 26,\n      \"type\": \"informs\",\n      \"note\": \"The 1980 ethnographic-film clue was included in the first search query.\"\n    },\n    {\n      \"from_id\": 2,\n      \"to_id\": 26,\n      \"type\": \"informs\",\n      \"note\": \"The !Kung-people clue was included in the first search query.\"\n    },\n    {\n      \"from_id\": 3,\n      \"to_id\": 26,\n      \"type\": \"informs\",\n      \"note\": \"The John Marshall and Adrienne clue was included in the first search query.\"\n    },\n    {\n      \"from_id\": 6,\n      \"to_id\": 26,\n      \"type\": \"informs\",\n      \"note\": \"The user's instruction to search for relevant information prompted the first web query.\"\n    },\n    {\n      \"from_id\": 21,\n      \"to_id\": 26,\n      \"type\": \"informs\",\n      \"note\": \"The recalled association between Marshall, Adrienne LaFrance, and !Kung films guided the first query terms.\"\n    },\n    {\n      \"from_id\": 26,\n      \"to_id\": 28,\n      \"type\": \"informs\",\n      \"note\": \"The first query produced search results about John Marshall and the !Kung Bushmen.\"\n    },\n    {\n      \"from_id\": 26,\n      \"to_id\": 29,\n      \"type\": \"informs\",\n      \"note\": \"The first query produced the result identifying Nǃai as a John Marshall documentary.\"\n    },\n    {\n      \"from_id\": 26,\n      \"to_id\": 30,\n      \"type\": \"informs\",\n      \"note\": \"The first query produced the result that Nǃai was first broadcast in 1980 on PBS Odyssey.\"\n    },\n    {\n      \"from_id\": 26,\n      \"to_id\": 31,\n      \"type\": \"informs\",\n      \"note\": \"The first query produced descriptive information about Nǃai and Juǀʼhoan life.\"\n    },\n    {\n      \"from_id\": 26,\n      \"to_id\": 32,\n      \"type\": \"informs\",\n      \"note\": \"The first query produced the result about Marshall compiling Nǃai footage over 27 years.\"\n    },\n    {\n      \"from_id\": 26,\n      \"to_id\": 33,\n      \"type\": \"informs\",\n      \"note\": \"The first query produced the result connecting Nǃai to The Gods Must Be Crazy.\"\n    },\n    {\n      \"from_id\": 26,\n      \"to_id\": 34,\n      \"type\": \"informs\",\n      \"note\": \"The first query produced the result characterizing Nǃai as an ethnographic film about the ǃKung.\"\n    },\n    {\n      \"from_id\": 26,\n      \"to_id\": 35,\n      \"type\": \"informs\",\n      \"note\": \"The first query produced a related result about Lorna and John Marshall's !Kung films.\"\n    },\n    {\n      \"from_id\": 30,\n      \"to_id\": 36,\n      \"type\": \"informs\",\n      \"note\": \"The 1980 broadcast result was restated in later reasoning.\"\n    },\n    {\n      \"from_id\": 30,\n      \"to_id\": 37,\n      \"type\": \"informs\",\n      \"note\": \"The PBS Odyssey result was restated in later reasoning.\"\n    },\n    {\n      \"from_id\": 32,\n      \"to_id\": 38,\n      \"type\": \"informs\",\n      \"note\": \"The 27-year footage-compilation result was processed in later reasoning.\"\n    },\n    {\n      \"from_id\": 33,\n      \"to_id\": 40,\n      \"type\": \"informs\",\n      \"note\": \"The result about a scene from The Gods Must Be Crazy was processed in later reasoning.\"\n    },\n    {\n      \"from_id\": 26,\n      \"to_id\": 42,\n      \"type\": \"informs\",\n      \"note\": \"Because the first query included Adrienne, the returned results were checked for an explicit Adrienne mention.\"\n    },\n    {\n      \"from_id\": 4,\n      \"to_id\": 44,\n      \"type\": \"informs\",\n      \"note\": \"The user's reused-footage clue motivated a follow-up query about The Gods Must Be Crazy.\"\n    },\n    {\n      \"from_id\": 40,\n      \"to_id\": 44,\n      \"type\": \"informs\",\n      \"note\": \"The reasoning about Nǃai containing a scene from The Gods Must Be Crazy prompted the follow-up search.\"\n    },\n    {\n      \"from_id\": 42,\n      \"to_id\": 44,\n      \"type\": \"informs\",\n      \"note\": \"The lack of explicit Adrienne support in the first results motivated further searching.\"\n    },\n    {\n      \"from_id\": 7,\n      \"to_id\": 44,\n      \"type\": \"informs\",\n      \"note\": \"The user's instruction to keep searching until concrete evidence was found prompted the follow-up query.\"\n    },\n    {\n      \"from_id\": 9,\n      \"to_id\": 44,\n      \"type\": \"informs\",\n      \"note\": \"The user's instruction to vary keywords when results were incomplete prompted a new query.\"\n    },\n    {\n      \"from_id\": 4,\n      \"to_id\": 45,\n      \"type\": \"informs\",\n      \"note\": \"The reused-footage clue supported the judgment behind the follow-up search.\"\n    },\n    {\n      \"from_id\": 44,\n      \"to_id\": 46,\n      \"type\": \"informs\",\n      \"note\": \"The follow-up query produced the result that The Gods Must Be Crazy was released in 1980.\"\n    },\n    {\n      \"from_id\": 44,\n      \"to_id\": 47,\n      \"type\": \"informs\",\n      \"note\": \"The follow-up query produced the result that Jamie Uys directed The Gods Must Be Crazy.\"\n    },\n    {\n      \"from_id\": 44,\n      \"to_id\": 48,\n      \"type\": \"informs\",\n      \"note\": \"The follow-up query produced location information about The Gods Must Be Crazy.\"\n    },\n    {\n      \"from_id\": 32,\n      \"to_id\": 49,\n      \"type\": \"informs\",\n      \"note\": \"The 27-year compilation result was carried into later reasoning about Nǃai.\"\n    },\n    {\n      \"from_id\": 33,\n      \"to_id\": 50,\n      \"type\": \"informs\",\n      \"note\": \"The result connecting Nǃai with The Gods Must Be Crazy was elaborated in later reasoning.\"\n    },\n    {\n      \"from_id\": 47,\n      \"to_id\": 51,\n      \"type\": \"informs\",\n      \"note\": \"The search result naming Jamie Uys as director informed the later statement about the film's director.\"\n    },\n    {\n      \"from_id\": 42,\n      \"to_id\": 52,\n      \"type\": \"informs\",\n      \"note\": \"The earlier observation about missing explicit Adrienne evidence informed the later caveat.\"\n    },\n    {\n      \"from_id\": 21,\n      \"to_id\": 53,\n      \"type\": \"informs\",\n      \"note\": \"The recalled Marshall-LaFrance association informed the later claim about Adrienne LaFrance as a collaborator.\"\n    },\n    {\n      \"from_id\": 49,\n      \"to_id\": 54,\n      \"type\": \"informs\",\n      \"note\": \"The long-term footage compilation informed the judgment that the film fit a series-related clue.\"\n    },\n    {\n      \"from_id\": 2,\n      \"to_id\": 54,\n      \"type\": \"informs\",\n      \"note\": \"The user's series-on-the-!Kung clue provided the criterion used in the alignment judgment.\"\n    },\n    {\n      \"from_id\": 29,\n      \"to_id\": 55,\n      \"type\": \"informs\",\n      \"note\": \"The result identifying Nǃai as a John Marshall documentary supported the final title answer.\"\n    },\n    {\n      \"from_id\": 30,\n      \"to_id\": 55,\n      \"type\": \"informs\",\n      \"note\": \"The 1980 PBS Odyssey result supported selecting Nǃai as the described film.\"\n    },\n    {\n      \"from_id\": 50,\n      \"to_id\": 55,\n      \"type\": \"informs\",\n      \"note\": \"The connection to The Gods Must Be Crazy supported selecting Nǃai as the described film.\"\n    },\n    {\n      \"from_id\": 29,\n      \"to_id\": 56,\n      \"type\": \"informs\",\n      \"note\": \"The result identifying Nǃai as a documentary by John Marshall supported the final film characterization.\"\n    },\n    {\n      \"from_id\": 30,\n      \"to_id\": 56,\n      \"type\": \"informs\",\n      \"note\": \"The 1980 broadcast result supported the final statement that Nǃai was a 1980 film.\"\n    },\n    {\n      \"from_id\": 34,\n      \"to_id\": 56,\n      \"type\": \"informs\",\n      \"note\": \"The ethnographic-film result supported the final statement that Nǃai was ethnographic.\"\n    },\n    {\n      \"from_id\": 29,\n      \"to_id\": 57,\n      \"type\": \"informs\",\n      \"note\": \"The result stating Nǃai was by John Marshall supported the final director claim.\"\n    },\n    {\n      \"from_id\": 3,\n      \"to_id\": 58,\n      \"type\": \"informs\",\n      \"note\": \"The user's collaboration clue informed the final statement about John Marshall working with Adrienne.\"\n    },\n    {\n      \"from_id\": 53,\n      \"to_id\": 58,\n      \"type\": \"informs\",\n      \"note\": \"The reasoning that Adrienne LaFrance was a known Marshall collaborator informed the final collaboration claim.\"\n    },\n    {\n      \"from_id\": 53,\n      \"to_id\": 59,\n      \"type\": \"informs\",\n      \"note\": \"The known-collaborator reasoning informed the speculation that Adrienne was Adrienne LaFrance.\"\n    },\n    {\n      \"from_id\": 53,\n      \"to_id\": 60,\n      \"type\": \"informs\",\n      \"note\": \"The reasoning about Adrienne LaFrance as a collaborator informed the final statement about her role.\"\n    },\n    {\n      \"from_id\": 28,\n      \"to_id\": 61,\n      \"type\": \"informs\",\n      \"note\": \"The result linking Marshall's work to the !Kung Bushmen supported the final subject-matter claim.\"\n    },\n    {\n      \"from_id\": 31,\n      \"to_id\": 61,\n      \"type\": \"informs\",\n      \"note\": \"The result describing Nǃai as about Juǀʼhoan life supported the final claim that it is about the !Kung people.\"\n    },\n    {\n      \"from_id\": 34,\n      \"to_id\": 61,\n      \"type\": \"informs\",\n      \"note\": \"The result recognizing Nǃai as an ethnographic film about the ǃKung supported the final subject claim.\"\n    },\n    {\n      \"from_id\": 50,\n      \"to_id\": 62,\n      \"type\": \"informs\",\n      \"note\": \"The reasoning connecting Nǃai footage with The Gods Must Be Crazy supported the final reused-footage claim.\"\n    },\n    {\n      \"from_id\": 46,\n      \"to_id\": 62,\n      \"type\": \"informs\",\n      \"note\": \"The result that The Gods Must Be Crazy was released in 1980 informed the parenthetical date in the final claim.\"\n    },\n    {\n      \"from_id\": 30,\n      \"to_id\": 63,\n      \"type\": \"informs\",\n      \"note\": \"The search result that Nǃai was first broadcast in 1980 directly informed the final broadcast-date statement.\"\n    },\n    {\n      \"from_id\": 30,\n      \"to_id\": 64,\n      \"type\": \"informs\",\n      \"note\": \"The search result that Nǃai was part of PBS Odyssey directly informed the final series statement.\"\n    },\n    {\n      \"from_id\": 40,\n      \"to_id\": 65,\n      \"type\": \"informs\",\n      \"note\": \"The processed search result about The Gods Must Be Crazy informed the final statement about documented footage reuse.\"\n    },\n    {\n      \"from_id\": 50,\n      \"to_id\": 65,\n      \"type\": \"informs\",\n      \"note\": \"The later reasoning about Nǃai footage appearing in The Gods Must Be Crazy informed the final supporting-evidence statement.\"\n    },\n    {\n      \"from_id\": 50,\n      \"to_id\": 66,\n      \"type\": \"informs\",\n      \"note\": \"The reasoning about Nǃai containing footage connected to The Gods Must Be Crazy informed the final incorporation claim.\"\n    },\n    {\n      \"from_id\": 31,\n      \"to_id\": 67,\n      \"type\": \"informs\",\n      \"note\": \"The search result describing Nǃai as an intimate portrait informed the final description of the film.\"\n    },\n    {\n      \"from_id\": 31,\n      \"to_id\": 68,\n      \"type\": \"informs\",\n      \"note\": \"The result about Nǃai and Juǀʼhoan life informed the final identification of Nǃai.\"\n    },\n    {\n      \"from_id\": 1,\n      \"to_id\": 69,\n      \"type\": \"informs\",\n      \"note\": \"The user's 1980 ethnographic-film clue provided a criterion for the final alignment judgment.\"\n    },\n    {\n      \"from_id\": 2,\n      \"to_id\": 69,\n      \"type\": \"informs\",\n      \"note\": \"The user's !Kung-people clue provided a criterion for the final alignment judgment.\"\n    },\n    {\n      \"from_id\": 30,\n      \"to_id\": 69,\n      \"type\": \"informs\",\n      \"note\": \"The 1980 broadcast result supported the final judgment that Nǃai fit the description.\"\n    },\n    {\n      \"from_id\": 34,\n      \"to_id\": 69,\n      \"type\": \"informs\",\n      \"note\": \"The ethnographic and ǃKung-related result supported the final judgment that Nǃai fit the description.\"\n    }\n  ]\n}",
+  "skipped": false
+}
