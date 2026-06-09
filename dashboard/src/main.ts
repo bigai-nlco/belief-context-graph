@@ -1291,19 +1291,23 @@ function uniqueDirectedEdges(edges: BeliefEdge[]): BeliefEdge[] {
   const selected = new Map<string, { edge: BeliefEdge; score: number; index: number }>();
   edges.forEach((edge, index) => {
     if (!edge.source || !edge.target || edge.source === edge.target) return;
-    const pairKey = [edge.source, edge.target].sort().join("\u0000");
+    const edgeKey = directedEdgeKey(edge);
     const score =
       (edgePriority[edgeRelationLabel(edge)] ?? 0) * 1000 +
       Math.abs(edge.weight ?? 0) -
       index / 100000;
-    const current = selected.get(pairKey);
+    const current = selected.get(edgeKey);
     if (!current || score > current.score) {
-      selected.set(pairKey, { edge, score, index });
+      selected.set(edgeKey, { edge, score, index });
     }
   });
   return Array.from(selected.values())
     .sort((left, right) => left.index - right.index)
     .map((item) => item.edge);
+}
+
+function directedEdgeKey(edge: BeliefEdge): string {
+  return [edge.source, edge.target, edgeRelationLabel(edge), edge.dir].join("\u0000");
 }
 
 function edgeRelationLabel(edge: BeliefEdge): string {
