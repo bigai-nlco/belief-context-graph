@@ -1,0 +1,44 @@
+# Secrets / env
+.env
+.env.*
+!.env.example
+config.yaml
+
+# Tooling caches
+.venv/
+.uv-cache/
+.ruff_cache/
+.pytest_cache/
+__pycache__/
+*.py[codz]
+*.tsbuildinfo
+
+# OS
+.DS_Store
+
+# Frontend
+node_modules/
+frontend/.next/
+frontend/tmp/
+
+# Python build / packaging
+*.egg-info/
+
+# SQLite scratch
+*.db
+*.db-shm
+*.db-wal
+
+# Jupyter
+**/.ipynb_checkpoints/
+
+# Eval / run outputs
+benchmarks/results/
+benchmarks/tasks-generated/
+experiments/
+results/
+logs/
+tmp/
+temp/
+data/
+benchmarks/datasets

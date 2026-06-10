@@ -1,0 +1,23 @@
+# react_base — default profile
+#
+# Full tool-result history (no compaction, capped by max_input_tokens).
+# For a 5-window compacted variant, use --profile keep5.
+
+llm:
+  model: ${OPENAI_MODEL}
+  api_key: ${OPENAI_API_KEY}
+  base_url: ${OPENAI_BASE_URL}
+  temperature: 1.0
+  top_p: 0.95
+  repetition_penalty: 1.05
+  max_tokens: 32768
+
+agent:
+  main_max_turns: 600
+  keep_tool_result: -1
+  tool_result_max_chars: 100000
+  tool_timeout_s: 900
+  llm_timeout_s: 600
+  max_input_tokens: 262144
+  thinking_format: tag
+  thinking_in_history: true
