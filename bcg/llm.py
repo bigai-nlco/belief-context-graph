@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, cast
@@ -15,6 +16,7 @@ from openai import (
     APITimeoutError,
     AsyncOpenAI,
     InternalServerError,
+    OpenAI,
     RateLimitError,
 )
 
@@ -86,12 +88,217 @@ class LLMConfig:
 
 
 @dataclass(frozen=True)
+class EmbeddingConfig:
+    """Embedding API config. Batch size and dimensions are explicit config."""
+
+    provider: str = field(
+        default_factory=lambda: os.getenv("EMBEDDING_PROVIDER", "openai")
+    )
+    model: str = field(
+        default_factory=lambda: os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+    )
+    api_key: str = field(default_factory=lambda: os.getenv("EMBEDDING_API_KEY", ""))
+    base_url: str | None = field(
+        default_factory=lambda: os.getenv("EMBEDDING_BASE_URL") or None
+    )
+    batch_size: int = 128
+    dimensions: int | None = None
+
+
+@dataclass(frozen=True)
 class LLMResponse:
     content: str
     messages: Messages
     usage: dict[str, Any] = field(default_factory=dict)
     tool_calls: int = 0
     reasoning_summary: str = ""
+
+
+@dataclass(frozen=True)
+class TokenUsageRecord:
+    index: int
+    label: str
+    model: str
+    input_tokens: int | None
+    output_tokens: int | None
+    total_tokens: int | None
+    estimated: bool = False
+
+
+@dataclass
+class TokenUsageTracker:
+    """Run-local LLM token usage accumulator."""
+
+    records: list[TokenUsageRecord] = field(default_factory=list)
+
+    def record(
+        self,
+        *,
+        label: str,
+        model: str,
+        usage: dict[str, Any] | None = None,
+        prompt: str = "",
+        completion: str = "",
+    ) -> TokenUsageRecord:
+        usage = usage or {}
+        input_tokens = _first_int(
+            usage,
+            "input_tokens",
+            "prompt_tokens",
+            "input_token_count",
+        )
+        output_tokens = _first_int(
+            usage,
+            "output_tokens",
+            "completion_tokens",
+            "output_token_count",
+        )
+        total_tokens = _first_int(usage, "total_tokens", "total_token_count")
+        estimated = False
+        if input_tokens is None and output_tokens is None and total_tokens is None:
+            input_tokens = estimate_tokens(prompt)
+            output_tokens = estimate_tokens(completion)
+            total_tokens = input_tokens + output_tokens
+            estimated = True
+        elif (
+            total_tokens is None
+            and input_tokens is not None
+            and output_tokens is not None
+        ):
+            total_tokens = input_tokens + output_tokens
+
+        record = TokenUsageRecord(
+            index=len(self.records),
+            label=label,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            estimated=estimated,
+        )
+        self.records.append(record)
+        return record
+
+    def record_response(
+        self,
+        *,
+        label: str,
+        model: str,
+        prompt: str,
+        response: LLMResponse,
+    ) -> TokenUsageRecord:
+        return self.record(
+            label=label,
+            model=model,
+            usage=response.usage,
+            prompt=prompt,
+            completion=response.content,
+        )
+
+    def totals(self) -> dict[str, int]:
+        def sum_key(key: str) -> int:
+            return sum(int(getattr(record, key) or 0) for record in self.records)
+
+        return {
+            "n_calls": len(self.records),
+            "input_tokens": sum_key("input_tokens"),
+            "output_tokens": sum_key("output_tokens"),
+            "total_tokens": sum_key("total_tokens"),
+        }
+
+    def by_label(self) -> dict[str, dict[str, int]]:
+        output: dict[str, dict[str, int]] = {}
+        for record in self.records:
+            group = output.setdefault(
+                record.label,
+                {
+                    "n_calls": 0,
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "total_tokens": 0,
+                },
+            )
+            group["n_calls"] += 1
+            group["input_tokens"] += int(record.input_tokens or 0)
+            group["output_tokens"] += int(record.output_tokens or 0)
+            group["total_tokens"] += int(record.total_tokens or 0)
+        return output
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "totals": self.totals(),
+            "by_label": self.by_label(),
+            "calls": [record.__dict__ for record in self.records],
+        }
+
+
+class EmbeddingClient:
+    """Synchronous embedding client used by optional split/merge passes."""
+
+    def __init__(self, config: EmbeddingConfig | None = None) -> None:
+        self.config = config or EmbeddingConfig()
+        self.provider = self.config.provider
+        self.model = self.config.model
+        self._log_path: str | os.PathLike[str] | None = None
+        self._client: OpenAI | None = None
+        if self.provider == "openai":
+            if self.config.api_key or self.config.base_url:
+                self._client = OpenAI(
+                    api_key=self.config.api_key or "not-needed",
+                    base_url=self.config.base_url,
+                    timeout=60,
+                    max_retries=3,
+                )
+        elif self.provider not in {"none", "off"}:
+            raise ValueError(f"unsupported embedding provider: {self.provider}")
+
+    def set_log_path(self, path: str | os.PathLike[str]) -> None:
+        self._log_path = path
+
+    def embed(
+        self, texts: Sequence[str], *, purpose: str = "embedding"
+    ) -> list[list[float]]:
+        """Embed texts using the configured provider."""
+
+        if self.provider in {"none", "off"}:
+            raise RuntimeError("EmbeddingClient is disabled.")
+        if self._client is None:
+            raise RuntimeError(
+                "EmbeddingClient is disabled. Set EMBEDDING_API_KEY or EMBEDDING_BASE_URL."
+            )
+        output: list[list[float]] = []
+        for start in range(0, len(texts), self.config.batch_size):
+            batch = [
+                str(text) for text in texts[start : start + self.config.batch_size]
+            ]
+            kwargs: dict[str, Any] = {"model": self.model, "input": batch}
+            if self.config.dimensions is not None:
+                kwargs["dimensions"] = self.config.dimensions
+            response = self._client.embeddings.create(**kwargs)
+            output.extend([list(item.embedding) for item in response.data])
+            self._log_embedding_call(purpose=purpose, count=len(batch))
+        return output
+
+    def _log_embedding_call(self, *, purpose: str, count: int) -> None:
+        if self._log_path is None:
+            return
+        path = os.fspath(self._log_path)
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as file:
+            file.write(
+                json.dumps(
+                    {
+                        "purpose": purpose,
+                        "provider": self.provider,
+                        "model": self.model,
+                        "count": count,
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
 
 
 class LLMClient:
@@ -204,6 +411,60 @@ class LLMClient:
         )
         return llm_response
 
+    async def generate_text(
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        label: str | None = None,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        response_format: dict[str, Any] | None = None,
+        reasoning_effort: str | None = "medium",
+    ) -> str:
+        """Generate text for a single prompt."""
+
+        del label
+        messages: list[dict[str, Any]] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        response = await self.generate(
+            messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format=response_format,
+            reasoning_effort=reasoning_effort,
+        )
+        return response.content
+
+    async def generate_json(
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        label: str | None = None,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        reasoning_effort: str | None = "medium",
+    ) -> dict[str, Any]:
+        """Generate a JSON object, tolerantly parsing fenced or prefixed output."""
+
+        text = await self.generate_text(
+            prompt,
+            system=system,
+            label=label,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            reasoning_effort=reasoning_effort,
+        )
+        return parse_json_response(text)
+
     async def close(self) -> None:
         if self._client is not None:
             await self._client.close()
@@ -221,7 +482,7 @@ class LLMClient:
         prompt: str,
         mime_type: str = "image/png",
         model: str | None = None,
-        temperature: float = 0.0,
+        temperature: float | None = None,
         max_tokens: int = 1200,
     ) -> LLMResponse:
         image_url = inline_image_url(image_bytes, mime_type=mime_type)
@@ -294,6 +555,47 @@ def _parse_tool_arguments(raw: str | None) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {"raw": raw}
     return value if isinstance(value, dict) else {"value": value}
+
+
+def parse_json_response(text: str) -> dict[str, Any]:
+    """Tolerantly parse a JSON object out of an LLM response."""
+
+    if not text:
+        return {"_parse_error": "empty response", "_raw": ""}
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```[a-zA-Z]*\s*\n?", "", stripped)
+        stripped = re.sub(r"\n?```\s*$", "", stripped).strip()
+    try:
+        value = json.loads(stripped)
+    except json.JSONDecodeError:
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if 0 <= start < end:
+            candidate = stripped[start : end + 1]
+            try:
+                value = json.loads(candidate)
+            except json.JSONDecodeError as exc:
+                return {"_parse_error": str(exc), "_raw": text}
+        else:
+            return {"_parse_error": "no JSON object found", "_raw": text}
+    return value if isinstance(value, dict) else {"value": value}
+
+
+def estimate_tokens(text: str) -> int:
+    """Rough fallback estimate when an API returns no usage block."""
+
+    if not text:
+        return 0
+    return max(1, round(len(text) / 4))
+
+
+def _first_int(source: dict[str, Any], *keys: str) -> int | None:
+    for key in keys:
+        value = source.get(key)
+        if isinstance(value, int):
+            return value
+    return None
 
 
 @tracing.trace(
