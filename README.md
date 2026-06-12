@@ -146,6 +146,10 @@ Tracing is active only when:
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. It covers branch policy, Conventional Commits, local checks, pre-commit hooks, Codex review expectations, AI-assisted PR transparency, and code style.
 
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. It covers branch policy, Conventional Commits, local checks, pre-commit hooks, Codex review expectations, AI-assisted PR transparency, and code style.
+
 ## Development
 
 Run the local quality checks used by CI:
