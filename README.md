@@ -146,10 +146,6 @@ Tracing is active only when:
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. It covers branch policy, Conventional Commits, local checks, pre-commit hooks, Codex review expectations, AI-assisted PR transparency, and code style.
 
-## Contributing
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. It covers branch policy, Conventional Commits, local checks, pre-commit hooks, Codex review expectations, AI-assisted PR transparency, and code style.
-
 ## Development
 
 Run the local quality checks used by CI:
@@ -158,8 +154,7 @@ Run the local quality checks used by CI:
 uv run ruff check .
 uv run ruff format --check .
 uv run python -m compileall -q bcg scripts tests
-uv run pytest tests/test_belief_graph.py
-uv run python -m unittest discover -s tests -p 'test_tracing.py'
+uv run pytest
 ```
 
 Format and auto-fix lint where possible:
