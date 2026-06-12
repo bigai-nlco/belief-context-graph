@@ -35,7 +35,7 @@ jobs:
         run: uv run ruff format --check .
 
       - name: Compile Python
-        run: uv run python -m compileall -q bcg tests
+        run: uv run python -m compileall -q bcg scripts tests
 
       - name: Test
-        run: uv run python -m unittest discover -s tests
+        run: uv run pytest
