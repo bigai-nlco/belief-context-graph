@@ -8,16 +8,21 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from bcg import BCG, BCGMemory, BCGRunner
-from bcg.belief_graph.confidence import apply_relations, initial_confidence
+from bcg.belief_graph.confidence import (
+    ConfidenceConfig,
+    apply_relations,
+    initial_confidence,
+)
 from bcg.belief_graph.evidence import evidence_from_excerpt, locate_excerpt
 from bcg.belief_graph.extraction import clean_belief
-from bcg.belief_graph.linking import validate_relations
+from bcg.belief_graph.linking import _build_belief_blob, validate_relations
 from bcg.belief_graph.merge import run_merge_pass
 from bcg.belief_graph.pipeline import BeliefGraphPipeline
 from bcg.belief_graph.segment import segment_trajectory
 from bcg.belief_graph.split import cluster_sentences, split_sentences
 from bcg.graph import BCGEdge, BCGNode, BeliefPayload, BeliefSource, RelationPayload
-from bcg.llm import parse_json_response
+from bcg.llm import LLMResponse, TokenUsageTracker, parse_json_response
+from bcg.runner import _TrackedTextGenerator
 
 T = TypeVar("T")
 
@@ -115,6 +120,23 @@ class FakeLLM:
             },
         }
         return json.dumps(payloads[label or ""])
+
+
+class FakeGenerateLLM:
+    def __init__(self) -> None:
+        self.models: list[str | None] = []
+
+    async def generate(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> LLMResponse:
+        del temperature, max_tokens
+        self.models.append(model)
+        return LLMResponse(content="{}", messages=messages, usage={})
 
 
 class FakeMergeLLM:
@@ -266,6 +288,88 @@ def test_confidence_rules_apply_backward_relations() -> None:
     assert updated[0]["confidence_history"][-1]["step"] == "confirms"
     dimensions = updated[0]["confidence_history"][-1]["dimensions"]
     assert updated[0]["confidence"] == round(sum(dimensions.values()) / 4, 3)
+
+
+def test_apply_relations_does_not_mutate_input_history() -> None:
+    history = [
+        {
+            "step": "initial",
+            "value": 0.5,
+            "dimensions": {
+                "source_reliability": 0.5,
+                "evidence_directness": 0.5,
+                "claim_specificity": 0.5,
+                "linguistic_certainty": 0.5,
+            },
+        }
+    ]
+    beliefs = [
+        {
+            "id": 0,
+            "belief": "Alice may like tea.",
+            "stance": "speculated",
+            "confidence": 0.5,
+            "confidence_history": history,
+            "source": {"type": "llm_reasoning"},
+        },
+        {
+            "id": 1,
+            "belief": "Alice likes tea.",
+            "stance": "asserted",
+            "confidence": initial_confidence("tool_result", "asserted"),
+            "source": {"type": "tool_result"},
+        },
+    ]
+
+    updated = apply_relations(
+        beliefs,
+        [{"from_id": 1, "to_id": 0, "type": "confirms", "note": "confirmed"}],
+    )
+
+    assert len(beliefs[0]["confidence_history"]) == 1
+    assert len(updated[0]["confidence_history"]) == 2
+    assert beliefs[0]["confidence_history"] is history
+    assert updated[0]["confidence_history"] is not history
+
+
+def test_confidence_config_bounds_are_honored() -> None:
+    config = ConfidenceConfig(floor=0.2, ceiling=0.6)
+
+    confidence = initial_confidence("tool_result", "asserted", config=config)
+
+    assert confidence <= 0.6
+    assert confidence >= 0.2
+
+
+def test_link_prompt_blob_respects_character_budget() -> None:
+    beliefs = [
+        {
+            "id": index,
+            "belief": "Alice likes green tea " * 30,
+            "layer": "io",
+            "stance": "asserted",
+            "source": {"type": "user_input"},
+            "confidence": 0.75,
+        }
+        for index in range(40)
+    ]
+
+    blob = _build_belief_blob(beliefs, max_chars=900)
+
+    assert len(blob) <= 900
+    assert "omitted_earlier_beliefs" in blob
+
+
+def test_tracked_generator_forwards_model_override() -> None:
+    llm = FakeGenerateLLM()
+    generator = _TrackedTextGenerator(
+        llm,
+        usage=TokenUsageTracker(),
+        model="custom-model",
+    )
+
+    assert run(generator.generate_text("{}", label="unit")) == "{}"
+    assert llm.models == ["custom-model"]
 
 
 def test_relation_validation_filters_invalid_edges() -> None:

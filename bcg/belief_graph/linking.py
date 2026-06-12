@@ -247,17 +247,33 @@ async def link_backward_session(
 
 
 def _build_belief_blob(beliefs: list[dict[str, Any]], *, max_chars: int) -> str:
-    compact = [_compact_belief(belief) for belief in beliefs]
+    compact = [_truncate_belief(_compact_belief(belief)) for belief in beliefs]
     blob = json.dumps(compact, ensure_ascii=False, indent=2)
     if len(blob) <= max_chars:
         return blob
-    trimmed: list[dict[str, Any]] = []
-    for belief in compact:
-        item = dict(belief)
-        if isinstance(item.get("belief"), str) and len(item["belief"]) > 220:
-            item["belief"] = item["belief"][:200] + " ..."
-        trimmed.append(item)
-    return json.dumps(trimmed, ensure_ascii=False, indent=2)
+
+    for start in range(1, len(compact) + 1):
+        candidate = [
+            {"omitted_earlier_beliefs": start},
+            *compact[start:],
+        ]
+        blob = json.dumps(candidate, ensure_ascii=False, indent=2)
+        if len(blob) <= max_chars:
+            return blob
+
+    marker = [{"omitted_earlier_beliefs": len(compact)}]
+    blob = json.dumps(marker, ensure_ascii=False, indent=2)
+    return blob if len(blob) <= max_chars else "[]"
+
+
+def _truncate_belief(
+    belief: dict[str, Any], *, max_text_chars: int = 220
+) -> dict[str, Any]:
+    item = dict(belief)
+    text = item.get("belief")
+    if isinstance(text, str) and len(text) > max_text_chars:
+        item["belief"] = text[: max_text_chars - 4] + " ..."
+    return item
 
 
 def _compact_belief(belief: dict[str, Any]) -> dict[str, Any]:

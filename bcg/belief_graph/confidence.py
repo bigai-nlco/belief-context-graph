@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -88,6 +89,7 @@ def initial_confidence(
                 config.source_reliability,
                 source_type,
                 config.default,
+                config=config,
             ),
             "evidence_directness": config.default,
             "claim_specificity": config.default,
@@ -95,8 +97,10 @@ def initial_confidence(
                 config.stance_certainty,
                 stance,
                 config.default,
+                config=config,
             ),
-        }
+        },
+        config=config,
     )
     return confidence_from_dimensions(dimensions)
 
@@ -135,6 +139,7 @@ def assess_initial_confidence(
                 config.source_reliability,
                 source_type,
                 config.default,
+                config=config,
             ),
             "evidence_directness": _evidence_directness(belief, config),
             "claim_specificity": _claim_specificity(str(belief.get("belief") or "")),
@@ -143,7 +148,8 @@ def assess_initial_confidence(
                 stance,
                 config,
             ),
-        }
+        },
+        config=config,
     )
     reason = (
         "computed as the average of source reliability, evidence directness, "
@@ -165,7 +171,8 @@ def apply_relations(
     """Apply backward relation confidence updates to copied belief dicts."""
 
     output = [
-        _ensure_confidence_state(dict(belief), config=config) for belief in beliefs
+        _ensure_confidence_state(copy.deepcopy(belief), config=config)
+        for belief in beliefs
     ]
     by_id = {belief["id"]: belief for belief in output if "id" in belief}
     for relation in relations:
@@ -231,11 +238,17 @@ def confidence_from_dimensions(dimensions: dict[str, float]) -> float:
     return round(sum(normalized.values()) / len(CONFIDENCE_DIMENSION_KEYS), 3)
 
 
-def normalize_dimensions(dimensions: dict[str, float]) -> dict[str, float]:
+def normalize_dimensions(
+    dimensions: dict[str, float],
+    *,
+    config: ConfidenceConfig | None = None,
+) -> dict[str, float]:
     """Clamp and complete the canonical confidence dimensions."""
 
+    floor = config.floor if config is not None else 0.05
+    ceiling = config.ceiling if config is not None else 0.97
     return {
-        key: round(_clamp(float(dimensions.get(key, 0.0))), 3)
+        key: round(_clamp(float(dimensions.get(key, 0.0)), floor, ceiling), 3)
         for key in CONFIDENCE_DIMENSION_KEYS
     }
 
@@ -306,6 +319,7 @@ def _relation_dimensions(
             config.relation_directness,
             "confirms",
             config.default,
+            config=config,
         )
         return normalize_dimensions(
             {
@@ -328,7 +342,8 @@ def _relation_dimensions(
                         0.4,
                     ),
                 ),
-            }
+            },
+            config=config,
         )
     if relation_type == "contradicts":
         source_confidence = confidence_from_dimensions(source)
@@ -339,13 +354,15 @@ def _relation_dimensions(
                 "evidence_directness": target["evidence_directness"] - drop,
                 "claim_specificity": target["claim_specificity"],
                 "linguistic_certainty": target["linguistic_certainty"] - drop,
-            }
+            },
+            config=config,
         )
     if relation_type == "extends":
         directness = _configured(
             config.relation_directness,
             "extends",
             config.default,
+            config=config,
         )
         return normalize_dimensions(
             {
@@ -361,7 +378,8 @@ def _relation_dimensions(
                 ),
                 "claim_specificity": min(1.0, target["claim_specificity"] + 0.08),
                 "linguistic_certainty": target["linguistic_certainty"],
-            }
+            },
+            config=config,
         )
     return target
 
@@ -374,14 +392,16 @@ def _ensure_confidence_state(
     config = config or ConfidenceConfig()
     if belief.get("confidence_dimensions"):
         belief["confidence_dimensions"] = normalize_dimensions(
-            belief["confidence_dimensions"]
+            belief["confidence_dimensions"],
+            config=config,
         )
         belief["confidence"] = confidence_from_dimensions(
             belief["confidence_dimensions"]
         )
     elif "confidence" in belief:
         belief["confidence_dimensions"] = _dimensions_from_value(
-            float(belief.get("confidence") or config.default)
+            float(belief.get("confidence") or config.default),
+            config=config,
         )
     else:
         init_belief_confidence(belief, config=config)
@@ -403,11 +423,13 @@ def _latest_dimensions(
     config: ConfidenceConfig,
 ) -> dict[str, float]:
     if belief.get("confidence_dimensions"):
-        return normalize_dimensions(belief["confidence_dimensions"])
+        return normalize_dimensions(belief["confidence_dimensions"], config=config)
     for entry in reversed(belief.get("confidence_history") or []):
         if isinstance(entry, dict) and entry.get("dimensions"):
-            return normalize_dimensions(entry["dimensions"])
-    return _dimensions_from_value(float(belief.get("confidence") or config.default))
+            return normalize_dimensions(entry["dimensions"], config=config)
+    return _dimensions_from_value(
+        float(belief.get("confidence") or config.default), config=config
+    )
 
 
 def _evidence_directness(
@@ -457,19 +479,33 @@ def _linguistic_certainty(
     stance: str,
     config: ConfidenceConfig,
 ) -> float:
-    value = _configured(config.stance_certainty, stance, config.default)
+    value = _configured(config.stance_certainty, stance, config.default, config=config)
     if re.search(r"\b(may|might|could|possibly|probably|seems|appears)\b", text, re.I):
         value = min(value, 0.48)
     return value
 
 
-def _dimensions_from_value(value: float) -> dict[str, float]:
-    clipped = _clamp(value)
+def _dimensions_from_value(
+    value: float,
+    *,
+    config: ConfidenceConfig | None = None,
+) -> dict[str, float]:
+    floor = config.floor if config is not None else 0.05
+    ceiling = config.ceiling if config is not None else 0.97
+    clipped = _clamp(value, floor, ceiling)
     return {key: round(clipped, 3) for key in CONFIDENCE_DIMENSION_KEYS}
 
 
-def _configured(source: dict[str, float], key: str, fallback: float) -> float:
-    return _clamp(float(source.get(key, fallback)))
+def _configured(
+    source: dict[str, float],
+    key: str,
+    fallback: float,
+    *,
+    config: ConfidenceConfig | None = None,
+) -> float:
+    floor = config.floor if config is not None else 0.05
+    ceiling = config.ceiling if config is not None else 0.97
+    return _clamp(float(source.get(key, fallback)), floor, ceiling)
 
 
 def _blend(old: float, new: float, weight: float) -> float:

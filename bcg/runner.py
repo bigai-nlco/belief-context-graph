@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -773,11 +774,16 @@ class _TrackedTextGenerator:
     ) -> str:
         label = label or "unlabeled"
         if hasattr(self.llm, "generate"):
+            kwargs: dict[str, Any] = {
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+            if self.model != "unknown" and _accepts_keyword(self.llm.generate, "model"):
+                kwargs["model"] = self.model
             response = await maybe_await(
                 self.llm.generate(
                     [{"role": "user", "content": prompt}],
-                    temperature=temperature,
-                    max_tokens=max_tokens,
+                    **kwargs,
                 )
             )
             if isinstance(response, LLMResponse):
@@ -833,6 +839,17 @@ def _model_name(llm: Any) -> str:
     if isinstance(model, str) and model:
         return model
     return "unknown"
+
+
+def _accepts_keyword(func: Any, keyword: str) -> bool:
+    try:
+        signature = inspect.signature(func)
+    except (TypeError, ValueError):
+        return True
+    return keyword in signature.parameters or any(
+        param.kind == inspect.Parameter.VAR_KEYWORD
+        for param in signature.parameters.values()
+    )
 
 
 def _run_paths(output_root: Path, run_id: str) -> BeliefGraphRunPaths:
