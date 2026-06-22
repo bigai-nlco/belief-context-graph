@@ -255,14 +255,29 @@ def run_merge_pass(
     max_tokens: Optional[int] = None,
     pass_label: str = "merge",
     log_dir: Optional[Path] = None,
+    verify: bool = True,
 ) -> Dict[str, Any]:
-    """Run one merge pass over the active graph. Returns a report dict."""
+    """Run one merge pass over the active graph. Returns a report dict.
+
+    verify — only meaningful for strategy="embedding". When True (default) each
+        embedding candidate group is verified by the LLM before merging. When
+        False the merge is embedding-ONLY: every candidate group whose pairwise
+        cosine >= threshold is merged directly, with NO LLM call. This is the
+        per-turn incremental merge mode (see stream.py). canonical_belief stays
+        None in this mode, so the canonical (smallest id == earliest) keeps its
+        own wording and evidence is unioned onto it.
+    """
     active = graph.active()
     if strategy == "off" or len(active) < 2:
         return {"skipped": True, "skip_reason": "strategy off" if strategy == "off"
                 else "fewer than 2 beliefs", "applied": []}
 
     if strategy == "embedding" and embedder is None:
+        if not verify:
+            # embedding-only merge cannot run without an embedder; never silently
+            # fall back to an LLM pass in the per-turn path.
+            return {"skipped": True,
+                    "skip_reason": "embedding merge needs an embedder", "applied": []}
         print(f"  [merge:{pass_label}] no embedding client — falling back to strategy=llm")
         strategy = "llm"
 
@@ -281,29 +296,45 @@ def run_merge_pass(
 
     if strategy == "embedding":
         log["embedding_model"] = getattr(embedder, "model", None)
+        log["verify"] = verify
         candidate_groups, pairs = _embedding_candidates(
             active, embedder, threshold, pass_label)
         log["candidate_pairs"] = pairs
         log["candidate_groups"] = candidate_groups
-        log["llm_verifications"] = []
-        for g_ids in candidate_groups:
-            group_beliefs = [by_id[i] for i in g_ids if i in by_id]
-            prompt = PROMPT_MERGE_VERIFY.replace(
-                CANDIDATE_GROUP_PLACEHOLDER, _blob(group_beliefs))
-            try:
-                raw = llm.call_model(client, model, prompt, temperature=0.0,
-                                     max_tokens=max_tokens)
-            except Exception as e:
-                log["llm_verifications"].append(
-                    {"candidate_ids": g_ids, "error": str(e)})
-                continue
-            groups = _parse_merge_groups(raw, set(g_ids), used_ids)
-            log["llm_verifications"].append({
-                "candidate_ids": g_ids,
-                "raw_output": raw,
-                "accepted_groups": groups,
-            })
-            confirmed.extend(groups)
+        if verify:
+            log["llm_verifications"] = []
+            for g_ids in candidate_groups:
+                group_beliefs = [by_id[i] for i in g_ids if i in by_id]
+                prompt = PROMPT_MERGE_VERIFY.replace(
+                    CANDIDATE_GROUP_PLACEHOLDER, _blob(group_beliefs))
+                try:
+                    raw = llm.call_model(client, model, prompt, temperature=0.0,
+                                         max_tokens=max_tokens)
+                except Exception as e:
+                    log["llm_verifications"].append(
+                        {"candidate_ids": g_ids, "error": str(e)})
+                    continue
+                groups = _parse_merge_groups(raw, set(g_ids), used_ids)
+                log["llm_verifications"].append({
+                    "candidate_ids": g_ids,
+                    "raw_output": raw,
+                    "accepted_groups": groups,
+                })
+                confirmed.extend(groups)
+        else:
+            # embedding-ONLY (no LLM verification): confirm every candidate group
+            # directly. canonical_belief stays None so the canonical (smallest
+            # id == earliest) keeps its own wording; evidence is unioned in
+            # _apply_merge_group.
+            for g_ids in candidate_groups:
+                ids = [i for i in g_ids if i in allowed_ids and i not in used_ids]
+                if len(ids) < 2:
+                    continue
+                used_ids.update(ids)
+                confirmed.append({
+                    "ids": ids, "canonical_belief": None,
+                    "reason": f"embedding cosine >= {threshold} (no LLM verification)",
+                })
     else:  # strategy == "llm"
         prompt = PROMPT_MERGE_FULL.replace(BELIEFS_LIST_PLACEHOLDER, _blob(active))
         try:

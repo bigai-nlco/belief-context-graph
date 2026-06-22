@@ -211,6 +211,8 @@ def build_manager(args) -> SessionManager:
         cluster_buffer=args.cluster_buffer,
         merge_strategy=args.merge_strategy,
         merge_threshold=args.merge_threshold,
+        incremental_merge=args.incremental_merge,
+        incremental_merge_threshold=args.incremental_merge_threshold,
         context_chars=args.context_chars,
     )
     return SessionManager(
@@ -235,6 +237,13 @@ def main():
     p.add_argument("--cluster-buffer", type=int, default=0)
     p.add_argument("--merge-strategy", choices=["embedding", "llm", "off"], default="embedding")
     p.add_argument("--merge-threshold", type=float, default=0.86)
+    p.add_argument("--incremental-merge", dest="incremental_merge",
+                   default=True, action="store_true",
+                   help="Per-turn embedding-only merge (no LLM verification). Default: ON.")
+    p.add_argument("--no-incremental-merge", dest="incremental_merge", action="store_false",
+                   help="Disable the per-turn incremental merge.")
+    p.add_argument("--incremental-merge-threshold", type=float, default=0.8,
+                   help="Cosine threshold for the per-turn incremental merge. Default 0.8.")
     p.add_argument("--context-chars", type=int, default=100000)
     p.add_argument("--quiet", "-q", default=False, action="store_true")
     args = p.parse_args()

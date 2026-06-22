@@ -54,26 +54,54 @@ BELIEFS_LIST_PLACEHOLDER  = "<<<BELIEFS_LIST>>>"
 
 _BELIEF_DEFINITION = """\
 ## What is a belief
-A belief is a self-contained atomic memory unit, ideally shaped like:
+A belief is a self-contained memory unit that captures ONE coherent point, ideally shaped like:
     <subject, predicate, object/value, scope, time, source>
 
 Each belief must satisfy BOTH:
-1. **Single central semantics** — ONE thing (a single fact, preference, event, or decision).
-2. **Context self-contained** — taken out of context, a reader still knows who / what / when / scope.
+1. **One coherent point** — it is about a single subject and a single matter concerning that
+   subject (one fact, one preference, one event, one decision, one question). A belief may be
+   RICH: it carries the qualifiers, conditions, reasons, and details that belong to that one
+   point. "One point" does NOT mean "one clause" or "the shortest possible sentence".
+2. **Context self-contained** — read on its own, a reader still knows who / what / when / scope.
 
-## Granularity — extract as many beliefs as the content genuinely contains, no more
-Do NOT shred the content into trivially small pieces, and do NOT merge independent
-facts into one overloaded belief. Use judgement:
+## Granularity — DEFAULT TO CONSOLIDATION (avoid fragmentation)
+Produce the FEWEST beliefs that still keep each one single-pointed and self-contained. When
+several details concern the same subject and the same matter, state them as ONE complete belief
+instead of scattering them across many thin nodes. Over-splitting one statement into several
+co-dependent or near-identical shards is a WORSE error than letting a belief be a little rich.
+Capture all the substantive information — but consolidate it, do not multiply nodes.
+(Still do not cram genuinely independent facts into one overloaded belief — that breaks rule 1.)
 
-- **Conjunctive content** — split when topics are independent.
+### Split ONLY when a part passes this test
+Split into separate beliefs only when the resulting parts concern a DIFFERENT subject, a
+DIFFERENT matter/aspect, a DIFFERENT point in time/state, OR a DIFFERENT epistemic status —
+AND each part is independently meaningful and could be retrieved or updated on its own. If a
+part fails this test, KEEP it inside the same belief as a qualifier or detail.
+
+DO split:
+- **Two genuinely independent topics.**
     "User is researching Hindsight and prefers concise explanations."
-      → "User is researching Hindsight."  +  "User prefers concise explanations."
-- **List of independent sub-topics** — one atomic belief per sub-topic.
-- **State change across time** — keep the previous and the new state as two beliefs.
-- **Fact + inference in one sentence** (different epistemic status) — separate them:
+      → "The user is researching Hindsight."  +  "The user prefers concise explanations."
+- **Fact + inference of different epistemic status** (also mark stance separately).
     "User asks a lot about Hindsight, so user is likely building a memory system."
-      → "User asked multiple questions about Hindsight."           [stance: asserted]
-      +  "User may be building a belief-memory system."            [stance: speculated]
+      → "The user asked multiple questions about Hindsight."        [stance: asserted]
+      +  "The user may be building a belief-memory system."         [stance: speculated]
+- **A state change across time** — keep the previous state and the new state as two beliefs.
+
+Do NOT split — CONSOLIDATE instead (these are the common over-fragmentation traps):
+- **A claim + its qualifier / condition / reason / deadline** stays together.
+    BAD : "The user wants the report." + "The report should be in Chinese." + "It is due Friday."
+    GOOD: "The user wants the report written in Chinese, due Friday."
+- **Several attributes of the SAME entity in the same statement** → one belief.
+    BAD : "The user's car is a Honda Civic." + "The car is silver." + "It is a 2018 model."
+    GOOD: "The user drives a silver 2018 Honda Civic."
+- **A list that elaborates or supports a single point** → one belief, not one-per-item.
+    BAD : a separate belief for every example the user gives to back up one preference.
+    GOOD: "The user prefers functional programming, citing easier testing and fewer side effects."
+- **Re-wordings of the same claim** → emit only ONE; pick the single most complete phrasing.
+
+Quick check: if two candidate beliefs would always be retrieved together, updated together, or
+one is meaningless without the other, they should have been ONE belief.
 """
 
 _STANCE_DEFINITION = """\
@@ -207,9 +235,11 @@ _HARD_CONSTRAINTS_SENTENCES = """\
 
 _GUIDANCE = {
     "user": (
-        "Extract every BELIEF expressed by the USER in the turn below. "
-        "Extract COMPREHENSIVELY — every fact, preference, event, plan, constraint, and question "
-        "matters for long-term memory. Don't drop something just because it seems trivial.",
+        "Extract the BELIEFS expressed by the USER in the turn below. "
+        "Aim for full COVERAGE of the substantive information — facts, preferences, events, plans, "
+        "constraints, and questions all matter for long-term memory — but coverage means capturing "
+        "the information, NOT maximizing node count: fold details about the same point into ONE "
+        "belief (see the granularity rules) instead of emitting many thin, near-identical nodes.",
         """\
 ## Source role: USER
 Things to extract:
@@ -231,9 +261,11 @@ Skip: pure greetings / pleasantries with no factual content; meta-instructions a
         'hedged guesses are "speculated".',
     ),
     "assistant": (
-        "Extract every BELIEF from the ASSISTANT turn below. The content may contain reasoning, "
+        "Extract the BELIEFS from the ASSISTANT turn below. The content may contain reasoning, "
         "tool-call syntax, and a final answer all together — read through ALL of it and extract "
-        "the substantive beliefs. Do NOT treat tags as separate documents; judge the whole turn.",
+        "the substantive beliefs, consolidating related points into one belief rather than "
+        "splitting a single conclusion across several near-identical nodes. Do NOT treat tags as "
+        "separate documents; judge the whole turn.",
         """\
 ## Source role: ASSISTANT
 The turn may mix internal reasoning, tool invocations, and the final answer. Extract:
@@ -265,7 +297,10 @@ This is the output returned by a tool / function call. Extract ONLY facts that:
 3. Are specific, citeable data points (named entities, dates, relationships, quantities).
 
 Do NOT extract: generic background unrelated to the task; navigation / "see also" / related links;
-boilerplate wrappers ("Execution output of […]:", "Your answer has been submitted"); tangential trivia.""",
+boilerplate wrappers ("Execution output of […]:", "Your answer has been submitted"); tangential trivia.
+
+Consolidate: when several data points describe the SAME entity, combine them into one belief
+("The Burj Khalifa has 163 floors and is 828 m tall.") rather than one node per attribute.""",
         'Tool outputs default to "asserted" — they report facts. Use "speculated"/"judged" only if the '
         'tool itself hedges ("according to some sources…").',
     ),
@@ -337,7 +372,10 @@ def build_update_prompt(
         parts.append(
             "## Sentence input\n"
             "The current turn's content was split into COMPLETE sentences with stable indices [k]. "
-            "Reference them in supporting_sentence_indices; evidence is always a whole sentence.\n")
+            "Reference them in supporting_sentence_indices; evidence is always a whole sentence. "
+            "A single belief MAY cite several sentence indices (even from different topic groups) "
+            "when they jointly express one coherent point — consolidate across sentences instead of "
+            "forcing one belief per sentence.\n")
         parts.append(_HARD_CONSTRAINTS_SENTENCES)
         parts.append(_OUTPUT_FORMAT_SENTENCES)
         parts.append(f"## Current turn sentences\n{SENTENCES_PLACEHOLDER}\n")
@@ -409,6 +447,10 @@ _MERGE_RULES = """\
 - Same proposition about the same entity with the same value/state and the same time scope,
   merely re-worded ("The user drives a silver Honda Civic." == "The user's car is a silver Honda Civic.").
 - Pronoun vs explicit-name variants of the same statement.
+- The SAME point expressed at trivially different wording or granularity where NEITHER side adds
+  substantive information the other lacks ("The user is researching Hindsight." ==
+  "The user has been looking into Hindsight."). If one side adds a real value, qualifier, scope,
+  or detail the other lacks, they are NOT duplicates — that difference is "extends", keep both.
 
 ## When are they NOT the same (do NOT merge)?
 - Different values or quantities (32 mpg city vs 38-40 mpg highway).

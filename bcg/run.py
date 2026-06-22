@@ -79,6 +79,17 @@ def main():
     p.add_argument("--merge-threshold", type=float, default=0.86,
                    help="Cosine-similarity threshold for merge candidate pairs. Default 0.86.")
 
+    # incremental per-turn merge (embedding-only, no LLM verification)
+    p.add_argument("--incremental-merge", dest="incremental_merge",
+                   default=True, action="store_true",
+                   help="After each turn's new nodes/edges, run an embedding-only "
+                        "merge (no LLM verification). Default: ON. Needs the embedding entry.")
+    p.add_argument("--no-incremental-merge", dest="incremental_merge",
+                   action="store_false",
+                   help="Disable the per-turn incremental merge.")
+    p.add_argument("--incremental-merge-threshold", type=float, default=0.8,
+                   help="Cosine threshold for the per-turn incremental merge. Default 0.8.")
+
     p.add_argument("--context-chars", type=int, default=9000,
                    help="Char budget of the existing-nodes context block. Default 9000.")
     p.add_argument("--min-content-len", type=int, default=0,
@@ -94,6 +105,8 @@ def main():
         cluster_buffer=args.cluster_buffer,
         merge_strategy=args.merge_strategy,
         merge_threshold=args.merge_threshold,
+        incremental_merge=args.incremental_merge,
+        incremental_merge_threshold=args.incremental_merge_threshold,
         context_chars=args.context_chars,
         min_content_len=args.min_content_len,
     )

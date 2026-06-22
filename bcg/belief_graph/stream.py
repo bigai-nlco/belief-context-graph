@@ -75,6 +75,10 @@ class StreamOptions:
     # merge / dedup (runs once at finalize)
     merge_strategy: str = "embedding"     # embedding | llm | off
     merge_threshold: float = 0.86
+    # incremental embedding-ONLY merge after EACH turn's new nodes/edges
+    # (no LLM verification). Independent of merge_strategy; needs an embedder.
+    incremental_merge: bool = True
+    incremental_merge_threshold: float = 0.8
     # prompt budgets
     context_chars: int = 9000             # existing-nodes context budget
     # skip turns whose content is shorter than this (0 = never skip)
@@ -89,6 +93,8 @@ class StreamOptions:
             "cluster_min_sentences": self.cluster_min_sentences,
             "merge_strategy": self.merge_strategy,
             "merge_threshold": self.merge_threshold,
+            "incremental_merge": self.incremental_merge,
+            "incremental_merge_threshold": self.incremental_merge_threshold,
             "context_chars": self.context_chars,
             "min_content_len": self.min_content_len,
         }
@@ -187,8 +193,10 @@ class StreamingBeliefBuilder:
                 eff_role, content, turn_idx, flat_idx, date, has_answer)
 
         self._flat_turn += 1
+        n_merged = len((report.get("incremental_merge") or {}).get("applied", []))
         print(f"  t{turn_idx} role={raw_role:<9} -> {len(new_beliefs)} belief(s), "
               f"{forward_added} informs edge(s)"
+              + (f", {n_merged} merge(s)" if n_merged else "")
               + (f"  [skip: {skip_reason}]" if skip_reason else ""))
         return self._event("turn", {
             "turn_index": turn_idx,
@@ -201,6 +209,7 @@ class StreamingBeliefBuilder:
             "raw_output": report.get("raw_output"),
             "new_belief_ids": [b["id"] for b in new_beliefs],
             "forward_added": forward_added,
+            "incremental_merge": report.get("incremental_merge"),
         })
 
     # ----------------------------------------------------- per-turn single call
@@ -272,6 +281,27 @@ class StreamingBeliefBuilder:
             resolved = self._resolve_forward(
                 res.get("forward_relations", []), tmp_to_gid, existing_ids)
             forward_added = self.graph.add_forward(resolved)
+
+        # ---- incremental embedding-ONLY merge of the freshly-updated graph
+        #      (threshold = incremental_merge_threshold, NO LLM verification).
+        #      canonical = smallest id (earliest content); evidence is unioned
+        #      onto it. log_dir=None → no per-turn merge_*.json; the applied
+        #      merges are recorded in the turn event (events.jsonl) instead.
+        #      The final backward + merge in finalize() is unchanged.
+        if (new_beliefs and self.options.incremental_merge
+                and self.embedder is not None):
+            USAGE.set_label(f"t{turn_idx}.merge")
+            inc = run_merge_pass(
+                graph=self.graph, strategy="embedding", verify=False,
+                client=self.client, model=self.model, embedder=self.embedder,
+                threshold=self.options.incremental_merge_threshold,
+                max_tokens=self.max_tokens,
+                pass_label=f"turn_{turn_idx}", log_dir=None)
+            if not inc.get("skipped"):
+                report["incremental_merge"] = {
+                    "applied": inc.get("applied", []),
+                    "relation_rewire": inc.get("relation_rewire"),
+                }
         return new_beliefs, forward_added, report
 
     def _evidence_for(self, cb, content, src, mode) -> List[Dict[str, Any]]:
