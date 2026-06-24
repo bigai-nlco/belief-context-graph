@@ -11,12 +11,11 @@ driver. It receives a research trajectory ONE COMPLETE TURN AT A TIME (as the
 agent generates it) and maintains the live belief graph incrementally, exactly
 as a batch `run_research(...)` call would, but turn-by-turn.
 
-Per the agreed design (research-only):
+Per the agreed design:
 
-  * backward-linking + merge run ONCE, when the whole trajectory has been
-    seen (i.e. on `is_trajectory_end`). The per-turn snapshots are therefore
-    forward-only; the FINAL snapshot is the complete graph with backward
-    relations, confidence updates and merges applied.
+  * each complete turn extracts new belief/decision nodes and typed relations;
+  * merge/dedup runs when the whole trajectory has been seen (i.e. on
+    `is_trajectory_end`);
   * each incoming dict is one complete turn (an optional `is_message_end`
     flag also supports token-level fragment streaming — see below).
 
@@ -41,8 +40,7 @@ OPTIONAL keys (all may be omitted):
                                "one dict == one turn" contract this is always
                                True and no buffering happens.
     "is_trajectory_end"  bool  (default False) True on the LAST turn of the
-                               trajectory. Triggers finalize() (backward +
-                               merge + result.json). Implies is_message_end.
+                               trajectory. Triggers finalize() (merge + result.json). Implies is_message_end.
     "turn_index"         int   informational only; the engine assigns its own.
     "session_date"       str   informational (research has no real sessions).
     ... any other keys are preserved verbatim in the raw stream log.
@@ -68,8 +66,8 @@ writes four artifacts under  <output_root>/<problem_id>/ :
 
 Plus the engine's own native outputs land in the SAME directory (because the
 builder's out_dir points here): result.json, events.jsonl,
-session_00_graph.json, token_usage.{json,txt}, and logs/ (prompts.jsonl,
-embedding_calls.jsonl, merge_session_00.{json,log}).
+token_usage.{json,txt}, and logs/ (prompts.jsonl, embedding_calls.jsonl,
+merge_final.{json,log}).
 
 Isolation / concurrency
 -----------------------
@@ -265,8 +263,9 @@ class StreamingTrajectorySession:
             return {
                 "problem_id": self.problem_id,
                 "stage": stage, "finalized": self._finalized,
-                "n_beliefs": 0, "beliefs": [], "forward_relations": [],
-                "backward_relations": [], "merges": [], "sessions": [],
+                "n_nodes": 0, "n_beliefs": 0, "n_decisions": 0,
+                "nodes": [], "beliefs": [], "decisions": [],
+                "relations": [], "merges": [], "sessions": [],
                 "generated_at": _now(),
             }
         return builder.graph.snapshot(extra={
@@ -311,8 +310,8 @@ class StreamingTrajectorySession:
     def push(self, turn: Dict[str, Any]) -> Dict[str, Any]:
         """
         Process one incoming dict. Returns the current belief-graph snapshot.
-        On is_trajectory_end the trajectory is finalized (backward + merge +
-        result.json) and the returned snapshot is the COMPLETE graph.
+        On is_trajectory_end the trajectory is finalized (merge + result.json)
+        and the returned snapshot is the COMPLETE graph.
         """
         if not isinstance(turn, dict):
             raise TypeError(f"push() expects a dict, got {type(turn).__name__}")
@@ -388,9 +387,9 @@ class StreamingTrajectorySession:
     # -------------------------------------------------------------- finalize
     def finalize(self) -> Dict[str, Any]:
         """
-        Run the session-end backward + merge pass and write result.json. Safe
-        to call explicitly if a producer forgot is_trajectory_end. Returns the
-        FINAL graph snapshot (with backward relations + merges applied).
+        Run the session-end merge pass and write result.json. Safe to call
+        explicitly if a producer forgot is_trajectory_end. Returns the FINAL
+        graph snapshot with merges applied.
         """
         if self._finalized:
             return self._snapshot(stage="final")
@@ -406,8 +405,8 @@ class StreamingTrajectorySession:
         self._write_trajectory(complete=True)
         snap = self._emit_snapshot(stage="final")
         print(f"  [online] trajectory {self.problem_id!r} finalized: "
-              f"{snap.get('n_beliefs')} belief(s), "
-              f"{len(snap.get('backward_relations', []))} backward rel(s), "
+              f"{snap.get('n_nodes')} node(s), "
+              f"{len(snap.get('relations', []))} relation(s), "
               f"{len(snap.get('merges', []))} merge(s) -> {self.out_dir/'result.json'}")
         return snap
 

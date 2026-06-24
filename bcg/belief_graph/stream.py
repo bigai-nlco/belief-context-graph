@@ -1,34 +1,22 @@
 """
-stream.py  (v3)
-===============
-The streaming belief-graph engine. One builder handles ONE trajectory (one
-item / one problem_id) and is fed turns in order:
+stream.py
+=========
+Streaming belief/decision graph engine.
 
-    builder = StreamingBeliefBuilder(...)
-    builder.ingest_turn(role, content)        # repeat per turn (role-only)
-    ...
-    result = builder.finalize()               # writes result.json
+Each turn is routed only by role (user / assistant / tool; system is recorded
+but yields no nodes; function == tool). For every non-skipped turn, one LLM call
+extracts new belief nodes, new decision nodes, and typed relations between new
+and existing nodes.
 
-There are NO scenarios and NO sessions. Turns are routed only by role
-(user / assistant / tool; system is recorded but yields no beliefs;
-function == tool). Tags inside content are NOT used to split the turn — the
-whole content is handed to the model, which decides how many beliefs to extract.
+Node schema additions:
+  * node_type: "belief" | "decision"
+  * entities: list[str]
 
-Per TURN (`ingest_turn`) — ONE LLM call:
-    1. (sentence mode) split the content into COMPLETE sentences with exact
-       offsets; optionally group them by topic cluster (still one call).
-    2. ONE call to extract.update_graph: existing graph (nodes + forward edges)
-       as read-only context  →  NEW nodes (temp ids) + NEW forward edges.
-    3. allocate monotonic ids, resolve temp ids, attach evidence (whole
-       sentences, or located excerpts), add nodes + validated forward edges.
+Relation schema:
+  * causal | depends_on | supplements | contradicts
 
-At FINALIZE (called once, e.g. on is_trajectory_end):
-    1. ONE backward call over the FULL graph → confirms / contradicts / extends;
-    2. incremental confidence update from those relations;
-    3. merge / dedup pass over the full graph;
-    4. final snapshot → final_graph.json, then result.json.
-
-Every step is appended to events.jsonl for replay/debugging.
+There is no forward/backward pass. Finalize only runs merge/dedup and writes the
+final graph/result.
 """
 
 from __future__ import annotations
@@ -40,7 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .confidence import apply_relations_incremental, init_belief_confidence
+from .confidence import init_belief_confidence
 from .evidence import (
     evidence_from_excerpt,
     evidence_from_sentence,
@@ -52,7 +40,6 @@ from .extract import (
     update_graph,
 )
 from .graph import BeliefGraph
-from .link import link_backward_all
 from . import llm
 from .llm import USAGE
 from .merge import run_merge_pass
@@ -155,7 +142,7 @@ class StreamingBeliefBuilder:
         date: Optional[str] = None,
         has_answer: Optional[bool] = None,
     ) -> Dict[str, Any]:
-        """Process one incoming turn: ONE call → new nodes + new forward edges."""
+        """Process one incoming turn: ONE call → new nodes + typed relations."""
         flat_idx = self._flat_turn
         turn_idx = flat_idx                       # no sessions: turn index == flat index
         content = content or ""
@@ -171,8 +158,8 @@ class StreamingBeliefBuilder:
             traj_entry["has_answer"] = bool(has_answer)
         self._trajectory.append(traj_entry)
 
-        new_beliefs: List[Dict[str, Any]] = []
-        forward_added = 0
+        new_nodes: List[Dict[str, Any]] = []
+        relations_added = 0
         skip_reason: Optional[str] = None
         report: Dict[str, Any] = {"split": None}
 
@@ -189,13 +176,13 @@ class StreamingBeliefBuilder:
             else:
                 skip_reason = "too short"
         else:
-            new_beliefs, forward_added, report = self._update_from_turn(
+            new_nodes, relations_added, report = self._update_from_turn(
                 eff_role, content, turn_idx, flat_idx, date, has_answer)
 
         self._flat_turn += 1
         n_merged = len((report.get("incremental_merge") or {}).get("applied", []))
-        print(f"  t{turn_idx} role={raw_role:<9} -> {len(new_beliefs)} belief(s), "
-              f"{forward_added} informs edge(s)"
+        print(f"  t{turn_idx} role={raw_role:<9} -> {len(new_nodes)} node(s), "
+              f"{relations_added} relation(s)"
               + (f", {n_merged} merge(s)" if n_merged else "")
               + (f"  [skip: {skip_reason}]" if skip_reason else ""))
         return self._event("turn", {
@@ -207,8 +194,10 @@ class StreamingBeliefBuilder:
             "skip_reason": skip_reason,
             "split": report.get("split"),
             "raw_output": report.get("raw_output"),
-            "new_belief_ids": [b["id"] for b in new_beliefs],
-            "forward_added": forward_added,
+            "new_node_ids": [b["id"] for b in new_nodes],
+            "new_belief_ids": [b["id"] for b in new_nodes if b.get("node_type", "belief") == "belief"],
+            "new_decision_ids": [b["id"] for b in new_nodes if b.get("node_type") == "decision"],
+            "relations_added": relations_added,
             "incremental_merge": report.get("incremental_merge"),
         })
 
@@ -227,7 +216,7 @@ class StreamingBeliefBuilder:
         graph_nodes_str = format_graph_nodes(
             self.graph.active(), char_budget=opt.context_chars)
         graph_edges_str = format_graph_edges(
-            self.graph.forward_relations, keep_ids=set(self.graph.ids()))
+            self.graph.relations, keep_ids=set(self.graph.ids()))
 
         # ---- prepare evidence mode
         sentences = None
@@ -266,29 +255,29 @@ class StreamingBeliefBuilder:
 
         # ---- allocate ids + attach evidence (in output order, so n0<n1<… in id)
         tmp_to_gid: Dict[str, int] = {}
-        new_beliefs: List[Dict[str, Any]] = []
-        for cb in res["beliefs"]:
+        new_nodes: List[Dict[str, Any]] = []
+        for cb in res.get("nodes", []):
             evid = self._evidence_for(cb, content, src, opt.evidence_mode)
-            belief = self._make_belief(cb, src, evid)
-            tmp_to_gid[cb["tmp_id"]] = belief["id"]
-            new_beliefs.append(belief)
+            node = self._make_node(cb, src, evid)
+            tmp_to_gid[cb["tmp_id"]] = node["id"]
+            new_nodes.append(node)
 
-        # ---- resolve + add forward edges
-        forward_added = 0
-        if new_beliefs:
+        # ---- resolve + add typed relations
+        relations_added = 0
+        if new_nodes:
             existing_ids = {b["id"] for b in self.graph.active()
                             if b["id"] not in tmp_to_gid.values()}
-            resolved = self._resolve_forward(
-                res.get("forward_relations", []), tmp_to_gid, existing_ids)
-            forward_added = self.graph.add_forward(resolved)
+            resolved = self._resolve_relations(
+                res.get("relations", []), tmp_to_gid, existing_ids)
+            relations_added = self.graph.add_relations(resolved)
 
         # ---- incremental embedding-ONLY merge of the freshly-updated graph
         #      (threshold = incremental_merge_threshold, NO LLM verification).
         #      canonical = smallest id (earliest content); evidence is unioned
         #      onto it. log_dir=None → no per-turn merge_*.json; the applied
         #      merges are recorded in the turn event (events.jsonl) instead.
-        #      The final backward + merge in finalize() is unchanged.
-        if (new_beliefs and self.options.incremental_merge
+        #      The final merge in finalize() is unchanged.
+        if (new_nodes and self.options.incremental_merge
                 and self.embedder is not None):
             USAGE.set_label(f"t{turn_idx}.merge")
             inc = run_merge_pass(
@@ -302,7 +291,7 @@ class StreamingBeliefBuilder:
                     "applied": inc.get("applied", []),
                     "relation_rewire": inc.get("relation_rewire"),
                 }
-        return new_beliefs, forward_added, report
+        return new_nodes, relations_added, report
 
     def _evidence_for(self, cb, content, src, mode) -> List[Dict[str, Any]]:
         if mode == "sentence":
@@ -316,14 +305,14 @@ class StreamingBeliefBuilder:
         excerpts = cb.get("supporting_excerpts", [])
         return [evidence_from_excerpt(ex, content, src) for ex in excerpts]
 
-    def _resolve_forward(self, raw_fwd, tmp_to_gid, existing_ids):
+    def _resolve_relations(self, raw_relations, tmp_to_gid, existing_ids):
         new_gids = set(tmp_to_gid.values())
+        valid_types = {"causal", "depends_on", "supplements", "contradicts"}
 
         def _gid(ref):
             if isinstance(ref, str):
                 if ref in tmp_to_gid:
                     return tmp_to_gid[ref]
-                # maybe a stringified int
                 try:
                     return int(ref)
                 except ValueError:
@@ -334,40 +323,50 @@ class StreamingBeliefBuilder:
 
         out: List[Dict[str, Any]] = []
         seen = set()
-        for r in raw_fwd or []:
-            tid = _gid(r.get("to"))
+        allowed_ids = set(existing_ids) | new_gids
+        for r in raw_relations or []:
             fid = _gid(r.get("from"))
-            if tid is None or fid is None:
+            tid = _gid(r.get("to"))
+            if fid is None or tid is None:
                 continue
-            if tid not in new_gids:           # "to" must be a NEW belief
+            if fid == tid:
                 continue
-            if fid not in new_gids and fid not in existing_ids:
+            if fid not in allowed_ids or tid not in allowed_ids:
                 continue
-            if fid == tid or not fid < tid:    # monotonic ids → from<to
+            # Avoid re-emitting old existing-existing relations during an update call.
+            if fid not in new_gids and tid not in new_gids:
                 continue
-            key = (fid, tid, "informs")
+            rtype = r.get("type")
+            if rtype not in valid_types:
+                continue
+            key = (fid, tid, rtype)
             if key in seen:
                 continue
             seen.add(key)
             note = r.get("note", "") or ""
-            out.append({"from_id": fid, "to_id": tid, "type": "informs",
+            out.append({"from_id": fid, "to_id": tid, "type": rtype,
                         "note": note if isinstance(note, str) else str(note)})
         return out
 
-    def _make_belief(self, cleaned, src, evid) -> Dict[str, Any]:
-        belief: Dict[str, Any] = {
+    def _make_node(self, cleaned, src, evid) -> Dict[str, Any]:
+        node_type = cleaned.get("node_type", "belief")
+        node: Dict[str, Any] = {
             "id": self.graph.allocate_id(),
+            "node_type": node_type,
             "belief": cleaned["belief"],
             "stance": cleaned["stance"],
+            "entities": list(cleaned.get("entities") or []),
             "event_time": cleaned.get("event_time"),
             "time_text": cleaned.get("time_text"),
             "source": dict(src),
             "evidence": evid,
             "supporting_excerpts": [ev["text"] for ev in evid if ev.get("text")],
         }
-        init_belief_confidence(belief)
-        self.graph.add_belief(belief)
-        return belief
+        if node_type == "decision":
+            node["decision"] = cleaned.get("decision") or cleaned["belief"]
+        init_belief_confidence(node)
+        self.graph.add_belief(node)
+        return node
 
     # ------------------------------------------------------------------ result
     def finalize(
@@ -379,24 +378,8 @@ class StreamingBeliefBuilder:
             raise RuntimeError("finalize() called twice")
         self._finalized = True
 
-        # 1) backward linking over the FULL graph + 2) confidence update
-        beliefs_now = self.graph.active()
-        backward_rels: List[Dict[str, Any]] = []
+        # Merge / dedup over the full graph
         conf_updates: List[Dict[str, Any]] = []
-        bwd_skip = None
-        if len(beliefs_now) >= 2:
-            USAGE.set_label("final.backward")
-            res = link_backward_all(self.client, self.model, beliefs_now,
-                                    max_tokens=self.max_tokens)
-            if res.get("skipped"):
-                bwd_skip = res.get("skip_reason")
-            else:
-                backward_rels = res["relations"]
-                self.graph.add_backward(backward_rels)
-                conf_updates = apply_relations_incremental(
-                    self.graph.beliefs, backward_rels)
-
-        # 3) merge / dedup over the full graph
         USAGE.set_label("final.merge")
         merge_report = run_merge_pass(
             graph=self.graph, strategy=self.options.merge_strategy,
@@ -404,15 +387,15 @@ class StreamingBeliefBuilder:
             threshold=self.options.merge_threshold, max_tokens=self.max_tokens,
             pass_label="final", log_dir=self.logs_dir)
 
-        # 4) final snapshot
+        # Final snapshot
         snap_path = self.out_dir / "final_graph.json"
         self.graph.save_snapshot(snap_path, extra={"item_id": self.item_id})
 
         summary = {
-            "n_beliefs": len(self.graph.active()),
-            "forward_relations": len(self.graph.forward_relations),
-            "backward_relations": len(backward_rels),
-            "backward_skip_reason": bwd_skip,
+            "n_nodes": len(self.graph.active()),
+            "n_beliefs": sum(1 for n in self.graph.active() if n.get("node_type", "belief") == "belief"),
+            "n_decisions": sum(1 for n in self.graph.active() if n.get("node_type") == "decision"),
+            "relations": len(self.graph.relations),
             "confidence_updates": conf_updates,
             "merges_applied": merge_report.get("applied", []),
             "snapshot": snap_path.name,
@@ -421,7 +404,7 @@ class StreamingBeliefBuilder:
 
         self._end_time = datetime.now(timezone.utc)
         duration = (self._end_time - self._start_time).total_seconds()
-        beliefs = self.graph.active()
+        nodes = self.graph.active()
 
         result: Dict[str, Any] = {
             "prompt_name": "construct_beliefs",
@@ -444,12 +427,14 @@ class StreamingBeliefBuilder:
         result.update({
             "trajectory": self._trajectory,
             "final": summary,
-            "all_beliefs": beliefs,
-            "forward_relations": self.graph.forward_relations,
-            "backward_relations": self.graph.backward_relations,
+            "all_nodes": nodes,
+            "all_beliefs": [n for n in nodes if n.get("node_type", "belief") == "belief"],
+            "all_decisions": [n for n in nodes if n.get("node_type") == "decision"],
+            "relations": self.graph.relations,
             "merges": self.graph.merges,
-            "source_counts": _count_by(beliefs, lambda b: (b.get("source") or {}).get("type")),
-            "stance_counts": _count_by(beliefs, lambda b: b.get("stance")),
+            "source_counts": _count_by(nodes, lambda b: (b.get("source") or {}).get("type")),
+            "stance_counts": _count_by(nodes, lambda b: b.get("stance")),
+            "node_type_counts": _count_by(nodes, lambda b: b.get("node_type", "belief")),
             "token_usage": USAGE.summary(pricing),
         })
 
@@ -466,22 +451,22 @@ class StreamingBeliefBuilder:
                 writer = csv.writer(csvf)
                 if write_header:
                     writer.writerow(["item_id", "start", "end", "duration_seconds",
-                                     "n_beliefs", "n_forward_relations",
-                                     "n_backward_relations", "n_merges", "result_path"])
+                                     "n_nodes", "n_beliefs", "n_decisions",
+                                     "n_relations", "n_merges", "result_path"])
                 writer.writerow([
                     self.item_id, self._start_time.isoformat(), self._end_time.isoformat(),
-                    f"{duration:.6f}", len(beliefs),
-                    len(self.graph.forward_relations), len(self.graph.backward_relations),
-                    len(self.graph.merges), str(self.out_dir / "result.json"),
+                    f"{duration:.6f}", len(nodes),
+                    sum(1 for n in nodes if n.get("node_type", "belief") == "belief"),
+                    sum(1 for n in nodes if n.get("node_type") == "decision"),
+                    len(self.graph.relations), len(self.graph.merges), str(self.out_dir / "result.json"),
                 ])
         except Exception:
             self._event("timing_csv_error", {"error": "failed to append timing.csv"})
 
         USAGE.save_json(self.out_dir / "token_usage.json", pricing=pricing)
         USAGE.save_text(self.out_dir / "token_usage.txt", pricing=pricing)
-        print(f"  [finalize] {len(beliefs)} belief(s); "
-              f"{len(self.graph.forward_relations)} forward + "
-              f"{len(self.graph.backward_relations)} backward relation(s); "
+        print(f"  [finalize] {len(nodes)} node(s); "
+              f"{len(self.graph.relations)} relation(s); "
               f"{len(self.graph.merges)} merge record(s); {duration:.3f}s")
         print(f"  saved -> {self.out_dir / 'result.json'}")
         return result

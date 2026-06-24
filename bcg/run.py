@@ -6,8 +6,7 @@ Command-line driver for the streaming `construct_beliefs` pipeline.
 
 No scenarios, no sessions. Any input (a trajectory, or multi-session QA data) is
 normalised into items, each a flat list of role-tagged turns; each turn is
-processed by role in ONE LLM call (new nodes + new forward edges). Backward
-linking + confidence update + merge/dedup run ONCE at the end of each item.
+processed by role in ONE LLM call (new nodes + new forward edges).
 
 Examples
 --------

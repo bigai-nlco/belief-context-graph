@@ -26,7 +26,7 @@ Endpoints
 
   POST /finalize
         body: {"problem_id": "p1"}
-        -> the FINAL belief-graph snapshot (backward + merge applied).
+        -> the FINAL belief-graph snapshot.
 
   GET  /graph?problem_id=p1
         -> the latest snapshot for that trajectory (404 if unknown).

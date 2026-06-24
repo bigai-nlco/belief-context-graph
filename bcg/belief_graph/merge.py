@@ -12,6 +12,12 @@ Strategies (--merge-strategy):
     merge groups directly (no embeddings needed).
   * off                  — skip merging.
 
+Role-aware merge policy:
+  * nodes are eligible to merge ONLY when their source role is identical
+    (source.role/source.type; e.g. user with user, assistant with assistant,
+    tool with tool). This hard gate is enforced before embedding-only
+    incremental merges and again before applying LLM-proposed groups.
+
 Merge semantics (one confirmed group):
   * canonical  = the SMALLEST id in the group (the node every earlier edge
                  already points at stays stable);
@@ -24,9 +30,8 @@ Merge semantics (one confirmed group):
                  belief points at every place the fact was stated;
   * merged_from accumulates the absorbed ids; absorbed beliefs are removed
     from the active graph but archived in graph.merges with full snapshots;
-  * edges      = every relation endpoint at an absorbed id is rewired to the
-    canonical id; self-loops / duplicates / direction-invalid edges are
-    dropped (and reported).
+  * relations  = every relation endpoint at an absorbed id is rewired to the
+    canonical id; self-loops and duplicates are dropped (and reported).
 
 Auditability: every pass writes logs/merge_<pass>.json (machine-readable —
 beliefs in, embedding similarities, candidate pairs, every LLM verification
@@ -58,12 +63,14 @@ from .prompts import (
 def _compact_for_merge(b: Dict[str, Any]) -> Dict[str, Any]:
     src = b.get("source") or {}
     c = {
-        "id":     b.get("id"),
-        "role":   src.get("type"),
-        "turn":   src.get("turn_index"),
-        "stance": b.get("stance"),
-        "conf":   b.get("confidence"),
-        "belief": b.get("belief"),
+        "id":        b.get("id"),
+        "node_type": b.get("node_type", "belief"),
+        "role":      src.get("role") or src.get("type"),
+        "turn":      src.get("turn_index"),
+        "stance":    b.get("stance"),
+        "conf":      b.get("confidence"),
+        "entities":  b.get("entities") or [],
+        "belief":    b.get("belief"),
     }
     if b.get("event_time"):
         c["time"] = b.get("event_time")
@@ -75,6 +82,31 @@ def _compact_for_merge(b: Dict[str, Any]) -> Dict[str, Any]:
 def _blob(beliefs: List[Dict[str, Any]]) -> str:
     return json.dumps([_compact_for_merge(b) for b in beliefs],
                       ensure_ascii=False, indent=2)
+
+
+def _merge_role(b: Dict[str, Any]) -> str:
+    """Role key used to constrain deduplication.
+
+    Nodes may be merged ONLY when this key is identical. This prevents, for
+    example, a user's claim from being absorbed into a semantically similar
+    assistant conclusion or tool result.
+    """
+    src = b.get("source") or {}
+    role = src.get("role") or src.get("type") or b.get("role") or "unknown"
+    return str(role).strip().lower() or "unknown"
+
+
+def _same_merge_role(ids: List[int], by_id: Dict[int, Dict[str, Any]]) -> bool:
+    roles = {_merge_role(by_id[i]) for i in ids if i in by_id}
+    return len(roles) == 1
+
+
+def _split_ids_by_role(ids: List[int], by_id: Dict[int, Dict[str, Any]]) -> List[List[int]]:
+    buckets: Dict[str, List[int]] = {}
+    for i in ids:
+        if i in by_id:
+            buckets.setdefault(_merge_role(by_id[i]), []).append(i)
+    return [sorted(v) for v in buckets.values() if len(v) >= 2]
 
 
 # ---------------------------------------------------------------------------
@@ -103,26 +135,40 @@ def _embedding_candidates(
     threshold: float,
     pass_label: str,
 ) -> Tuple[List[List[int]], List[Dict[str, Any]]]:
-    """Return (candidate groups of belief ids, pair records for the log)."""
+    """Return (candidate groups of node ids, pair records) with a hard role gate.
+
+    The per-turn incremental merge may run with verify=False, so the role check
+    must happen before candidate confirmation. Cross-role pairs are never
+    unioned even if their embedding similarity is high.
+    """
     from .llm import cosine_similarity_matrix
 
     texts = [b.get("belief") or "" for b in beliefs]
+    roles = [_merge_role(b) for b in beliefs]
     vectors = embedder.embed(texts, purpose=f"merge:{pass_label}")
     sim = cosine_similarity_matrix(vectors)
 
     n = len(beliefs)
     uf = _UnionFind(n)
     pairs: List[Dict[str, Any]] = []
+    skipped_cross_role: List[Dict[str, Any]] = []
     for i in range(n):
         for j in range(i + 1, n):
             s = float(sim[i, j])
-            if s >= threshold:
-                uf.union(i, j)
-                pairs.append({
-                    "id_a": beliefs[i]["id"], "id_b": beliefs[j]["id"],
-                    "similarity": round(s, 4),
-                    "belief_a": texts[i], "belief_b": texts[j],
-                })
+            if s < threshold:
+                continue
+            rec = {
+                "id_a": beliefs[i]["id"], "id_b": beliefs[j]["id"],
+                "role_a": roles[i], "role_b": roles[j],
+                "similarity": round(s, 4),
+                "belief_a": texts[i], "belief_b": texts[j],
+            }
+            if roles[i] != roles[j]:
+                rec["skipped_reason"] = "cross_role"
+                skipped_cross_role.append(rec)
+                continue
+            uf.union(i, j)
+            pairs.append(rec)
 
     groups_by_root: Dict[int, List[int]] = {}
     for i in range(n):
@@ -130,6 +176,9 @@ def _embedding_candidates(
     groups = [sorted(beliefs[i]["id"] for i in idxs)
               for idxs in groups_by_root.values() if len(idxs) >= 2]
     groups.sort(key=lambda g: g[0])
+    # Attach skipped cross-role pairs to the function for logging without
+    # changing the public return contract used by run_merge_pass.
+    _embedding_candidates.last_skipped_cross_role = skipped_cross_role  # type: ignore[attr-defined]
     return groups, pairs
 
 
@@ -141,8 +190,14 @@ def _parse_merge_groups(
     raw: str,
     allowed_ids: Set[int],
     used_ids: Set[int],
+    by_id: Dict[int, Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """Validate {"merge_groups":[{ids, canonical_belief, reason}]}."""
+    """Validate {"merge_groups":[...]} and enforce same-role groups.
+
+    LLM proposals are not trusted: cross-role groups are rejected/split before
+    any merge is applied. This is the final safety net for both full-LLM merge
+    and embedding+LLM verification.
+    """
     parsed = llm.parse_json_response(raw)
     groups_in = parsed.get("merge_groups", []) if isinstance(parsed, dict) else []
     out: List[Dict[str, Any]] = []
@@ -151,20 +206,39 @@ def _parse_merge_groups(
             continue
         ids_in = g.get("ids") or []
         try:
-            ids = sorted({int(i) for i in ids_in})
+            ids0 = sorted({int(i) for i in ids_in})
         except (TypeError, ValueError):
             continue
-        ids = [i for i in ids if i in allowed_ids and i not in used_ids]
-        if len(ids) < 2:
+        ids0 = [i for i in ids0 if i in allowed_ids and i not in used_ids]
+        if len(ids0) < 2:
             continue
-        used_ids.update(ids)
+
+        # Hard role gate. If an LLM emits a mixed-role group, split it into
+        # same-role subgroups and keep only subgroups with at least 2 ids.
+        role_groups = _split_ids_by_role(ids0, by_id)
+        if not role_groups:
+            continue
+
         canonical = g.get("canonical_belief")
         if not isinstance(canonical, str) or not canonical.strip():
             canonical = None
         reason = g.get("reason") or ""
         if not isinstance(reason, str):
             reason = str(reason)
-        out.append({"ids": ids, "canonical_belief": canonical, "reason": reason.strip()})
+
+        for ids in role_groups:
+            ids = [i for i in ids if i not in used_ids]
+            if len(ids) < 2:
+                continue
+            used_ids.update(ids)
+            role = _merge_role(by_id[ids[0]]) if ids[0] in by_id else "unknown"
+            role_note = f"same role={role}"
+            final_reason = reason.strip()
+            if final_reason:
+                final_reason = f"{final_reason} ({role_note})"
+            else:
+                final_reason = role_note
+            out.append({"ids": ids, "canonical_belief": canonical, "reason": final_reason})
     return out
 
 
@@ -300,6 +374,8 @@ def run_merge_pass(
         candidate_groups, pairs = _embedding_candidates(
             active, embedder, threshold, pass_label)
         log["candidate_pairs"] = pairs
+        log["skipped_cross_role_pairs"] = getattr(
+            _embedding_candidates, "last_skipped_cross_role", [])
         log["candidate_groups"] = candidate_groups
         if verify:
             log["llm_verifications"] = []
@@ -314,7 +390,7 @@ def run_merge_pass(
                     log["llm_verifications"].append(
                         {"candidate_ids": g_ids, "error": str(e)})
                     continue
-                groups = _parse_merge_groups(raw, set(g_ids), used_ids)
+                groups = _parse_merge_groups(raw, set(g_ids), used_ids, by_id)
                 log["llm_verifications"].append({
                     "candidate_ids": g_ids,
                     "raw_output": raw,
@@ -328,26 +404,32 @@ def run_merge_pass(
             # _apply_merge_group.
             for g_ids in candidate_groups:
                 ids = [i for i in g_ids if i in allowed_ids and i not in used_ids]
-                if len(ids) < 2:
+                if len(ids) < 2 or not _same_merge_role(ids, by_id):
                     continue
                 used_ids.update(ids)
+                role = _merge_role(by_id[ids[0]]) if ids[0] in by_id else "unknown"
                 confirmed.append({
                     "ids": ids, "canonical_belief": None,
-                    "reason": f"embedding cosine >= {threshold} (no LLM verification)",
+                    "reason": (f"embedding cosine >= {threshold} "
+                               f"within role={role} (no LLM verification)"),
                 })
     else:  # strategy == "llm"
         prompt = PROMPT_MERGE_FULL.replace(BELIEFS_LIST_PLACEHOLDER, _blob(active))
         try:
             raw = llm.call_model(client, model, prompt, temperature=0.0,
                                  max_tokens=max_tokens)
-            confirmed = _parse_merge_groups(raw, allowed_ids, used_ids)
+            confirmed = _parse_merge_groups(raw, allowed_ids, used_ids, by_id)
             log["llm_full"] = {"raw_output": raw, "accepted_groups": confirmed}
         except Exception as e:
             log["llm_full"] = {"error": str(e)}
 
     applied: List[Dict[str, Any]] = []
     mapping: Dict[int, int] = {}
+    skipped_role_mismatch: List[Dict[str, Any]] = []
     for g in sorted(confirmed, key=lambda g: g["ids"][0]):
+        if not _same_merge_role(g["ids"], by_id):
+            skipped_role_mismatch.append({"ids": g["ids"], "reason": "cross_role_group"})
+            continue
         rec = _apply_merge_group(graph, g["ids"], g["canonical_belief"],
                                  g["reason"], pass_label)
         applied.append({k: rec[k] for k in
@@ -357,10 +439,10 @@ def run_merge_pass(
             mapping[a] = rec["canonical_id"]
 
     rewire = graph.remap_relations(mapping) if mapping else {
-        "rewritten": 0, "dropped_self": 0, "dropped_direction": [],
-        "dropped_duplicate": 0}
+        "rewritten": 0, "dropped_self": 0, "dropped_duplicate": 0}
 
     log["applied_merges"] = applied
+    log["skipped_role_mismatch_groups"] = skipped_role_mismatch
     log["relation_rewire"] = rewire
     log["finished_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -385,21 +467,30 @@ def _render_text_log(log: Dict[str, Any]) -> str:
         "=" * 74,
         f" merge pass: {log['pass']}   strategy={log['strategy']}"
         + (f"   threshold={log['threshold']}" if log.get("threshold") is not None else ""),
-        f" beliefs in: {log['n_beliefs']}",
+        f" nodes in: {log['n_beliefs']}",
         "=" * 74,
     ]
     if log.get("embedding_model"):
         lines.append(f" embedding model: {log['embedding_model']}")
     for p in log.get("candidate_pairs", []):
-        lines.append(f"  pair  #{p['id_a']} ~ #{p['id_b']}  sim={p['similarity']}")
+        lines.append(f"  pair  #{p['id_a']} ~ #{p['id_b']}  "
+                     f"role={p.get('role_a')}  sim={p['similarity']}")
         lines.append(f"        a: {p['belief_a'][:100]}")
         lines.append(f"        b: {p['belief_b'][:100]}")
+    skipped = log.get("skipped_cross_role_pairs") or []
+    if skipped:
+        lines.append(f" skipped cross-role candidate pairs: {len(skipped)}")
+        for p in skipped[:20]:
+            lines.append(f"  skip  #{p['id_a']}({p.get('role_a')}) ~ "
+                         f"#{p['id_b']}({p.get('role_b')})  sim={p['similarity']}")
     if "candidate_groups" in log:
         lines.append(f" candidate groups: {log['candidate_groups']}")
     for v in log.get("llm_verifications", []):
         lines.append(f"  verify {v.get('candidate_ids')}"
                      + (f" -> ERROR {v['error']}" if "error" in v else
                         f" -> {[g['ids'] for g in v.get('accepted_groups', [])]}"))
+    for g in log.get("skipped_role_mismatch_groups", []):
+        lines.append(f"  SKIP cross-role merge group {g.get('ids')}")
     for m in log.get("applied_merges", []):
         lines.append(f"  MERGE  {m['absorbed_ids']} -> #{m['canonical_id']}  "
                      f"(conf<-{m['adopted_confidence']} from newest #{m['newest_id']})")
@@ -407,9 +498,8 @@ def _render_text_log(log: Dict[str, Any]) -> str:
         if m.get("reason"):
             lines.append(f"         reason:    {m['reason']}")
     rw = log.get("relation_rewire") or {}
-    lines.append(f" edges: rewritten={rw.get('rewritten', 0)}  "
+    lines.append(f" relations: rewritten={rw.get('rewritten', 0)}  "
                  f"dropped_self={rw.get('dropped_self', 0)}  "
-                 f"dropped_dup={rw.get('dropped_duplicate', 0)}  "
-                 f"dropped_direction={len(rw.get('dropped_direction', []))}")
+                 f"dropped_dup={rw.get('dropped_duplicate', 0)}")
     lines.append("=" * 74)
     return "\n".join(lines) + "\n"
