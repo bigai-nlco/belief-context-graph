@@ -39,16 +39,17 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Iterable, Iterator
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, Optional
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from construct_beliefs.online import SessionManager          # noqa: E402
-from construct_beliefs.stream import StreamOptions           # noqa: E402
+from bcg.belief_graph.online import SessionManager  # noqa: E402
+from bcg.belief_graph.stream import StreamOptions  # noqa: E402
 
 
-def iter_jsonl(stream: Iterable[str]) -> Iterator[Dict[str, Any]]:
+def iter_jsonl(stream: Iterable[str]) -> Iterator[dict[str, Any]]:
     """Yield one dict per non-blank line; skip blanks, report bad lines."""
     for lineno, raw in enumerate(stream, 1):
         line = raw.strip()
@@ -57,7 +58,9 @@ def iter_jsonl(stream: Iterable[str]) -> Iterator[Dict[str, Any]]:
         try:
             obj = json.loads(line)
         except json.JSONDecodeError as e:
-            print(f"[warn] skipping malformed JSON on line {lineno}: {e}", file=sys.stderr)
+            print(
+                f"[warn] skipping malformed JSON on line {lineno}: {e}", file=sys.stderr
+            )
             continue
         if not isinstance(obj, dict):
             print(f"[warn] skipping non-object on line {lineno}", file=sys.stderr)
@@ -65,8 +68,9 @@ def iter_jsonl(stream: Iterable[str]) -> Iterator[Dict[str, Any]]:
         yield obj
 
 
-def drive(manager: SessionManager, turns: Iterable[Dict[str, Any]],
-          *, quiet: bool = False) -> Dict[str, Any]:
+def drive(
+    manager: SessionManager, turns: Iterable[dict[str, Any]], *, quiet: bool = False
+) -> dict[str, Any]:
     """
     Push every turn into the manager. Returns a small run summary. This is the
     core loop, separated from CLI wiring so it can be unit-tested with an
@@ -81,20 +85,26 @@ def drive(manager: SessionManager, turns: Iterable[Dict[str, Any]],
             pid = snap.get("problem_id")
             stage = snap.get("stage")
             nb = snap.get("n_beliefs")
-            print(f"  push #{n:>4}  problem={pid}  stage={stage:<8}  beliefs={nb}",
-                  file=sys.stderr)
+            print(
+                f"  push #{n:>4}  problem={pid}  stage={stage:<8}  beliefs={nb}",
+                file=sys.stderr,
+            )
         if snap.get("finalized"):
             finalized.append(snap.get("problem_id"))
     # finalize any trajectory that never sent is_trajectory_end
     for pid in list(manager.active_problem_ids()):
         if not quiet:
-            print(f"  [finalize-on-eof] problem={pid} (no is_trajectory_end seen)",
-                  file=sys.stderr)
+            print(
+                f"  [finalize-on-eof] problem={pid} (no is_trajectory_end seen)",
+                file=sys.stderr,
+            )
         manager.finalize(pid)
         finalized.append(pid)
-    return {"n_turns_pushed": n,
-            "problems": manager.all_problem_ids(),
-            "finalized": finalized}
+    return {
+        "n_turns_pushed": n,
+        "problems": manager.all_problem_ids(),
+        "finalized": finalized,
+    }
 
 
 def build_manager(args) -> SessionManager:
@@ -119,23 +129,47 @@ def build_manager(args) -> SessionManager:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="construct_beliefs v3 streaming driver")
-    p.add_argument("--input", "-i", default=None,
-                   help="JSONL file of turn dicts (default: read STDIN).")
-    p.add_argument("--config", "-c", default="model_config.json",
-                   help="Model config path (same format as scripts/run.py).")
-    p.add_argument("--output-dir", "-o", default="outputs_stream",
-                   help="Output root; each problem_id gets its own subdirectory.")
-    p.add_argument("--model-key", default=None,
-                   help="Chat-model config entry (default: first non-reserved key).")
-    p.add_argument("--embedding-key", default="embedding",
-                   help="Config entry holding the embedding endpoint.")
-    p.add_argument("--evidence-mode", choices=["sentence", "excerpt"], default="sentence")
+    p.add_argument(
+        "--input",
+        "-i",
+        default=None,
+        help="JSONL file of turn dicts (default: read STDIN).",
+    )
+    p.add_argument(
+        "--config",
+        "-c",
+        default="model_config.json",
+        help="Model config path (same format as scripts/run.py).",
+    )
+    p.add_argument(
+        "--output-dir",
+        "-o",
+        default="outputs_stream",
+        help="Output root; each problem_id gets its own subdirectory.",
+    )
+    p.add_argument(
+        "--model-key",
+        default=None,
+        help="Chat-model config entry (default: first non-reserved key).",
+    )
+    p.add_argument(
+        "--embedding-key",
+        default="embedding",
+        help="Config entry holding the embedding endpoint.",
+    )
+    p.add_argument(
+        "--evidence-mode", choices=["sentence", "excerpt"], default="sentence"
+    )
     p.add_argument("--use-clustering", default=False, action="store_true")
     p.add_argument("--cluster-threshold", type=float, default=0.6)
     p.add_argument("--cluster-min-sentences", type=int, default=4)
     p.add_argument("--cluster-buffer", type=int, default=0)
-    p.add_argument("--merge-strategy", choices=["embedding", "llm", "off"], default="embedding",
-                   help="Trajectory-end (finalize) dedup strategy.")
+    p.add_argument(
+        "--merge-strategy",
+        choices=["embedding", "llm", "off"],
+        default="embedding",
+        help="Trajectory-end (finalize) dedup strategy.",
+    )
     p.add_argument("--merge-threshold", type=float, default=0.86)
     p.add_argument("--context-chars", type=int, default=9000)
     p.add_argument("--quiet", "-q", default=False, action="store_true")
@@ -144,7 +178,7 @@ def main() -> None:
     manager = build_manager(args)
 
     if args.input:
-        with open(args.input, "r", encoding="utf-8") as f:
+        with open(args.input, encoding="utf-8") as f:
             summary = drive(manager, iter_jsonl(f), quiet=args.quiet)
     else:
         summary = drive(manager, iter_jsonl(sys.stdin), quiet=args.quiet)

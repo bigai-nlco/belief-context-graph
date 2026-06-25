@@ -1,161 +1,159 @@
-"""
-evidence.py  (v3)
-=================
-Evidence provenance. Every belief carries an `evidence` list; each entry points
-back into the ORIGINAL turn content by exact character offsets:
-
-    {
-      "text":  "<exact slice content[start:end] when located, else the excerpt verbatim>",
-      "start": 118,            # char offset in the original turn content
-      "end":   178,            # exclusive
-      "match": "exact" | "normalized" | "fuzzy" | "not_found",
-      "via":   "llm_excerpt" | "split_sentence",
-      "source": { ...location descriptor, see source_descriptor()... }
-    }
-
-Two producers:
-  * sentence mode — the content was split into COMPLETE sentences with exact
-    offsets, so evidence is built directly (match="exact", via="split_sentence").
-    This is how "evidence must be a whole sentence" is guaranteed.
-  * excerpt mode  — the model returns verbatim excerpts; each is located inside
-    the turn content by a three-stage matcher (exact → whitespace-normalized →
-    difflib fuzzy). Evidence may be a sentence fragment in this mode.
-
-There is no segmentation in v3: the whole turn is one unit, so all offsets are
-already relative to the original turn content.
-"""
+"""Evidence provenance helpers for belief graph extraction."""
 
 from __future__ import annotations
 
 import difflib
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
-# Fuzzy-match acceptance knobs.
-FUZZY_MIN_RATIO = 0.6          # matched chars must cover >= 60% of the excerpt
-FUZZY_MAX_SPAN_FACTOR = 2.0    # located span must stay near the excerpt length
-FUZZY_MAX_SPAN_SLACK = 80
-
-
-def _trim_span(text: str, s: int, e: int) -> Tuple[int, int]:
-    while s < e and text[s].isspace():
-        s += 1
-    while e > s and text[e - 1].isspace():
-        e -= 1
-    return s, e
+from bcg.belief_graph.constants import (
+    FUZZY_MAX_SPAN_FACTOR,
+    FUZZY_MAX_SPAN_SLACK,
+    FUZZY_MIN_RATIO,
+)
+from bcg.belief_graph.segment import Segment
+from bcg.belief_graph.utils import trim_span
 
 
-def locate_excerpt(excerpt: str, content: str) -> Tuple[Optional[int], Optional[int], str]:
-    """
-    Locate `excerpt` inside `content` and return (start, end, match_kind).
-    match_kind in {"exact", "normalized", "fuzzy", "not_found"};
-    start/end are None when not found.
-    """
+def locate_excerpt(excerpt: str, content: str) -> tuple[int | None, int | None, str]:
+    """Locate an excerpt in content with exact, normalized, then fuzzy matching."""
+
     if not excerpt or not content:
         return None, None, "not_found"
     excerpt = excerpt.strip()
     if len(excerpt) < 2:
         return None, None, "not_found"
 
-    # 1) exact
-    idx = content.find(excerpt)
-    if idx >= 0:
-        return idx, idx + len(excerpt), "exact"
+    index = content.find(excerpt)
+    if index >= 0:
+        return index, index + len(excerpt), "exact"
 
-    # 2) whitespace-normalized (case-insensitive, any whitespace run matches)
     tokens = excerpt.split()
     if tokens:
-        pattern = r"\s+".join(re.escape(t) for t in tokens)
-        try:
-            m = re.search(pattern, content, flags=re.IGNORECASE)
-        except re.error:
-            m = None
-        if m:
-            s, e = _trim_span(content, m.start(), m.end())
-            if e > s:
-                return s, e, "normalized"
+        pattern = r"\s+".join(re.escape(token) for token in tokens)
+        match = re.search(pattern, content, flags=re.IGNORECASE)
+        if match is not None:
+            start, end = trim_span(content, match.start(), match.end())
+            if end > start:
+                return start, end, "normalized"
 
-    # 3) fuzzy — best-aligned region via difflib matching blocks.
-    sm = difflib.SequenceMatcher(None, content, excerpt, autojunk=False)
-    blocks = [b for b in sm.get_matching_blocks() if b.size > 0]
+    matcher = difflib.SequenceMatcher(None, content, excerpt, autojunk=False)
+    blocks = [block for block in matcher.get_matching_blocks() if block.size > 0]
     if blocks:
-        matched = sum(b.size for b in blocks)
-        s = blocks[0].a
-        e = blocks[-1].a + blocks[-1].size
-        span = e - s
-        max_span = max(len(excerpt) * FUZZY_MAX_SPAN_FACTOR,
-                       len(excerpt) + FUZZY_MAX_SPAN_SLACK)
+        matched = sum(block.size for block in blocks)
+        start = blocks[0].a
+        end = blocks[-1].a + blocks[-1].size
+        span = end - start
+        max_span = max(
+            len(excerpt) * FUZZY_MAX_SPAN_FACTOR,
+            len(excerpt) + FUZZY_MAX_SPAN_SLACK,
+        )
         if matched >= FUZZY_MIN_RATIO * len(excerpt) and span <= max_span:
-            s, e = _trim_span(content, s, e)
-            if e > s:
-                return s, e, "fuzzy"
+            start, end = trim_span(content, start, end)
+            if end > start:
+                return start, end, "fuzzy"
 
     return None, None, "not_found"
 
 
 def source_descriptor(
     *,
-    role: str,                       # "user" | "assistant" | "tool" (== source.type)
+    source_type: str,
+    scenario: str,
     item_id: str,
+    session_id: str | None,
+    session_index: int,
+    session_date: str | None,
     turn_index: int,
-    flat_turn_index: int,
-    date: Optional[str] = None,
-    has_answer: Optional[bool] = None,
-) -> Dict[str, Any]:
-    """
-    Location descriptor shared by belief.source and each evidence.source.
-    `type` IS the role (user/assistant/tool). `trajectory_index` is the global
-    flat turn index across the trajectory (processing order) — what the
-    visualizer uses to index into result.json's flat `trajectory` list.
-    """
-    d: Dict[str, Any] = {
-        "type": role,
+    trajectory_index: int,
+    role: str,
+    segment: Segment,
+    has_answer: bool | None = None,
+) -> dict[str, Any]:
+    """Build source metadata shared by beliefs and evidence records."""
+
+    descriptor: dict[str, Any] = {
+        "type": source_type,
         "role": role,
+        "scenario": scenario,
         "item_id": item_id,
+        "session_id": session_id,
+        "session_index": session_index,
+        "session_date": session_date,
         "turn_index": turn_index,
-        "trajectory_index": flat_turn_index,
+        "trajectory_index": trajectory_index,
+        "segment_index": segment.seg_idx,
+        "segment_type": segment.type,
+        "segment_start": segment.start,
+        "segment_end": segment.end,
     }
-    if date is not None:
-        d["date"] = date
     if has_answer is not None:
-        d["has_answer"] = bool(has_answer)
-    return d
+        descriptor["has_answer"] = bool(has_answer)
+    return descriptor
 
 
 def evidence_from_excerpt(
     excerpt: str,
+    segment: Segment,
     turn_content: str,
-    source: Dict[str, Any],
-) -> Dict[str, Any]:
-    """Locate one LLM excerpt inside the turn content and build the record.
-    When located, `text` is replaced by the exact slice so
-    turn_content[start:end] == text always holds."""
-    s, e, kind = locate_excerpt(excerpt, turn_content)
-    if kind == "not_found" or s is None or e is None:
-        return {"text": excerpt, "start": None, "end": None,
-                "match": "not_found", "via": "llm_excerpt", "source": dict(source)}
-    return {"text": turn_content[s:e], "start": s, "end": e,
-            "match": kind, "via": "llm_excerpt", "source": dict(source)}
+    source: dict[str, Any],
+) -> dict[str, Any]:
+    """Convert an LLM excerpt into an offset-aware evidence record."""
+
+    start_local, end_local, match_kind = locate_excerpt(excerpt, segment.content)
+    if match_kind == "not_found" or start_local is None or end_local is None:
+        return {
+            "text": excerpt,
+            "start": None,
+            "end": None,
+            "match": "not_found",
+            "via": "llm_excerpt",
+            "source": dict(source),
+        }
+    start = segment.start + start_local
+    end = segment.start + end_local
+    return {
+        "text": turn_content[start:end],
+        "start": start,
+        "end": end,
+        "match": match_kind,
+        "via": "llm_excerpt",
+        "source": dict(source),
+    }
 
 
 def evidence_from_sentence(
+    sentence_text: str,
     sentence_start: int,
     sentence_end: int,
+    segment: Segment,
     turn_content: str,
-    source: Dict[str, Any],
-) -> Dict[str, Any]:
-    """Evidence for a whole sentence (offsets are exact by construction)."""
-    return {"text": turn_content[sentence_start:sentence_end],
-            "start": sentence_start, "end": sentence_end,
-            "match": "exact", "via": "split_sentence", "source": dict(source)}
+    source: dict[str, Any],
+) -> dict[str, Any]:
+    """Create exact evidence from an already offset-tracked sentence."""
+
+    del sentence_text
+    start = segment.start + sentence_start
+    end = segment.start + sentence_end
+    return {
+        "text": turn_content[start:end],
+        "start": start,
+        "end": end,
+        "match": "exact",
+        "via": "split_sentence",
+        "source": dict(source),
+    }
 
 
-def evidence_key(ev: Dict[str, Any]) -> tuple:
-    """Dedup key for evidence union during merges."""
-    src = ev.get("source") or {}
+def evidence_key(evidence: dict[str, Any]) -> tuple[Any, ...]:
+    """Return a stable deduplication key for evidence union during merges."""
+
+    source = evidence.get("source") or {}
     return (
-        src.get("trajectory_index"),
-        ev.get("start"),
-        ev.get("end"),
-        ev.get("text"),
+        source.get("session_id"),
+        source.get("trajectory_index"),
+        source.get("segment_index"),
+        evidence.get("start"),
+        evidence.get("end"),
+        evidence.get("text"),
     )

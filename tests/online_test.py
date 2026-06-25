@@ -40,14 +40,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from construct_beliefs import llm                                       # noqa: E402
-from construct_beliefs.online import (                                  # noqa: E402
-    SessionManager, StreamingTrajectorySession, TrajectoryClosedError)
-from construct_beliefs.stream import StreamOptions                      # noqa: E402
-
-sys.path.insert(0, str(ROOT / "scripts"))
-import online_driver as drv                                            # noqa: E402
-
+from bcg import online_driver as drv  # noqa: E402
+from bcg.belief_graph import llm  # noqa: E402
+from bcg.belief_graph.online import (  # noqa: E402
+    SessionManager,
+    StreamingTrajectorySession,
+    TrajectoryClosedError,
+)
+from bcg.belief_graph.stream import StreamOptions  # noqa: E402
 
 CALLS = {"n": 0}
 
@@ -60,77 +60,133 @@ def _section(prompt: str, header: str) -> str:
     if start < 0:
         return ""
     j = prompt.find("\n## ", start)
-    return prompt[start + 1: j if j >= 0 else len(prompt)]
+    return prompt[start + 1 : j if j >= 0 else len(prompt)]
 
 
 def _ids(block: str) -> list:
     return sorted({int(m) for m in re.findall(r'"id":\s*(\d+)', block)})
 
 
-def fake_call_model(client, model, prompt, temperature=0.0, max_tokens=None,
-                    retries=3, backoff=2.0, usage_label=None) -> str:
+def fake_call_model(
+    client,
+    model,
+    prompt,
+    temperature=0.0,
+    max_tokens=None,
+    retries=3,
+    backoff=2.0,
+    usage_label=None,
+) -> str:
     CALLS["n"] += 1
-    llm.USAGE.record(model=model, prompt_tokens=len(prompt) // 4,
-                     completion_tokens=50, total_tokens=len(prompt) // 4 + 50,
-                     estimated=True)
+    llm.USAGE.record(
+        model=model,
+        prompt_tokens=len(prompt) // 4,
+        completion_tokens=50,
+        total_tokens=len(prompt) // 4 + 50,
+        estimated=True,
+    )
 
-    if "## Full belief list" in prompt:                       # merge (llm)
+    if "## Full belief list" in prompt:  # merge (llm)
         block = _section(prompt, "## Full belief list")
         pairs = re.findall(r'"id":\s*(\d+).*?"belief":\s*"((?:[^"\\]|\\.)*)"', block)
         by_text = {}
         for bid, text in pairs:
             by_text.setdefault(text, []).append(int(bid))
-        groups = [{"ids": sorted(v), "canonical_belief": k, "reason": "identical (fake)"}
-                  for k, v in by_text.items() if len(v) >= 2]
+        groups = [
+            {"ids": sorted(v), "canonical_belief": k, "reason": "identical (fake)"}
+            for k, v in by_text.items()
+            if len(v) >= 2
+        ]
         return json.dumps({"merge_groups": groups})
 
-    if "## Candidate beliefs" in prompt:                      # merge (embedding verify)
+    if "## Candidate beliefs" in prompt:  # merge (embedding verify)
         block = _section(prompt, "## Candidate beliefs")
         ids = _ids(block)
         beliefs = re.findall(r'"belief":\s*"((?:[^"\\]|\\.)*)"', block)
         if len(ids) < 2:
             return json.dumps({"merge_groups": []})
-        return json.dumps({"merge_groups": [{
-            "ids": ids, "canonical_belief": beliefs[0] if beliefs else "merged",
-            "reason": "verified identical (fake)"}]})
+        return json.dumps(
+            {
+                "merge_groups": [
+                    {
+                        "ids": ids,
+                        "canonical_belief": beliefs[0] if beliefs else "merged",
+                        "reason": "verified identical (fake)",
+                    }
+                ]
+            }
+        )
 
-    if "## Full belief graph" in prompt:                      # backward (full graph)
+    if "## Full belief graph" in prompt:  # backward (full graph)
         ids = _ids(_section(prompt, "## Full belief graph"))
         rels = []
         if len(ids) >= 2:
-            rels.append({"from_id": ids[-1], "to_id": ids[0],
-                         "type": "confirms", "note": "fake"})
+            rels.append(
+                {
+                    "from_id": ids[-1],
+                    "to_id": ids[0],
+                    "type": "confirms",
+                    "note": "fake",
+                }
+            )
         return json.dumps({"relations": rels})
 
-    if "## Current turn content" in prompt:                   # update (excerpt mode)
+    if "## Current turn content" in prompt:  # update (excerpt mode)
         content = _section(prompt, "## Current turn content").rstrip("\n")
         existing = _ids(_section(prompt, "### Existing nodes"))
         first_line = content.split("\n", 1)[0].strip()
         excerpt = first_line[:60] if len(first_line) >= 8 else first_line
         beliefs, fwd = [], []
         if excerpt:
-            beliefs.append({"tmp_id": "n0", "belief": f"Claim: {excerpt[:50]}",
-                            "stance": "asserted", "supporting_excerpts": [excerpt],
-                            "event_time": None, "time_text": None})
+            beliefs.append(
+                {
+                    "tmp_id": "n0",
+                    "belief": f"Claim: {excerpt[:50]}",
+                    "stance": "asserted",
+                    "supporting_excerpts": [excerpt],
+                    "event_time": None,
+                    "time_text": None,
+                }
+            )
         if "silver Honda Civic" in content:
-            beliefs.append({"tmp_id": "n1", "belief": "The user drives a silver Honda Civic.",
-                            "stance": "asserted", "supporting_excerpts": ["silver Honda Civic"],
-                            "event_time": None, "time_text": None})
+            beliefs.append(
+                {
+                    "tmp_id": "n1",
+                    "belief": "The user drives a silver Honda Civic.",
+                    "stance": "asserted",
+                    "supporting_excerpts": ["silver Honda Civic"],
+                    "event_time": None,
+                    "time_text": None,
+                }
+            )
         if existing and beliefs:
-            fwd.append({"from": max(existing), "to": "n0", "type": "informs", "note": "fake"})
+            fwd.append(
+                {"from": max(existing), "to": "n0", "type": "informs", "note": "fake"}
+            )
         if len(beliefs) >= 2:
             fwd.append({"from": "n0", "to": "n1", "type": "informs", "note": "fake"})
         return json.dumps({"beliefs": beliefs, "forward_relations": fwd})
 
-    if "## Current turn sentences" in prompt:                 # update (sentence mode)
+    if "## Current turn sentences" in prompt:  # update (sentence mode)
         block = _section(prompt, "## Current turn sentences")
         sents = re.findall(r"^\[(\d+)\] (.*)$", block, re.M)
         if not sents:
             return json.dumps({"beliefs": [], "forward_relations": []})
-        return json.dumps({"beliefs": [{
-            "tmp_id": "n0", "belief": f"S-claim: {sents[0][1][:48]}", "stance": "asserted",
-            "supporting_sentence_indices": [int(sents[0][0])],
-            "event_time": None, "time_text": None}], "forward_relations": []})
+        return json.dumps(
+            {
+                "beliefs": [
+                    {
+                        "tmp_id": "n0",
+                        "belief": f"S-claim: {sents[0][1][:48]}",
+                        "stance": "asserted",
+                        "supporting_sentence_indices": [int(sents[0][0])],
+                        "event_time": None,
+                        "time_text": None,
+                    }
+                ],
+                "forward_relations": [],
+            }
+        )
 
     return json.dumps({"beliefs": [], "forward_relations": []})
 
@@ -157,7 +213,7 @@ class FakeEmbedder:
                 vec = [0.0] * 64
                 s = t.lower()
                 for k in range(max(1, len(s) - 2)):
-                    vec[hash(s[k:k + 3]) % 64] += 1.0
+                    vec[hash(s[k : k + 3]) % 64] += 1.0
                 norm = sum(x * x for x in vec) ** 0.5 or 1.0
                 v = [x / norm for x in vec]
                 self._cache[t] = v
@@ -170,26 +226,51 @@ class FakeEmbedder:
 
 def make_turns(problem_id: str):
     return [
-        {"problem_id": problem_id, "role": "system",
-         "content": "You are a helpful research agent."},
-        {"problem_id": problem_id, "role": "user",
-         "content": "I need car help. I drive a silver Honda Civic and want service info."},
-        {"problem_id": problem_id, "role": "assistant",
-         "content": ("<think>The user has a silver Honda Civic; I should look up its "
-                     "service interval.</think>"
-                     "<tool_call>search(query='Honda Civic service interval')</tool_call>")},
-        {"problem_id": problem_id, "role": "tool",
-         "content": ("<tool_response>The Honda Civic recommended maintenance is every "
-                     "12,000 km. GPS navigation is available on the EX trim.</tool_response>")},
-        {"problem_id": problem_id, "role": "assistant",
-         "content": ("Your silver Honda Civic should be serviced every 12,000 km, and the "
-                     "EX trim includes GPS navigation."),
-         "is_trajectory_end": True},
+        {
+            "problem_id": problem_id,
+            "role": "system",
+            "content": "You are a helpful research agent.",
+        },
+        {
+            "problem_id": problem_id,
+            "role": "user",
+            "content": "I need car help. I drive a silver Honda Civic and want service info.",
+        },
+        {
+            "problem_id": problem_id,
+            "role": "assistant",
+            "content": (
+                "<think>The user has a silver Honda Civic; I should look up its "
+                "service interval.</think>"
+                "<tool_call>search(query='Honda Civic service interval')</tool_call>"
+            ),
+        },
+        {
+            "problem_id": problem_id,
+            "role": "tool",
+            "content": (
+                "<tool_response>The Honda Civic recommended maintenance is every "
+                "12,000 km. GPS navigation is available on the EX trim.</tool_response>"
+            ),
+        },
+        {
+            "problem_id": problem_id,
+            "role": "assistant",
+            "content": (
+                "Your silver Honda Civic should be serviced every 12,000 km, and the "
+                "EX trim includes GPS navigation."
+            ),
+            "is_trajectory_end": True,
+        },
     ]
 
 
 def read_jsonl(path: Path):
-    return [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
 
 def check_offsets_and_edges(result: dict, label: str):
@@ -200,38 +281,54 @@ def check_offsets_and_edges(result: dict, label: str):
     n_exact = 0
     for b in beliefs:
         assert "layer" not in b, f"[{label}] belief still has layer"
-        assert (b.get("source") or {}).get("type") in {"user", "assistant", "tool"}, \
+        assert (b.get("source") or {}).get("type") in {"user", "assistant", "tool"}, (
             f"[{label}] bad source.type"
+        )
         assert b.get("evidence"), f"[{label}] belief {b['id']} has no evidence"
         for ev in b["evidence"]:
             if ev["match"] == "exact" and ev["start"] is not None:
                 ti = ev["source"]["trajectory_index"]
                 content = result["trajectory"][ti]["content"]
-                assert content[ev["start"]:ev["end"]] == ev["text"], \
+                assert content[ev["start"] : ev["end"]] == ev["text"], (
                     f"[{label}] offset mismatch on belief {b['id']}"
+                )
                 n_exact += 1
     assert n_exact > 0, f"[{label}] no exact evidence located"
     for r in result["forward_relations"]:
         assert r["from_id"] < r["to_id"], f"[{label}] bad forward dir {r}"
-        assert r["from_id"] in active and r["to_id"] in active, f"[{label}] dead forward {r}"
+        assert r["from_id"] in active and r["to_id"] in active, (
+            f"[{label}] dead forward {r}"
+        )
     for r in result["backward_relations"]:
         assert r["from_id"] > r["to_id"], f"[{label}] bad backward dir {r}"
-        assert r["from_id"] in active and r["to_id"] in active, f"[{label}] dead backward {r}"
+        assert r["from_id"] in active and r["to_id"] in active, (
+            f"[{label}] dead backward {r}"
+        )
 
 
 def _opts():
-    return StreamOptions(evidence_mode="excerpt", use_clustering=False,
-                         merge_strategy="embedding", merge_threshold=0.86)
+    return StreamOptions(
+        evidence_mode="excerpt",
+        use_clustering=False,
+        merge_strategy="embedding",
+        merge_threshold=0.86,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Test 1 — single trajectory, full lifecycle
 # ---------------------------------------------------------------------------
 
+
 def test_single(base: Path):
     pid = "prob_single"
-    mgr = SessionManager(client=None, model="fake-chat", embedder=FakeEmbedder(),
-                         output_root=base, options=_opts())
+    mgr = SessionManager(
+        client=None,
+        model="fake-chat",
+        embedder=FakeEmbedder(),
+        output_root=base,
+        options=_opts(),
+    )
     turns = make_turns(pid)
     snaps = [mgr.push(t) for t in turns]
 
@@ -245,16 +342,25 @@ def test_single(base: Path):
     assert final["merges"], "final graph missing merges (duplicate Civic should merge)"
 
     out = base / pid
-    for fn in ("result.json", "events.jsonl", "final_graph.json",
-               "token_usage.json", "token_usage.txt",
-               "trajectory_stream.jsonl", "trajectory.json",
-               "belief_graph.jsonl", "belief_graph_latest.json"):
+    for fn in (
+        "result.json",
+        "events.jsonl",
+        "final_graph.json",
+        "token_usage.json",
+        "token_usage.txt",
+        "trajectory_stream.jsonl",
+        "trajectory.json",
+        "belief_graph.jsonl",
+        "belief_graph_latest.json",
+    ):
         assert (out / fn).exists(), f"[single] missing {fn}"
 
     lines = read_jsonl(out / "belief_graph.jsonl")
     n_turn = sum(1 for x in lines if x["stage"] == "turn")
     n_final = sum(1 for x in lines if x["stage"] == "final")
-    assert n_turn == len(turns), f"[single] {n_turn} turn snapshots, expected {len(turns)}"
+    assert n_turn == len(turns), (
+        f"[single] {n_turn} turn snapshots, expected {len(turns)}"
+    )
     assert n_final == 1, f"[single] expected 1 final snapshot, got {n_final}"
     latest = json.loads((out / "belief_graph_latest.json").read_text(encoding="utf-8"))
     assert latest == lines[-1], "[single] latest.json != last jsonl line"
@@ -271,11 +377,16 @@ def test_single(base: Path):
 
     result = json.loads((out / "result.json").read_text(encoding="utf-8"))
     assert result["item_id"] == pid
-    assert {b["id"] for b in result["all_beliefs"]} == {b["id"] for b in final["beliefs"]}
+    assert {b["id"] for b in result["all_beliefs"]} == {
+        b["id"] for b in final["beliefs"]
+    }
     check_offsets_and_edges(result, "single")
 
-    civic = [b for b in result["all_beliefs"]
-             if b["belief"] == "The user drives a silver Honda Civic."]
+    civic = [
+        b
+        for b in result["all_beliefs"]
+        if b["belief"] == "The user drives a silver Honda Civic."
+    ]
     assert len(civic) == 1, f"[single] Civic not merged: {len(civic)} copies"
     assert civic[0].get("merged_from"), "[single] canonical Civic lost merged_from"
 
@@ -287,42 +398,74 @@ def test_single(base: Path):
         raise AssertionError("[single] closed trajectory accepted a turn")
     except TrajectoryClosedError:
         pass
-    print(f"  [single] {len(result['all_beliefs'])} beliefs, "
-          f"{len(result['backward_relations'])} bwd, {len(result['merges'])} merge(s), "
-          f"{n_turn} per-turn + {n_final} final snapshot  ✓")
+    print(
+        f"  [single] {len(result['all_beliefs'])} beliefs, "
+        f"{len(result['backward_relations'])} bwd, {len(result['merges'])} merge(s), "
+        f"{n_turn} per-turn + {n_final} final snapshot  ✓"
+    )
 
 
 # ---------------------------------------------------------------------------
 # Test 2 — fragment streaming assembles into ONE turn
 # ---------------------------------------------------------------------------
 
+
 def test_fragments(base: Path):
     pid = "prob_frag"
-    sess = StreamingTrajectorySession(pid, client=None, model="fake-chat",
-                                      embedder=FakeEmbedder(), output_root=base,
-                                      options=_opts())
-    sess.push({"problem_id": pid, "role": "user", "content": "I drive a ",
-               "is_message_end": False})
-    s_mid = sess.push({"problem_id": pid, "role": "user", "content": "silver Honda ",
-                       "is_message_end": False})
+    sess = StreamingTrajectorySession(
+        pid,
+        client=None,
+        model="fake-chat",
+        embedder=FakeEmbedder(),
+        output_root=base,
+        options=_opts(),
+    )
+    sess.push(
+        {
+            "problem_id": pid,
+            "role": "user",
+            "content": "I drive a ",
+            "is_message_end": False,
+        }
+    )
+    s_mid = sess.push(
+        {
+            "problem_id": pid,
+            "role": "user",
+            "content": "silver Honda ",
+            "is_message_end": False,
+        }
+    )
     assert s_mid["stage"] == "buffered", "[frag] mid-fragment should be buffered"
-    sess.push({"problem_id": pid, "role": "user", "content": "Civic.",
-               "is_message_end": True})
-    sess.push({"problem_id": pid, "role": "assistant",
-               "content": "Noted: silver Honda Civic.", "is_trajectory_end": True})
+    sess.push(
+        {"problem_id": pid, "role": "user", "content": "Civic.", "is_message_end": True}
+    )
+    sess.push(
+        {
+            "problem_id": pid,
+            "role": "assistant",
+            "content": "Noted: silver Honda Civic.",
+            "is_trajectory_end": True,
+        }
+    )
 
     out = base / pid
     traj = json.loads((out / "trajectory.json").read_text(encoding="utf-8"))
-    assert len(traj["trajectory"]) == 2, f"[frag] expected 2 turns, got {len(traj['trajectory'])}"
-    assert traj["trajectory"][0]["content"] == "I drive a silver Honda Civic.", \
+    assert len(traj["trajectory"]) == 2, (
+        f"[frag] expected 2 turns, got {len(traj['trajectory'])}"
+    )
+    assert traj["trajectory"][0]["content"] == "I drive a silver Honda Civic.", (
         f"[frag] fragments not concatenated: {traj['trajectory'][0]['content']!r}"
+    )
 
     raw = read_jsonl(out / "trajectory_stream.jsonl")
     assert len(raw) == 4, "[frag] all 4 raw fragments must be logged"
     assert [r["ingested"] for r in raw] == [False, False, True, True]
 
     lines = read_jsonl(out / "belief_graph.jsonl")
-    assert sum(1 for x in lines if x["stage"] == "turn") == 2, "[frag] wrong turn-snapshot count"
+    assert sum(1 for x in lines if x["stage"] == "turn") == 2, (
+        "[frag] wrong turn-snapshot count"
+    )
     assert sum(1 for x in lines if x["stage"] == "final") == 1
     print("  [fragments] 4 fragments -> 2 turns, content reassembled  ✓")
 
@@ -331,14 +474,20 @@ def test_fragments(base: Path):
 # Test 3 — interleaved trajectories keep token accounting isolated
 # ---------------------------------------------------------------------------
 
+
 def test_interleaved_isolation(base: Path):
-    mgr = SessionManager(client=None, model="fake-chat", embedder=FakeEmbedder(),
-                         output_root=base, options=_opts())
+    mgr = SessionManager(
+        client=None,
+        model="fake-chat",
+        embedder=FakeEmbedder(),
+        output_root=base,
+        options=_opts(),
+    )
     a, b = "prob_A", "prob_B"
     ta, tb = make_turns(a), make_turns(b)
 
     CALLS["n"] = 0
-    for x, y in zip(ta, tb):
+    for x, y in zip(ta, tb, strict=False):
         mgr.push(x)
         mgr.push(y)
 
@@ -347,9 +496,12 @@ def test_interleaved_isolation(base: Path):
     na = res_a["token_usage"]["totals"]["n_calls"]
     nb = res_b["token_usage"]["totals"]["n_calls"]
     assert na > 0 and nb > 0, "[iso] a trajectory recorded zero calls"
-    assert na + nb == CALLS["n"], \
+    assert na + nb == CALLS["n"], (
         f"[iso] call accounting leaked: A={na} + B={nb} != total {CALLS['n']}"
-    assert len(llm.USAGE.records) == 0, "[iso] global USAGE not restored to empty after pushes"
+    )
+    assert len(llm.USAGE.records) == 0, (
+        "[iso] global USAGE not restored to empty after pushes"
+    )
 
     for res, lbl in ((res_a, "A"), (res_b, "B")):
         check_offsets_and_edges(res, f"iso-{lbl}")
@@ -361,23 +513,36 @@ def test_interleaved_isolation(base: Path):
 # Test 4 — the JSONL driver end to end
 # ---------------------------------------------------------------------------
 
+
 def _new_mgr(base: Path) -> SessionManager:
-    return SessionManager(client=None, model="fake-chat", embedder=FakeEmbedder(),
-                          output_root=base, options=_opts())
+    return SessionManager(
+        client=None,
+        model="fake-chat",
+        embedder=FakeEmbedder(),
+        output_root=base,
+        options=_opts(),
+    )
 
 
 def test_driver(base: Path):
     pid_a = "drv_end"
     turns_a = make_turns(pid_a)
     f_a = base / "streamA.jsonl"
-    f_a.write_text("\n".join(json.dumps(t, ensure_ascii=False) for t in turns_a) + "\n",
-                   encoding="utf-8")
+    f_a.write_text(
+        "\n".join(json.dumps(t, ensure_ascii=False) for t in turns_a) + "\n",
+        encoding="utf-8",
+    )
     with open(f_a, encoding="utf-8") as fh:
         summary_a = drv.drive(_new_mgr(base), drv.iter_jsonl(fh), quiet=True)
     assert summary_a["n_turns_pushed"] == len(turns_a), summary_a
     assert summary_a["finalized"] == [pid_a], summary_a
     out_a = base / pid_a
-    for fn in ("trajectory.json", "result.json", "belief_graph.jsonl", "trajectory_stream.jsonl"):
+    for fn in (
+        "trajectory.json",
+        "result.json",
+        "belief_graph.jsonl",
+        "trajectory_stream.jsonl",
+    ):
         assert (out_a / fn).exists(), f"[driver-A] missing {fn}"
     traj_a = json.loads((out_a / "trajectory.json").read_text(encoding="utf-8"))
     assert traj_a["complete"] is True and len(traj_a["trajectory"]) == len(turns_a)
@@ -388,14 +553,32 @@ def test_driver(base: Path):
     summary_b = drv.drive(_new_mgr(base), iter(turns_b), quiet=True)
     assert summary_b["finalized"] == [pid_b], summary_b
     out_b = base / pid_b
-    assert (out_b / "result.json").exists(), "[driver-B] EOF finalize wrote no result.json"
-    assert json.loads((out_b / "trajectory.json").read_text(encoding="utf-8"))["complete"] is True
+    assert (out_b / "result.json").exists(), (
+        "[driver-B] EOF finalize wrote no result.json"
+    )
+    assert (
+        json.loads((out_b / "trajectory.json").read_text(encoding="utf-8"))["complete"]
+        is True
+    )
 
-    lines = ["", "   ", "not json at all", "[1, 2, 3]",
-             json.dumps({"problem_id": "drv_skip", "role": "user",
-                         "content": "one good line", "is_trajectory_end": True})]
+    lines = [
+        "",
+        "   ",
+        "not json at all",
+        "[1, 2, 3]",
+        json.dumps(
+            {
+                "problem_id": "drv_skip",
+                "role": "user",
+                "content": "one good line",
+                "is_trajectory_end": True,
+            }
+        ),
+    ]
     summary_c = drv.drive(_new_mgr(base), drv.iter_jsonl(iter(lines)), quiet=True)
-    assert summary_c["n_turns_pushed"] == 1, f"[driver-C] bad lines not skipped: {summary_c}"
+    assert summary_c["n_turns_pushed"] == 1, (
+        f"[driver-C] bad lines not skipped: {summary_c}"
+    )
     assert summary_c["finalized"] == ["drv_skip"], summary_c
     print("  [driver] is_trajectory_end + EOF-finalize + malformed-skip paths  ✓")
 

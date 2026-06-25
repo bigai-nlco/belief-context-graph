@@ -65,16 +65,16 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Dict, List
-from urllib.parse import urlparse, parse_qs
+from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from belief_graph.online import SessionManager, TrajectoryClosedError   # noqa: E402
-from belief_graph.stream import StreamOptions                           # noqa: E402
+from bcg.belief_graph.online import SessionManager, TrajectoryClosedError  # noqa: E402
+from bcg.belief_graph.stream import StreamOptions  # noqa: E402
 
 
-def _parse_turns_body(raw: bytes) -> List[Dict[str, Any]]:
+def _parse_turns_body(raw: bytes) -> list[dict[str, Any]]:
     """Accept a JSON array of dicts OR NDJSON (one dict per line)."""
     text = raw.decode("utf-8").strip()
     if not text:
@@ -84,7 +84,7 @@ def _parse_turns_body(raw: bytes) -> List[Dict[str, Any]]:
         if not isinstance(data, list):
             raise ValueError("body must be a JSON array of turn objects")
         return [t for t in data if isinstance(t, dict)]
-    turns: List[Dict[str, Any]] = []
+    turns: list[dict[str, Any]] = []
     for line in text.splitlines():
         line = line.strip()
         if not line:
@@ -102,7 +102,7 @@ def make_handler(manager: SessionManager, lock: threading.Lock, *, quiet: bool =
         server_version = "ConstructBeliefsOnline/3.0"
 
         # -- helpers --------------------------------------------------------
-        def _send(self, code: int, payload: Dict[str, Any]) -> None:
+        def _send(self, code: int, payload: dict[str, Any]) -> None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(code)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -116,15 +116,20 @@ def make_handler(manager: SessionManager, lock: threading.Lock, *, quiet: bool =
 
         def log_message(self, fmt, *args):  # quieter access log to stderr
             if not quiet:
-                sys.stderr.write("  [http] %s - %s\n" % (self.address_string(), fmt % args))
+                sys.stderr.write(f"  [http] {self.address_string()} - {fmt % args}\n")
 
         # -- GET ------------------------------------------------------------
         def do_GET(self):
             url = urlparse(self.path)
             if url.path == "/health":
-                self._send(200, {"status": "ok",
-                                 "active": manager.active_problem_ids(),
-                                 "all": manager.all_problem_ids()})
+                self._send(
+                    200,
+                    {
+                        "status": "ok",
+                        "active": manager.active_problem_ids(),
+                        "all": manager.all_problem_ids(),
+                    },
+                )
                 return
             if url.path == "/graph":
                 pid = (parse_qs(url.query).get("problem_id") or [None])[0]
@@ -156,8 +161,8 @@ def make_handler(manager: SessionManager, lock: threading.Lock, *, quiet: bool =
 
                 if url.path == "/turns":
                     turns = _parse_turns_body(raw)
-                    finalized: List[str] = []
-                    latest: Dict[str, Any] = {}
+                    finalized: list[str] = []
+                    latest: dict[str, Any] = {}
                     with lock:
                         for t in turns:
                             snap = manager.push(t)
@@ -165,15 +170,21 @@ def make_handler(manager: SessionManager, lock: threading.Lock, *, quiet: bool =
                             latest[pid] = snap
                             if snap.get("finalized"):
                                 finalized.append(pid)
-                    self._send(200, {"pushed": len(turns),
-                                     "finalized": finalized, "latest": latest})
+                    self._send(
+                        200,
+                        {
+                            "pushed": len(turns),
+                            "finalized": finalized,
+                            "latest": latest,
+                        },
+                    )
                     return
 
                 if url.path == "/finalize":
                     body = json.loads(raw.decode("utf-8")) if raw else {}
                     pid = body.get("problem_id") if isinstance(body, dict) else None
                     if not pid:
-                        raise ValueError("body must be {\"problem_id\": \"...\"}")
+                        raise ValueError('body must be {"problem_id": "..."}')
                     with lock:
                         graph = manager.finalize(pid)
                     self._send(200, graph)
@@ -216,42 +227,68 @@ def build_manager(args) -> SessionManager:
         context_chars=args.context_chars,
     )
     return SessionManager(
-        config_path=args.config, model_key=args.model_key,
-        embedding_key=args.embedding_key, output_root=Path(args.output_dir),
+        config_path=args.config,
+        model_key=args.model_key,
+        embedding_key=args.embedding_key,
+        output_root=Path(args.output_dir),
         options=options,
     )
 
 
 def main():
-    p = argparse.ArgumentParser(description="construct_beliefs v3 streaming HTTP server")
-    p.add_argument("--host", default="0.0.0.0", help="interface to bind to (default: localhost only: 127.0.0.1)")
+    p = argparse.ArgumentParser(
+        description="construct_beliefs v3 streaming HTTP server"
+    )
+    p.add_argument(
+        "--host",
+        default="0.0.0.0",
+        help="interface to bind to (default: localhost only: 127.0.0.1)",
+    )
     p.add_argument("--port", type=int, default=8848)
     p.add_argument("--config", "-c", default="bcg/model_config.json")
     p.add_argument("--output-dir", "-o", default="outputs_stream")
     p.add_argument("--model-key", default="gpt-5.5")
     p.add_argument("--embedding-key", default="embedding")
-    p.add_argument("--evidence-mode", choices=["sentence", "excerpt"], default="sentence")
+    p.add_argument(
+        "--evidence-mode", choices=["sentence", "excerpt"], default="sentence"
+    )
     p.add_argument("--use-clustering", default=False, action="store_true")
     p.add_argument("--cluster-threshold", type=float, default=0.6)
     p.add_argument("--cluster-min-sentences", type=int, default=4)
     p.add_argument("--cluster-buffer", type=int, default=0)
-    p.add_argument("--merge-strategy", choices=["embedding", "llm", "off"], default="embedding")
+    p.add_argument(
+        "--merge-strategy", choices=["embedding", "llm", "off"], default="embedding"
+    )
     p.add_argument("--merge-threshold", type=float, default=0.86)
-    p.add_argument("--incremental-merge", dest="incremental_merge",
-                   default=True, action="store_true",
-                   help="Per-turn embedding-only merge (no LLM verification). Default: ON.")
-    p.add_argument("--no-incremental-merge", dest="incremental_merge", action="store_false",
-                   help="Disable the per-turn incremental merge.")
-    p.add_argument("--incremental-merge-threshold", type=float, default=0.86,
-                   help="Cosine threshold for the per-turn incremental merge. Default 0.86.")
+    p.add_argument(
+        "--incremental-merge",
+        dest="incremental_merge",
+        default=True,
+        action="store_true",
+        help="Per-turn embedding-only merge (no LLM verification). Default: ON.",
+    )
+    p.add_argument(
+        "--no-incremental-merge",
+        dest="incremental_merge",
+        action="store_false",
+        help="Disable the per-turn incremental merge.",
+    )
+    p.add_argument(
+        "--incremental-merge-threshold",
+        type=float,
+        default=0.86,
+        help="Cosine threshold for the per-turn incremental merge. Default 0.86.",
+    )
     p.add_argument("--context-chars", type=int, default=100000)
     p.add_argument("--quiet", "-q", default=False, action="store_true")
     args = p.parse_args()
 
     manager = build_manager(args)
     httpd = serve(manager, args.host, args.port, quiet=args.quiet)
-    print(f"[online-server] listening on http://{args.host}:{args.port}  "
-          f"(POST /turn, /turns, /finalize ; GET /graph, /health)")
+    print(
+        f"[online-server] listening on http://{args.host}:{args.port}  "
+        f"(POST /turn, /turns, /finalize ; GET /graph, /health)"
+    )
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
