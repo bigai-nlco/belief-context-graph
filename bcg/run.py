@@ -32,8 +32,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from construct_beliefs.pipeline import run_input
-from construct_beliefs.stream import StreamOptions
+from belief_graph.pipeline import run_input
+from belief_graph.stream import StreamOptions
 
 
 def main():

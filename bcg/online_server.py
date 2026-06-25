@@ -70,8 +70,8 @@ from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from construct_beliefs.online import SessionManager, TrajectoryClosedError   # noqa: E402
-from construct_beliefs.stream import StreamOptions                           # noqa: E402
+from belief_graph.online import SessionManager, TrajectoryClosedError   # noqa: E402
+from belief_graph.stream import StreamOptions                           # noqa: E402
 
 
 def _parse_turns_body(raw: bytes) -> List[Dict[str, Any]]:
