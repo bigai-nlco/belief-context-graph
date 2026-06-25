@@ -9,7 +9,7 @@ This version updates the prompt contract toward the new belief-graph design:
 * every belief/decision is asked to include ``entities``;
 * assistant final answers wrapped in ``\\boxed{...}`` are extracted as
   separate ``decisions`` rather than ordinary beliefs;
-* relation semantics are expressed with the four target edge types:
+* relation semantics are expressed with the three target edge types:
   ``causal`` | ``depends_on`` | ``supplements`` | ``contradicts``.
 
 Placeholders are filled via str.replace:
@@ -43,6 +43,9 @@ A belief is a self-contained memory / reasoning unit, usually shaped like:
 A belief should be understandable outside the original turn and should preserve
 the causal or dependency role it may play in later reasoning.
 
+Preserve the most specific supported wording in the belief itself.
+Do NOT generalize a specific claim into a vague claim.
+
 ## Granularity — coherent units, not tiny shards
 Do NOT shred one coherent point into many trivial beliefs. A belief is not forced
 to be a single clause or sentence. It may include tightly coupled qualifiers,
@@ -69,7 +72,7 @@ Examples:
       +  "The user wants to replace the final evaluation pass."
 
 - Keep coupled condition/result together:
-    "If the parser still only accepts informs edges, four-type relations emitted by the prompt will be filtered out."
+    "If the parser still only accepts informs edges, three-type relations emitted by the prompt will be filtered out."
       → one belief, because the condition and result form one reusable dependency.
 
 - Separate different epistemic status:
@@ -78,20 +81,30 @@ Examples:
       +  "The failure is probably caused by a missing checkpoint."
 
 ## Entities
-For every belief, output ``entities``: a list of all salient entities explicitly
-involved in the belief. Include people, systems, files, variables, models,
-datasets, organizations, tools, functions, classes, concepts, and named values
-that the node is about. Preserve entity wording exactly when possible.
+For every belief, output `entities`: specific, salient entities explicitly involved in the belief.
 
-- Use [] only if no meaningful entity exists.
-- Do not include generic filler such as "the content", "this turn", or "the answer"
-  unless it is the actual subject under discussion.
+Include:
+- named people, organizations, places, products, datasets, files, functions, classes, tools, models, APIs, variables, and concrete named concepts;
+- specific qualified objects or concepts when the qualifier makes them distinguishable, e.g. "silver Honda Civic", "incremental merge", "format_graph_nodes", "COCO instance segmentation";
+- possessive relatives or objects only when qualified, e.g. "Nisha's dad", "Jordan's dog", "the user's silver Honda Civic".
+
+Do NOT include:
+- pronouns: I, you, he, she, they, it, this, that;
+- generic filler: "the content", "this turn", "the answer", "the issue", "the thing", "the result";
+- bare generic nouns: car, file, code, graph, node, edge, model, prompt, time, data, message, unless they are qualified enough to be identifiable;
+- abstract feelings or vague concepts unless the belief is specifically about that concept;
+- temporal expressions as entities; put temporal information in event_time/time_text;
+- duplicate surface forms referring to the same entity in one belief.
+
+Use the most specific form supported by the CURRENT turn and existing graph context.
+When in doubt, omit the entity rather than inventing one.
+Use [] only if no meaningful entity exists.
 """
 
 _DECISION_DEFINITION = """\
 ## What is a decision
 A decision is the assistant's final answer, selected result, final option, or
-explicit final conclusion, especially when it is wrapped in ``\boxed{...}``.
+explicit final conclusion, especially when it is wrapped in ``\\boxed{...}``.
 
 Rules:
 - Extract ``\\boxed{...}`` final answers as ``decisions`` instead of ordinary beliefs.
@@ -127,16 +140,20 @@ If the belief has no explicit time attached, set both fields to null. NEVER inve
 
 _GRAPH_CONTEXT_BLOCK = f"""\
 ## Existing belief graph (context — READ ONLY)
-These NODES and EDGES were already extracted from EARLIER turns. They are shown so you can:
-  - resolve pronouns / vague references in the current turn ("it", "the shop", "that issue"),
+These NODES and EDGES were already extracted from EARLIER turns. Use them only to:
+  - resolve pronouns or vague references in the current turn ("it", "the shop", "that issue"),
   - keep entity names and wording consistent with prior beliefs,
-  - decide how NEW nodes from this turn relate to existing nodes.
+  - decide how NEW nodes from the CURRENT turn relate to existing nodes.
 
-CRITICAL — do NOT re-emit anything already in the graph:
-  - Do NOT output a node that already exists below as a duplicate of an existing node.
-  - Do NOT output an edge/relation that already exists below.
-  - BUT still extract every claim the CURRENT turn makes, even if it restates an existing
-    fact — a restatement becomes a NEW node here; downstream merge/dedup can combine it.
+CRITICAL — do NOT copy old graph content as new output merely because it appears in the graph:
+  - Extract beliefs ONLY from the CURRENT turn.
+  - Existing graph context is read-only. Use it only to:
+    - resolve pronouns or vague references,
+    - keep entity names consistent,
+    - decide how new nodes relate to existing nodes.
+  - Do not copy existing beliefs from the graph.
+  - However, if the CURRENT turn explicitly restates, confirms, corrects, or updates an existing belief, extract a NEW evidence-bearing belief for the CURRENT turn. Downstream merge/dedup may combine it later.
+
 
 ### Existing nodes
 {GRAPH_NODES_PLACEHOLDER}
@@ -152,36 +169,47 @@ After creating the NEW beliefs/decisions for this turn, emit relations that conn
   - new node → existing node,
   - new node → new node.
 
-Use ONLY these four relation types in the ``relations`` field:
+Do NOT emit relations between two existing nodes. The code will reject existing node → existing node relations.
+
+Endpoint rules:
+- Relation endpoints must be either:
+  - an existing integer id shown in Existing nodes, or
+  - a new temporary id from this output ("nK" or "dK").
+- Never invent ids.
+- Never connect a node to itself.
+
+Use ONLY these three relation types in the ``relations`` field:
 
 1. **causal**
    A produces, triggers, changes, prevents, enables, or directly explains B.
    Example: "The checkpoint file is missing" causal → "Training cannot resume from that checkpoint".
 
-2. **depends_on**
-   A relies on B as a premise, input, assumption, tool result, user constraint, or required context.
-   Example: "The proposed prompt-only change" depends_on → "The parser currently accepts only informs edges".
-
-3. **supplements**
+2. **supplements**
    A adds detail, scope, parameters, examples, evidence, or elaboration to B without changing or refuting it.
    Example: "Entities must include functions and files" supplements → "Belief nodes need an entities field".
 
-4. **contradicts**
+3. **contradicts**
    A conflicts with, corrects, negates, or replaces B.
    Example: "The model output should use four typed relations" contradicts → "The graph uses generic informs edges".
 
 Direction rule:
 - Use the direction that makes the relation sentence natural:
-  {"from": A, "to": B, "type": "depends_on"} means A depends on B.
   {"from": A, "to": B, "type": "causal"} means A causes/explains B.
   {"from": A, "to": B, "type": "supplements"} means A supplements B.
   {"from": A, "to": B, "type": "contradicts"} means A contradicts B.
 
+## What to read when judging a relation
+Judge the relation between two nodes ONLY from each node's semantic content field, NOT from any auxiliary field (``supporting_excerpts``, ``entities``, ``stance``, ``event_time``, ``time_text``, ``conf``, etc.):
+- For an EXISTING node, read its ``content`` field.
+- For a NEW belief created this turn, read its ``belief`` field.
+- For a NEW decision created this turn, read its ``decision`` field.
+Auxiliary fields such as ``supporting_excerpts`` and ``entities`` are evidence/metadata only. Do NOT decide that two nodes are related (or pick a relation type) because they share an excerpt or an entity; the relation must be justified by the meaning expressed in the content/belief/decision text itself.
+
 Selection rules:
+- Prefer relations directly supported by the CURRENT turn plus the read-only graph context.
 - Be selective but complete enough to preserve the reasoning chain between turns.
 - Do NOT link nodes merely because they share an entity.
 - Prefer 0–4 high-value relations per new node; empty list is fine.
-- Relation endpoints may be an existing integer id or a new temporary id ("nK" / "dK").
 """
 
 _OUTPUT_FORMAT_EXCERPT = """\
@@ -295,6 +323,10 @@ Things to extract:
   ("The user is asking how often to change the oil."). Keep the object and purpose of the question together.
 - **Corrections or updates** to things said earlier — extract the NEW state as its own belief.
 
+Do NOT infer habits, preferences, recurring patterns, intent, causality, or importance from a single mention.
+Extract preferences, plans, or intentions only when the CURRENT turn explicitly states them.
+A single event supports only that event unless recurrence or preference is explicitly stated.
+
 Write each belief in the third person about "The user" (or the named person/entity) so it is
 self-contained. Resolve pronouns using the existing graph context when unambiguous.
 
@@ -313,11 +345,10 @@ The turn may mix internal reasoning, tool invocations, and the final answer. Ext
 - **Recommendations / advice** given to the user.
 - **Assessments** of the user's situation.
 - **Final decisions**: when the assistant gives a final answer, especially inside ``\\boxed{...}``, put it in ``decisions`` instead of ``beliefs``.
-- **Information needs expressed by a tool call** — restate the query as a belief about what the
-  assistant is looking for ("The assistant is searching for the Burj Khalifa's floor count.").
+- **Information needs expressed by a tool call** ONLY when the query or constraint is needed to explain a later tool result or final answer.
   Any hypothesis a query commits to is its own belief with stance "judged" or "speculated".
 - **Key reasoning steps that are falsifiable, reusable, or needed by later turns** — keep enough detail to reconstruct causal/dependency chains between user request, tool result, reasoning, and final answer.
-- **Tool-use commitments** when they carry semantic content, e.g. what entity/query/constraint the assistant is using.
+- **Tool-use commitments** ONLY when they carry semantic content that should be remembered or linked, not routine procedure.
 
 Do NOT extract: pure procedure / planning filler ("Let me search next", "First I need to…") unless it encodes a substantive dependency; self-questions; raw tool-call JSON syntax / key names; or politeness.
 
