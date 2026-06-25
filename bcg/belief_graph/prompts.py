@@ -10,7 +10,7 @@ This version updates the prompt contract toward the new belief-graph design:
 * assistant final answers wrapped in ``\\boxed{...}`` are extracted as
   separate ``decisions`` rather than ordinary beliefs;
 * relation semantics are expressed with the three target edge types:
-  ``causal`` | ``depends_on`` | ``supplements`` | ``contradicts``.
+  ``depends_on`` | ``supplements`` | ``contradicts``.
 
 Placeholders are filled via str.replace:
     <<<CONTENT>>> <<<SENTENCES>>> <<<GRAPH_NODES>>> <<<GRAPH_EDGES>>>
@@ -180,9 +180,9 @@ Endpoint rules:
 
 Use ONLY these three relation types in the ``relations`` field:
 
-1. **causal**
-   A produces, triggers, changes, prevents, enables, or directly explains B.
-   Example: "The checkpoint file is missing" causal → "Training cannot resume from that checkpoint".
+1. **depends_on**
+   A relies on B as a premise, input, assumption, tool result, user constraint, or required context.
+   Example: "The proposed prompt-only change" depends_on → "The parser currently accepts only informs edges".
 
 2. **supplements**
    A adds detail, scope, parameters, examples, evidence, or elaboration to B without changing or refuting it.
@@ -194,7 +194,7 @@ Use ONLY these three relation types in the ``relations`` field:
 
 Direction rule:
 - Use the direction that makes the relation sentence natural:
-  {"from": A, "to": B, "type": "causal"} means A causes/explains B.
+  {"from": A, "to": B, "type": "depends_on"} means A depends on B.
   {"from": A, "to": B, "type": "supplements"} means A supplements B.
   {"from": A, "to": B, "type": "contradicts"} means A contradicts B.
 
@@ -238,7 +238,7 @@ _OUTPUT_FORMAT_EXCERPT = """\
     }
   ],
   "relations": [
-    { "from": <existing int id or "nK" or "dK">, "to": <existing int id or "nK" or "dK">, "type": "causal | depends_on | supplements | contradicts", "note": "<one short sentence>" }
+    { "from": <existing int id or "nK" or "dK">, "to": <existing int id or "nK" or "dK">, "type": "depends_on | supplements | contradicts", "note": "<one short sentence>" }
   ]
 }
 """
@@ -269,7 +269,7 @@ _OUTPUT_FORMAT_SENTENCES = """\
     }
   ],
   "relations": [
-    { "from": <existing int id or "nK" or "dK">, "to": <existing int id or "nK" or "dK">, "type": "causal | depends_on | supplements | contradicts", "note": "<one short sentence>" }
+    { "from": <existing int id or "nK" or "dK">, "to": <existing int id or "nK" or "dK">, "type": "depends_on | supplements | contradicts", "note": "<one short sentence>" }
   ]
 }
 """

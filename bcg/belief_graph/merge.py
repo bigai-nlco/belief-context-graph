@@ -12,10 +12,11 @@ Strategies (--merge-strategy):
     merge groups directly (no embeddings needed).
   * off                  — skip merging.
 
-Role-aware merge policy:
+Role-aware & type-aware merge policy:
   * nodes are eligible to merge ONLY when their source role is identical
     (source.role/source.type; e.g. user with user, assistant with assistant,
-    tool with tool). This hard gate is enforced before embedding-only
+    tool with tool) AND their node_type is identical (belief with belief,
+    decision with decision). Both hard gates are enforced before embedding-only
     incremental merges and again before applying LLM-proposed groups.
 
 Merge semantics (one confirmed group):
@@ -101,11 +102,33 @@ def _same_merge_role(ids: List[int], by_id: Dict[int, Dict[str, Any]]) -> bool:
     return len(roles) == 1
 
 
+def _merge_node_type(b: Dict[str, Any]) -> str:
+    """Node-type key used to constrain deduplication.
+
+    Nodes may be merged ONLY when this key is identical. This prevents a belief
+    node from being absorbed into a semantically similar decision node (or vice
+    versa). Defaults to "belief" to match the graph-wide fallback used in
+    graph.py / stream.py (node.get("node_type", "belief")).
+    """
+    return str(b.get("node_type", "belief")).strip().lower() or "belief"
+
+
+def _same_node_type(ids: List[int], by_id: Dict[int, Dict[str, Any]]) -> bool:
+    types = {_merge_node_type(by_id[i]) for i in ids if i in by_id}
+    return len(types) == 1
+
+
 def _split_ids_by_role(ids: List[int], by_id: Dict[int, Dict[str, Any]]) -> List[List[int]]:
-    buckets: Dict[str, List[int]] = {}
+    """Split ids into subgroups sharing BOTH role and node_type.
+
+    The bucket key is (role, node_type), so a mixed-role or mixed-type group is
+    broken into homogeneous subgroups; only subgroups with >= 2 ids survive.
+    """
+    buckets: Dict[Tuple[str, str], List[int]] = {}
     for i in ids:
         if i in by_id:
-            buckets.setdefault(_merge_role(by_id[i]), []).append(i)
+            key = (_merge_role(by_id[i]), _merge_node_type(by_id[i]))
+            buckets.setdefault(key, []).append(i)
     return [sorted(v) for v in buckets.values() if len(v) >= 2]
 
 
@@ -145,6 +168,7 @@ def _embedding_candidates(
 
     texts = [b.get("belief") or "" for b in beliefs]
     roles = [_merge_role(b) for b in beliefs]
+    types = [_merge_node_type(b) for b in beliefs]
     vectors = embedder.embed(texts, purpose=f"merge:{pass_label}")
     sim = cosine_similarity_matrix(vectors)
 
@@ -152,6 +176,7 @@ def _embedding_candidates(
     uf = _UnionFind(n)
     pairs: List[Dict[str, Any]] = []
     skipped_cross_role: List[Dict[str, Any]] = []
+    skipped_cross_type: List[Dict[str, Any]] = []
     for i in range(n):
         for j in range(i + 1, n):
             s = float(sim[i, j])
@@ -160,12 +185,17 @@ def _embedding_candidates(
             rec = {
                 "id_a": beliefs[i]["id"], "id_b": beliefs[j]["id"],
                 "role_a": roles[i], "role_b": roles[j],
+                "type_a": types[i], "type_b": types[j],
                 "similarity": round(s, 4),
                 "belief_a": texts[i], "belief_b": texts[j],
             }
             if roles[i] != roles[j]:
                 rec["skipped_reason"] = "cross_role"
                 skipped_cross_role.append(rec)
+                continue
+            if types[i] != types[j]:
+                rec["skipped_reason"] = "cross_type"
+                skipped_cross_type.append(rec)
                 continue
             uf.union(i, j)
             pairs.append(rec)
@@ -176,9 +206,10 @@ def _embedding_candidates(
     groups = [sorted(beliefs[i]["id"] for i in idxs)
               for idxs in groups_by_root.values() if len(idxs) >= 2]
     groups.sort(key=lambda g: g[0])
-    # Attach skipped cross-role pairs to the function for logging without
-    # changing the public return contract used by run_merge_pass.
+    # Attach skipped cross-role / cross-type pairs to the function for logging
+    # without changing the public return contract used by run_merge_pass.
     _embedding_candidates.last_skipped_cross_role = skipped_cross_role  # type: ignore[attr-defined]
+    _embedding_candidates.last_skipped_cross_type = skipped_cross_type  # type: ignore[attr-defined]
     return groups, pairs
 
 
@@ -376,6 +407,8 @@ def run_merge_pass(
         log["candidate_pairs"] = pairs
         log["skipped_cross_role_pairs"] = getattr(
             _embedding_candidates, "last_skipped_cross_role", [])
+        log["skipped_cross_type_pairs"] = getattr(
+            _embedding_candidates, "last_skipped_cross_type", [])
         log["candidate_groups"] = candidate_groups
         if verify:
             log["llm_verifications"] = []
@@ -404,14 +437,17 @@ def run_merge_pass(
             # _apply_merge_group.
             for g_ids in candidate_groups:
                 ids = [i for i in g_ids if i in allowed_ids and i not in used_ids]
-                if len(ids) < 2 or not _same_merge_role(ids, by_id):
+                if (len(ids) < 2 or not _same_merge_role(ids, by_id)
+                        or not _same_node_type(ids, by_id)):
                     continue
                 used_ids.update(ids)
                 role = _merge_role(by_id[ids[0]]) if ids[0] in by_id else "unknown"
+                ntype = _merge_node_type(by_id[ids[0]]) if ids[0] in by_id else "belief"
                 confirmed.append({
                     "ids": ids, "canonical_belief": None,
                     "reason": (f"embedding cosine >= {threshold} "
-                               f"within role={role} (no LLM verification)"),
+                               f"within role={role}, node_type={ntype} "
+                               f"(no LLM verification)"),
                 })
     else:  # strategy == "llm"
         prompt = PROMPT_MERGE_FULL.replace(BELIEFS_LIST_PLACEHOLDER, _blob(active))
@@ -426,9 +462,13 @@ def run_merge_pass(
     applied: List[Dict[str, Any]] = []
     mapping: Dict[int, int] = {}
     skipped_role_mismatch: List[Dict[str, Any]] = []
+    skipped_type_mismatch: List[Dict[str, Any]] = []
     for g in sorted(confirmed, key=lambda g: g["ids"][0]):
         if not _same_merge_role(g["ids"], by_id):
             skipped_role_mismatch.append({"ids": g["ids"], "reason": "cross_role_group"})
+            continue
+        if not _same_node_type(g["ids"], by_id):
+            skipped_type_mismatch.append({"ids": g["ids"], "reason": "cross_type_group"})
             continue
         rec = _apply_merge_group(graph, g["ids"], g["canonical_belief"],
                                  g["reason"], pass_label)
@@ -443,6 +483,7 @@ def run_merge_pass(
 
     log["applied_merges"] = applied
     log["skipped_role_mismatch_groups"] = skipped_role_mismatch
+    log["skipped_type_mismatch_groups"] = skipped_type_mismatch
     log["relation_rewire"] = rewire
     log["finished_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -483,6 +524,12 @@ def _render_text_log(log: Dict[str, Any]) -> str:
         for p in skipped[:20]:
             lines.append(f"  skip  #{p['id_a']}({p.get('role_a')}) ~ "
                          f"#{p['id_b']}({p.get('role_b')})  sim={p['similarity']}")
+    skipped_t = log.get("skipped_cross_type_pairs") or []
+    if skipped_t:
+        lines.append(f" skipped cross-type candidate pairs: {len(skipped_t)}")
+        for p in skipped_t[:20]:
+            lines.append(f"  skip  #{p['id_a']}({p.get('type_a')}) ~ "
+                         f"#{p['id_b']}({p.get('type_b')})  sim={p['similarity']}")
     if "candidate_groups" in log:
         lines.append(f" candidate groups: {log['candidate_groups']}")
     for v in log.get("llm_verifications", []):
@@ -491,6 +538,8 @@ def _render_text_log(log: Dict[str, Any]) -> str:
                         f" -> {[g['ids'] for g in v.get('accepted_groups', [])]}"))
     for g in log.get("skipped_role_mismatch_groups", []):
         lines.append(f"  SKIP cross-role merge group {g.get('ids')}")
+    for g in log.get("skipped_type_mismatch_groups", []):
+        lines.append(f"  SKIP cross-type merge group {g.get('ids')}")
     for m in log.get("applied_merges", []):
         lines.append(f"  MERGE  {m['absorbed_ids']} -> #{m['canonical_id']}  "
                      f"(conf<-{m['adopted_confidence']} from newest #{m['newest_id']})")
