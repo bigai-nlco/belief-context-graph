@@ -242,8 +242,8 @@ def main():
                    help="Per-turn embedding-only merge (no LLM verification). Default: ON.")
     p.add_argument("--no-incremental-merge", dest="incremental_merge", action="store_false",
                    help="Disable the per-turn incremental merge.")
-    p.add_argument("--incremental-merge-threshold", type=float, default=0.8,
-                   help="Cosine threshold for the per-turn incremental merge. Default 0.8.")
+    p.add_argument("--incremental-merge-threshold", type=float, default=0.86,
+                   help="Cosine threshold for the per-turn incremental merge. Default 0.86.")
     p.add_argument("--context-chars", type=int, default=100000)
     p.add_argument("--quiet", "-q", default=False, action="store_true")
     args = p.parse_args()
