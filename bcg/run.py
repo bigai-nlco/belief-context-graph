@@ -45,9 +45,9 @@ def main():
                         "'embedding' holds the embedding endpoint).")
     p.add_argument("--output-dir", "-o", default="outputs_stream",
                    help="Output root; each item gets its own subdirectory.")
-    p.add_argument("--model-key", default=None,
+    p.add_argument("--model-key", default="gpt-5.5",
                    help="Which chat-model entry of the config to use "
-                        "(default: first non-reserved key).")
+                        "(default: gpt-5.5, matching the online server).")
     p.add_argument("--embedding-key", default="embedding",
                    help="Which config entry holds the embedding endpoint.")
 
@@ -86,11 +86,13 @@ def main():
     p.add_argument("--no-incremental-merge", dest="incremental_merge",
                    action="store_false",
                    help="Disable the per-turn incremental merge.")
-    p.add_argument("--incremental-merge-threshold", type=float, default=0.8,
-                   help="Cosine threshold for the per-turn incremental merge. Default 0.8.")
+    p.add_argument("--incremental-merge-threshold", type=float, default=0.86,
+                   help="Cosine threshold for the per-turn incremental merge. Default 0.86 "
+                        "(matching the online server).")
 
-    p.add_argument("--context-chars", type=int, default=9000,
-                   help="Char budget of the existing-nodes context block. Default 9000.")
+    p.add_argument("--context-chars", type=int, default=100000,
+                   help="Char budget of the existing-nodes context block. Default 100000 "
+                        "(matching the online server).")
     p.add_argument("--min-content-len", type=int, default=0,
                    help="Skip turns whose content is shorter than this. Default 0.")
 

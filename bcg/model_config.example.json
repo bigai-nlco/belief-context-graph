@@ -1,0 +1,47 @@
+{
+  "_comment": "Copy this file to model_config.json and fill in real values. Top-level keys are model names (model-key); any key starting with 'embedding' is reserved and never used as the default chat model. See README.md > Configuration.",
+
+  "gpt-5.5": {
+    "api_key": "sk-REPLACE_ME",
+    "base_url": "https://your-openai-compatible-endpoint/v1",
+    "max_tokens": 100000,
+    "temperature": 1,
+    "top_p": 0.95,
+    "pricing": {
+      "input_per_1k": 0.005,
+      "output_per_1k": 0.03
+    }
+  },
+
+  "deepseek-v4-flash-260425": {
+    "api_key": "REPLACE_ME",
+    "base_url": "https://your-other-endpoint/api/v3",
+    "max_tokens": 100000,
+    "temperature": 1,
+    "top_p": 0.95,
+    "pricing": {
+      "input_per_1k": 0.001,
+      "output_per_1k": 0.002
+    }
+  },
+
+  "embedding": {
+    "_comment": "OpenAI-compatible /v1/embeddings endpoint (vLLM / SGLang / TEI / OpenAI). This is the DEFAULT embedding entry the engine looks for. api_key may be 'EMPTY' for a local server that ignores it.",
+    "api_key": "EMPTY",
+    "base_url": "http://localhost:8000/v1",
+    "model": "Qwen/Qwen3-Embedding-8B",
+    "batch_size": 8,
+    "dimensions": null
+  },
+
+  "embedding_local": {
+    "_comment": "Alternative: load embedding weights IN-PROCESS via sentence-transformers (no HTTP server). Select with --embedding-key embedding_local. Requires the optional 'sentence-transformers' + 'torch' dependencies (see requirements.txt). 'model' is a HF repo id or a local weights directory.",
+    "provider": "local",
+    "model": "Qwen/Qwen3-Embedding-8B",
+    "device": "auto",
+    "dtype": "auto",
+    "batch_size": 8,
+    "max_length": 8192,
+    "model_kwargs": {}
+  }
+}
