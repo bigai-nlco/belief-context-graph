@@ -40,7 +40,7 @@ def main():
     p = argparse.ArgumentParser(description="construct_beliefs v3 streaming pipeline driver")
     p.add_argument("--input", "-i", required=True,
                    help="Input JSON/TXT (a trajectory, or multi-session QA items).")
-    p.add_argument("--config", "-c", default="model_config.json",
+    p.add_argument("--config", "-c", default="bcg/model_config.json",
                    help="Model config path (nested by model name; reserved key "
                         "'embedding' holds the embedding endpoint).")
     p.add_argument("--output-dir", "-o", default="outputs_stream",

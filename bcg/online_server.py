@@ -226,7 +226,7 @@ def main():
     p = argparse.ArgumentParser(description="construct_beliefs v3 streaming HTTP server")
     p.add_argument("--host", default="0.0.0.0", help="interface to bind to (default: localhost only: 127.0.0.1)")
     p.add_argument("--port", type=int, default=8848)
-    p.add_argument("--config", "-c", default="model_config.json")
+    p.add_argument("--config", "-c", default="bcg/model_config.json")
     p.add_argument("--output-dir", "-o", default="outputs_stream")
     p.add_argument("--model-key", default="gpt-5.5")
     p.add_argument("--embedding-key", default="embedding")
