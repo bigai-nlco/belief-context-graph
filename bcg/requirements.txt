@@ -1,0 +1,21 @@
+# ---------------------------------------------------------------------------
+# construct_beliefs — runtime dependencies
+# ---------------------------------------------------------------------------
+# Core (always required):
+#   openai  — OpenAI-compatible chat + embedding client (llm.py)
+#   numpy   — cosine-similarity matrix + agglomerative clustering used by the
+#             default embedding merge strategy and by --use-clustering
+#             (llm.py, split.py). Imported lazily, but needed for any run that
+#             uses embeddings (which the default config does).
+openai>=1.0.0
+numpy>=1.21
+
+# ---------------------------------------------------------------------------
+# Optional — ONLY needed when an embedding entry uses  "provider": "local"
+# (i.e. you load the embedding model weights in-process via sentence-transformers
+# instead of calling an OpenAI-compatible /v1/embeddings HTTP endpoint).
+# Leave these commented out if you serve embeddings over HTTP (the default
+# "embedding" entry in model_config.json points at http://localhost:8000/v1).
+# ---------------------------------------------------------------------------
+# sentence-transformers>=2.2.0
+# torch>=2.0          # pick the build matching your CUDA / CPU platform

@@ -1,0 +1,1277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Belief Graph · Step &amp; Merge Diff</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400&family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#faf7f2; --panel:#ffffff; --ink:#1a1a1a; --ink-soft:#4a4a4a; --ink-faint:#8a8276;
+  --rule:#e8e2d8; --accent:#b8442f;
+
+  --src-user-fg:#1e5a9c; --src-user-bg:#e0ecfa;
+  --src-final-fg:#8b2c5b; --src-final-bg:#fbe3ee;   /* assistant */
+  --src-tool-fg:#2e6e3a; --src-tool-bg:#e1f0e4;
+
+  --rel-confirms-fg:#1f6a35; --rel-contradicts-fg:#c84a3e;
+  --rel-extends-fg:#b3500e;  --rel-informs-fg:#6b89b8;
+
+  /* diff palette, harmonised with the warm theme */
+  --add-fg:#1f7a44; --add-bg:#e3f3e7; --add-glow:rgba(31,122,68,.55);
+  --del-fg:#b8442f; --del-bg:#f7e6e1; --del-glow:rgba(184,68,47,.5);
+  --chg-fg:#b5860b; --chg-bg:#fbf0d4; --chg-glow:rgba(181,134,11,.55);
+  --merge-fg:#6d28d9; --merge-bg:#ece4fb;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);
+  font-family:'Inter Tight',-apple-system,sans-serif;font-feature-settings:'ss01','cv11';-webkit-font-smoothing:antialiased;}
+body{display:flex;flex-direction:column;}
+
+/* ---------- header ---------- */
+header.app-header{padding:16px 28px 12px;border-bottom:1px solid var(--rule);background:var(--panel);
+  display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:14px;flex:0 0 auto;}
+header.app-header h1{font-family:'Fraunces',Georgia,serif;font-weight:600;font-size:23px;letter-spacing:-.02em;margin:0;
+  font-variation-settings:'opsz' 48,'SOFT' 50;}
+header.app-header h1 .sep{color:var(--accent);margin:0 8px;}
+header.app-header h1 .tag{font-weight:400;font-style:italic;font-variation-settings:'opsz' 36;}
+.file-meta{font-size:12.5px;color:var(--ink-soft);display:flex;gap:16px;flex-wrap:wrap;align-items:center;}
+.file-meta b{color:var(--ink);font-weight:500;}
+.reload-btn{font-family:'JetBrains Mono',monospace;font-size:10.5px;background:var(--bg);border:1px solid var(--rule);
+  color:var(--ink-soft);padding:5px 10px;border-radius:4px;cursor:pointer;transition:all 120ms;letter-spacing:.02em;}
+.reload-btn:hover{background:#fff;color:var(--ink);border-color:var(--ink-soft);}
+
+/* ---------- diff banner ---------- */
+.banner{flex:0 0 auto;padding:8px 28px;border-bottom:1px solid var(--rule);background:var(--panel);
+  display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:12.5px;color:var(--ink-soft);}
+.banner .step-label{font-family:'Fraunces',Georgia,serif;font-weight:600;font-size:14px;color:var(--ink);
+  font-variation-settings:'opsz' 14;}
+.banner .stage-tag{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.1em;
+  padding:2px 8px;border-radius:3px;background:var(--bg);border:1px solid var(--rule);color:var(--ink-soft);}
+.banner .stage-tag.final{background:var(--src-final-bg);border-color:var(--src-final-fg);color:var(--src-final-fg);}
+.banner .chip{display:inline-flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:11.5px;}
+.banner .chip b{font-weight:600;color:var(--ink);}
+.banner .chip.zero{opacity:.4;}
+.banner .dot{width:9px;height:9px;border-radius:50%;display:inline-block;}
+.dot.add{background:var(--add-fg);} .dot.del{background:var(--del-fg);} .dot.chg{background:var(--chg-fg);}
+.dot.edge{background:var(--rel-informs-fg);} .dot.merge{background:var(--merge-fg);}
+.banner .divider{width:1px;height:16px;background:var(--rule);}
+
+/* ---------- controls ---------- */
+.controls{flex:0 0 auto;padding:8px 28px;border-bottom:1px solid var(--rule);background:var(--bg);
+  display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
+.nav-group{display:flex;align-items:center;gap:8px;}
+.nav-btn{font-family:'JetBrains Mono',monospace;font-size:13px;width:34px;height:30px;border:1px solid var(--rule);
+  background:var(--panel);color:var(--ink);border-radius:5px;cursor:pointer;transition:all 120ms;display:flex;align-items:center;justify-content:center;}
+.nav-btn:hover:not(:disabled){border-color:var(--ink-soft);background:#fff;}
+.nav-btn:disabled{opacity:.35;cursor:default;}
+.scrubber{flex:1 1 200px;min-width:150px;display:flex;align-items:center;gap:10px;}
+.scrubber input[type=range]{flex:1;accent-color:var(--accent);height:4px;cursor:pointer;}
+.scrubber .count{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--ink-soft);white-space:nowrap;}
+.scrubber .count b{color:var(--ink);font-weight:600;}
+.ctrl-toggles{display:flex;gap:7px;align-items:center;flex-wrap:wrap;}
+.toggle{font-family:'JetBrains Mono',monospace;font-size:10.5px;background:var(--panel);border:1px solid var(--rule);
+  color:var(--ink-soft);padding:6px 10px;border-radius:4px;cursor:pointer;transition:all 120ms;letter-spacing:.02em;white-space:nowrap;}
+.toggle:hover{background:#fff;color:var(--ink);border-color:var(--ink-soft);}
+.toggle.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+.zoom-group{display:flex;gap:4px;align-items:center;}
+.zoom-group .nav-btn{width:30px;}
+
+/* ---------- panels ---------- */
+.panels{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--rule);overflow:hidden;}
+.panels.two-col{grid-template-columns:1fr 1fr;}
+.panels.two-col #panel-mid{display:none;}
+.panel{display:flex;flex-direction:column;min-width:0;background:var(--bg);overflow:hidden;}
+.panel-head{flex:0 0 auto;padding:8px 14px;border-bottom:1px solid var(--rule);background:var(--panel);
+  display:flex;align-items:center;gap:9px;font-size:12px;color:var(--ink-soft);}
+.panel-head .side-tag{font-family:'JetBrains Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.1em;
+  font-weight:600;padding:3px 7px;border-radius:3px;white-space:nowrap;}
+.panel-head .side-tag.prev{color:var(--ink-faint);background:var(--bg);border:1px solid var(--rule);}
+.panel-head .side-tag.mid{color:var(--merge-fg);background:var(--merge-bg);border:1px solid var(--merge-fg);}
+.panel-head .side-tag.curr{color:#fff;background:var(--accent);}
+.panel-head .ph-step{font-family:'JetBrains Mono',monospace;font-size:11px;}
+.panel-head .ph-step b{color:var(--ink);font-weight:600;}
+.panel-head .ph-meta{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink-faint);white-space:nowrap;}
+.graph-scroll{flex:1 1 0;min-height:0;position:relative;overflow:hidden;cursor:grab;}
+.graph-scroll.panning{cursor:grabbing;}
+.graph-scroll svg{display:block;width:100%;height:100%;}
+.empty-state{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;
+  font-family:'Inter Tight',sans-serif;font-size:13px;color:var(--ink-faint);font-style:italic;padding:0 24px;}
+
+/* nodes */
+.node-pill{stroke-width:1.5;cursor:pointer;transition:stroke-width 120ms;}
+.node:hover .node-pill{stroke-width:2.5;}
+.node-id{font-family:'JetBrains Mono',monospace;font-size:9.5px;text-anchor:middle;pointer-events:none;}
+.node-conf{font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;text-anchor:middle;pointer-events:none;}
+.node.source-user .node-pill{fill:var(--src-user-bg);stroke:var(--src-user-fg);}
+.node.source-user .node-conf{fill:var(--src-user-fg);}
+.node.source-user .node-id{fill:var(--src-user-fg);opacity:.8;}
+.node.source-assistant .node-pill{fill:var(--src-final-bg);stroke:var(--src-final-fg);}
+.node.source-assistant .node-conf{fill:var(--src-final-fg);}
+.node.source-assistant .node-id{fill:var(--src-final-fg);opacity:.8;}
+.node.source-tool .node-pill{fill:var(--src-tool-bg);stroke:var(--src-tool-fg);}
+.node.source-tool .node-conf{fill:var(--src-tool-fg);}
+.node.source-tool .node-id{fill:var(--src-tool-fg);opacity:.8;}
+
+/* diff state on nodes */
+.node.diff-added   .node-pill{stroke:var(--add-fg);stroke-width:2.5;filter:drop-shadow(0 0 5px var(--add-glow));}
+.node.diff-removed .node-pill{stroke:var(--del-fg);stroke-width:2.2;stroke-dasharray:5 3;filter:drop-shadow(0 0 5px var(--del-glow));}
+.node.diff-changed .node-pill{stroke:var(--chg-fg);stroke-width:2.6;filter:drop-shadow(0 0 5px var(--chg-glow));}
+.node-badge-bg{stroke:#fff;stroke-width:1.2;}
+.node-badge-tx{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;text-anchor:middle;fill:#fff;pointer-events:none;}
+.badge-add{fill:var(--add-fg);} .badge-del{fill:var(--del-fg);} .badge-chg{fill:var(--chg-fg);}
+.badge-merge{fill:var(--merge-fg);}
+
+/* merge group ring + tags (colour set inline via --gc) */
+.merge-ring{fill:none;stroke:var(--gc,var(--merge-fg));stroke-width:2.6;opacity:.95;}
+.merge-ring.dashed{stroke-dasharray:4 3;stroke-width:2.2;opacity:.92;}
+.node.m-absorbed .node-pill{opacity:.62;}
+.node-canon-tag{font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;text-anchor:middle;
+  fill:var(--gc,var(--merge-fg));pointer-events:none;}
+.node-merge-tag{font-family:'JetBrains Mono',monospace;font-size:8.5px;text-anchor:middle;
+  fill:var(--gc,var(--merge-fg));pointer-events:none;font-weight:600;}
+
+/* selection */
+.node.sel .node-pill{stroke-width:3.4;filter:drop-shadow(0 0 6px var(--accent));}
+.node.sel .merge-ring{stroke-width:3.4;opacity:1;}
+.edge.sel{stroke-width:3.2;}
+
+/* dim-unchanged mode (keeps changed + merge participants bright) */
+.viewport.dim .node:not(.diff-added):not(.diff-removed):not(.diff-changed):not(.m-canon):not(.m-absorbed):not(.sel){opacity:.30;}
+.viewport.dim .edge:not(.diff-added):not(.diff-removed):not(.sel){opacity:.12;}
+.viewport.dim .merge-link{opacity:.9;}
+
+/* edges */
+.edge{fill:none;stroke-width:1.6;cursor:pointer;transition:stroke-width 120ms,opacity 120ms;}
+.edge:hover{stroke-width:2.8;}
+.edge.type-confirms{stroke:var(--rel-confirms-fg);}
+.edge.type-contradicts{stroke:var(--rel-contradicts-fg);}
+.edge.type-extends{stroke:var(--rel-extends-fg);stroke-dasharray:4 3;}
+.edge.type-informs{stroke:var(--rel-informs-fg);stroke-width:1.6;opacity:.9;}
+.edge.diff-added{stroke-width:2.6;filter:drop-shadow(0 0 3px var(--add-glow));}
+.edge.diff-removed{stroke-width:2.2;opacity:.85;filter:drop-shadow(0 0 3px var(--del-glow));}
+.merge-link{fill:none;stroke:var(--gc,var(--merge-fg));stroke-width:1.7;stroke-dasharray:3 3;opacity:.85;pointer-events:none;}
+.col-label{font-family:'JetBrains Mono',monospace;font-size:10px;fill:var(--ink-faint);text-anchor:middle;}
+
+/* ---------- inspector ---------- */
+.inspector{flex:0 0 auto;height:232px;border-top:1px solid var(--rule);background:var(--bg);overflow-y:auto;padding:13px 28px 22px;}
+.section-title{font-family:'Fraunces',Georgia,serif;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.12em;
+  color:var(--ink-soft);margin:0 0 10px;font-variation-settings:'opsz' 12;display:flex;align-items:center;gap:10px;}
+.section-title .st-hint{font-family:'JetBrains Mono',monospace;font-size:9.5px;text-transform:none;letter-spacing:0;color:var(--ink-faint);font-weight:400;}
+.detail-empty{font-size:13px;color:var(--ink-faint);font-style:italic;}
+.detail-card{background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:14px 18px;}
+.detail-card h3{margin:0 0 8px;font-family:'Fraunces',Georgia,serif;font-weight:600;font-size:16px;color:var(--ink);
+  font-variation-settings:'opsz' 16;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.detail-card h4{margin:13px 0 5px;font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;
+  letter-spacing:.1em;color:var(--ink-faint);font-weight:500;}
+.detail-belief-text{font-family:'Fraunces',Georgia,serif;font-size:14.5px;line-height:1.5;color:var(--ink);margin:0 0 10px;}
+.badge{font-family:'Inter Tight',sans-serif;font-size:9.5px;text-transform:uppercase;letter-spacing:.1em;font-weight:600;
+  padding:2px 8px;border-radius:3px;}
+.badge.source-user{color:var(--src-user-fg);background:var(--src-user-bg);}
+.badge.source-assistant{color:var(--src-final-fg);background:var(--src-final-bg);}
+.badge.source-tool{color:var(--src-tool-fg);background:var(--src-tool-bg);}
+.badge.st-added{color:var(--add-fg);background:var(--add-bg);}
+.badge.st-removed{color:var(--del-fg);background:var(--del-bg);}
+.badge.st-changed{color:var(--chg-fg);background:var(--chg-bg);}
+.badge.st-merge{color:var(--merge-fg);background:var(--merge-bg);}
+.badge.st-same{color:var(--ink-soft);background:var(--bg);border:1px solid var(--rule);}
+.mono-sub{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--ink-soft);}
+.diff-row{display:grid;grid-template-columns:64px 1fr;gap:10px;align-items:start;font-size:12.5px;margin:3px 0;}
+.diff-row .lab{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-faint);padding-top:2px;}
+.before{color:var(--del-fg);text-decoration:line-through;text-decoration-color:rgba(184,68,47,.5);}
+.after{color:var(--add-fg);}
+.arrow-i{color:var(--ink-faint);margin:0 6px;}
+.conf-history{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-soft);margin:0;padding:0;list-style:none;}
+.conf-history li{padding:3px 0;border-top:1px dotted var(--rule);display:flex;gap:10px;align-items:baseline;}
+.conf-history li:first-child{border-top:none;}
+.conf-history .ch-step{min-width:150px;font-weight:600;}
+.conf-history .ch-val{font-weight:700;min-width:42px;}
+.conf-history .ch-reason{color:var(--ink-soft);font-style:italic;}
+.edge-detail-rel{display:flex;gap:8px;align-items:center;margin:2px 0 8px;font-family:'JetBrains Mono',monospace;font-size:11.5px;}
+.edge-detail-rel .arrow{color:var(--ink-faint);}
+.rel-pill{font-family:'Inter Tight',sans-serif;font-size:9.5px;text-transform:uppercase;letter-spacing:.1em;font-weight:600;padding:2px 8px;border-radius:3px;}
+.rel-pill.type-informs{color:var(--rel-informs-fg);background:#e7eef7;}
+.rel-pill.type-confirms{color:var(--rel-confirms-fg);background:#e0f0e4;}
+.rel-pill.type-contradicts{color:var(--rel-contradicts-fg);background:var(--del-bg);}
+.rel-pill.type-extends{color:var(--rel-extends-fg);background:#fde6cf;}
+.edge-detail-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;}
+.edge-detail-pair .side{background:var(--bg);border:1px solid var(--rule);border-radius:4px;padding:9px 12px;}
+.edge-detail-pair .side-label{font-family:'JetBrains Mono',monospace;font-size:9.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-faint);margin-bottom:4px;}
+.edge-detail-pair .side-text{font-family:'Fraunces',Georgia,serif;font-size:13px;line-height:1.45;color:var(--ink);}
+
+/* ---------- merge review ---------- */
+.merge-review{display:flex;gap:12px;overflow-x:auto;padding-bottom:6px;}
+.merge-card{flex:0 0 340px;max-width:340px;background:var(--panel);border:1px solid var(--rule);border-left:4px solid var(--gc,var(--merge-fg));
+  border-radius:6px;padding:11px 14px;cursor:pointer;transition:all 120ms;}
+.merge-card:hover{border-color:var(--ink-soft);box-shadow:0 1px 6px rgba(0,0,0,.06);}
+.merge-card.sel{box-shadow:0 0 0 2px var(--gc,var(--merge-fg));}
+.merge-card .mc-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;}
+.merge-card .mc-swatch{width:11px;height:11px;border-radius:3px;background:var(--gc,var(--merge-fg));flex:0 0 auto;}
+.merge-card .mc-title{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:var(--ink);}
+.merge-card .mc-count{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#fff;background:var(--gc,var(--merge-fg));
+  padding:1px 7px;border-radius:9px;}
+.merge-card .mc-pass{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--ink-faint);
+  text-transform:uppercase;letter-spacing:.08em;}
+.merge-card .mc-canon{font-family:'Fraunces',Georgia,serif;font-size:13px;line-height:1.4;color:var(--ink);
+  border-bottom:1px dotted var(--rule);padding-bottom:7px;margin-bottom:7px;}
+.merge-card .mc-canon .mc-tag{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--gc,var(--merge-fg));font-weight:700;margin-right:5px;}
+.merge-card .mc-abs{font-size:11.5px;color:var(--ink-soft);line-height:1.45;margin:4px 0;display:flex;gap:7px;align-items:baseline;}
+.merge-card .mc-abs .mc-aid{font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:700;color:var(--del-fg);flex:0 0 auto;}
+.merge-card .mc-reason{margin-top:8px;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--ink-faint);font-style:italic;}
+
+/* merge detail (selected) */
+.merge-detail .md-grid{display:grid;grid-template-columns:1fr;gap:9px;margin-top:6px;}
+.merge-detail .md-belief{background:var(--bg);border:1px solid var(--rule);border-radius:5px;padding:9px 13px;}
+.merge-detail .md-belief.canon{border-left:4px solid var(--gc,var(--merge-fg));background:var(--panel);}
+.merge-detail .md-belief.absorbed{border-left:4px solid var(--del-fg);}
+.merge-detail .md-meta{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--ink-faint);margin-bottom:3px;
+  display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.merge-detail .md-meta .md-id{font-weight:700;color:var(--ink);}
+.merge-detail .md-text{font-family:'Fraunces',Georgia,serif;font-size:13.5px;line-height:1.45;color:var(--ink);}
+
+/* ---------- hint ---------- */
+.hint{flex:0 0 auto;padding:7px 28px;border-top:1px solid var(--rule);font-size:11px;color:var(--ink-faint);background:var(--panel);line-height:1.7;}
+.hint kbd{font-family:'JetBrains Mono',monospace;font-size:10px;background:var(--bg);padding:2px 6px;border:1px solid var(--rule);border-radius:3px;color:var(--ink-soft);}
+.hint .lg{margin-left:6px;white-space:nowrap;}
+
+/* ---------- drop overlay ---------- */
+#drop{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
+  background:rgba(250,247,242,.94);backdrop-filter:blur(2px);transition:opacity 150ms;}
+#drop.hidden{display:none;}
+#drop.drag .drop-card{border-color:var(--accent);background:#fff;transform:scale(1.01);}
+.drop-card{width:min(580px,86vw);border:2px dashed var(--rule);border-radius:12px;background:var(--panel);
+  padding:44px 44px;text-align:center;transition:all 140ms;}
+.drop-card .mark{font-family:'Fraunces',Georgia,serif;font-size:40px;color:var(--accent);line-height:1;margin-bottom:14px;
+  font-variation-settings:'opsz' 48;}
+.drop-card h2{font-family:'Fraunces',Georgia,serif;font-weight:600;font-size:22px;margin:0 0 8px;color:var(--ink);font-variation-settings:'opsz' 24;}
+.drop-card p{font-size:13.5px;color:var(--ink-soft);margin:0 0 22px;line-height:1.55;}
+.drop-card .browse{font-family:'Inter Tight',sans-serif;font-size:13px;font-weight:500;background:var(--ink);color:#fff;
+  border:none;padding:11px 24px;border-radius:6px;cursor:pointer;transition:all 120ms;}
+.drop-card .browse:hover{background:var(--accent);}
+.drop-card .fmt{margin-top:18px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--ink-faint);letter-spacing:.02em;}
+.drop-card .err{margin-top:16px;font-size:12px;color:var(--accent);font-weight:500;min-height:16px;}
+
+@media (max-width:900px){
+  .panels{grid-template-columns:1fr;grid-template-rows:1fr 1fr 1fr;}
+  .panels.two-col{grid-template-columns:1fr;grid-template-rows:1fr 1fr;}
+  header.app-header h1{font-size:20px;}
+}
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <h1>Belief Graph <span class="sep">·</span> <span class="tag">step &amp; merge diff</span></h1>
+  <div class="file-meta">
+    <span id="meta-file">no file loaded</span>
+    <span id="meta-extra"></span>
+    <button class="reload-btn" id="reload">↻ load another</button>
+  </div>
+</header>
+
+<div class="banner" id="banner" style="display:none;">
+  <span class="step-label" id="step-label">—</span>
+  <span class="stage-tag" id="stage-tag">turn</span>
+  <span class="divider"></span>
+  <span id="diff-chips"></span>
+  <span class="divider"></span>
+  <span class="mono-sub" id="total-line"></span>
+</div>
+
+<div class="controls" id="controls" style="display:none;">
+  <div class="nav-group">
+    <button class="nav-btn" id="btn-prev" title="Previous step (←)">◀</button>
+    <button class="nav-btn" id="btn-next" title="Next step (→)">▶</button>
+  </div>
+  <div class="scrubber">
+    <input type="range" id="scrub" min="0" max="0" value="0" step="1">
+    <span class="count">step <b id="scrub-cur">0</b> / <span id="scrub-max">0</span></span>
+  </div>
+  <div class="ctrl-toggles">
+    <button class="toggle active" id="t-mode" title="Show three panels: previous turn · current pre-merge · current post-merge">⧉ 3-panel merge</button>
+    <button class="toggle active" id="t-dim" title="Fade unchanged beliefs so changes and merges stand out">◐ focus changes</button>
+    <button class="toggle active" id="t-links" title="Draw dashed links from absorbed beliefs to their canonical (in the pre-merge panel)">⤳ merge links</button>
+    <button class="toggle" id="t-bwd" title="Show backward (evaluation) edges: confirms / contradicts / extends">+ backward edges</button>
+    <button class="toggle" id="t-fit" title="Re-fit the view to this step's changes &amp; merges">⤢ fit changes</button>
+  </div>
+  <div class="zoom-group">
+    <button class="nav-btn" id="z-out" title="Zoom out">−</button>
+    <button class="nav-btn" id="z-reset" title="Fit whole graph" style="width:auto;padding:0 9px;font-size:10.5px;">all</button>
+    <button class="nav-btn" id="z-in" title="Zoom in">+</button>
+  </div>
+</div>
+
+<div class="panels" id="panels" style="display:none;">
+  <div class="panel" id="panel-prev">
+    <div class="panel-head">
+      <span class="side-tag prev">prev turn</span>
+      <span class="ph-step" id="ph-prev-step">step —</span>
+      <span class="ph-meta" id="ph-prev-meta"></span>
+    </div>
+    <div class="graph-scroll" id="scroll-prev"></div>
+  </div>
+  <div class="panel" id="panel-mid">
+    <div class="panel-head">
+      <span class="side-tag mid">current · pre-merge</span>
+      <span class="ph-step" id="ph-mid-step">step —</span>
+      <span class="ph-meta" id="ph-mid-meta"></span>
+    </div>
+    <div class="graph-scroll" id="scroll-mid"></div>
+  </div>
+  <div class="panel" id="panel-curr">
+    <div class="panel-head">
+      <span class="side-tag curr">current · post-merge</span>
+      <span class="ph-step" id="ph-curr-step">step —</span>
+      <span class="ph-meta" id="ph-curr-meta"></span>
+    </div>
+    <div class="graph-scroll" id="scroll-curr"></div>
+  </div>
+</div>
+
+<div class="inspector" id="inspector" style="display:none;">
+  <h2 class="section-title" id="insp-title">Inspector <span class="st-hint" id="insp-hint"></span></h2>
+  <div id="detail"><div class="detail-empty">Click a belief, a relation, or a merge card to inspect it.</div></div>
+</div>
+
+<div class="hint" id="hint" style="display:none;">
+  Drag inside a graph to pan · scroll to zoom (all panels sync) · click a node / edge / merge card to inspect ·
+  <kbd>←</kbd> <kbd>→</kbd> step · <kbd>Esc</kbd> clear.
+  <span class="lg"><span style="color:var(--add-fg);font-weight:600;">＋ added</span></span> ·
+  <span class="lg"><span style="color:var(--del-fg);font-weight:600;">⊖ absorbed</span></span> ·
+  <span class="lg"><span style="color:var(--chg-fg);font-weight:600;">~ changed</span></span> ·
+  <span class="lg"><span style="color:var(--merge-fg);font-weight:600;">◯ merge group → ⊕ canonical</span></span>
+</div>
+
+<div id="drop">
+  <div class="drop-card" id="drop-card">
+    <div class="mark">◆</div>
+    <h2>Drop a belief-graph file</h2>
+    <p>Drop a <b>.jsonl</b> (one graph snapshot per line) or a <b>.json</b> array of snapshots.
+       Step through the build one frame at a time — each step shows the <b>previous turn</b>, the
+       <b>current turn before merging</b>, and the <b>current turn after merging</b>, so you can check every merge.</p>
+    <button class="browse" id="browse">Choose a file</button>
+    <input type="file" id="file-input" accept=".jsonl,.json,.ndjson,application/json,text/plain" style="display:none;">
+    <div class="fmt">expects fields: beliefs[] · forward_relations[] · backward_relations[] · merges[] (with absorbed_snapshots) · stage</div>
+    <div class="err" id="drop-err"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// ============================================================
+// State
+// ============================================================
+const ST = {
+  frames: [],
+  cur: 1,
+  layout: null,
+  sel: null,               // {kind:'node',id} | {kind:'edge',...} | {kind:'merge',gi}
+  dim: true,
+  mode3: true,             // three-panel merge view
+  showLinks: true,         // merge links in pre-merge panel
+  showBwd: false,
+  view: {k:1, x:0, y:0},   // shared transform in viewBox units
+  _refit: false,
+};
+
+const SRC_LABEL = {user:'user', assistant:'assistant', tool:'tool'};
+
+// merge-group palette (distinct hues, warm-theme friendly)
+const GROUP_COLORS = ['#b8442f','#1e5a9c','#2e6e3a','#8b2c5b','#b3500e','#6d28d9','#0e7c86','#9c6b1e','#3a6ea5','#a23b6c'];
+function groupColor(gi){ return GROUP_COLORS[((gi%GROUP_COLORS.length)+GROUP_COLORS.length)%GROUP_COLORS.length]; }
+
+// ============================================================
+// File parsing  (robust: JSON array / object / JSONL)
+// ============================================================
+function parseFrames(text){
+  text = text.trim();
+  if(!text) return [];
+  try{
+    const j = JSON.parse(text);
+    if(Array.isArray(j)) return j;
+    if(j && Array.isArray(j.frames)) return j.frames;
+    if(j && (j.beliefs!==undefined || j.n_beliefs!==undefined)) return [j];
+  }catch(e){/* fall through to JSONL */}
+  const out=[];
+  for(const line of text.split(/\r?\n/)){
+    const s=line.trim();
+    if(!s) continue;
+    try{ out.push(JSON.parse(s)); }catch(e){/* skip bad line */}
+  }
+  return out;
+}
+
+function loadText(text, fileName){
+  let frames;
+  try{ frames = parseFrames(text); }
+  catch(e){ frames = []; }
+  if(!frames.length){
+    showDropError("Could not find any graph snapshots in that file. Expecting JSONL (one JSON object per line) or a JSON array.");
+    return;
+  }
+  ST.frames = frames;
+  ST.layout = buildLayout(frames);
+  ST.cur = frames.length > 1 ? 1 : 0;
+  ST.sel = null;
+  resetView();
+  ST._refit = true;
+  document.getElementById('meta-file').innerHTML = 'file · <b>'+escapeHtml(fileName||'snapshots')+'</b>';
+  const f0 = frames.find(f=>f.model||f.problem_id||f.item_id) || frames[0];
+  const bits=[];
+  if(f0.model) bits.push('model · <b>'+escapeHtml(f0.model)+'</b>');
+  if(f0.problem_id||f0.item_id) bits.push('id · <b>'+escapeHtml(String(f0.problem_id||f0.item_id))+'</b>');
+  bits.push('<b>'+frames.length+'</b> steps');
+  document.getElementById('meta-extra').innerHTML = bits.join('&nbsp;&nbsp;');
+  showApp();
+  render();
+}
+
+// ============================================================
+// Global stable layout  (positions fixed across every frame)
+// includes absorbed_snapshots so absorbed beliefs reserve a slot
+// ============================================================
+function colKey(b){
+  const s=b.source||{};
+  let ti = s.trajectory_index;
+  if(typeof ti !== 'number') ti = (typeof s.turn_index==='number') ? s.turn_index : 9999;
+  return ti;
+}
+function buildLayout(frames){
+  const byId = new Map();          // id -> belief-ish (for column assignment)
+  for(const fr of frames){
+    for(const b of (fr.beliefs||[])){
+      if(typeof b.id === 'number') byId.set(b.id, b);
+    }
+    // absorbed snapshots: reserve slots for beliefs that get merged away
+    for(const m of (fr.merges||[])){
+      for(const snap of (m.absorbed_snapshots||[])){
+        if(snap && typeof snap.id==='number' && !byId.has(snap.id)) byId.set(snap.id, snap);
+      }
+      // also cover absorbed_ids that lack a snapshot, using any prior belief data
+      for(const aid of (m.absorbed_ids||[])){
+        if(typeof aid==='number' && !byId.has(aid)) byId.set(aid, {id:aid, source:{trajectory_index: colKey(byId.get(m.canonical_id)||{})}});
+      }
+    }
+  }
+  const byCol = new Map();
+  for(const [id,b] of byId){
+    const c = colKey(b);
+    if(!byCol.has(c)) byCol.set(c, []);
+    byCol.get(c).push(id);
+  }
+  const cols = [...byCol.keys()].sort((a,b)=>a-b);
+  const colW=128, slotH=44, padX=70, padTop=42, padBot=42;
+  let maxRows=1;
+  const posById = new Map();
+  const colMeta = [];
+  cols.forEach((c, ci)=>{
+    const xc = padX + colW/2 + ci*colW;
+    colMeta.push({ti:c, x:xc});
+    const ids = byCol.get(c).sort((a,b)=>a-b);
+    maxRows = Math.max(maxRows, ids.length);
+    ids.forEach((id,i)=>{ posById.set(id, {x:xc, y:padTop+16 + i*slotH}); });
+  });
+  const W = padX*2 + cols.length*colW;
+  const H = padTop + maxRows*slotH + padBot;
+  return {W, H, posById, cols:colMeta, slotH, colW};
+}
+
+// ============================================================
+// Merge analysis
+// ============================================================
+function mergeSig(m){
+  return (m.pass||'')+'|'+m.canonical_id+'|'+((m.absorbed_ids||[]).slice().sort((a,b)=>a-b).join(','));
+}
+// merges introduced at `curr` that were not already present at `prev`
+function newMergesOf(prev, curr){
+  const prevSigs = new Set((prev&&prev.merges||[]).map(mergeSig));
+  let list = (curr&&curr.merges||[]).filter(m=> !prevSigs.has(mergeSig(m)));
+  // stable colour order by canonical id
+  list = list.slice().sort((a,b)=> (a.canonical_id-b.canonical_id) || 0);
+  list.forEach((m,i)=>{ m.__gi = i; });
+  return list;
+}
+function mergeMaps(newMerges){
+  const absorbedToCanon = new Map();   // absorbedId -> {canon, gi, reason, m}
+  const canonToGroup    = new Map();   // canonId    -> {absorbed:[], gi, reason, m}
+  const byGi            = new Map();   // gi         -> m
+  newMerges.forEach(m=>{
+    const can = m.canonical_id, gi = m.__gi;
+    if(typeof can!=='number') return;
+    byGi.set(gi, m);
+    canonToGroup.set(can, {absorbed:(m.absorbed_ids||[]).slice(), gi, reason:m.reason||'', m});
+    for(const a of (m.absorbed_ids||[])) absorbedToCanon.set(a, {canon:can, gi, reason:m.reason||'', m});
+  });
+  return {absorbedToCanon, canonToGroup, byGi};
+}
+// snapshot lookup for an absorbed belief: prefer this-merge snapshot, else prev frame belief
+function absorbedBelief(aid, m, prevFrame){
+  for(const s of (m.absorbed_snapshots||[])) if(s && s.id===aid) return s;
+  if(prevFrame) for(const b of (prevFrame.beliefs||[])) if(b.id===aid) return b;
+  return {id:aid, belief:'(snapshot unavailable)', source:{}};
+}
+// reconstruct the pre-merge belief set for the current turn:
+// current survivors + all beliefs absorbed during this turn (re-inflated)
+function reconstructPreMerge(curr, newMerges, prevFrame){
+  if(!curr) return null;
+  const beliefs = (curr.beliefs||[]).slice();
+  const seen = new Set(beliefs.map(b=>b.id));
+  for(const m of newMerges){
+    for(const aid of (m.absorbed_ids||[])){
+      if(seen.has(aid)) continue;
+      beliefs.push(absorbedBelief(aid, m, prevFrame));
+      seen.add(aid);
+    }
+  }
+  return {
+    beliefs,
+    forward_relations: curr.forward_relations||[],
+    backward_relations: curr.backward_relations||[],
+    stage: curr.stage, __pre:true,
+  };
+}
+
+// ============================================================
+// Diff between two frames (prev vs current/post-merge)
+// ============================================================
+function edgesOf(frame){
+  const out=[];
+  for(const r of (frame.forward_relations||[]))  out.push({...r, dir:'f'});
+  for(const r of (frame.backward_relations||[])) out.push({...r, dir:'b'});
+  return out;
+}
+function edgeKey(e){ return e.from_id+'>'+e.to_id+':'+e.type+':'+e.dir; }
+
+function computeDiff(prev, curr){
+  const pB = new Map(), cB = new Map();
+  for(const b of (prev && prev.beliefs || [])) pB.set(b.id, b);
+  for(const b of (curr && curr.beliefs || [])) cB.set(b.id, b);
+
+  const added=new Set(), removed=new Set(), changed=new Map();
+  for(const id of cB.keys()) if(!pB.has(id)) added.add(id);
+  for(const id of pB.keys()) if(!cB.has(id)) removed.add(id);
+  for(const id of cB.keys()){
+    if(!pB.has(id)) continue;
+    const a=pB.get(id), b=cB.get(id);
+    const textChg = (a.belief||'') !== (b.belief||'');
+    const confA = num(a.confidence), confB = num(b.confidence);
+    const confChg = (confA!=null && confB!=null) ? Math.abs(confA-confB) > 1e-9 : (a.confidence!==b.confidence);
+    if(textChg || confChg) changed.set(id, {textChg, confChg, prev:a, curr:b});
+  }
+
+  const pE=new Map(), cE=new Map();
+  for(const e of edgesOf(prev||{})) pE.set(edgeKey(e), e);
+  for(const e of edgesOf(curr||{})) cE.set(edgeKey(e), e);
+  const eAdded=new Set(), eRemoved=new Set();
+  for(const k of cE.keys()) if(!pE.has(k)) eAdded.add(k);
+  for(const k of pE.keys()) if(!cE.has(k)) eRemoved.add(k);
+
+  return {pB,cB,added,removed,changed, pE,cE,eAdded,eRemoved};
+}
+
+// ============================================================
+// SVG rendering
+// ============================================================
+function edgePath(p1,p2){
+  const x1=p1.x,y1=p1.y,x2=p2.x,y2=p2.y;
+  const mx=(x1+x2)/2, my=(y1+y2)/2, dx=x2-x1, dy=y2-y1;
+  const len=Math.max(1,Math.hypot(dx,dy));
+  const px=-dy/len, py=dx/len;
+  const off=Math.max(28, Math.min(80, Math.abs(dx)*0.25+20));
+  return `M ${x1.toFixed(1)},${y1.toFixed(1)} Q ${(mx+px*off).toFixed(1)},${(my+py*off).toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`;
+}
+
+const ARROW_DEFS = `<defs>
+  <marker id="arr-confirms" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f6a35"/></marker>
+  <marker id="arr-contradicts" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c84a3e"/></marker>
+  <marker id="arr-extends" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b3500e"/></marker>
+  <marker id="arr-informs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b89b8"/></marker>
+</defs>`;
+
+function srcClass(b){
+  const t=(b.source||{}).type;
+  return (t==='user'||t==='assistant'||t==='tool') ? 'source-'+t : 'source-assistant';
+}
+function confTxt(b){ const c=num(b.confidence); return c!=null?c.toFixed(2):'—'; }
+
+// Build one node <g>. opts: {extra, badge:[type,glyph], ring:{color,dashed}, gc, canonTag, mergeTag}
+function nodeSVG(b, pos, opts){
+  opts = opts||{};
+  let cls='node '+srcClass(b);
+  if(opts.extra) cls+=' '+opts.extra;
+  const style = opts.gc ? ` style="--gc:${opts.gc}"` : '';
+  let g = `<g class="${cls}" data-id="${b.id}"${style} transform="translate(${pos.x.toFixed(1)},${pos.y.toFixed(1)})">`;
+  if(opts.ring){
+    g += `<rect class="merge-ring${opts.ring.dashed?' dashed':''}" x="-41" y="-19.5" width="82" height="39" rx="9.5" ry="9.5"/>`;
+  }
+  g += `<rect class="node-pill" x="-36" y="-15" width="72" height="30" rx="7" ry="7"/>`
+     + `<text class="node-id" x="0" y="-3">#${(b.id+1).toString().padStart(2,'0')}</text>`
+     + `<text class="node-conf" x="0" y="9">${confTxt(b)}</text>`;
+  if(opts.canonTag) g += `<text class="node-canon-tag" x="-26" y="-19">${escapeHtml(opts.canonTag)}</text>`;
+  if(opts.mergeTag) g += `<text class="node-merge-tag" x="0" y="25">${escapeHtml(opts.mergeTag)}</text>`;
+  if(opts.badge){
+    g += `<circle class="node-badge-bg badge-${opts.badge[0]}" cx="30" cy="-15" r="8"/>`
+       + `<text class="node-badge-tx" x="30" y="-11.5">${opts.badge[1]}</text>`;
+  }
+  g += `</g>`;
+  return g;
+}
+
+// kind: 'prev' | 'pre' | 'post'
+function renderPanel(scrollEl, frame, kind, ctx){
+  const L=ST.layout;
+  if(!frame || !(frame.beliefs||[]).length){
+    let msg;
+    if(kind==='prev') msg = (ST.cur===0 ? 'No previous step — this is the first snapshot.' : 'No beliefs in the previous step.');
+    else msg = 'No beliefs yet at this step.';
+    scrollEl.innerHTML = '<div class="empty-state">'+msg+'</div>';
+    return;
+  }
+  const {diff, mm, prevIds} = ctx;
+  const parts=[ARROW_DEFS];
+  parts.push(`<g class="viewport${ST.dim?' dim':''}" transform="${transformStr()}">`);
+
+  for(const cm of L.cols){
+    parts.push(`<text class="col-label" x="${cm.x.toFixed(1)}" y="${(L.H-12).toFixed(1)}">traj[${cm.ti}]</text>`);
+  }
+
+  // merge links (pre-merge panel): absorbed -> canonical, coloured by group
+  if(kind==='pre' && ST.showLinks){
+    for(const [aid, info] of mm.absorbedToCanon){
+      const pa=L.posById.get(aid), pc=L.posById.get(info.canon);
+      if(!pa||!pc) continue;
+      parts.push(`<path class="merge-link" style="--gc:${groupColor(info.gi)}" d="${edgePath(pa,pc)}"/>`);
+    }
+  }
+
+  // edges
+  const eAddSet = kind==='post' ? diff.eAdded : new Set();
+  const eRemSet = kind==='prev' ? diff.eRemoved : new Set();
+  for(const e of edgesOf(frame)){
+    if(e.dir==='b' && !ST.showBwd) continue;
+    const p1=L.posById.get(e.from_id), p2=L.posById.get(e.to_id);
+    if(!p1||!p2) continue;
+    const k=edgeKey(e);
+    let cls='edge type-'+e.type+(e.dir==='b'?' edge-bwd':' edge-fwd');
+    if(eAddSet.has(k)) cls+=' diff-added';
+    else if(eRemSet.has(k)) cls+=' diff-removed';
+    if(ST.sel && ST.sel.kind==='edge' && ST.sel.key===k && ST.sel.role===kind) cls+=' sel';
+    parts.push(`<path class="${cls}" d="${edgePath(p1,p2)}" marker-end="url(#arr-${e.type})" `
+      +`data-ekey="${escAttr(k)}" data-erole="${kind}" `
+      +`data-from="${e.from_id}" data-to="${e.to_id}" data-type="${e.type}" data-dir="${e.dir}"/>`);
+  }
+
+  // nodes
+  for(const b of frame.beliefs){
+    const pos=L.posById.get(b.id);
+    if(!pos) continue;
+    const id=b.id;
+    const opts={};
+    const absInfo = mm.absorbedToCanon.get(id);
+    const canInfo = mm.canonToGroup.get(id);
+
+    if(kind==='prev'){
+      if(diff.removed.has(id)){ opts.extra='diff-removed'; opts.badge=['del','−']; }
+    } else if(kind==='pre'){
+      if(absInfo){
+        opts.extra='m-absorbed'; opts.gc=groupColor(absInfo.gi);
+        opts.ring={color:opts.gc, dashed:true}; opts.badge=['merge','⊖'];
+        opts.mergeTag='→#'+(absInfo.canon+1).toString().padStart(2,'0');
+      } else if(canInfo){
+        opts.extra='m-canon'; opts.gc=groupColor(canInfo.gi);
+        opts.ring={color:opts.gc, dashed:false};
+        opts.canonTag='⊕'+canInfo.absorbed.length;
+        if(diff.changed.has(id)) opts.badge=['chg','~'];
+        else if(!prevIds.has(id)) opts.badge=['add','＋'];
+      } else if(!prevIds.has(id)){
+        opts.extra='diff-added'; opts.badge=['add','＋'];
+      } else if(diff.changed.has(id)){
+        opts.extra='diff-changed'; opts.badge=['chg','~'];
+      }
+    } else { // post
+      if(canInfo){
+        opts.extra='m-canon'; opts.gc=groupColor(canInfo.gi);
+        opts.ring={color:opts.gc, dashed:false};
+        opts.canonTag='⊕'+canInfo.absorbed.length;
+        if(diff.changed.has(id)) opts.badge=['chg','~'];
+        else if(diff.added.has(id)) opts.badge=['add','＋'];
+      } else if(diff.added.has(id)){
+        opts.extra='diff-added'; opts.badge=['add','＋'];
+      } else if(diff.changed.has(id)){
+        opts.extra='diff-changed'; opts.badge=['chg','~'];
+      }
+    }
+
+    // selection highlight
+    if(ST.sel){
+      if(ST.sel.kind==='node' && ST.sel.id===id) opts.extra=(opts.extra||'')+' sel';
+      else if(ST.sel.kind==='merge'){
+        const g=ST.sel.gi;
+        if((canInfo&&canInfo.gi===g) || (absInfo&&absInfo.gi===g)) opts.extra=(opts.extra||'')+' sel';
+      }
+    }
+    parts.push(nodeSVG(b, pos, opts));
+  }
+
+  parts.push('</g>');
+  scrollEl.innerHTML =
+    `<svg class="belief-graph" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${L.W} ${L.H}" preserveAspectRatio="xMidYMid meet">`
+    + parts.join('') + `</svg>`;
+}
+
+function transformStr(){
+  const v=ST.view;
+  return `translate(${v.x.toFixed(2)},${v.y.toFixed(2)}) scale(${v.k.toFixed(4)})`;
+}
+
+// ============================================================
+// Top-level render
+// ============================================================
+function render(){
+  const frames=ST.frames;
+  const cur = ST.cur;
+  const currFrame = frames[cur] || null;
+  const prevFrame = cur>0 ? frames[cur-1] : null;
+
+  const newMerges = newMergesOf(prevFrame, currFrame);
+  const mm = mergeMaps(newMerges);
+  const preFrame = reconstructPreMerge(currFrame, newMerges, prevFrame);
+  const diff = computeDiff(prevFrame, currFrame);
+  const prevIds = new Set([...diff.pB.keys()]);
+
+  const ctx = {diff, mm, prevIds, newMerges, preFrame, prevFrame, currFrame};
+  ST._ctx = ctx;
+
+  // banner
+  document.getElementById('step-label').textContent = 'Step '+cur+(prevFrame? ' ← '+(cur-1) : '');
+  const stageTag=document.getElementById('stage-tag');
+  const stage = (currFrame && currFrame.stage) || 'turn';
+  stageTag.textContent = stage;
+  stageTag.className = 'stage-tag'+(stage==='final'?' final':'');
+
+  const fwdAdded=[...diff.eAdded].filter(k=>k.endsWith(':f')).length;
+  const bwdAdded=[...diff.eAdded].filter(k=>k.endsWith(':b')).length;
+  const eRem=diff.eRemoved.size;
+  const absorbedCount = mm.absorbedToCanon.size;
+  function chip(dotCls,n,label){
+    return `<span class="chip${n?'':' zero'}"><span class="dot ${dotCls}"></span><b>${n}</b>&nbsp;${label}</span>`;
+  }
+  const chips=[];
+  chips.push(chip('add', diff.added.size, 'added'));
+  chips.push(chip('chg', diff.changed.size, 'changed'));
+  chips.push('<span class="divider"></span>');
+  chips.push(chip('merge', newMerges.length, newMerges.length===1?'merge':'merges'));
+  chips.push(chip('del', absorbedCount, 'absorbed'));
+  chips.push('<span class="divider"></span>');
+  chips.push(chip('edge', fwdAdded, 'informs'));
+  if(bwdAdded) chips.push(chip('edge', bwdAdded, 'backward'));
+  if(eRem) chips.push(chip('del', eRem, 'edges removed'));
+  document.getElementById('diff-chips').innerHTML = chips.join('');
+
+  const nNow=(currFrame&&currFrame.beliefs||[]).length;
+  const nPre=(preFrame&&preFrame.beliefs||[]).length;
+  const nBefore=(prevFrame&&prevFrame.beliefs||[]).length;
+  document.getElementById('total-line').innerHTML =
+    `<b style="color:var(--ink)">${nNow}</b> beliefs now`
+    + (newMerges.length? ` &middot; ${nPre} before merge` : '')
+    + (prevFrame? ` &middot; prev turn ${nBefore}` : '');
+
+  // panel heads
+  setPanelHead('prev', prevFrame, cur>0?cur-1:null, null);
+  setPanelHead('mid', preFrame, cur, newMerges.length? (newMerges.length+' merge'+(newMerges.length===1?'':'s')) : 'no merges this step');
+  setPanelHead('curr', currFrame, cur, null);
+
+  // graphs
+  renderPanel(document.getElementById('scroll-prev'), prevFrame, 'prev', ctx);
+  renderPanel(document.getElementById('scroll-mid'), preFrame, 'pre', ctx);
+  renderPanel(document.getElementById('scroll-curr'), currFrame, 'post', ctx);
+
+  // controls
+  document.getElementById('btn-prev').disabled = cur<=0;
+  document.getElementById('btn-next').disabled = cur>=frames.length-1;
+  const scrub=document.getElementById('scrub');
+  scrub.max=frames.length-1; scrub.value=cur;
+  document.getElementById('scrub-cur').textContent=cur;
+  document.getElementById('scrub-max').textContent=frames.length-1;
+
+  // fit to changes if requested (after SVGs exist)
+  if(ST._refit){ ST._refit=false; fitToChanges(ctx); }
+
+  renderDetailFromSelection();
+}
+
+function setPanelHead(side, frame, idx, extra){
+  const stepEl=document.getElementById('ph-'+side+'-step');
+  const metaEl=document.getElementById('ph-'+side+'-meta');
+  if(idx==null || !frame){
+    stepEl.innerHTML='step <b>—</b>';
+    metaEl.textContent = extra||'';
+    return;
+  }
+  const n=(frame.beliefs||[]).length;
+  stepEl.innerHTML='step <b>'+idx+'</b>';
+  metaEl.textContent = extra!=null ? extra+' · '+n+'b' : (frame.stage||'turn')+' · '+n+'b';
+}
+
+// ============================================================
+// Inspector
+// ============================================================
+function escapeHtml(s){ if(s==null) return ''; return String(s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function escAttr(s){ return escapeHtml(s); }
+function num(x){ return (typeof x==='number' && isFinite(x)) ? x : null; }
+function idLabel(id){ return '#'+(id+1).toString().padStart(2,'0'); }
+
+function renderDetailFromSelection(){
+  const sel=ST.sel;
+  const hintEl=document.getElementById('insp-hint');
+  const titleEl=document.getElementById('insp-title');
+  if(!sel){
+    // default: show merge review for this step, else the hint
+    const nm = ST._ctx ? ST._ctx.newMerges : [];
+    if(nm && nm.length){
+      titleEl.firstChild.nodeValue = 'Merges this step ';
+      hintEl.textContent = '— '+nm.length+' merge'+(nm.length===1?'':'s')+'; click a card to highlight & zoom';
+      renderMergeReview(nm);
+    } else {
+      titleEl.firstChild.nodeValue = 'Inspector ';
+      hintEl.textContent = '';
+      document.getElementById('detail').innerHTML =
+        '<div class="detail-empty">No merges at this step. Click a belief or a relation to inspect it — or step to a turn that merges beliefs.</div>';
+    }
+    return;
+  }
+  titleEl.firstChild.nodeValue = 'Inspector ';
+  hintEl.textContent = '';
+  if(sel.kind==='node') renderNodeDetail(sel.id);
+  else if(sel.kind==='edge') renderEdgeDetail(sel);
+  else if(sel.kind==='merge') renderMergeDetail(sel.gi);
+}
+
+function statusOf(id, ctx){
+  const {diff, mm} = ctx;
+  if(mm.canonToGroup.has(id)) return 'canonical';
+  if(mm.absorbedToCanon.has(id)) return 'absorbed';
+  if(diff.added.has(id)) return 'added';
+  if(diff.removed.has(id)) return 'removed';
+  if(diff.changed.has(id)) return 'changed';
+  if(diff.cB.has(id) || diff.pB.has(id)) return 'same';
+  return 'absent';
+}
+
+function renderNodeDetail(id){
+  const ctx=ST._ctx, diff=ctx.diff, mm=ctx.mm;
+  // belief may be a current survivor, a prev belief, or an absorbed snapshot
+  let b = diff.cB.get(id) || diff.pB.get(id);
+  let fromSnap=false;
+  if(!b){
+    const ab=mm.absorbedToCanon.get(id);
+    if(ab){ b=absorbedBelief(id, ab.m, ctx.prevFrame); fromSnap=true; }
+  }
+  if(!b){ document.getElementById('detail').innerHTML='<div class="detail-empty">Belief not present at this step.</div>'; return; }
+  const status = statusOf(id, ctx);
+  const src=b.source||{};
+  const srcType=(src.type==='user'||src.type==='assistant'||src.type==='tool')?src.type:'assistant';
+
+  const statusBadge = {
+    canonical:'<span class="badge st-merge">canonical · merge target</span>',
+    absorbed: '<span class="badge st-removed">absorbed by merge</span>',
+    added:    '<span class="badge st-added">added this step</span>',
+    removed:  '<span class="badge st-removed">removed this step</span>',
+    changed:  '<span class="badge st-changed">changed this step</span>',
+    same:     '<span class="badge st-same">unchanged</span>',
+    absent:   ''
+  }[status];
+
+  const conf=num(b.confidence);
+  let head = `<h3>Belief ${idLabel(id)} ${conf!=null?'· '+conf.toFixed(2):''}`
+    + ` <span class="badge source-${srcType}">${escapeHtml(SRC_LABEL[srcType]||srcType)}</span>`
+    + (b.stance?` <span class="badge st-same">${escapeHtml(b.stance)}</span>`:'')
+    + ` ${statusBadge}</h3>`;
+  let body = `<div class="detail-belief-text">${escapeHtml(b.belief||'')}</div>`;
+
+  if(status==='changed'){
+    const ch=diff.changed.get(id);
+    body += '<h4>What changed</h4>';
+    if(ch.textChg){
+      body += `<div class="diff-row"><span class="lab">text</span><span>`
+        + `<span class="before">${escapeHtml(ch.prev.belief||'')}</span><br>`
+        + `<span class="after">${escapeHtml(ch.curr.belief||'')}</span></span></div>`;
+    }
+    if(ch.confChg){
+      const a=num(ch.prev.confidence), b2=num(ch.curr.confidence);
+      const delta=(a!=null&&b2!=null)?((b2-a>=0?'+':'')+(b2-a).toFixed(2)):'';
+      body += `<div class="diff-row"><span class="lab">confidence</span><span>`
+        + `<span class="before">${a!=null?a.toFixed(2):'—'}</span>`
+        + `<span class="arrow-i">→</span><span class="after">${b2!=null?b2.toFixed(2):'—'}</span>`
+        + (delta?` <span class="mono-sub">(${delta})</span>`:'') + `</span></div>`;
+    }
+  }
+  if(status==='added') body += '<div class="mono-sub" style="color:var(--add-fg)">New belief introduced at this step.</div>';
+
+  // merge info
+  const ab = mm.absorbedToCanon.get(id);
+  const ca = mm.canonToGroup.get(id);
+  if(ab){
+    const cb = ctx.diff.cB.get(ab.canon);
+    body += `<h4>Merged into</h4><div class="mono-sub">→ canonical <b>${idLabel(ab.canon)}</b>`
+      + (cb?` · ${escapeHtml((cb.belief||'').slice(0,90))}${(cb.belief||'').length>90?'…':''}`:'')
+      + `</div>`
+      + (ab.reason?`<div class="mono-sub" style="font-style:italic;margin-top:3px">${escapeHtml(ab.reason)}</div>`:'')
+      + `<div class="mono-sub" style="margin-top:4px"><a href="#" data-merge-gi="${ab.gi}" class="merge-jump">view full merge group →</a></div>`;
+  }
+  if(ca && ca.absorbed.length){
+    body += `<h4>Canonical — absorbed ${ca.absorbed.length} belief${ca.absorbed.length===1?'':'s'} this step</h4>`
+      + `<div class="mono-sub">${ca.absorbed.map(idLabel).join(', ')}</div>`
+      + (ca.reason?`<div class="mono-sub" style="font-style:italic;margin-top:3px">${escapeHtml(ca.reason)}</div>`:'')
+      + `<div class="mono-sub" style="margin-top:4px"><a href="#" data-merge-gi="${ca.gi}" class="merge-jump">view full merge group →</a></div>`;
+  }
+
+  const ti=src.trajectory_index;
+  const crumb = (typeof ti==='number') ? `traj[${ti}] · ${escapeHtml(src.role||src.type||'?')}` : 'external';
+  body += `<h4>Source</h4><div class="mono-sub">${crumb}</div>`;
+
+  if(Array.isArray(b.confidence_history) && b.confidence_history.length){
+    body += '<h4>Confidence trail</h4><ul class="conf-history">' +
+      b.confidence_history.map(h=>{
+        const v=num(h.value);
+        const from=(h.from_belief_id!=null)?` ← ${idLabel(h.from_belief_id)}`:'';
+        const d=(num(h.delta)!=null && h.delta!==0)?` (${h.delta>0?'+':''}${(+h.delta).toFixed(2)})`:'';
+        return `<li><span class="ch-step">${escapeHtml(h.step||'')}${escapeHtml(from)}</span>`
+          + `<span class="ch-val">${v!=null?v.toFixed(2):'—'}${d}</span>`
+          + `<span class="ch-reason">${escapeHtml(h.reason||'')}</span></li>`;
+      }).join('') + '</ul>';
+  }
+
+  document.getElementById('detail').innerHTML = `<div class="detail-card">${head}${body}</div>`;
+  wireMergeJumps();
+}
+
+function renderEdgeDetail(sel){
+  const ctx=ST._ctx, diff=ctx.diff;
+  const frame = sel.role==='prev' ? ctx.prevFrame : (sel.role==='pre' ? ctx.preFrame : ctx.currFrame);
+  const pool = sel.dir==='f' ? (frame.forward_relations||[]) : (frame.backward_relations||[]);
+  const rel = pool.find(r=> r.from_id===sel.from && r.to_id===sel.to && r.type===sel.type);
+  const beliefs = sel.role==='prev' ? diff.pB : diff.cB;
+  const from=beliefs.get(sel.from), to=beliefs.get(sel.to);
+  const note = rel ? (rel.note||'') : '';
+
+  const isAdded = sel.role==='post' && diff.eAdded.has(sel.key);
+  const isRemoved = sel.role==='prev' && diff.eRemoved.has(sel.key);
+  const dirLabel = sel.dir==='f' ? 'forward · earlier → later' : 'backward · later → earlier';
+  const statusBadge = isAdded ? '<span class="badge st-added">new relation</span>'
+                    : isRemoved ? '<span class="badge st-removed">removed relation</span>' : '';
+
+  let html = `<div class="detail-card">`
+    + `<h3>Relation <span class="mono-sub" style="font-weight:400;text-transform:uppercase;letter-spacing:.08em">${escapeHtml(dirLabel)}</span> ${statusBadge}</h3>`
+    + `<div class="edge-detail-rel"><span>${idLabel(sel.from)}</span><span class="arrow">→</span>`
+    + `<span class="rel-pill type-${sel.type}">${escapeHtml(sel.type)}</span>`
+    + `<span class="arrow">→</span><span>${idLabel(sel.to)}</span></div>`;
+  if(note) html += `<h4>Note</h4><div style="font-size:13px;color:var(--ink-soft);font-style:italic">${escapeHtml(note)}</div>`;
+  html += `<h4>Beliefs</h4><div class="edge-detail-pair">`
+    + `<div class="side"><div class="side-label">from · ${idLabel(sel.from)}${from&&num(from.confidence)!=null?' · '+num(from.confidence).toFixed(2):''}</div>`
+    + `<div class="side-text">${escapeHtml(from?from.belief:'(not present in this step)')}</div></div>`
+    + `<div class="side"><div class="side-label">to · ${idLabel(sel.to)}${to&&num(to.confidence)!=null?' · '+num(to.confidence).toFixed(2):''}</div>`
+    + `<div class="side-text">${escapeHtml(to?to.belief:'(not present in this step)')}</div></div></div>`;
+  html += `</div>`;
+  document.getElementById('detail').innerHTML = html;
+}
+
+// merge review list (all merges this step)
+function renderMergeReview(newMerges){
+  const ctx=ST._ctx;
+  const cards = newMerges.map(m=>{
+    const gi=m.__gi, gc=groupColor(gi);
+    const canB = ctx.diff.cB.get(m.canonical_id) || {belief:m.canonical_belief, confidence:m.adopted_confidence};
+    const canConf = num(canB.confidence); const canTxt = canB.belief||m.canonical_belief||'';
+    const absRows = (m.absorbed_ids||[]).map(aid=>{
+      const ab=absorbedBelief(aid, m, ctx.prevFrame);
+      const c=num(ab.confidence);
+      return `<div class="mc-abs"><span class="mc-aid">${idLabel(aid)}${c!=null?' · '+c.toFixed(2):''}</span><span>${escapeHtml(ab.belief||'')}</span></div>`;
+    }).join('');
+    const selCls = (ST.sel&&ST.sel.kind==='merge'&&ST.sel.gi===gi)?' sel':'';
+    return `<div class="merge-card${selCls}" style="--gc:${gc}" data-merge-gi="${gi}">`
+      + `<div class="mc-head"><span class="mc-swatch"></span>`
+      + `<span class="mc-title">→ ${idLabel(m.canonical_id)}</span>`
+      + `<span class="mc-count">+${(m.absorbed_ids||[]).length}</span>`
+      + `<span class="mc-pass">${escapeHtml(m.pass||'merge')}</span></div>`
+      + `<div class="mc-canon"><span class="mc-tag">⊕ canonical${canConf!=null?' · '+canConf.toFixed(2):''}</span>${escapeHtml(canTxt)}</div>`
+      + absRows
+      + (m.reason?`<div class="mc-reason">${escapeHtml(m.reason)}</div>`:'')
+      + `</div>`;
+  }).join('');
+  document.getElementById('detail').innerHTML = `<div class="merge-review">${cards}</div>`;
+  wireMergeCards();
+}
+
+// full single-merge detail
+function renderMergeDetail(gi){
+  const ctx=ST._ctx;
+  const m = ctx.mm.byGi.get(gi);
+  if(!m){ renderDetailFromSelection(); return; }
+  const gc=groupColor(gi);
+  const canB = ctx.diff.cB.get(m.canonical_id) || {belief:m.canonical_belief, confidence:m.adopted_confidence};
+  const canConf=num(canB.confidence);
+  let html = `<div class="detail-card merge-detail" style="--gc:${gc}">`
+    + `<h3><span class="mc-swatch" style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${gc}"></span>`
+    + `Merge → ${idLabel(m.canonical_id)} <span class="badge st-merge">${escapeHtml(m.pass||'merge')}</span>`
+    + ` <span class="mono-sub" style="font-weight:400">absorbed ${(m.absorbed_ids||[]).length}</span></h3>`;
+  if(m.reason) html += `<div class="mono-sub" style="font-style:italic;margin-bottom:8px">${escapeHtml(m.reason)}</div>`;
+  html += `<div class="md-grid">`;
+  html += `<div class="md-belief canon"><div class="md-meta"><span class="md-id">⊕ ${idLabel(m.canonical_id)}</span>`
+    + `<span>canonical</span>${canConf!=null?'<span>conf '+canConf.toFixed(2)+'</span>':''}`
+    + (m.newest_id!=null?`<span>newest #${m.newest_id+1}</span>`:'')+`</div>`
+    + `<div class="md-text">${escapeHtml(canB.belief||m.canonical_belief||'')}</div></div>`;
+  for(const aid of (m.absorbed_ids||[])){
+    const ab=absorbedBelief(aid, m, ctx.prevFrame);
+    const c=num(ab.confidence);
+    html += `<div class="md-belief absorbed"><div class="md-meta"><span class="md-id">⊖ ${idLabel(aid)}</span>`
+      + `<span>absorbed</span>${c!=null?'<span>conf '+c.toFixed(2)+'</span>':''}`
+      + ((ab.source&&ab.source.trajectory_index!=null)?`<span>traj[${ab.source.trajectory_index}]</span>`:'')+`</div>`
+      + `<div class="md-text">${escapeHtml(ab.belief||'')}</div></div>`;
+  }
+  html += `</div></div>`;
+  document.getElementById('detail').innerHTML = html;
+}
+
+// ============================================================
+// Selection
+// ============================================================
+function selectNode(id){
+  if(ST.sel && ST.sel.kind==='node' && ST.sel.id===id){ clearSel(); return; }
+  ST.sel={kind:'node', id};
+  refreshSelClasses();
+  renderNodeDetail(id);
+}
+function selectEdge(el){
+  const key=el.dataset.ekey, role=el.dataset.erole;
+  if(ST.sel && ST.sel.kind==='edge' && ST.sel.key===key && ST.sel.role===role){ clearSel(); return; }
+  ST.sel={kind:'edge', key, role,
+    from:parseInt(el.dataset.from,10), to:parseInt(el.dataset.to,10),
+    type:el.dataset.type, dir:el.dataset.dir};
+  refreshSelClasses();
+  renderEdgeDetail(ST.sel);
+}
+function selectMerge(gi, fit){
+  ST.sel={kind:'merge', gi};
+  // re-render panels so ring/sel classes apply, then optionally fit
+  render();
+  if(fit && ST._ctx) fitToGroup(gi, ST._ctx);
+}
+function clearSel(){ ST.sel=null; refreshSelClasses(); renderDetailFromSelection(); }
+
+function refreshSelClasses(){
+  document.querySelectorAll('.belief-graph .sel').forEach(el=>el.classList.remove('sel'));
+  document.querySelectorAll('.merge-card.sel').forEach(el=>el.classList.remove('sel'));
+  if(!ST.sel) return;
+  if(ST.sel.kind==='node'){
+    document.querySelectorAll('.node[data-id="'+ST.sel.id+'"]').forEach(el=>el.classList.add('sel'));
+  } else if(ST.sel.kind==='edge'){
+    const key=ST.sel.key.replace(/"/g,'\\"');
+    document.querySelectorAll('.edge[data-ekey="'+key+'"][data-erole="'+ST.sel.role+'"]').forEach(el=>el.classList.add('sel'));
+  } else if(ST.sel.kind==='merge'){
+    const ctx=ST._ctx; if(!ctx) return;
+    const grp=ctx.mm.byGi.get(ST.sel.gi); if(!grp) return;
+    const ids=[grp.canonical_id, ...(grp.absorbed_ids||[])];
+    ids.forEach(id=>document.querySelectorAll('.node[data-id="'+id+'"]').forEach(el=>el.classList.add('sel')));
+    document.querySelectorAll('.merge-card[data-merge-gi="'+ST.sel.gi+'"]').forEach(el=>el.classList.add('sel'));
+  }
+}
+
+function wireMergeCards(){
+  document.querySelectorAll('.merge-card').forEach(card=>{
+    card.addEventListener('click',()=>{
+      const gi=parseInt(card.dataset.mergeGi,10);
+      if(ST.sel && ST.sel.kind==='merge' && ST.sel.gi===gi){ clearSel(); return; }
+      selectMerge(gi, true);
+    });
+  });
+}
+function wireMergeJumps(){
+  document.querySelectorAll('.merge-jump').forEach(a=>{
+    a.addEventListener('click',(e)=>{ e.preventDefault(); selectMerge(parseInt(a.dataset.mergeGi,10), true); });
+  });
+}
+
+// ============================================================
+// Navigation
+// ============================================================
+function goto(i){
+  const n=ST.frames.length;
+  const ni=Math.max(0, Math.min(n-1, i));
+  if(ni!==ST.cur){ ST.sel=null; ST._refit=true; }
+  ST.cur=ni;
+  render();
+}
+function step(d){ goto(ST.cur+d); }
+
+// ============================================================
+// Shared pan / zoom
+// ============================================================
+function applyTransform(){
+  const t=transformStr();
+  document.querySelectorAll('.belief-graph .viewport').forEach(g=>g.setAttribute('transform', t));
+}
+function resetView(){ ST.view={k:1,x:0,y:0}; }
+function clampK(k){ return Math.max(0.2, Math.min(8, k)); }
+
+function fitBox(x0,y0,x1,y1,margin){
+  const L=ST.layout; if(!L) return;
+  const bw=Math.max(1,x1-x0), bh=Math.max(1,y1-y0);
+  const k=clampK(Math.min(L.W/bw, L.H/bh)*(margin||0.86));
+  const cx=(x0+x1)/2, cy=(y0+y1)/2;
+  ST.view={k, x:L.W/2 - k*cx, y:L.H/2 - k*cy};
+  applyTransform();
+}
+function bboxOfIds(ids){
+  const L=ST.layout; let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity,found=false;
+  ids.forEach(id=>{ const p=L.posById.get(id); if(p){ found=true;
+    x0=Math.min(x0,p.x-40); y0=Math.min(y0,p.y-22); x1=Math.max(x1,p.x+40); y1=Math.max(y1,p.y+26);} });
+  return found?{x0,y0,x1,y1}:null;
+}
+function fitToChanges(ctx){
+  if(!ST.layout) return;
+  const ids=new Set();
+  [...ctx.mm.absorbedToCanon.keys()].forEach(i=>ids.add(i));
+  [...ctx.mm.canonToGroup.keys()].forEach(i=>ids.add(i));
+  ctx.diff.added.forEach(i=>ids.add(i));
+  ctx.diff.changed.forEach((v,i)=>ids.add(i));
+  ctx.diff.removed.forEach(i=>ids.add(i));
+  const bb=bboxOfIds([...ids]);
+  if(bb) fitBox(bb.x0,bb.y0,bb.x1,bb.y1,0.84);
+  else { resetView(); fitBox(0,0,ST.layout.W,ST.layout.H,0.94); }
+}
+function fitToGroup(gi, ctx){
+  const grp=ctx.mm.byGi.get(gi); if(!grp) return;
+  const bb=bboxOfIds([grp.canonical_id, ...(grp.absorbed_ids||[])]);
+  if(bb) fitBox(bb.x0,bb.y0,bb.x1,bb.y1,0.7);
+}
+function fitAll(){ if(ST.layout) fitBox(0,0,ST.layout.W,ST.layout.H,0.94); }
+
+function svgUserPoint(svg, clientX, clientY){
+  const pt=svg.createSVGPoint(); pt.x=clientX; pt.y=clientY;
+  return pt.matrixTransform(svg.getScreenCTM().inverse());
+}
+function zoomAt(svg, clientX, clientY, factor){
+  const u=svgUserPoint(svg, clientX, clientY);
+  const v=ST.view;
+  const gx=(u.x - v.x)/v.k, gy=(u.y - v.y)/v.k;
+  const k=clampK(v.k*factor);
+  v.k=k; v.x=u.x - k*gx; v.y=u.y - k*gy;
+  applyTransform();
+}
+function zoomCenter(factor){
+  const svg=document.querySelector('#scroll-curr .belief-graph') || document.querySelector('.belief-graph');
+  if(!svg){ ST.view.k=clampK(ST.view.k*factor); applyTransform(); return; }
+  const r=svg.getBoundingClientRect();
+  zoomAt(svg, r.left+r.width/2, r.top+r.height/2, factor);
+}
+function wirePanZoom(scrollEl){
+  scrollEl.addEventListener('wheel', (e)=>{
+    const svg=scrollEl.querySelector('.belief-graph'); if(!svg) return;
+    e.preventDefault();
+    const factor = e.deltaY<0 ? 1.12 : 1/1.12;
+    zoomAt(svg, e.clientX, e.clientY, factor);
+  }, {passive:false});
+  let panning=false, last=null;
+  scrollEl.addEventListener('mousedown',(e)=>{
+    if(e.target.closest('.node') || e.target.closest('.edge')) return;
+    const svg=scrollEl.querySelector('.belief-graph'); if(!svg) return;
+    panning=true; last=svgUserPoint(svg, e.clientX, e.clientY);
+    scrollEl.classList.add('panning'); e.preventDefault();
+  });
+  window.addEventListener('mousemove',(e)=>{
+    if(!panning) return;
+    const svg=scrollEl.querySelector('.belief-graph'); if(!svg) return;
+    const p=svgUserPoint(svg, e.clientX, e.clientY);
+    ST.view.x += (p.x-last.x); ST.view.y += (p.y-last.y);
+    last=p; applyTransform();
+  });
+  window.addEventListener('mouseup',()=>{ if(panning){ panning=false; scrollEl.classList.remove('panning'); }});
+  scrollEl.addEventListener('dblclick',()=>{ fitAll(); });
+}
+
+// ============================================================
+// UI wiring
+// ============================================================
+function showApp(){
+  document.getElementById('banner').style.display='flex';
+  document.getElementById('controls').style.display='flex';
+  document.getElementById('panels').style.display='grid';
+  document.getElementById('inspector').style.display='block';
+  document.getElementById('hint').style.display='block';
+  document.getElementById('panels').classList.toggle('two-col', !ST.mode3);
+  document.getElementById('drop').classList.add('hidden');
+}
+function showDropError(msg){ document.getElementById('drop-err').textContent=msg||''; }
+
+function wireGraphClicks(scrollEl){
+  scrollEl.addEventListener('click',(e)=>{
+    const node=e.target.closest('.node');
+    if(node){ selectNode(parseInt(node.dataset.id,10)); return; }
+    const edge=e.target.closest('.edge');
+    if(edge){ selectEdge(edge); return; }
+  });
+}
+
+function initUI(){
+  document.getElementById('btn-prev').onclick=()=>step(-1);
+  document.getElementById('btn-next').onclick=()=>step(1);
+  document.getElementById('scrub').addEventListener('input',(e)=>goto(parseInt(e.target.value,10)));
+
+  document.getElementById('t-mode').onclick=function(){
+    ST.mode3=!ST.mode3; this.classList.toggle('active',ST.mode3);
+    document.getElementById('panels').classList.toggle('two-col', !ST.mode3);
+    render();
+  };
+  document.getElementById('t-dim').onclick=function(){ ST.dim=!ST.dim; this.classList.toggle('active',ST.dim); render(); };
+  document.getElementById('t-links').onclick=function(){ ST.showLinks=!ST.showLinks; this.classList.toggle('active',ST.showLinks); render(); };
+  document.getElementById('t-bwd').onclick=function(){ ST.showBwd=!ST.showBwd; this.classList.toggle('active',ST.showBwd);
+    this.textContent=ST.showBwd?'✓ backward edges':'+ backward edges'; render(); };
+  document.getElementById('t-fit').onclick=function(){ if(ST._ctx) fitToChanges(ST._ctx); };
+
+  document.getElementById('z-in').onclick=()=>zoomCenter(1.2);
+  document.getElementById('z-out').onclick=()=>zoomCenter(1/1.2);
+  document.getElementById('z-reset').onclick=()=>fitAll();
+
+  ['scroll-prev','scroll-mid','scroll-curr'].forEach(id=>{
+    const el=document.getElementById(id);
+    wireGraphClicks(el); wirePanZoom(el);
+  });
+
+  document.addEventListener('keydown',(e)=>{
+    if(e.key==='ArrowRight'){ step(1); }
+    else if(e.key==='ArrowLeft'){ step(-1); }
+    else if(e.key==='Escape'){ clearSel(); }
+  });
+
+  const fileInput=document.getElementById('file-input');
+  document.getElementById('browse').onclick=()=>fileInput.click();
+  fileInput.addEventListener('change',(e)=>{ const f=e.target.files[0]; if(f) readFile(f); });
+  document.getElementById('reload').onclick=()=>{ showDropError(''); document.getElementById('drop').classList.remove('hidden'); };
+
+  const drop=document.getElementById('drop');
+  window.addEventListener('dragover',(e)=>{ e.preventDefault(); drop.classList.remove('hidden'); drop.classList.add('drag'); });
+  window.addEventListener('dragleave',(e)=>{ if(e.relatedTarget===null){ drop.classList.remove('drag'); }});
+  window.addEventListener('drop',(e)=>{
+    e.preventDefault(); drop.classList.remove('drag');
+    const f=e.dataTransfer.files && e.dataTransfer.files[0];
+    if(f) readFile(f);
+    else if(ST.frames.length) drop.classList.add('hidden');
+  });
+}
+function readFile(file){
+  showDropError('');
+  const r=new FileReader();
+  r.onload=()=>loadText(String(r.result||''), file.name);
+  r.onerror=()=>showDropError("Couldn't read that file. Try again, or pick a different one.");
+  r.readAsText(file);
+}
+
+initUI();
+</script>
+</body>
+</html>

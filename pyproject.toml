@@ -12,10 +12,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = [
-    "pre-commit>=4.0.1",
-    "ruff>=0.8.0",
-]
+dev = ["pre-commit>=4.0.1", "pytest>=8.0.0", "ruff>=0.8.0"]
 
 [build-system]
 requires = ["hatchling"]
@@ -27,24 +24,14 @@ package = true
 [tool.ruff]
 target-version = "py311"
 line-length = 88
-extend-exclude = [
-    "Belief Memory PRD v0.1.md",
-]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
 
 [tool.ruff.lint]
-select = [
-    "B",
-    "E",
-    "F",
-    "I",
-    "SIM",
-    "UP",
-]
-ignore = [
-    "E501",
-]
+select = ["B", "E", "F", "I", "SIM", "UP"]
+ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = [
-    "B011",
-]
+"tests/**/*.py" = ["B011"]
