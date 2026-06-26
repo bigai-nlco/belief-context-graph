@@ -30,12 +30,11 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 def load_input_file(path: str) -> Any:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -53,7 +52,7 @@ _DATE_FORMATS = (
 _PAREN_DAY_RE = re.compile(r"\s*\([A-Za-z]{3,}\)\s*")
 
 
-def parse_date(s: Optional[str]) -> Optional[datetime]:
+def parse_date(s: str | None) -> datetime | None:
     if not s or not isinstance(s, str):
         return None
     for cand in (s.strip(), _PAREN_DAY_RE.sub(" ", s).strip()):
@@ -69,8 +68,9 @@ def parse_date(s: Optional[str]) -> Optional[datetime]:
 # Shape detection (internal only — not a user-facing "scenario")
 # ---------------------------------------------------------------------------
 
+
 def _is_sessioned(data: Any) -> bool:
-    probe: Optional[Dict[str, Any]] = None
+    probe: dict[str, Any] | None = None
     if isinstance(data, list) and data and isinstance(data[0], dict):
         probe = data[0]
     elif isinstance(data, dict):
@@ -82,64 +82,89 @@ def _is_sessioned(data: Any) -> bool:
 # Normalisers
 # ---------------------------------------------------------------------------
 
-def _turns_from_messages(messages: Any) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+
+def _turns_from_messages(messages: Any) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     for m in messages or []:
         if isinstance(m, dict):
-            out.append({"role": m.get("role") or "user",
-                        "content": m.get("content", "") or "",
-                        "date": m.get("date"),
-                        "has_answer": m.get("has_answer")})
+            out.append(
+                {
+                    "role": m.get("role") or "user",
+                    "content": m.get("content", "") or "",
+                    "date": m.get("date"),
+                    "has_answer": m.get("has_answer"),
+                }
+            )
     return out
 
 
-def _flatten_sessions(raw: Dict[str, Any], keep_order: bool) -> Tuple[List[Dict[str, Any]], bool]:
+def _flatten_sessions(
+    raw: dict[str, Any], keep_order: bool
+) -> tuple[list[dict[str, Any]], bool]:
     sessions_raw = raw.get("sessions") or []
-    session_ids = raw.get("session_ids") or []
     dates = raw.get("dates") or []
 
-    sess: List[Dict[str, Any]] = []
+    sess: list[dict[str, Any]] = []
     for i, turns_raw in enumerate(sessions_raw):
         date = dates[i] if i < len(dates) else None
-        sess.append({
-            "date": date,
-            "date_parsed": parse_date(date),
-            "turns": [
-                {"role": t.get("role") or "user",
-                 "content": t.get("content", "") or "",
-                 "date": date,
-                 "has_answer": t.get("has_answer")}
-                for t in (turns_raw or []) if isinstance(t, dict)
-            ],
-        })
+        sess.append(
+            {
+                "date": date,
+                "date_parsed": parse_date(date),
+                "turns": [
+                    {
+                        "role": t.get("role") or "user",
+                        "content": t.get("content", "") or "",
+                        "date": date,
+                        "has_answer": t.get("has_answer"),
+                    }
+                    for t in (turns_raw or [])
+                    if isinstance(t, dict)
+                ],
+            }
+        )
 
     order_sorted = False
     if (not keep_order) and sess and all(s["date_parsed"] is not None for s in sess):
         sess = sorted(sess, key=lambda s: s["date_parsed"])
         order_sorted = True
 
-    flat: List[Dict[str, Any]] = []
+    flat: list[dict[str, Any]] = []
     for s in sess:
         flat.extend(s["turns"])
     return flat, order_sorted
 
 
-def iter_items(data: Any, keep_order: bool = False) -> List[Dict[str, Any]]:
+def iter_items(data: Any, keep_order: bool = False) -> list[dict[str, Any]]:
     """Normalise ANY accepted input into a list of items (see module docstring)."""
     if _is_sessioned(data):
         raw_items = data if isinstance(data, list) else [data]
-        items: List[Dict[str, Any]] = []
+        items: list[dict[str, Any]] = []
         for idx, raw in enumerate(raw_items):
             if not isinstance(raw, dict):
                 continue
             item_id = str(raw.get("question_id") or raw.get("item_id") or f"item_{idx}")
             turns, order_sorted = _flatten_sessions(raw, keep_order)
-            meta = {k: raw.get(k) for k in (
-                "question_id", "question_type", "question", "answer",
-                "question_date", "answer_session_ids",
-            ) if k in raw}
-            items.append({"item_id": item_id, "meta": meta,
-                          "turns": turns, "order_sorted": order_sorted})
+            meta = {
+                k: raw.get(k)
+                for k in (
+                    "question_id",
+                    "question_type",
+                    "question",
+                    "answer",
+                    "question_date",
+                    "answer_session_ids",
+                )
+                if k in raw
+            }
+            items.append(
+                {
+                    "item_id": item_id,
+                    "meta": meta,
+                    "turns": turns,
+                    "order_sorted": order_sorted,
+                }
+            )
         return items
 
     # trajectory / bare list / {"messages": ...}
@@ -151,11 +176,19 @@ def iter_items(data: Any, keep_order: bool = False) -> List[Dict[str, Any]]:
         item_id = "trajectory"
     else:
         messages, item_id = [], "trajectory"
-    return [{"item_id": item_id, "meta": {}, "turns": _turns_from_messages(messages),
-             "order_sorted": False}]
+    return [
+        {
+            "item_id": item_id,
+            "meta": {},
+            "turns": _turns_from_messages(messages),
+            "order_sorted": False,
+        }
+    ]
 
 
-def select_items(items: List[Dict[str, Any]], selector: Optional[str]) -> List[Dict[str, Any]]:
+def select_items(
+    items: list[dict[str, Any]], selector: str | None
+) -> list[dict[str, Any]]:
     """Filter items by id or by 0-based index. None selects all."""
     if selector is None or selector == "":
         return items
@@ -170,7 +203,8 @@ def select_items(items: List[Dict[str, Any]], selector: Optional[str]) -> List[D
         pass
     raise KeyError(
         f"--item {selector!r} matches no item id and is not a valid index "
-        f"(0..{len(items) - 1})")
+        f"(0..{len(items) - 1})"
+    )
 
 
 def sanitize_name(name: str) -> str:

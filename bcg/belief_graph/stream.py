@@ -23,11 +23,12 @@ from __future__ import annotations
 
 import csv
 import json
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
+from . import llm
 from .confidence import init_belief_confidence
 from .evidence import (
     evidence_from_excerpt,
@@ -40,7 +41,6 @@ from .extract import (
     update_graph,
 )
 from .graph import BeliefGraph
-from . import llm
 from .llm import USAGE
 from .merge import run_merge_pass
 from .split import cluster_sentences, split_sentences
@@ -58,20 +58,20 @@ class StreamOptions:
     use_clustering: bool = False
     cluster_threshold: float = 0.6
     cluster_buffer: int = 0
-    cluster_min_sentences: int = 4        # below this, skip clustering (flat call)
+    cluster_min_sentences: int = 4  # below this, skip clustering (flat call)
     # merge / dedup (runs once at finalize)
-    merge_strategy: str = "embedding"     # embedding | llm | off
+    merge_strategy: str = "embedding"  # embedding | llm | off
     merge_threshold: float = 0.86
     # incremental embedding-ONLY merge after EACH turn's new nodes/edges
     # (no LLM verification). Independent of merge_strategy; needs an embedder.
     incremental_merge: bool = True
     incremental_merge_threshold: float = 0.8
     # prompt budgets
-    context_chars: int = 9000             # existing-nodes context budget
+    context_chars: int = 9000  # existing-nodes context budget
     # skip turns whose content is shorter than this (0 = never skip)
     min_content_len: int = 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "evidence_mode": self.evidence_mode,
             "use_clustering": self.use_clustering,
@@ -95,10 +95,10 @@ class StreamingBeliefBuilder:
         model: str,
         item_id: str,
         out_dir: Path,
-        options: Optional[StreamOptions] = None,
+        options: StreamOptions | None = None,
         embedder=None,
-        item_meta: Optional[Dict[str, Any]] = None,
-        max_tokens: Optional[int] = None,
+        item_meta: dict[str, Any] | None = None,
+        max_tokens: int | None = None,
     ) -> None:
         self.client = client
         self.model = model
@@ -120,15 +120,15 @@ class StreamingBeliefBuilder:
         self._events_path = self.out_dir / "events.jsonl"
         self._events_path.write_text("", encoding="utf-8")
 
-        self._trajectory: List[Dict[str, Any]] = []   # flat, ALL turns (incl. system)
+        self._trajectory: list[dict[str, Any]] = []  # flat, ALL turns (incl. system)
         self._flat_turn = 0
         self._finalized = False
-        self._start_time = datetime.now(timezone.utc)
-        self._end_time: Optional[datetime] = None
+        self._start_time = datetime.now(UTC)
+        self._end_time: datetime | None = None
 
     # ------------------------------------------------------------------ events
-    def _event(self, kind: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        rec = {"ts": datetime.now(timezone.utc).isoformat(), "event": kind}
+    def _event(self, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+        rec = {"ts": datetime.now(UTC).isoformat(), "event": kind}
         rec.update(payload)
         with open(self._events_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -139,18 +139,20 @@ class StreamingBeliefBuilder:
         self,
         role: str,
         content: str,
-        date: Optional[str] = None,
-        has_answer: Optional[bool] = None,
-    ) -> Dict[str, Any]:
+        date: str | None = None,
+        has_answer: bool | None = None,
+    ) -> dict[str, Any]:
         """Process one incoming turn: ONE call → new nodes + typed relations."""
         flat_idx = self._flat_turn
-        turn_idx = flat_idx                       # no sessions: turn index == flat index
+        turn_idx = flat_idx  # no sessions: turn index == flat index
         content = content or ""
         raw_role = (role or "user").strip().lower()
         eff_role = _ROLE_ALIASES.get(raw_role, raw_role)
 
-        traj_entry: Dict[str, Any] = {
-            "role": raw_role, "content": content, "turn_index": turn_idx,
+        traj_entry: dict[str, Any] = {
+            "role": raw_role,
+            "content": content,
+            "turn_index": turn_idx,
         }
         if date is not None:
             traj_entry["date"] = date
@@ -158,14 +160,17 @@ class StreamingBeliefBuilder:
             traj_entry["has_answer"] = bool(has_answer)
         self._trajectory.append(traj_entry)
 
-        new_nodes: List[Dict[str, Any]] = []
+        new_nodes: list[dict[str, Any]] = []
         relations_added = 0
-        skip_reason: Optional[str] = None
-        report: Dict[str, Any] = {"split": None}
+        skip_reason: str | None = None
+        report: dict[str, Any] = {"split": None}
 
-        skip = (raw_role == "system" or not content.strip()
-                or eff_role not in BELIEF_ROLES
-                or len(content) < self.options.min_content_len)
+        skip = (
+            raw_role == "system"
+            or not content.strip()
+            or eff_role not in BELIEF_ROLES
+            or len(content) < self.options.min_content_len
+        )
         if skip:
             if raw_role == "system":
                 skip_reason = "system turn"
@@ -177,46 +182,70 @@ class StreamingBeliefBuilder:
                 skip_reason = "too short"
         else:
             new_nodes, relations_added, report = self._update_from_turn(
-                eff_role, content, turn_idx, flat_idx, date, has_answer)
+                eff_role, content, turn_idx, flat_idx, date, has_answer
+            )
 
         self._flat_turn += 1
         n_merged = len((report.get("incremental_merge") or {}).get("applied", []))
-        print(f"  t{turn_idx} role={raw_role:<9} -> {len(new_nodes)} node(s), "
-              f"{relations_added} relation(s)"
-              + (f", {n_merged} merge(s)" if n_merged else "")
-              + (f"  [skip: {skip_reason}]" if skip_reason else ""))
-        return self._event("turn", {
-            "turn_index": turn_idx,
-            "trajectory_index": flat_idx,
-            "role": raw_role,
-            "effective_role": eff_role,
-            "content_chars": len(content),
-            "skip_reason": skip_reason,
-            "split": report.get("split"),
-            "raw_output": report.get("raw_output"),
-            "new_node_ids": [b["id"] for b in new_nodes],
-            "new_belief_ids": [b["id"] for b in new_nodes if b.get("node_type", "belief") == "belief"],
-            "new_decision_ids": [b["id"] for b in new_nodes if b.get("node_type") == "decision"],
-            "relations_added": relations_added,
-            "incremental_merge": report.get("incremental_merge"),
-        })
+        print(
+            f"  t{turn_idx} role={raw_role:<9} -> {len(new_nodes)} node(s), "
+            f"{relations_added} relation(s)"
+            + (f", {n_merged} merge(s)" if n_merged else "")
+            + (f"  [skip: {skip_reason}]" if skip_reason else "")
+        )
+        return self._event(
+            "turn",
+            {
+                "turn_index": turn_idx,
+                "trajectory_index": flat_idx,
+                "role": raw_role,
+                "effective_role": eff_role,
+                "content_chars": len(content),
+                "skip_reason": skip_reason,
+                "split": report.get("split"),
+                "raw_output": report.get("raw_output"),
+                "new_node_ids": [b["id"] for b in new_nodes],
+                "new_belief_ids": [
+                    b["id"]
+                    for b in new_nodes
+                    if b.get("node_type", "belief") == "belief"
+                ],
+                "new_decision_ids": [
+                    b["id"] for b in new_nodes if b.get("node_type") == "decision"
+                ],
+                "relations_added": relations_added,
+                "incremental_merge": report.get("incremental_merge"),
+            },
+        )
 
     # ----------------------------------------------------- per-turn single call
     def _update_from_turn(
-        self, role: str, content: str, turn_idx: int, flat_idx: int,
-        date: Optional[str], has_answer: Optional[bool],
+        self,
+        role: str,
+        content: str,
+        turn_idx: int,
+        flat_idx: int,
+        date: str | None,
+        has_answer: bool | None,
     ):
         opt = self.options
-        report: Dict[str, Any] = {"split": None}
+        report: dict[str, Any] = {"split": None}
 
         src = source_descriptor(
-            role=role, item_id=self.item_id, turn_index=turn_idx,
-            flat_turn_index=flat_idx, date=date, has_answer=has_answer)
+            role=role,
+            item_id=self.item_id,
+            turn_index=turn_idx,
+            flat_turn_index=flat_idx,
+            date=date,
+            has_answer=has_answer,
+        )
 
         graph_nodes_str = format_graph_nodes(
-            self.graph.active(), char_budget=opt.context_chars)
+            self.graph.active(), char_budget=opt.context_chars
+        )
         graph_edges_str = format_graph_edges(
-            self.graph.relations, keep_ids=set(self.graph.ids()))
+            self.graph.relations, keep_ids=set(self.graph.ids())
+        )
 
         # ---- prepare evidence mode
         sentences = None
@@ -225,14 +254,19 @@ class StreamingBeliefBuilder:
             sents = split_sentences(content)
             sentences = [s.text for s in sents]
             self._last_sentences = sents
-            if (opt.use_clustering and self.embedder is not None
-                    and len(sents) >= opt.cluster_min_sentences):
+            if (
+                opt.use_clustering
+                and self.embedder is not None
+                and len(sents) >= opt.cluster_min_sentences
+            ):
                 try:
                     clusters, split_info = cluster_sentences(
-                        sents, self.embedder,
+                        sents,
+                        self.embedder,
                         similarity_threshold=opt.cluster_threshold,
                         buffer_size=opt.cluster_buffer,
-                        purpose=f"split:t{turn_idx}")
+                        purpose=f"split:t{turn_idx}",
+                    )
                     clusters_idx = [c.sentence_indices for c in clusters]
                     report["split"] = split_info
                 except Exception as e:
@@ -243,19 +277,26 @@ class StreamingBeliefBuilder:
 
         USAGE.set_label(f"t{turn_idx}.update:{role}")
         res = update_graph(
-            self.client, self.model,
-            role=role, mode=opt.evidence_mode,
-            content=content, sentences=sentences, clusters=clusters_idx,
-            graph_nodes_str=graph_nodes_str, graph_edges_str=graph_edges_str,
-            current_date=date, max_tokens=self.max_tokens)
+            self.client,
+            self.model,
+            role=role,
+            mode=opt.evidence_mode,
+            content=content,
+            sentences=sentences,
+            clusters=clusters_idx,
+            graph_nodes_str=graph_nodes_str,
+            graph_edges_str=graph_edges_str,
+            current_date=date,
+            max_tokens=self.max_tokens,
+        )
         report["raw_output"] = res.get("raw_output")
         report["skipped"] = res.get("skipped", False)
         if res.get("skip_reason"):
             report["skip_reason"] = res["skip_reason"]
 
         # ---- allocate ids + attach evidence (in output order, so n0<n1<… in id)
-        tmp_to_gid: Dict[str, int] = {}
-        new_nodes: List[Dict[str, Any]] = []
+        tmp_to_gid: dict[str, int] = {}
+        new_nodes: list[dict[str, Any]] = []
         for cb in res.get("nodes", []):
             evid = self._evidence_for(cb, content, src, opt.evidence_mode)
             node = self._make_node(cb, src, evid)
@@ -265,10 +306,14 @@ class StreamingBeliefBuilder:
         # ---- resolve + add typed relations
         relations_added = 0
         if new_nodes:
-            existing_ids = {b["id"] for b in self.graph.active()
-                            if b["id"] not in tmp_to_gid.values()}
+            existing_ids = {
+                b["id"]
+                for b in self.graph.active()
+                if b["id"] not in tmp_to_gid.values()
+            }
             resolved = self._resolve_relations(
-                res.get("relations", []), tmp_to_gid, existing_ids)
+                res.get("relations", []), tmp_to_gid, existing_ids
+            )
             relations_added = self.graph.add_relations(resolved)
 
         # ---- incremental embedding-ONLY merge of the freshly-updated graph
@@ -277,15 +322,20 @@ class StreamingBeliefBuilder:
         #      onto it. log_dir=None → no per-turn merge_*.json; the applied
         #      merges are recorded in the turn event (events.jsonl) instead.
         #      The final merge in finalize() is unchanged.
-        if (new_nodes and self.options.incremental_merge
-                and self.embedder is not None):
+        if new_nodes and self.options.incremental_merge and self.embedder is not None:
             USAGE.set_label(f"t{turn_idx}.merge")
             inc = run_merge_pass(
-                graph=self.graph, strategy="embedding", verify=False,
-                client=self.client, model=self.model, embedder=self.embedder,
+                graph=self.graph,
+                strategy="embedding",
+                verify=False,
+                client=self.client,
+                model=self.model,
+                embedder=self.embedder,
                 threshold=self.options.incremental_merge_threshold,
                 max_tokens=self.max_tokens,
-                pass_label=f"turn_{turn_idx}", log_dir=None)
+                pass_label=f"turn_{turn_idx}",
+                log_dir=None,
+            )
             if not inc.get("skipped"):
                 report["incremental_merge"] = {
                     "applied": inc.get("applied", []),
@@ -293,15 +343,18 @@ class StreamingBeliefBuilder:
                 }
         return new_nodes, relations_added, report
 
-    def _evidence_for(self, cb, content, src, mode) -> List[Dict[str, Any]]:
+    def _evidence_for(self, cb, content, src, mode) -> list[dict[str, Any]]:
         if mode == "sentence":
             sents = getattr(self, "_last_sentences", []) or []
             idxs = cb.get("supporting_sentence_indices")
-            chosen = ([sents[i] for i in idxs if 0 <= i < len(sents)]
-                      if idxs else list(sents))
+            chosen = (
+                [sents[i] for i in idxs if 0 <= i < len(sents)] if idxs else list(sents)
+            )
             if not chosen:
                 chosen = list(sents)
-            return [evidence_from_sentence(s.start, s.end, content, src) for s in chosen]
+            return [
+                evidence_from_sentence(s.start, s.end, content, src) for s in chosen
+            ]
         excerpts = cb.get("supporting_excerpts", [])
         return [evidence_from_excerpt(ex, content, src) for ex in excerpts]
 
@@ -317,11 +370,11 @@ class StreamingBeliefBuilder:
                     return int(ref)
                 except ValueError:
                     return None
-            if isinstance(ref, (int, float)):
+            if isinstance(ref, int | float):
                 return int(ref)
             return None
 
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         seen = set()
         allowed_ids = set(existing_ids) | new_gids
         for r in raw_relations or []:
@@ -344,13 +397,19 @@ class StreamingBeliefBuilder:
                 continue
             seen.add(key)
             note = r.get("note", "") or ""
-            out.append({"from_id": fid, "to_id": tid, "type": rtype,
-                        "note": note if isinstance(note, str) else str(note)})
+            out.append(
+                {
+                    "from_id": fid,
+                    "to_id": tid,
+                    "type": rtype,
+                    "note": note if isinstance(note, str) else str(note),
+                }
+            )
         return out
 
-    def _make_node(self, cleaned, src, evid) -> Dict[str, Any]:
+    def _make_node(self, cleaned, src, evid) -> dict[str, Any]:
         node_type = cleaned.get("node_type", "belief")
-        node: Dict[str, Any] = {
+        node: dict[str, Any] = {
             "id": self.graph.allocate_id(),
             "node_type": node_type,
             "belief": cleaned["belief"],
@@ -371,21 +430,27 @@ class StreamingBeliefBuilder:
     # ------------------------------------------------------------------ result
     def finalize(
         self,
-        extra_meta: Optional[Dict[str, Any]] = None,
-        pricing: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        extra_meta: dict[str, Any] | None = None,
+        pricing: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if self._finalized:
             raise RuntimeError("finalize() called twice")
         self._finalized = True
 
         # Merge / dedup over the full graph
-        conf_updates: List[Dict[str, Any]] = []
+        conf_updates: list[dict[str, Any]] = []
         USAGE.set_label("final.merge")
         merge_report = run_merge_pass(
-            graph=self.graph, strategy=self.options.merge_strategy,
-            client=self.client, model=self.model, embedder=self.embedder,
-            threshold=self.options.merge_threshold, max_tokens=self.max_tokens,
-            pass_label="final", log_dir=self.logs_dir)
+            graph=self.graph,
+            strategy=self.options.merge_strategy,
+            client=self.client,
+            model=self.model,
+            embedder=self.embedder,
+            threshold=self.options.merge_threshold,
+            max_tokens=self.max_tokens,
+            pass_label="final",
+            log_dir=self.logs_dir,
+        )
 
         # Final snapshot
         snap_path = self.out_dir / "final_graph.json"
@@ -393,8 +458,14 @@ class StreamingBeliefBuilder:
 
         summary = {
             "n_nodes": len(self.graph.active()),
-            "n_beliefs": sum(1 for n in self.graph.active() if n.get("node_type", "belief") == "belief"),
-            "n_decisions": sum(1 for n in self.graph.active() if n.get("node_type") == "decision"),
+            "n_beliefs": sum(
+                1
+                for n in self.graph.active()
+                if n.get("node_type", "belief") == "belief"
+            ),
+            "n_decisions": sum(
+                1 for n in self.graph.active() if n.get("node_type") == "decision"
+            ),
             "relations": len(self.graph.relations),
             "confidence_updates": conf_updates,
             "merges_applied": merge_report.get("applied", []),
@@ -402,15 +473,15 @@ class StreamingBeliefBuilder:
         }
         self.graph.sessions.append(summary)
 
-        self._end_time = datetime.now(timezone.utc)
+        self._end_time = datetime.now(UTC)
         duration = (self._end_time - self._start_time).total_seconds()
         nodes = self.graph.active()
 
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "prompt_name": "construct_beliefs",
             "model": self.model,
             "item_id": self.item_id,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "mode": "stream",
             "options": self.options.to_dict(),
             "embedding_model": getattr(self.embedder, "model", None),
@@ -424,56 +495,91 @@ class StreamingBeliefBuilder:
             result["meta"] = dict(self.item_meta)
         if extra_meta:
             result.update(extra_meta)
-        result.update({
-            "trajectory": self._trajectory,
-            "final": summary,
-            "all_nodes": nodes,
-            "all_beliefs": [n for n in nodes if n.get("node_type", "belief") == "belief"],
-            "all_decisions": [n for n in nodes if n.get("node_type") == "decision"],
-            "relations": self.graph.relations,
-            "merges": self.graph.merges,
-            "source_counts": _count_by(nodes, lambda b: (b.get("source") or {}).get("type")),
-            "stance_counts": _count_by(nodes, lambda b: b.get("stance")),
-            "node_type_counts": _count_by(nodes, lambda b: b.get("node_type", "belief")),
-            "token_usage": USAGE.summary(pricing),
-        })
+        result.update(
+            {
+                "trajectory": self._trajectory,
+                "final": summary,
+                "all_nodes": nodes,
+                "all_beliefs": [
+                    n for n in nodes if n.get("node_type", "belief") == "belief"
+                ],
+                "all_decisions": [n for n in nodes if n.get("node_type") == "decision"],
+                "relations": self.graph.relations,
+                "merges": self.graph.merges,
+                "source_counts": _count_by(
+                    nodes, lambda b: (b.get("source") or {}).get("type")
+                ),
+                "stance_counts": _count_by(nodes, lambda b: b.get("stance")),
+                "node_type_counts": _count_by(
+                    nodes, lambda b: b.get("node_type", "belief")
+                ),
+                "token_usage": USAGE.summary(pricing),
+            }
+        )
 
         with open(self.out_dir / "result.json", "w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
         self._event("finalize", summary)
-        self._event("timing", {"start": self._start_time.isoformat(),
-                               "end": self._end_time.isoformat(),
-                               "duration_seconds": duration})
+        self._event(
+            "timing",
+            {
+                "start": self._start_time.isoformat(),
+                "end": self._end_time.isoformat(),
+                "duration_seconds": duration,
+            },
+        )
         try:
             agg_path = self.out_dir.parent / "timing.csv"
             write_header = not agg_path.exists()
-            with open(agg_path, "a", newline='', encoding="utf-8") as csvf:
+            with open(agg_path, "a", newline="", encoding="utf-8") as csvf:
                 writer = csv.writer(csvf)
                 if write_header:
-                    writer.writerow(["item_id", "start", "end", "duration_seconds",
-                                     "n_nodes", "n_beliefs", "n_decisions",
-                                     "n_relations", "n_merges", "result_path"])
-                writer.writerow([
-                    self.item_id, self._start_time.isoformat(), self._end_time.isoformat(),
-                    f"{duration:.6f}", len(nodes),
-                    sum(1 for n in nodes if n.get("node_type", "belief") == "belief"),
-                    sum(1 for n in nodes if n.get("node_type") == "decision"),
-                    len(self.graph.relations), len(self.graph.merges), str(self.out_dir / "result.json"),
-                ])
+                    writer.writerow(
+                        [
+                            "item_id",
+                            "start",
+                            "end",
+                            "duration_seconds",
+                            "n_nodes",
+                            "n_beliefs",
+                            "n_decisions",
+                            "n_relations",
+                            "n_merges",
+                            "result_path",
+                        ]
+                    )
+                writer.writerow(
+                    [
+                        self.item_id,
+                        self._start_time.isoformat(),
+                        self._end_time.isoformat(),
+                        f"{duration:.6f}",
+                        len(nodes),
+                        sum(
+                            1 for n in nodes if n.get("node_type", "belief") == "belief"
+                        ),
+                        sum(1 for n in nodes if n.get("node_type") == "decision"),
+                        len(self.graph.relations),
+                        len(self.graph.merges),
+                        str(self.out_dir / "result.json"),
+                    ]
+                )
         except Exception:
             self._event("timing_csv_error", {"error": "failed to append timing.csv"})
 
         USAGE.save_json(self.out_dir / "token_usage.json", pricing=pricing)
         USAGE.save_text(self.out_dir / "token_usage.txt", pricing=pricing)
-        print(f"  [finalize] {len(nodes)} node(s); "
-              f"{len(self.graph.relations)} relation(s); "
-              f"{len(self.graph.merges)} merge record(s); {duration:.3f}s")
+        print(
+            f"  [finalize] {len(nodes)} node(s); "
+            f"{len(self.graph.relations)} relation(s); "
+            f"{len(self.graph.merges)} merge record(s); {duration:.3f}s"
+        )
         print(f"  saved -> {self.out_dir / 'result.json'}")
         return result
 
 
-def _count_by(items: List[Dict[str, Any]], key_fn) -> Dict[str, int]:
-    out: Dict[str, int] = {}
+def _count_by(items: list[dict[str, Any]], key_fn) -> dict[str, int]:
+    out: dict[str, int] = {}
     for it in items:
         k = key_fn(it) or "unknown"
         out[k] = out.get(k, 0) + 1

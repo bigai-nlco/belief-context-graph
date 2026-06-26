@@ -40,8 +40,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-
+from typing import Any
 
 # =============================================================
 # Segment recomputation (matches construct_beliefs/segment.py)
@@ -56,17 +55,18 @@ from typing import Any, Dict, List, Optional, Tuple
 # or excerpt re-search. slice_with_marks() turns the per-belief (start,end)
 # ranges into rendered, click-linked spans.
 
+
 def slice_with_marks(
-    original: str, intervals: List[Tuple[int, int, int]]
-) -> List[Dict[str, Any]]:
+    original: str, intervals: list[tuple[int, int, int]]
+) -> list[dict[str, Any]]:
     if not intervals:
-        return [{'text': original, 'beliefs': []}]
+        return [{"text": original, "beliefs": []}]
     points = {0, len(original)}
     for s, e, _ in intervals:
         points.add(s)
         points.add(e)
     sorted_points = sorted(points)
-    pieces: List[Dict[str, Any]] = []
+    pieces: list[dict[str, Any]] = []
     for i in range(len(sorted_points) - 1):
         seg_start = sorted_points[i]
         seg_end = sorted_points[i + 1]
@@ -77,7 +77,7 @@ def slice_with_marks(
         for s, e, bid in intervals:
             if s <= seg_start and seg_end <= e:
                 active.add(bid)
-        pieces.append({'text': text, 'beliefs': sorted(active)})
+        pieces.append({"text": text, "beliefs": sorted(active)})
     return pieces
 
 
@@ -85,34 +85,44 @@ def slice_with_marks(
 # Static palette (kept in sync with visualize_beliefs_v3.py)
 # =============================================================
 
-ALLOWED_SOURCES = {'user', 'assistant', 'tool'}
+ALLOWED_SOURCES = {"user", "assistant", "tool"}
 
 SOURCE_LABEL = {
-    'user':      'user',
-    'assistant': 'assistant',
-    'tool':      'tool',
+    "user": "user",
+    "assistant": "assistant",
+    "tool": "tool",
 }
 
 ROLE_LABEL = {
-    'system': 'system', 'user': 'user', 'assistant': 'assistant',
-    'tool': 'tool', 'function': 'tool',
+    "system": "system",
+    "user": "user",
+    "assistant": "assistant",
+    "tool": "tool",
+    "function": "tool",
 }
 
 
-def confidence_band(c: float) -> Tuple[str, int]:
-    if c >= 0.90: return ('certain',  5)
-    if c >= 0.75: return ('high',     4)
-    if c >= 0.50: return ('medium',   3)
-    if c >= 0.25: return ('low',      2)
-    return ('verylow', 1)
+def confidence_band(c: float) -> tuple[str, int]:
+    if c >= 0.90:
+        return ("certain", 5)
+    if c >= 0.75:
+        return ("high", 4)
+    if c >= 0.50:
+        return ("medium", 3)
+    if c >= 0.25:
+        return ("low", 2)
+    return ("verylow", 1)
 
 
 # =============================================================
 # Layout: position each belief as a graph node
 # =============================================================
 
+
 def compute_layout(
-    beliefs: List[Dict[str, Any]], width: int = 900, height: int = 280,
+    beliefs: list[dict[str, Any]],
+    width: int = 900,
+    height: int = 280,
 ):
     """
     Flat structured layout: one column per trajectory_index; within a column,
@@ -123,9 +133,9 @@ def compute_layout(
     if not beliefs:
         return {}, width, height, [], 130, 60
 
-    by_traj: Dict[int, List[Dict[str, Any]]] = {}
+    by_traj: dict[int, list[dict[str, Any]]] = {}
     for b in beliefs:
-        ti = (b.get('source') or {}).get('trajectory_index', -1)
+        ti = (b.get("source") or {}).get("trajectory_index", -1)
         by_traj.setdefault(ti, []).append(b)
 
     sorted_traj = sorted(by_traj.keys())
@@ -133,19 +143,19 @@ def compute_layout(
     col_w = 130
     pad_x = 60
     pad_y_top = 32
-    pad_y_bot = 36          # extra room for column labels at bottom
+    pad_y_bot = 36  # extra room for column labels at bottom
 
     max_per_col = max((len(by_traj[ti]) for ti in sorted_traj), default=1)
     slot_h = 52
     final_height = max(height, pad_y_top + max_per_col * slot_h + pad_y_bot)
-    final_width  = max(width,  pad_x * 2 + n_cols * col_w)
+    final_width = max(width, pad_x * 2 + n_cols * col_w)
 
-    positions: Dict[int, Tuple[float, float]] = {}
+    positions: dict[int, tuple[float, float]] = {}
     for ci, ti in enumerate(sorted_traj):
         x_center = pad_x + col_w / 2 + ci * col_w
-        beliefs_in_col = sorted(by_traj[ti], key=lambda b: b['id'])
+        beliefs_in_col = sorted(by_traj[ti], key=lambda b: b["id"])
         for i, b in enumerate(beliefs_in_col):
-            positions[b['id']] = (x_center, pad_y_top + 16 + i * slot_h)
+            positions[b["id"]] = (x_center, pad_y_top + 16 + i * slot_h)
 
     return positions, final_width, final_height, sorted_traj, col_w, pad_x
 
@@ -740,35 +750,40 @@ document.addEventListener('DOMContentLoaded', renderDetailEmpty);
 # HTML rendering
 # =============================================================
 
+
 def render_message_panel(
-    traj_idx: int, msg: Dict[str, Any],
-    beliefs_for_msg: List[Tuple[int, Dict[str, Any], List[Tuple[int, int]]]],
+    traj_idx: int,
+    msg: dict[str, Any],
+    beliefs_for_msg: list[tuple[int, dict[str, Any], list[tuple[int, int]]]],
     # beliefs_for_msg = list of (belief_global_id, belief, list_of_(start,end)_intervals_within_msg)
 ) -> str:
-    role = msg.get('role') or '?'
-    content = msg.get('content', '') or ''
+    role = msg.get("role") or "?"
+    content = msg.get("content", "") or ""
     role_label = ROLE_LABEL.get(role, role)
-    role_class = re.sub(r'[^a-z]', '', role.lower()) or 'unknown'
+    role_class = re.sub(r"[^a-z]", "", role.lower()) or "unknown"
 
-    intervals: List[Tuple[int, int, int]] = []
+    intervals: list[tuple[int, int, int]] = []
     for gid, _b, ranges in beliefs_for_msg:
-        for (s, e) in ranges:
+        for s, e in ranges:
             intervals.append((s, e, gid))
 
     pieces = slice_with_marks(content, intervals)
-    body_parts: List[str] = []
+    body_parts: list[str] = []
     for p in pieces:
-        text = html_lib.escape(p['text'])
-        if not p['beliefs']:
+        text = html_lib.escape(p["text"])
+        if not p["beliefs"]:
             body_parts.append(text)
         else:
-            ids = ' '.join(str(b) for b in p['beliefs'])
+            ids = " ".join(str(b) for b in p["beliefs"])
             body_parts.append(f'<span class="ev" data-beliefs="{ids}">{text}</span>')
-    body_html = ''.join(body_parts)
+    body_html = "".join(body_parts)
 
-    summary_cls = 'msg-belief-count' + ('' if beliefs_for_msg else ' empty')
-    summary_text = (f'{len(beliefs_for_msg)} belief'
-                    + ('s' if len(beliefs_for_msg) != 1 else '')) if beliefs_for_msg else 'no beliefs'
+    summary_cls = "msg-belief-count" + ("" if beliefs_for_msg else " empty")
+    summary_text = (
+        (f"{len(beliefs_for_msg)} belief" + ("s" if len(beliefs_for_msg) != 1 else ""))
+        if beliefs_for_msg
+        else "no beliefs"
+    )
 
     return (
         f'<article class="msg msg-{role_class}" id="msg-{traj_idx}">'
@@ -776,230 +791,262 @@ def render_message_panel(
         f'<span class="msg-role role-{role_class}">{html_lib.escape(role_label)}</span>'
         f'<span class="msg-idx">trajectory_index <b>{traj_idx}</b></span>'
         f'<span class="{summary_cls}">{summary_text}</span>'
-        f'</header>'
+        f"</header>"
         f'<pre class="msg-body">{body_html}</pre>'
-        f'</article>'
+        f"</article>"
     )
 
 
 def render_graph_svg(
-    beliefs: List[Dict[str, Any]],
-    forward_relations: List[Dict[str, Any]],
-    backward_relations: List[Dict[str, Any]],
-    positions: Dict[int, Tuple[float, float]],
-    width: int, height: int,
-    sorted_traj: List[int], col_w: int, pad_x: int,
+    beliefs: list[dict[str, Any]],
+    forward_relations: list[dict[str, Any]],
+    backward_relations: list[dict[str, Any]],
+    positions: dict[int, tuple[float, float]],
+    width: int,
+    height: int,
+    sorted_traj: list[int],
+    col_w: int,
+    pad_x: int,
 ) -> str:
-    parts: List[str] = []
+    parts: list[str] = []
 
     # Column labels at the bottom (single tick per traj message).
     for ci, ti in enumerate(sorted_traj):
         cx = pad_x + col_w / 2 + ci * col_w
-        parts.append(f'<text class="col-label" x="{cx}" y="{height - 12}">traj[{ti}]</text>')
+        parts.append(
+            f'<text class="col-label" x="{cx}" y="{height - 12}">traj[{ti}]</text>'
+        )
 
     # Arrow markers (one per edge type so color follows)
     parts.append(
-        '<defs>'
+        "<defs>"
         '<marker id="arr-confirms" viewBox="0 0 10 10" refX="9" refY="5" '
         ' markerWidth="6" markerHeight="6" orient="auto-start-reverse">'
         '  <path d="M0,0 L10,5 L0,10 z" fill="#1f6a35"/>'
-        '</marker>'
+        "</marker>"
         '<marker id="arr-contradicts" viewBox="0 0 10 10" refX="9" refY="5" '
         ' markerWidth="6" markerHeight="6" orient="auto-start-reverse">'
         '  <path d="M0,0 L10,5 L0,10 z" fill="#c84a3e"/>'
-        '</marker>'
+        "</marker>"
         '<marker id="arr-extends" viewBox="0 0 10 10" refX="9" refY="5" '
         ' markerWidth="6" markerHeight="6" orient="auto-start-reverse">'
         '  <path d="M0,0 L10,5 L0,10 z" fill="#b3500e"/>'
-        '</marker>'
+        "</marker>"
         '<marker id="arr-informs" viewBox="0 0 10 10" refX="9" refY="5" '
         ' markerWidth="5" markerHeight="5" orient="auto-start-reverse">'
         '  <path d="M0,0 L10,5 L0,10 z" fill="#6b89b8"/>'
-        '</marker>'
-        '</defs>'
+        "</marker>"
+        "</defs>"
     )
 
-    def _edge_path(fid: int, tid: int) -> Optional[str]:
+    def _edge_path(fid: int, tid: int) -> str | None:
         if fid not in positions or tid not in positions:
             return None
         x1, y1 = positions[fid]
         x2, y2 = positions[tid]
-        mx = (x1 + x2) / 2; my = (y1 + y2) / 2
-        dx = x2 - x1; dy = y2 - y1
-        length = max(1.0, (dx*dx + dy*dy) ** 0.5)
-        px = -dy / length; py = dx / length
+        mx = (x1 + x2) / 2
+        my = (y1 + y2) / 2
+        dx = x2 - x1
+        dy = y2 - y1
+        length = max(1.0, (dx * dx + dy * dy) ** 0.5)
+        px = -dy / length
+        py = dx / length
         offset = max(30, min(80, abs(dx) * 0.25 + 20))
-        cx = mx + px * offset; cy = my + py * offset
-        return f'M {x1:.1f},{y1:.1f} Q {cx:.1f},{cy:.1f} {x2:.1f},{y2:.1f}'
+        cx = mx + px * offset
+        cy = my + py * offset
+        return f"M {x1:.1f},{y1:.1f} Q {cx:.1f},{cy:.1f} {x2:.1f},{y2:.1f}"
 
     # Forward edges first (so backward edges sit on top — they're the louder
     # ones epistemically and should be more visible).
     for r in forward_relations:
-        fid = r['from_id']; tid = r['to_id']
+        fid = r["from_id"]
+        tid = r["to_id"]
         path = _edge_path(fid, tid)
-        if not path: continue
-        rtype = r.get('type', 'informs')
-        edge_key = f'{fid}->{tid}:{rtype}'
+        if not path:
+            continue
+        rtype = r.get("type", "informs")
+        edge_key = f"{fid}->{tid}:{rtype}"
         parts.append(
             f'<path class="edge edge-forward type-{rtype}" d="{path}" '
             f'marker-end="url(#arr-{rtype})" '
             f'data-from-id="{fid}" data-to-id="{tid}" data-type="{rtype}" data-dir="forward" '
             f'data-key="{edge_key}" '
-            f'onclick="selectEdge({fid},{tid},\'{rtype}\',\'forward\')"/>'
+            f"onclick=\"selectEdge({fid},{tid},'{rtype}','forward')\"/>"
         )
 
     # Backward edges
     for r in backward_relations:
-        fid = r['from_id']; tid = r['to_id']
+        fid = r["from_id"]
+        tid = r["to_id"]
         path = _edge_path(fid, tid)
-        if not path: continue
-        rtype = r.get('type', 'extends')
-        edge_key = f'{fid}->{tid}:{rtype}'
+        if not path:
+            continue
+        rtype = r.get("type", "extends")
+        edge_key = f"{fid}->{tid}:{rtype}"
         parts.append(
             f'<path class="edge edge-backward type-{rtype}" d="{path}" '
             f'marker-end="url(#arr-{rtype})" '
             f'data-from-id="{fid}" data-to-id="{tid}" data-type="{rtype}" data-dir="backward" '
             f'data-key="{edge_key}" '
-            f'onclick="selectEdge({fid},{tid},\'{rtype}\',\'backward\')"/>'
+            f"onclick=\"selectEdge({fid},{tid},'{rtype}','backward')\"/>"
         )
 
     # Nodes
     for b in beliefs:
-        bid = b['id']
+        bid = b["id"]
         if bid not in positions:
             continue
         x, y = positions[bid]
-        src_type = (b.get('source') or {}).get('type', 'unknown')
-        conf = float(b.get('confidence', 0.0))
+        src_type = (b.get("source") or {}).get("type", "unknown")
+        conf = float(b.get("confidence", 0.0))
         parts.append(
             f'<g class="node source-{src_type}" data-id="{bid}" transform="translate({x:.1f},{y:.1f})" '
             f' onclick="selectNode({bid})">'
             f'<rect class="node-pill" x="-36" y="-15" width="72" height="30"/>'
-            f'<text class="node-id" x="0" y="-3">#{bid+1:02d}</text>'
+            f'<text class="node-id" x="0" y="-3">#{bid + 1:02d}</text>'
             f'<text class="node-conf" x="0" y="9">{conf:.2f}</text>'
-            f'</g>'
+            f"</g>"
         )
 
     return (
         f'<svg class="belief-graph" xmlns="http://www.w3.org/2000/svg" '
         f'viewBox="0 0 {width} {height}" width="{width}" height="{height}">'
-        + ''.join(parts) +
-        '</svg>'
+        + "".join(parts)
+        + "</svg>"
     )
 
 
-def render_html(data: Dict[str, Any], src_path: str) -> str:
-    trajectory = data.get('trajectory') or []
-    all_beliefs_raw = data.get('all_beliefs') or []
+def render_html(data: dict[str, Any], src_path: str) -> str:
+    trajectory = data.get("trajectory") or []
+    all_beliefs_raw = data.get("all_beliefs") or []
     # Read both link layers. Fall back to legacy `relations` field for files
     # produced before the forward/backward split.
-    forward_relations  = data.get('forward_relations')  or []
-    backward_relations = data.get('backward_relations') or data.get('relations') or []
-    model = data.get('model', '') or ''
-    prompt_name = data.get('prompt_name', 'construct_beliefs') or 'construct_beliefs'
+    forward_relations = data.get("forward_relations") or []
+    backward_relations = data.get("backward_relations") or data.get("relations") or []
+    model = data.get("model", "") or ""
+    prompt_name = data.get("prompt_name", "construct_beliefs") or "construct_beliefs"
 
-    all_beliefs: List[Dict[str, Any]] = [
-        b for b in all_beliefs_raw if isinstance(b, dict) and isinstance(b.get('belief'), str)
+    all_beliefs: list[dict[str, Any]] = [
+        b
+        for b in all_beliefs_raw
+        if isinstance(b, dict) and isinstance(b.get("belief"), str)
     ]
 
     # For each belief, take highlight ranges DIRECTLY from evidence offsets
     # (v3 evidence carries exact start/end into the original turn content — no
     # segment rederivation or excerpt re-search needed). Group by trajectory_index.
-    by_msg: Dict[int, List[Tuple[int, Dict[str, Any], List[Tuple[int, int]]]]] = {}
+    by_msg: dict[int, list[tuple[int, dict[str, Any], list[tuple[int, int]]]]] = {}
     for b in all_beliefs:
-        bid = b['id']
-        src = b.get('source') or {}
-        ti = src.get('trajectory_index')
+        bid = b["id"]
+        src = b.get("source") or {}
+        ti = src.get("trajectory_index")
         if not isinstance(ti, int) or not (0 <= ti < len(trajectory)):
             continue
-        host_content = trajectory[ti].get('content', '') or ''
+        host_content = trajectory[ti].get("content", "") or ""
 
-        excerpt_status: Dict[str, bool] = {}
-        all_ranges: List[Tuple[int, int]] = []
-        for ev in (b.get('evidence') or []):
-            txt = ev.get('text')
-            s, e = ev.get('start'), ev.get('end')
-            located = (isinstance(s, int) and isinstance(e, int)
-                       and 0 <= s < e <= len(host_content))
+        excerpt_status: dict[str, bool] = {}
+        all_ranges: list[tuple[int, int]] = []
+        for ev in b.get("evidence") or []:
+            txt = ev.get("text")
+            s, e = ev.get("start"), ev.get("end")
+            located = (
+                isinstance(s, int)
+                and isinstance(e, int)
+                and 0 <= s < e <= len(host_content)
+            )
             if isinstance(txt, str):
                 excerpt_status[txt] = located or excerpt_status.get(txt, False)
             if located:
                 all_ranges.append((s, e))
-        b['_evidence_status'] = excerpt_status
+        b["_evidence_status"] = excerpt_status
         by_msg.setdefault(ti, []).append((bid, b, all_ranges))
 
     # Render left panel (trajectory with evidence highlights).
     msg_panels = []
     for i, m in enumerate(trajectory):
         msg_panels.append(render_message_panel(i, m, by_msg.get(i, [])))
-    msgs_html = '\n'.join(msg_panels) if msg_panels else '<p class="muted">No trajectory.</p>'
+    msgs_html = (
+        "\n".join(msg_panels) if msg_panels else '<p class="muted">No trajectory.</p>'
+    )
 
     # Compute graph layout.
     positions, gw, gh, sorted_traj, col_w, pad_x = compute_layout(all_beliefs)
 
     graph_svg = render_graph_svg(
-        all_beliefs, forward_relations, backward_relations, positions, gw, gh,
-        sorted_traj, col_w, pad_x,
+        all_beliefs,
+        forward_relations,
+        backward_relations,
+        positions,
+        gw,
+        gh,
+        sorted_traj,
+        col_w,
+        pad_x,
     )
 
     # Stats counters
-    SRC_ORDER = ('user', 'assistant', 'tool')
+    SRC_ORDER = ("user", "assistant", "tool")
     src_counts = {k: 0 for k in SRC_ORDER}
     for b in all_beliefs:
-        t = (b.get('source') or {}).get('type', '')
+        t = (b.get("source") or {}).get("type", "")
         if t in src_counts:
             src_counts[t] += 1
     total = len(all_beliefs)
 
     fwd_count = len(forward_relations)
-    bwd_counts: Dict[str, int] = {}
+    bwd_counts: dict[str, int] = {}
     for r in backward_relations:
-        t = r.get('type', '?')
+        t = r.get("type", "?")
         bwd_counts[t] = bwd_counts.get(t, 0) + 1
-    bwd_pieces = ', '.join(f'{v} {html_lib.escape(k)}' for k, v in bwd_counts.items())
+    bwd_pieces = ", ".join(f"{v} {html_lib.escape(k)}" for k, v in bwd_counts.items())
 
     stats_html = (
-        f'<span><b>{total}</b> belief{"s" if total != 1 else ""}</span>'
-        + ''.join(
+        f"<span><b>{total}</b> belief{'s' if total != 1 else ''}</span>"
+        + "".join(
             f'<span><span class="stat-dot {k}"></span><b>{src_counts[k]}</b> {SOURCE_LABEL[k]}</span>'
-            for k in SRC_ORDER if src_counts[k] > 0
+            for k in SRC_ORDER
+            if src_counts[k] > 0
         )
         + f'<span><b>{fwd_count}</b> forward <span style="color:var(--ink-faint)">(informs)</span></span>'
-        + f'<span><b>{len(backward_relations)}</b> backward'
-        + (f' <span style="color:var(--ink-faint)">({bwd_pieces})</span>' if bwd_pieces else '')
-        + '</span>'
-        + f'<span><b>{len(trajectory)}</b> messages</span>'
+        + f"<span><b>{len(backward_relations)}</b> backward"
+        + (
+            f' <span style="color:var(--ink-faint)">({bwd_pieces})</span>'
+            if bwd_pieces
+            else ""
+        )
+        + "</span>"
+        + f"<span><b>{len(trajectory)}</b> messages</span>"
     )
 
     # Embed graph data for JS.
     graph_data = {
-        'beliefs': all_beliefs,
-        'forward_edges':  forward_relations,
-        'backward_edges': backward_relations,
+        "beliefs": all_beliefs,
+        "forward_edges": forward_relations,
+        "backward_edges": backward_relations,
         # Unified edges list for click handlers (each tagged with direction).
-        'edges': (
-            [{**r, '_dir': 'forward'}  for r in forward_relations] +
-            [{**r, '_dir': 'backward'} for r in backward_relations]
+        "edges": (
+            [{**r, "_dir": "forward"} for r in forward_relations]
+            + [{**r, "_dir": "backward"} for r in backward_relations]
         ),
-        'source_label': SOURCE_LABEL,
+        "source_label": SOURCE_LABEL,
     }
     graph_data_json = json.dumps(graph_data, ensure_ascii=False)
 
     return (
         '<!doctype html>\n<html lang="en"><head>'
         '<meta charset="utf-8">'
-        f'<title>Belief Graph · {html_lib.escape(prompt_name)}</title>'
+        f"<title>Belief Graph · {html_lib.escape(prompt_name)}</title>"
         '<link rel="preconnect" href="https://fonts.googleapis.com">'
         '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
         '<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400&family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">'
-        f'<style>{CSS}</style>'
-        '</head><body>'
+        f"<style>{CSS}</style>"
+        "</head><body>"
         '<header class="app-header">'
         f'<h1>Belief Graph <span class="sep">·</span> <span class="tag">{html_lib.escape(prompt_name)}</span></h1>'
         '<div class="file-meta">'
-        f'<span>source · <b>{html_lib.escape(Path(src_path).name)}</b></span>'
-        f'<span>model · <b>{html_lib.escape(model)}</b></span>'
-        '</div></header>'
+        f"<span>source · <b>{html_lib.escape(Path(src_path).name)}</b></span>"
+        f"<span>model · <b>{html_lib.escape(model)}</b></span>"
+        "</div></header>"
         f'<div class="stats">{stats_html}</div>'
         '<div class="layout">'
         f'<div class="left-panel"><h2 class="section-title">Conversation trajectory</h2>{msgs_html}</div>'
@@ -1007,50 +1054,56 @@ def render_html(data: Dict[str, Any], src_path: str) -> str:
         f'<div class="graph-wrap">'
         f'  <div class="graph-toolbar">'
         f'    <button class="toggle-bwd" onclick="toggleBackward()" title="Show / hide backward (evaluation) edges">+ backward edges</button>'
-        f'  </div>'
+        f"  </div>"
         f'  <div class="legend">'
         f'    <span><span class="swatch sw-informs"></span>informs</span>'
         f'    <span><span class="swatch sw-confirms"></span>confirms</span>'
         f'    <span><span class="swatch sw-contradicts"></span>contradicts</span>'
         f'    <span><span class="swatch sw-extends"></span>extends</span>'
-        f'  </div>'
-        f'  {graph_svg}'
-        f'</div>'
+        f"  </div>"
+        f"  {graph_svg}"
+        f"</div>"
         f'<div class="detail-wrap"><h2 class="section-title">Inspector</h2><div id="detail"></div></div>'
-        '</div></div>'
+        "</div></div>"
         '<div class="hint">'
-        'Click a node to inspect a belief (highlights its evidence and host message). '
-        'Click an edge to inspect a relation. Click an evidence span to jump to its node. '
-        '<kbd>Esc</kbd> clears.'
-        '</div>'
-        '<script>'
-        f'window.GRAPH_DATA = {graph_data_json};'
-        f'{JS}'
-        '</script>'
-        '</body></html>'
+        "Click a node to inspect a belief (highlights its evidence and host message). "
+        "Click an edge to inspect a relation. Click an evidence span to jump to its node. "
+        "<kbd>Esc</kbd> clears."
+        "</div>"
+        "<script>"
+        f"window.GRAPH_DATA = {graph_data_json};"
+        f"{JS}"
+        "</script>"
+        "</body></html>"
     )
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Graph visualizer for construct_beliefs result.json')
-    parser.add_argument('input', help='Path to result.json')
-    parser.add_argument('--output', '-o', default=None, help='Output HTML path')
+    parser = argparse.ArgumentParser(
+        description="Graph visualizer for construct_beliefs result.json"
+    )
+    parser.add_argument("input", help="Path to result.json")
+    parser.add_argument("--output", "-o", default=None, help="Output HTML path")
     args = parser.parse_args()
 
     in_path = Path(args.input)
     if not in_path.exists():
-        print(f'[error] file not found: {in_path}', file=sys.stderr)
+        print(f"[error] file not found: {in_path}", file=sys.stderr)
         sys.exit(1)
-    with open(in_path, 'r', encoding='utf-8') as f:
+    with open(in_path, encoding="utf-8") as f:
         data = json.load(f)
 
     html = render_html(data, str(in_path))
-    out_path = Path(args.output) if args.output else in_path.parent / f'graph_{in_path.stem}.html'
+    out_path = (
+        Path(args.output)
+        if args.output
+        else in_path.parent / f"graph_{in_path.stem}.html"
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, 'w', encoding='utf-8') as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         f.write(html)
-    print(f'[ok] wrote {out_path}  ({out_path.stat().st_size:,} bytes)')
+    print(f"[ok] wrote {out_path}  ({out_path.stat().st_size:,} bytes)")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -328,9 +328,11 @@ def check_common(res, out_dir, tag):
     for b in beliefs:
         assert "layer" not in b, f"[{tag}] belief still carries 'layer'"
         src = b.get("source") or {}
-        assert src.get("type") in {"user", "assistant", "tool"}, (
-            f"[{tag}] bad source.type {src.get('type')!r}"
-        )
+        assert src.get("type") in {
+            "user",
+            "assistant",
+            "tool",
+        }, f"[{tag}] bad source.type {src.get('type')!r}"
         assert "scenario" not in src and "segment_type" not in src, (
             f"[{tag}] source still carries scenario/segment fields"
         )
@@ -469,9 +471,11 @@ def main() -> None:
     check_common(res_r, out_r, "research")
 
     src_types = {(b.get("source") or {}).get("type") for b in res_r["all_beliefs"]}
-    assert {"user", "assistant", "tool"} <= src_types, (
-        f"role source types incomplete: {src_types}"
-    )
+    assert {
+        "user",
+        "assistant",
+        "tool",
+    } <= src_types, f"role source types incomplete: {src_types}"
     # system turn kept for index alignment but produced nothing
     assert res_r["trajectory"][0]["role"] == "system"
     assert all(b["source"]["trajectory_index"] != 0 for b in res_r["all_beliefs"]), (

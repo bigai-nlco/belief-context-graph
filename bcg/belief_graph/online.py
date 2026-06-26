@@ -96,9 +96,9 @@ from __future__ import annotations
 import json
 import sys
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from . import llm
 from .llm import (
@@ -108,7 +108,7 @@ from .llm import (
     make_embedder,
 )
 from .loaders import sanitize_name
-from .stream import StreamOptions, StreamingBeliefBuilder
+from .stream import StreamingBeliefBuilder, StreamOptions
 
 
 class TrajectoryClosedError(RuntimeError):
@@ -116,12 +116,13 @@ class TrajectoryClosedError(RuntimeError):
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 # ===========================================================================
 # One trajectory  (one problem_id)
 # ===========================================================================
+
 
 class StreamingTrajectorySession:
     """
@@ -137,11 +138,11 @@ class StreamingTrajectorySession:
         client,
         model: str,
         output_root: Any = "outputs_stream",
-        options: Optional[StreamOptions] = None,
+        options: StreamOptions | None = None,
         embedder=None,
-        pricing: Optional[Dict[str, Any]] = None,
-        max_tokens: Optional[int] = None,
-        item_meta: Optional[Dict[str, Any]] = None,
+        pricing: dict[str, Any] | None = None,
+        max_tokens: int | None = None,
+        item_meta: dict[str, Any] | None = None,
     ) -> None:
         self.problem_id = str(problem_id)
         self.client = client
@@ -168,21 +169,21 @@ class StreamingTrajectorySession:
         self._graph_jsonl_path.write_text("", encoding="utf-8")
 
         # engine + per-session isolated state
-        self._builder: Optional[StreamingBeliefBuilder] = None
-        self._usage_records: List[Dict[str, Any]] = []
+        self._builder: StreamingBeliefBuilder | None = None
+        self._usage_records: list[dict[str, Any]] = []
         self._usage_label: str = "unlabeled"
 
         # assembled, ingested messages (role+content only) for trajectory.json
-        self._messages: List[Dict[str, str]] = []
+        self._messages: list[dict[str, str]] = []
         # fragment buffer (only used when is_message_end=False is sent)
-        self._buf_role: Optional[str] = None
-        self._buf_parts: List[str] = []
-        self._buf_date: Optional[str] = None
+        self._buf_role: str | None = None
+        self._buf_parts: list[str] = []
+        self._buf_date: str | None = None
 
-        self._n_received = 0       # raw dicts seen
-        self._n_ingested = 0       # turns actually fed to the engine
+        self._n_received = 0  # raw dicts seen
+        self._n_ingested = 0  # turns actually fed to the engine
         self._finalized = False
-        self._result: Optional[Dict[str, Any]] = None
+        self._result: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------ state
     @property
@@ -194,7 +195,7 @@ class StreamingTrajectorySession:
         return self._n_ingested
 
     @property
-    def result(self) -> Optional[Dict[str, Any]]:
+    def result(self) -> dict[str, Any] | None:
         return self._result
 
     # ----------------------------------------------- engine-global isolation
@@ -208,7 +209,9 @@ class StreamingTrajectorySession:
         prev_records = llm.USAGE.records
         prev_label = llm.USAGE._label
         prev_prompt = llm.PROMPT_LOG_PATH
-        prev_emb_log = getattr(self.embedder, "_log_path", None) if self.embedder else None
+        prev_emb_log = (
+            getattr(self.embedder, "_log_path", None) if self.embedder else None
+        )
 
         # mutate the shared tracker in place so stream.py's `from .llm import USAGE`
         # reference sees this session's records too.
@@ -232,15 +235,19 @@ class StreamingTrajectorySession:
         if self._builder is None:
             with self._engine():
                 self._builder = StreamingBeliefBuilder(
-                    client=self.client, model=self.model,
-                    item_id=self.problem_id, out_dir=self.out_dir,
-                    options=self.options, embedder=self.embedder,
-                    item_meta=self.item_meta, max_tokens=self.max_tokens,
+                    client=self.client,
+                    model=self.model,
+                    item_id=self.problem_id,
+                    out_dir=self.out_dir,
+                    options=self.options,
+                    embedder=self.embedder,
+                    item_meta=self.item_meta,
+                    max_tokens=self.max_tokens,
                 )
         return self._builder
 
     # ------------------------------------------------------------- file I/O
-    def _append_stream_log(self, record: Dict[str, Any]) -> None:
+    def _append_stream_log(self, record: dict[str, Any]) -> None:
         with open(self._stream_log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
@@ -256,28 +263,37 @@ class StreamingTrajectorySession:
         with open(self._trajectory_path, "w", encoding="utf-8") as f:
             json.dump(doc, f, ensure_ascii=False, indent=2)
 
-    def _snapshot(self, *, stage: str) -> Dict[str, Any]:
+    def _snapshot(self, *, stage: str) -> dict[str, Any]:
         """Current graph snapshot, tagged with streaming metadata."""
         builder = self._builder
         if builder is None:
             return {
                 "problem_id": self.problem_id,
-                "stage": stage, "finalized": self._finalized,
-                "n_nodes": 0, "n_beliefs": 0, "n_decisions": 0,
-                "nodes": [], "beliefs": [], "decisions": [],
-                "relations": [], "merges": [], "sessions": [],
+                "stage": stage,
+                "finalized": self._finalized,
+                "n_nodes": 0,
+                "n_beliefs": 0,
+                "n_decisions": 0,
+                "nodes": [],
+                "beliefs": [],
+                "decisions": [],
+                "relations": [],
+                "merges": [],
+                "sessions": [],
                 "generated_at": _now(),
             }
-        return builder.graph.snapshot(extra={
-            "problem_id": self.problem_id,
-            "item_id": self.problem_id,
-            "stage": stage,
-            "finalized": self._finalized,
-            "stream_turn_index": max(0, self._n_ingested - 1),
-            "n_turns_ingested": self._n_ingested,
-        })
+        return builder.graph.snapshot(
+            extra={
+                "problem_id": self.problem_id,
+                "item_id": self.problem_id,
+                "stage": stage,
+                "finalized": self._finalized,
+                "stream_turn_index": max(0, self._n_ingested - 1),
+                "n_turns_ingested": self._n_ingested,
+            }
+        )
 
-    def _emit_snapshot(self, *, stage: str) -> Dict[str, Any]:
+    def _emit_snapshot(self, *, stage: str) -> dict[str, Any]:
         """Snapshot, append to belief_graph.jsonl, refresh belief_graph_latest.json."""
         snap = self._snapshot(stage=stage)
         with open(self._graph_jsonl_path, "a", encoding="utf-8") as f:
@@ -287,7 +303,7 @@ class StreamingTrajectorySession:
         return snap
 
     # ------------------------------------------------------------- ingestion
-    def _ingest(self, role: str, content: str, date: Optional[str] = None) -> None:
+    def _ingest(self, role: str, content: str, date: str | None = None) -> None:
         """Feed one assembled turn to the engine and record it for trajectory.json."""
         builder = self._ensure_builder()
         with self._engine():
@@ -307,7 +323,7 @@ class StreamingTrajectorySession:
         self._buf_date = None
 
     # ------------------------------------------------------------------ push
-    def push(self, turn: Dict[str, Any]) -> Dict[str, Any]:
+    def push(self, turn: dict[str, Any]) -> dict[str, Any]:
         """
         Process one incoming dict. Returns the current belief-graph snapshot.
         On is_trajectory_end the trajectory is finalized (merge + result.json)
@@ -325,7 +341,7 @@ class StreamingTrajectorySession:
             raise ValueError(
                 f"problem_id mismatch: session is {self.problem_id!r}, turn carries {pid!r}."
             )
-        role = (turn.get("role") or "user")
+        role = turn.get("role") or "user"
         content = turn.get("content")
         if content is None:
             content = ""
@@ -339,22 +355,26 @@ class StreamingTrajectorySession:
 
         # 1) RAW stream log (real time) — every received dict, ingested or not
         self._n_received += 1
-        self._append_stream_log({
-            "recv_ts": _now(),
-            "recv_index": self._n_received - 1,
-            "ingested": is_msg_end,
-            "is_message_end": is_msg_end,
-            "is_trajectory_end": is_traj_end,
-            "turn": turn,
-        })
+        self._append_stream_log(
+            {
+                "recv_ts": _now(),
+                "recv_index": self._n_received - 1,
+                "ingested": is_msg_end,
+                "is_message_end": is_msg_end,
+                "is_trajectory_end": is_traj_end,
+                "turn": turn,
+            }
+        )
 
         # 2) fragment buffering (no-op under the default one-dict-one-turn contract)
         if not is_msg_end:
             if self._buf_role is not None and self._buf_role != role:
                 # role changed mid-message: flush what we have, then start over
-                print(f"  [warn] {self.problem_id}: role changed mid-message "
-                      f"({self._buf_role!r} -> {role!r}); flushing buffered fragment",
-                      file=sys.stderr)
+                print(
+                    f"  [warn] {self.problem_id}: role changed mid-message "
+                    f"({self._buf_role!r} -> {role!r}); flushing buffered fragment",
+                    file=sys.stderr,
+                )
                 self._flush_buffer()
             self._buf_role = role
             self._buf_parts.append(content)
@@ -365,9 +385,11 @@ class StreamingTrajectorySession:
         # 3) assemble + ingest one complete turn
         if self._buf_parts:
             if self._buf_role and self._buf_role != role:
-                print(f"  [warn] {self.problem_id}: message-end role {role!r} differs "
-                      f"from buffered role {self._buf_role!r}; using buffered role",
-                      file=sys.stderr)
+                print(
+                    f"  [warn] {self.problem_id}: message-end role {role!r} differs "
+                    f"from buffered role {self._buf_role!r}; using buffered role",
+                    file=sys.stderr,
+                )
             role = self._buf_role or role
             content = "".join(self._buf_parts) + content
             date = date or self._buf_date
@@ -385,7 +407,7 @@ class StreamingTrajectorySession:
         return snap
 
     # -------------------------------------------------------------- finalize
-    def finalize(self) -> Dict[str, Any]:
+    def finalize(self) -> dict[str, Any]:
         """
         Run the session-end merge pass and write result.json. Safe to call
         explicitly if a producer forgot is_trajectory_end. Returns the FINAL
@@ -404,16 +426,19 @@ class StreamingTrajectorySession:
         self._finalized = True
         self._write_trajectory(complete=True)
         snap = self._emit_snapshot(stage="final")
-        print(f"  [online] trajectory {self.problem_id!r} finalized: "
-              f"{snap.get('n_nodes')} node(s), "
-              f"{len(snap.get('relations', []))} relation(s), "
-              f"{len(snap.get('merges', []))} merge(s) -> {self.out_dir/'result.json'}")
+        print(
+            f"  [online] trajectory {self.problem_id!r} finalized: "
+            f"{snap.get('n_nodes')} node(s), "
+            f"{len(snap.get('relations', []))} relation(s), "
+            f"{len(snap.get('merges', []))} merge(s) -> {self.out_dir / 'result.json'}"
+        )
         return snap
 
 
 # ===========================================================================
 # Many trajectories  (multiplex by problem_id)
 # ===========================================================================
+
 
 class SessionManager:
     """
@@ -428,23 +453,23 @@ class SessionManager:
         self,
         *,
         config_path: str = "model_config.json",
-        model_key: Optional[str] = None,
+        model_key: str | None = None,
         embedding_key: str = "embedding",
         output_root: Any = "outputs_stream",
-        options: Optional[StreamOptions] = None,
+        options: StreamOptions | None = None,
         # pre-built injection (e.g. offline tests / custom wiring); when given,
         # config_path is NOT read.
         client: Any = "__from_config__",
-        model: Optional[str] = None,
+        model: str | None = None,
         embedder: Any = "__from_config__",
-        pricing: Optional[Dict[str, Any]] = None,
+        pricing: dict[str, Any] | None = None,
     ) -> None:
         self.output_root = Path(output_root)
         self.output_root.mkdir(parents=True, exist_ok=True)
         self.options = options or StreamOptions()
         self.pricing = pricing
-        self.max_tokens: Optional[int] = None
-        self._sessions: Dict[str, StreamingTrajectorySession] = {}
+        self.max_tokens: int | None = None
+        self._sessions: dict[str, StreamingTrajectorySession] = {}
 
         injected = (client != "__from_config__") or (model is not None)
         if injected:
@@ -462,63 +487,81 @@ class SessionManager:
         self.max_tokens = cfg.get("max_tokens")
         if self.pricing is None:
             self.pricing = cfg.get("pricing")
-        masked = (cfg.get("api_key", "") or "")
+        masked = cfg.get("api_key", "") or ""
         masked = (masked[:6] + "…" + masked[-3:]) if len(masked) > 10 else "***"
-        print(f"[online] model={self.model}  base_url={cfg['base_url']}  api_key={masked}"
-              + (f"  max_tokens={self.max_tokens}" if self.max_tokens else ""))
+        print(
+            f"[online] model={self.model}  base_url={cfg['base_url']}  api_key={masked}"
+            + (f"  max_tokens={self.max_tokens}" if self.max_tokens else "")
+        )
 
         emb_cfg = load_embedding_config(config_path, embedding_key=embedding_key)
         self.embedder = None
         if emb_cfg is not None:
             self.embedder = make_embedder(emb_cfg)
             if emb_cfg.get("provider") == "local":
-                print(f"[online] embedding provider=local  model={emb_cfg['model']}  "
-                      f"(weights load lazily on first use)")
+                print(
+                    f"[online] embedding provider=local  model={emb_cfg['model']}  "
+                    f"(weights load lazily on first use)"
+                )
             else:
-                print(f"[online] embedding model={emb_cfg['model']}  base_url={emb_cfg['base_url']}")
+                print(
+                    f"[online] embedding model={emb_cfg['model']}  base_url={emb_cfg['base_url']}"
+                )
         else:
             if self.options.use_clustering:
-                print(f"[warn] --use-clustering needs an {embedding_key!r} config entry — "
-                      f"clustering DISABLED", file=sys.stderr)
+                print(
+                    f"[warn] --use-clustering needs an {embedding_key!r} config entry — "
+                    f"clustering DISABLED",
+                    file=sys.stderr,
+                )
                 self.options.use_clustering = False
             if self.options.merge_strategy == "embedding":
-                print(f"[warn] merge-strategy=embedding needs an {embedding_key!r} entry — "
-                      f"falling back to merge-strategy=llm", file=sys.stderr)
+                print(
+                    f"[warn] merge-strategy=embedding needs an {embedding_key!r} entry — "
+                    f"falling back to merge-strategy=llm",
+                    file=sys.stderr,
+                )
                 self.options.merge_strategy = "llm"
 
     # ---- routing ----------------------------------------------------------
-    def get_session(self, problem_id: str, *, create: bool = True) -> Optional[StreamingTrajectorySession]:
+    def get_session(
+        self, problem_id: str, *, create: bool = True
+    ) -> StreamingTrajectorySession | None:
         pid = str(problem_id)
         sess = self._sessions.get(pid)
         if sess is None and create:
             sess = StreamingTrajectorySession(
-                pid, client=self.client, model=self.model,
-                output_root=self.output_root, options=self.options,
-                embedder=self.embedder, pricing=self.pricing,
+                pid,
+                client=self.client,
+                model=self.model,
+                output_root=self.output_root,
+                options=self.options,
+                embedder=self.embedder,
+                pricing=self.pricing,
                 max_tokens=self.max_tokens,
             )
             self._sessions[pid] = sess
         return sess
 
-    def push(self, turn: Dict[str, Any]) -> Dict[str, Any]:
+    def push(self, turn: dict[str, Any]) -> dict[str, Any]:
         """Route one incoming dict to its trajectory and return the live graph."""
         pid = turn.get("problem_id")
         if pid is None:
             raise ValueError("each streamed turn must carry a 'problem_id'")
         return self.get_session(str(pid)).push(turn)
 
-    def finalize(self, problem_id: str) -> Dict[str, Any]:
+    def finalize(self, problem_id: str) -> dict[str, Any]:
         sess = self.get_session(problem_id, create=False)
         if sess is None:
             raise KeyError(f"no active trajectory for problem_id {problem_id!r}")
         return sess.finalize()
 
-    def get_graph(self, problem_id: str) -> Optional[Dict[str, Any]]:
+    def get_graph(self, problem_id: str) -> dict[str, Any] | None:
         sess = self.get_session(problem_id, create=False)
         return None if sess is None else sess._snapshot(stage="query")
 
-    def active_problem_ids(self) -> List[str]:
+    def active_problem_ids(self) -> list[str]:
         return [pid for pid, s in self._sessions.items() if s.active]
 
-    def all_problem_ids(self) -> List[str]:
+    def all_problem_ids(self) -> list[str]:
         return list(self._sessions.keys())

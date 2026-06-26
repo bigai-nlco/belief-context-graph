@@ -14,7 +14,7 @@ Valid relation types: causal, depends_on, supplements, contradicts.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from . import llm
 from .prompts import (
@@ -27,16 +27,20 @@ VALID_STANCES = {"asserted", "recalled", "speculated", "judged"}
 VALID_RELATION_TYPES = {"causal", "depends_on", "supplements", "contradicts"}
 
 
-def _clean_str(v: Any) -> Optional[str]:
-    if isinstance(v, str) and v.strip() and v.strip().lower() not in ("null", "none", "n/a"):
+def _clean_str(v: Any) -> str | None:
+    if (
+        isinstance(v, str)
+        and v.strip()
+        and v.strip().lower() not in ("null", "none", "n/a")
+    ):
         return v.strip()
     return None
 
 
-def _clean_entities(v: Any) -> List[str]:
+def _clean_entities(v: Any) -> list[str]:
     if not isinstance(v, list):
         return []
-    out: List[str] = []
+    out: list[str] = []
     seen = set()
     for x in v:
         if not isinstance(x, str):
@@ -56,7 +60,7 @@ def _clean_node(
     ordinal: int,
     *,
     node_type: str,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Validate / coerce one belief or decision object from the model."""
     if not isinstance(raw, dict):
         return None
@@ -79,7 +83,7 @@ def _clean_node(
         tmp = f"n{ordinal}"
     tmp = tmp.strip()
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "tmp_id": tmp,
         "node_type": node_type,
         "belief": text.strip(),
@@ -94,10 +98,15 @@ def _clean_node(
 
     if mode != "excerpt":
         idx_in = raw.get("supporting_sentence_indices")
-        indices: Optional[List[int]] = None
+        indices: list[int] | None = None
         if isinstance(idx_in, list):
-            cleaned = sorted({int(i) for i in idx_in
-                              if isinstance(i, (int, float)) and 0 <= int(i) < n_sentences})
+            cleaned = sorted(
+                {
+                    int(i)
+                    for i in idx_in
+                    if isinstance(i, int | float) and 0 <= int(i) < n_sentences
+                }
+            )
             if cleaned:
                 indices = cleaned
         out["supporting_sentence_indices"] = indices
@@ -110,9 +119,9 @@ def _clean_node(
     return out
 
 
-def _clean_relations(raw: Any) -> List[Dict[str, Any]]:
+def _clean_relations(raw: Any) -> list[dict[str, Any]]:
     """Keep unresolved typed relations. Endpoints may be existing ids or tmp ids."""
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for r in raw or []:
         if not isinstance(r, dict):
             continue
@@ -134,7 +143,8 @@ def _clean_relations(raw: Any) -> List[Dict[str, Any]]:
 # Context formatting
 # ---------------------------------------------------------------------------
 
-def _node_line(b: Dict[str, Any]) -> str:
+
+def _node_line(b: dict[str, Any]) -> str:
     src = b.get("source") or {}
     line = {
         "id": b.get("id"),
@@ -152,7 +162,7 @@ def _node_line(b: Dict[str, Any]) -> str:
     return json.dumps(line, ensure_ascii=False)
 
 
-def format_graph_nodes(nodes: List[Dict[str, Any]], char_budget: int = 9000) -> str:
+def format_graph_nodes(nodes: list[dict[str, Any]], char_budget: int = 9000) -> str:
     """Compact JSON view of existing graph nodes. Over budget keeps recent nodes."""
     if not nodes:
         return "[]"
@@ -164,26 +174,39 @@ def format_graph_nodes(nodes: List[Dict[str, Any]], char_budget: int = 9000) -> 
         total -= len(lines[0]) + 4
         lines.pop(0)
         omitted += 1
-    items = [f"  (... {omitted} earlier node(s) omitted for length ...)"] if omitted else []
+    items = (
+        [f"  (... {omitted} earlier node(s) omitted for length ...)"] if omitted else []
+    )
     items += ["  " + s for s in lines]
     return "[\n" + ",\n".join(items) + "\n]"
 
 
-def format_graph_edges(relations: List[Dict[str, Any]],
-                       keep_ids: Optional[set] = None,
-                       max_edges: int = 400) -> str:
+def format_graph_edges(
+    relations: list[dict[str, Any]], keep_ids: set | None = None, max_edges: int = 400
+) -> str:
     """Compact view of existing typed relations so the model won't duplicate them."""
     if not relations:
         return "[]"
     rels = relations
     if keep_ids is not None:
-        rels = [r for r in rels if r.get("from_id") in keep_ids and r.get("to_id") in keep_ids]
+        rels = [
+            r
+            for r in rels
+            if r.get("from_id") in keep_ids and r.get("to_id") in keep_ids
+        ]
     if not rels:
         return "[]"
-    rels = sorted(rels, key=lambda r: (r.get("from_id", 0), r.get("to_id", 0)))[-max_edges:]
-    lines = ["  " + json.dumps({"from": r.get("from_id"), "to": r.get("to_id"),
-                                "type": r.get("type")}, ensure_ascii=False)
-             for r in rels]
+    rels = sorted(rels, key=lambda r: (r.get("from_id", 0), r.get("to_id", 0)))[
+        -max_edges:
+    ]
+    lines = [
+        "  "
+        + json.dumps(
+            {"from": r.get("from_id"), "to": r.get("to_id"), "type": r.get("type")},
+            ensure_ascii=False,
+        )
+        for r in rels
+    ]
     return "[\n" + ",\n".join(lines) + "\n]"
 
 
@@ -191,21 +214,22 @@ def format_graph_edges(relations: List[Dict[str, Any]],
 # Update entry point
 # ---------------------------------------------------------------------------
 
+
 def update_graph(
     client,
     model: str,
     *,
     role: str,
     mode: str = "sentences",
-    content: Optional[str] = None,
-    sentences: Optional[List[str]] = None,
-    clusters: Optional[List[List[int]]] = None,
+    content: str | None = None,
+    sentences: list[str] | None = None,
+    clusters: list[list[int]] | None = None,
     graph_nodes_str: str = "[]",
     graph_edges_str: str = "[]",
-    current_date: Optional[str] = None,
+    current_date: str | None = None,
     temperature: float = 0.0,
-    max_tokens: Optional[int] = None,
-) -> Dict[str, Any]:
+    max_tokens: int | None = None,
+) -> dict[str, Any]:
     """
     One LLM call. Returns cleaned unresolved nodes and typed relations:
         {
@@ -217,36 +241,61 @@ def update_graph(
     n_sentences = len(sentences or [])
     if mode != "excerpt":
         if clusters:
-            sentences_block = format_clustered_sentences_for_prompt(sentences or [], clusters)
+            sentences_block = format_clustered_sentences_for_prompt(
+                sentences or [], clusters
+            )
         else:
             sentences_block = format_sentences_for_prompt(sentences or [])
         prompt = build_update_prompt(
-            role, mode="sentences", sentences_block=sentences_block,
-            graph_nodes=graph_nodes_str, graph_edges=graph_edges_str,
-            current_date=current_date)
+            role,
+            mode="sentences",
+            sentences_block=sentences_block,
+            graph_nodes=graph_nodes_str,
+            graph_edges=graph_edges_str,
+            current_date=current_date,
+        )
     else:
         prompt = build_update_prompt(
-            role, mode="excerpt", content=content or "",
-            graph_nodes=graph_nodes_str, graph_edges=graph_edges_str,
-            current_date=current_date)
+            role,
+            mode="excerpt",
+            content=content or "",
+            graph_nodes=graph_nodes_str,
+            graph_edges=graph_edges_str,
+            current_date=current_date,
+        )
 
     if prompt is None:
-        return {"nodes": [], "beliefs": [], "decisions": [], "relations": [],
-                "raw_output": None, "skipped": True, "skip_reason": f"unknown role {role!r}"}
+        return {
+            "nodes": [],
+            "beliefs": [],
+            "decisions": [],
+            "relations": [],
+            "raw_output": None,
+            "skipped": True,
+            "skip_reason": f"unknown role {role!r}",
+        }
 
     try:
-        raw = llm.call_model(client, model, prompt,
-                             temperature=temperature, max_tokens=max_tokens)
+        raw = llm.call_model(
+            client, model, prompt, temperature=temperature, max_tokens=max_tokens
+        )
     except Exception as e:
-        return {"nodes": [], "beliefs": [], "decisions": [], "relations": [],
-                "raw_output": f"[ERROR] {e}", "skipped": True, "skip_reason": str(e)}
+        return {
+            "nodes": [],
+            "beliefs": [],
+            "decisions": [],
+            "relations": [],
+            "raw_output": f"[ERROR] {e}",
+            "skipped": True,
+            "skip_reason": str(e),
+        }
 
     parsed = llm.parse_json_response(raw)
     parsed = parsed if isinstance(parsed, dict) else {}
 
-    out_nodes: List[Dict[str, Any]] = []
-    out_beliefs: List[Dict[str, Any]] = []
-    out_decisions: List[Dict[str, Any]] = []
+    out_nodes: list[dict[str, Any]] = []
+    out_beliefs: list[dict[str, Any]] = []
+    out_decisions: list[dict[str, Any]] = []
     seen_tmp: set = set()
     ordinal = 0
 
@@ -273,5 +322,11 @@ def update_graph(
         ordinal += 1
 
     relations = _clean_relations(parsed.get("relations", []) or [])
-    return {"nodes": out_nodes, "beliefs": out_beliefs, "decisions": out_decisions,
-            "relations": relations, "raw_output": raw, "skipped": False}
+    return {
+        "nodes": out_nodes,
+        "beliefs": out_beliefs,
+        "decisions": out_decisions,
+        "relations": relations,
+        "raw_output": raw,
+        "skipped": False,
+    }

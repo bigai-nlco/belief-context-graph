@@ -281,9 +281,11 @@ def check_offsets_and_edges(result: dict, label: str):
     n_exact = 0
     for b in beliefs:
         assert "layer" not in b, f"[{label}] belief still has layer"
-        assert (b.get("source") or {}).get("type") in {"user", "assistant", "tool"}, (
-            f"[{label}] bad source.type"
-        )
+        assert (b.get("source") or {}).get("type") in {
+            "user",
+            "assistant",
+            "tool",
+        }, f"[{label}] bad source.type"
         assert b.get("evidence"), f"[{label}] belief {b['id']} has no evidence"
         for ev in b["evidence"]:
             if ev["match"] == "exact" and ev["start"] is not None:

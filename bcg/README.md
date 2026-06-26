@@ -64,7 +64,7 @@ source .venv/bin/activate         # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-`requirements.txt` installs the two core dependencies: `openai` (the OpenAI-compatible chat/embedding client) and `numpy` (cosine similarity + clustering used by the default embedding merge). 
+`requirements.txt` installs the two core dependencies: `openai` (the OpenAI-compatible chat/embedding client) and `numpy` (cosine similarity + clustering used by the default embedding merge).
 
 Embeddings can be served two ways. The default configuration calls an **OpenAI-compatible `/v1/embeddings` HTTP endpoint** (e.g. vLLM, SGLang, TEI, or OpenAI itself), which needs no extra Python packages. Only if you want to load the embedding model **weights in-process** (`"provider": "local"`) do you also need `sentence-transformers` and `torch` — uncomment them in `requirements.txt`.
 

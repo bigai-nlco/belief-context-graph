@@ -26,8 +26,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-
+from typing import Any
 
 ROLE_LABEL = {
     "system": "system",
@@ -53,19 +52,24 @@ def escape(s: Any) -> str:
 
 
 def safe_class(s: Any) -> str:
-    return re.sub(r"[^a-zA-Z0-9_-]+", "-", str(s or "unknown").lower()).strip("-") or "unknown"
+    return (
+        re.sub(r"[^a-zA-Z0-9_-]+", "-", str(s or "unknown").lower()).strip("-")
+        or "unknown"
+    )
 
 
-def node_text(n: Dict[str, Any]) -> str:
+def node_text(n: dict[str, Any]) -> str:
     return str(n.get("belief") or n.get("decision") or n.get("content") or "")
 
 
-def node_role(n: Dict[str, Any]) -> str:
+def node_role(n: dict[str, Any]) -> str:
     src = n.get("source") or {}
     return str(src.get("role") or src.get("type") or "unknown")
 
 
-def normalize_input(data: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+def normalize_input(
+    data: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     trajectory = data.get("trajectory") or []
 
     nodes = data.get("all_nodes")
@@ -86,7 +90,7 @@ def normalize_input(data: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Di
                     seen.add(nid)
                     nodes.append(n)
 
-    clean_nodes: List[Dict[str, Any]] = []
+    clean_nodes: list[dict[str, Any]] = []
     for n in nodes:
         if not isinstance(n, dict):
             continue
@@ -95,7 +99,10 @@ def normalize_input(data: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Di
         if not node_text(n):
             continue
         n = dict(n)
-        n.setdefault("node_type", "decision" if "decision" in n and "belief" not in n else "belief")
+        n.setdefault(
+            "node_type",
+            "decision" if "decision" in n and "belief" not in n else "belief",
+        )
         clean_nodes.append(n)
     clean_nodes.sort(key=lambda x: x.get("id", 0))
 
@@ -107,7 +114,7 @@ def normalize_input(data: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Di
             vals = data.get(key) or []
             if isinstance(vals, list):
                 rels.extend(vals)
-    clean_rels: List[Dict[str, Any]] = []
+    clean_rels: list[dict[str, Any]] = []
     node_ids = {n["id"] for n in clean_nodes}
     seen_rel = set()
     for r in rels:
@@ -132,15 +139,22 @@ def normalize_input(data: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Di
         if key in seen_rel:
             continue
         seen_rel.add(key)
-        clean_rels.append({"from_id": fid, "to_id": tid, "type": rtype, "note": str(r.get("note") or "")})
+        clean_rels.append(
+            {
+                "from_id": fid,
+                "to_id": tid,
+                "type": rtype,
+                "note": str(r.get("note") or ""),
+            }
+        )
 
     return trajectory, clean_nodes, clean_rels
 
 
-def load_graph_file(path: Path) -> Dict[str, Any]:
+def load_graph_file(path: Path) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8")
     if path.suffix.lower() == ".jsonl":
-        last: Optional[Dict[str, Any]] = None
+        last: dict[str, Any] | None = None
         for line in text.splitlines():
             line = line.strip()
             if not line:
@@ -154,7 +168,9 @@ def load_graph_file(path: Path) -> Dict[str, Any]:
     return json.loads(text)
 
 
-def slice_with_marks(original: str, intervals: List[Tuple[int, int, int]]) -> List[Dict[str, Any]]:
+def slice_with_marks(
+    original: str, intervals: list[tuple[int, int, int]]
+) -> list[dict[str, Any]]:
     if not intervals:
         return [{"text": original, "nodes": []}]
     points = {0, len(original)}
@@ -162,7 +178,7 @@ def slice_with_marks(original: str, intervals: List[Tuple[int, int, int]]) -> Li
         if 0 <= s < e <= len(original):
             points.add(s)
             points.add(e)
-    pieces: List[Dict[str, Any]] = []
+    pieces: list[dict[str, Any]] = []
     sorted_points = sorted(points)
     for i in range(len(sorted_points) - 1):
         a, b = sorted_points[i], sorted_points[i + 1]
@@ -173,10 +189,10 @@ def slice_with_marks(original: str, intervals: List[Tuple[int, int, int]]) -> Li
     return pieces
 
 
-def compute_layout(nodes: List[Dict[str, Any]], width: int = 980, height: int = 360):
+def compute_layout(nodes: list[dict[str, Any]], width: int = 980, height: int = 360):
     if not nodes:
         return {}, width, height, [], 150, 70
-    by_traj: Dict[int, List[Dict[str, Any]]] = {}
+    by_traj: dict[int, list[dict[str, Any]]] = {}
     for n in nodes:
         ti = (n.get("source") or {}).get("trajectory_index", -1)
         if not isinstance(ti, int):
@@ -187,7 +203,7 @@ def compute_layout(nodes: List[Dict[str, Any]], width: int = 980, height: int = 
     max_per_col = max(len(v) for v in by_traj.values())
     final_w = max(width, pad_x * 2 + len(trajs) * col_w)
     final_h = max(height, pad_y + max_per_col * 58 + 42)
-    pos: Dict[int, Tuple[float, float]] = {}
+    pos: dict[int, tuple[float, float]] = {}
     for ci, ti in enumerate(trajs):
         x = pad_x + col_w / 2 + ci * col_w
         for j, n in enumerate(sorted(by_traj[ti], key=lambda x: x["id"])):
@@ -229,16 +245,20 @@ document.addEventListener('click',e=>{let ev=e.target.closest('.ev');if(ev){let 
 """
 
 
-def render_message_panel(i: int, msg: Dict[str, Any], nodes_for_msg: List[Tuple[int, Dict[str, Any], List[Tuple[int, int]]]]) -> str:
+def render_message_panel(
+    i: int,
+    msg: dict[str, Any],
+    nodes_for_msg: list[tuple[int, dict[str, Any], list[tuple[int, int]]]],
+) -> str:
     role = msg.get("role") or "?"
     content = msg.get("content", "") or ""
     role_class = safe_class(ROLE_LABEL.get(role, role))
-    intervals: List[Tuple[int, int, int]] = []
+    intervals: list[tuple[int, int, int]] = []
     for nid, _n, ranges in nodes_for_msg:
         for s, e in ranges:
             intervals.append((s, e, nid))
     pieces = slice_with_marks(content, intervals)
-    body: List[str] = []
+    body: list[str] = []
     for p in pieces:
         txt = escape(p["text"])
         if p["nodes"]:
@@ -255,22 +275,38 @@ def render_message_panel(i: int, msg: Dict[str, Any], nodes_for_msg: List[Tuple[
     )
 
 
-def render_graph_svg(nodes: List[Dict[str, Any]], rels: List[Dict[str, Any]], pos: Dict[int, Tuple[float, float]], width: int, height: int, trajs: List[int], col_w: int, pad_x: int) -> str:
-    parts: List[str] = []
+def render_graph_svg(
+    nodes: list[dict[str, Any]],
+    rels: list[dict[str, Any]],
+    pos: dict[int, tuple[float, float]],
+    width: int,
+    height: int,
+    trajs: list[int],
+    col_w: int,
+    pad_x: int,
+) -> str:
+    parts: list[str] = []
     for ci, ti in enumerate(trajs):
         cx = pad_x + col_w / 2 + ci * col_w
-        parts.append(f'<text class="col-label" x="{cx}" y="{height-12}">traj[{ti}]</text>')
+        parts.append(
+            f'<text class="col-label" x="{cx}" y="{height - 12}">traj[{ti}]</text>'
+        )
 
     marker_defs = []
     marker_colors = {
-        "causal": "#c84a3e", "depends_on": "#6b89b8", "supplements": "#b3500e",
-        "contradicts": "#1a1a1a", "supports": "#1f6a35",
+        "causal": "#c84a3e",
+        "depends_on": "#6b89b8",
+        "supplements": "#b3500e",
+        "contradicts": "#1a1a1a",
+        "supports": "#1f6a35",
     }
     for t, c in marker_colors.items():
-        marker_defs.append(f'<marker id="arr-{t}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="{c}"/></marker>')
-    parts.append('<defs>' + ''.join(marker_defs) + '</defs>')
+        marker_defs.append(
+            f'<marker id="arr-{t}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="{c}"/></marker>'
+        )
+    parts.append("<defs>" + "".join(marker_defs) + "</defs>")
 
-    def path(fid: int, tid: int) -> Optional[str]:
+    def path(fid: int, tid: int) -> str | None:
         if fid not in pos or tid not in pos:
             return None
         x1, y1 = pos[fid]
@@ -280,7 +316,7 @@ def render_graph_svg(nodes: List[Dict[str, Any]], rels: List[Dict[str, Any]], po
         length = max(1.0, (dx * dx + dy * dy) ** 0.5)
         px, py = -dy / length, dx / length
         offset = max(24, min(74, abs(dx) * 0.22 + 18))
-        return f'M {x1:.1f},{y1:.1f} Q {mx + px * offset:.1f},{my + py * offset:.1f} {x2:.1f},{y2:.1f}'
+        return f"M {x1:.1f},{y1:.1f} Q {mx + px * offset:.1f},{my + py * offset:.1f} {x2:.1f},{y2:.1f}"
 
     for r in rels:
         fid, tid, typ = r["from_id"], r["to_id"], safe_class(r.get("type"))
@@ -292,7 +328,7 @@ def render_graph_svg(nodes: List[Dict[str, Any]], rels: List[Dict[str, Any]], po
         parts.append(
             f'<path class="edge type-{typ}" d="{p}" marker-end="url(#arr-{marker})" '
             f'data-from-id="{fid}" data-to-id="{tid}" data-type="{typ}" data-key="{key}" '
-            f'onclick="selectEdge({fid},{tid},\'{typ}\')"/>'
+            f"onclick=\"selectEdge({fid},{tid},'{typ}')\"/>"
         )
 
     for n in nodes:
@@ -303,29 +339,33 @@ def render_graph_svg(nodes: List[Dict[str, Any]], rels: List[Dict[str, Any]], po
         role = safe_class(node_role(n))
         nt = safe_class(n.get("node_type", "belief"))
         conf = n.get("confidence")
-        conf_text = f"{float(conf):.2f}" if isinstance(conf, (int, float)) else "—"
+        conf_text = f"{float(conf):.2f}" if isinstance(conf, int | float) else "—"
         label = "D" if nt == "decision" else "B"
         parts.append(
             f'<g class="node source-{role} node-{nt}" data-id="{nid}" transform="translate({x:.1f},{y:.1f})" onclick="selectNode({nid})">'
             f'<rect x="-40" y="-18" width="80" height="36"/>'
-            f'<text class="id" x="0" y="-6">{label}#{nid+1:02d}</text>'
+            f'<text class="id" x="0" y="-6">{label}#{nid + 1:02d}</text>'
             f'<text class="conf" x="0" y="8">{escape(conf_text)}</text>'
-            f'</g>'
+            f"</g>"
         )
-    return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}">' + ''.join(parts) + '</svg>'
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}">'
+        + "".join(parts)
+        + "</svg>"
+    )
 
 
-def render_html(data: Dict[str, Any], src_path: str) -> str:
+def render_html(data: dict[str, Any], src_path: str) -> str:
     trajectory, nodes, rels = normalize_input(data)
 
-    by_msg: Dict[int, List[Tuple[int, Dict[str, Any], List[Tuple[int, int]]]]] = {}
+    by_msg: dict[int, list[tuple[int, dict[str, Any], list[tuple[int, int]]]]] = {}
     for n in nodes:
         src = n.get("source") or {}
         ti = src.get("trajectory_index")
         if not isinstance(ti, int) or ti < 0 or ti >= len(trajectory):
             continue
         host = trajectory[ti].get("content", "") or ""
-        ranges: List[Tuple[int, int]] = []
+        ranges: list[tuple[int, int]] = []
         for ev in n.get("evidence") or []:
             if not isinstance(ev, dict):
                 continue
@@ -334,22 +374,32 @@ def render_html(data: Dict[str, Any], src_path: str) -> str:
                 ranges.append((s, e))
         by_msg.setdefault(ti, []).append((n["id"], n, ranges))
 
-    msg_html = ''.join(render_message_panel(i, m, by_msg.get(i, [])) for i, m in enumerate(trajectory)) or '<p>No trajectory.</p>'
+    msg_html = (
+        "".join(
+            render_message_panel(i, m, by_msg.get(i, []))
+            for i, m in enumerate(trajectory)
+        )
+        or "<p>No trajectory.</p>"
+    )
     pos, gw, gh, trajs, col_w, pad_x = compute_layout(nodes)
     graph_svg = render_graph_svg(nodes, rels, pos, gw, gh, trajs, col_w, pad_x)
 
-    role_counts: Dict[str, int] = {}
-    type_counts: Dict[str, int] = {}
-    rel_counts: Dict[str, int] = {}
+    role_counts: dict[str, int] = {}
+    type_counts: dict[str, int] = {}
+    rel_counts: dict[str, int] = {}
     for n in nodes:
         role_counts[node_role(n)] = role_counts.get(node_role(n), 0) + 1
         nt = n.get("node_type", "belief")
         type_counts[nt] = type_counts.get(nt, 0) + 1
     for r in rels:
         rel_counts[r.get("type", "?")] = rel_counts.get(r.get("type", "?"), 0) + 1
-    role_stats = ''.join(f'<span><b>{v}</b> {escape(k)}</span>' for k, v in sorted(role_counts.items()))
-    type_stats = ''.join(f'<span><b>{v}</b> {escape(k)}</span>' for k, v in sorted(type_counts.items()))
-    rel_stats = ', '.join(f'{v} {escape(k)}' for k, v in sorted(rel_counts.items()))
+    role_stats = "".join(
+        f"<span><b>{v}</b> {escape(k)}</span>" for k, v in sorted(role_counts.items())
+    )
+    type_stats = "".join(
+        f"<span><b>{v}</b> {escape(k)}</span>" for k, v in sorted(type_counts.items())
+    )
+    rel_stats = ", ".join(f"{v} {escape(k)}" for k, v in sorted(rel_counts.items()))
 
     meta_model = data.get("model", "") or ""
     prompt_name = data.get("prompt_name", "construct_beliefs") or "construct_beliefs"
@@ -357,7 +407,7 @@ def render_html(data: Dict[str, Any], src_path: str) -> str:
 
     return (
         '<!doctype html><html><head><meta charset="utf-8">'
-        f'<title>Belief Graph · {escape(prompt_name)}</title><style>{CSS}</style></head><body>'
+        f"<title>Belief Graph · {escape(prompt_name)}</title><style>{CSS}</style></head><body>"
         f'<header><h1>Belief Graph · {escape(prompt_name)}</h1><div class="meta">source · <b>{escape(Path(src_path).name)}</b> &nbsp; model · <b>{escape(meta_model)}</b></div></header>'
         f'<div class="stats"><span><b>{len(nodes)}</b> nodes</span>{type_stats}{role_stats}<span><b>{len(rels)}</b> relations</span><span>{rel_stats}</span></div>'
         '<div class="layout"><div class="left"><h2 class="section-title">Conversation trajectory</h2>'
@@ -365,14 +415,18 @@ def render_html(data: Dict[str, Any], src_path: str) -> str:
         '<span><span class="sw causal"></span>causal</span><span><span class="sw depends_on"></span>depends_on</span><span><span class="sw supplements"></span>supplements</span><span><span class="sw contradicts"></span>contradicts</span>'
         f'</div>{graph_svg}</div><div class="detail-wrap"><h2 class="section-title">Inspector</h2><div id="detail"></div></div></div></div>'
         '<div class="hint">Click a node to inspect a belief/decision and highlight evidence. Click an edge to inspect a typed relation. Esc clears.</div>'
-        f'<script>window.GRAPH_DATA = {json.dumps(graph_data, ensure_ascii=False)};{JS}</script>'
-        '</body></html>'
+        f"<script>window.GRAPH_DATA = {json.dumps(graph_data, ensure_ascii=False)};{JS}</script>"
+        "</body></html>"
     )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Graph visualizer for construct_beliefs result.json / final_graph.json / belief_graph.jsonl")
-    parser.add_argument("input", help="Path to result.json, final_graph.json, or belief_graph.jsonl")
+    parser = argparse.ArgumentParser(
+        description="Graph visualizer for construct_beliefs result.json / final_graph.json / belief_graph.jsonl"
+    )
+    parser.add_argument(
+        "input", help="Path to result.json, final_graph.json, or belief_graph.jsonl"
+    )
     parser.add_argument("--output", "-o", default=None, help="Output HTML path")
     args = parser.parse_args()
 
@@ -387,7 +441,11 @@ def main() -> None:
         sys.exit(1)
 
     html = render_html(data, str(in_path))
-    out_path = Path(args.output) if args.output else in_path.parent / f"graph_{in_path.stem}.html"
+    out_path = (
+        Path(args.output)
+        if args.output
+        else in_path.parent / f"graph_{in_path.stem}.html"
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html, encoding="utf-8")
     print(f"[ok] wrote {out_path}  ({out_path.stat().st_size:,} bytes)")

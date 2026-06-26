@@ -25,6 +25,9 @@ package = true
 target-version = "py311"
 line-length = 88
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
 
 [tool.ruff.lint]
 select = ["B", "E", "F", "I", "SIM", "UP"]

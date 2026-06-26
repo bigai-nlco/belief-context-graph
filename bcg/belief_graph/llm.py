@@ -28,10 +28,10 @@ import os
 import re
 import sys
 import time
-from contextlib import contextmanager
-from datetime import datetime, timezone
+from contextlib import contextmanager, suppress
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 try:
     from openai import OpenAI
@@ -67,12 +67,12 @@ def _estimate_tokens(text: str) -> int:
     return max(1, round(len(text) / 4))
 
 
-def _coerce_usage(usage: Any) -> Dict[str, Optional[int]]:
+def _coerce_usage(usage: Any) -> dict[str, int | None]:
     """Pull prompt/completion/total token counts out of an SDK usage object."""
     if usage is None:
         return {"prompt_tokens": None, "completion_tokens": None, "total_tokens": None}
 
-    def _get(name: str) -> Optional[int]:
+    def _get(name: str) -> int | None:
         v = getattr(usage, name, None)
         if v is None and isinstance(usage, dict):
             v = usage.get(name)
@@ -83,7 +83,7 @@ def _coerce_usage(usage: Any) -> Dict[str, Optional[int]]:
     tt = _get("total_tokens")
 
     if pt is None and ct is None and tt is None:
-        dump: Optional[Dict[str, Any]] = None
+        dump: dict[str, Any] | None = None
         if hasattr(usage, "model_dump"):
             try:
                 dump = usage.model_dump()
@@ -105,7 +105,7 @@ class TokenUsageTracker:
     """Accumulates per-call token usage so the cost of one input can be estimated."""
 
     def __init__(self) -> None:
-        self.records: List[Dict[str, Any]] = []
+        self.records: list[dict[str, Any]] = []
         self._label: str = "unlabeled"
 
     # -- labelling -------------------------------------------------------
@@ -126,12 +126,12 @@ class TokenUsageTracker:
         self,
         *,
         model: str,
-        prompt_tokens: Optional[int],
-        completion_tokens: Optional[int],
-        total_tokens: Optional[int],
-        label: Optional[str] = None,
+        prompt_tokens: int | None,
+        completion_tokens: int | None,
+        total_tokens: int | None,
+        label: str | None = None,
         estimated: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         rec = {
             "index": len(self.records),
             "label": label if label is not None else self._label,
@@ -153,9 +153,10 @@ class TokenUsageTracker:
     def n_calls(self) -> int:
         return len(self.records)
 
-    def totals(self) -> Dict[str, int]:
+    def totals(self) -> dict[str, int]:
         def _s(key: str) -> int:
             return sum(int(r.get(key) or 0) for r in self.records)
+
         return {
             "n_calls": self.n_calls,
             "input_tokens": _s("input_tokens"),
@@ -163,13 +164,18 @@ class TokenUsageTracker:
             "total_tokens": _s("total_tokens"),
         }
 
-    def by_label(self) -> Dict[str, Dict[str, int]]:
-        out: Dict[str, Dict[str, int]] = {}
+    def by_label(self) -> dict[str, dict[str, int]]:
+        out: dict[str, dict[str, int]] = {}
         for r in self.records:
             lbl = r.get("label") or "unlabeled"
             agg = out.setdefault(
                 lbl,
-                {"n_calls": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+                {
+                    "n_calls": 0,
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "total_tokens": 0,
+                },
             )
             agg["n_calls"] += 1
             agg["input_tokens"] += int(r.get("input_tokens") or 0)
@@ -177,7 +183,7 @@ class TokenUsageTracker:
             agg["total_tokens"] += int(r.get("total_tokens") or 0)
         return out
 
-    def estimate_cost(self, pricing: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    def estimate_cost(self, pricing: dict[str, Any] | None) -> dict[str, Any] | None:
         """pricing = {"input_per_1k": x, "output_per_1k": y} (USD); None -> no cost."""
         if not pricing:
             return None
@@ -195,34 +201,38 @@ class TokenUsageTracker:
             "total_cost": round(input_cost + output_cost, 6),
         }
 
-    def summary(self, pricing: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        d: Dict[str, Any] = {"totals": self.totals(), "by_label": self.by_label()}
+    def summary(self, pricing: dict[str, Any] | None = None) -> dict[str, Any]:
+        d: dict[str, Any] = {"totals": self.totals(), "by_label": self.by_label()}
         cost = self.estimate_cost(pricing)
         if cost is not None:
             d["estimated_cost"] = cost
         return d
 
-    def to_dict(self, pricing: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def to_dict(self, pricing: dict[str, Any] | None = None) -> dict[str, Any]:
         d = self.summary(pricing)
         d["calls"] = self.records
         return d
 
     # -- output ----------------------------------------------------------
-    def save_json(self, path: Any, pricing: Optional[Dict[str, Any]] = None) -> None:
+    def save_json(self, path: Any, pricing: dict[str, Any] | None = None) -> None:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(pricing), f, ensure_ascii=False, indent=2)
 
-    def render_text(self, pricing: Optional[Dict[str, Any]] = None) -> str:
+    def render_text(self, pricing: dict[str, Any] | None = None) -> str:
         t = self.totals()
         bar = "=" * 74
         sub = "-" * 74
-        lines = [bar, " LLM token usage for this input", bar,
-                 f"  total LLM calls : {t['n_calls']}",
-                 f"  input tokens    : {t['input_tokens']:,}",
-                 f"  output tokens   : {t['output_tokens']:,}",
-                 f"  total tokens    : {t['total_tokens']:,}"]
+        lines = [
+            bar,
+            " LLM token usage for this input",
+            bar,
+            f"  total LLM calls : {t['n_calls']}",
+            f"  input tokens    : {t['input_tokens']:,}",
+            f"  output tokens   : {t['output_tokens']:,}",
+            f"  total tokens    : {t['total_tokens']:,}",
+        ]
         cost = self.estimate_cost(pricing)
         if cost:
             lines.append(
@@ -230,17 +240,21 @@ class TokenUsageTracker:
                 f"  (in {cost['input_per_1k']}/1k, out {cost['output_per_1k']}/1k)"
             )
         lines += [sub, " by stage:"]
-        for lbl, agg in sorted(self.by_label().items(),
-                               key=lambda kv: kv[1]["total_tokens"], reverse=True):
+        for lbl, agg in sorted(
+            self.by_label().items(), key=lambda kv: kv[1]["total_tokens"], reverse=True
+        ):
             lines.append(
                 f"   {lbl:<34.34} calls={agg['n_calls']:>3}  "
                 f"in={agg['input_tokens']:>8,}  "
                 f"out={agg['output_tokens']:>7,}  "
                 f"total={agg['total_tokens']:>8,}"
             )
-        lines += [sub, " per-call detail:",
-                  f"   {'#':>3}  {'label':<34} {'model':<16} "
-                  f"{'in':>8} {'out':>7} {'total':>8}  est"]
+        lines += [
+            sub,
+            " per-call detail:",
+            f"   {'#':>3}  {'label':<34} {'model':<16} "
+            f"{'in':>8} {'out':>7} {'total':>8}  est",
+        ]
         for r in self.records:
             est = "*" if r.get("estimated") else ""
             lines.append(
@@ -255,7 +269,7 @@ class TokenUsageTracker:
         lines.append(bar)
         return "\n".join(lines) + "\n"
 
-    def save_text(self, path: Any, pricing: Optional[Dict[str, Any]] = None) -> None:
+    def save_text(self, path: Any, pricing: dict[str, Any] | None = None) -> None:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
@@ -266,7 +280,7 @@ class TokenUsageTracker:
 USAGE = TokenUsageTracker()
 
 # Optional prompt audit log path (per-item logs are set from the streaming builder)
-PROMPT_LOG_PATH: Optional[Path] = None
+PROMPT_LOG_PATH: Path | None = None
 
 
 def set_prompt_log_path(path: Any) -> None:
@@ -279,7 +293,7 @@ def set_prompt_log_path(path: Any) -> None:
     PROMPT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
-def _log_prompt(record: Dict[str, Any]) -> None:
+def _log_prompt(record: dict[str, Any]) -> None:
     if PROMPT_LOG_PATH is None:
         return
     try:
@@ -290,7 +304,7 @@ def _log_prompt(record: Dict[str, Any]) -> None:
         return
 
 
-def _record_usage(resp: Any, *, model: str, prompt: str, label: Optional[str]) -> None:
+def _record_usage(resp: Any, *, model: str, prompt: str, label: str | None) -> None:
     """Record token usage from a chat-completions response into USAGE."""
     counts = _coerce_usage(getattr(resp, "usage", None))
     if counts["prompt_tokens"] is not None or counts["completion_tokens"] is not None:
@@ -324,10 +338,11 @@ def _record_usage(resp: Any, *, model: str, prompt: str, label: Optional[str]) -
 # Chat-model config + client
 # ---------------------------------------------------------------------------
 
+
 def load_config(
     path: str = "model_config.json",
-    model_key: Optional[str] = None,
-) -> Dict[str, Any]:
+    model_key: str | None = None,
+) -> dict[str, Any]:
     """
     Load the chat-model config. Supports two schemas:
 
@@ -348,7 +363,7 @@ def load_config(
             f"Missing {path}. Create it with base_url / api_key / model "
             f"(flat) or nested by model name."
         )
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         raw = json.load(f)
     if not isinstance(raw, dict):
         raise ValueError(f"{path} must contain a JSON object")
@@ -361,12 +376,16 @@ def load_config(
         if model_key and model_key in raw:
             chosen = model_key
         elif model_key:
-            available = ", ".join(repr(k) for k in raw.keys() if not _is_reserved_key(k))
-            raise KeyError(f"Model key {model_key!r} not found in {path}. Available: {available}")
+            available = ", ".join(repr(k) for k in raw if not _is_reserved_key(k))
+            raise KeyError(
+                f"Model key {model_key!r} not found in {path}. Available: {available}"
+            )
         else:
-            chosen = next((k for k in raw.keys() if not _is_reserved_key(k)), None)
+            chosen = next((k for k in raw if not _is_reserved_key(k)), None)
             if chosen is None:
-                raise ValueError(f"{path} contains no chat-model entries (only reserved keys)")
+                raise ValueError(
+                    f"{path} contains no chat-model entries (only reserved keys)"
+                )
         inner = raw[chosen]
         if not isinstance(inner, dict):
             raise ValueError(f"Nested entry {chosen!r} must be a JSON object")
@@ -384,7 +403,7 @@ def load_config(
     return cfg
 
 
-def make_client(cfg: Dict[str, Any]) -> OpenAI:
+def make_client(cfg: dict[str, Any]) -> OpenAI:
     return OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"])
 
 
@@ -393,10 +412,10 @@ def call_model(
     model: str,
     prompt: str,
     temperature: float = 0.0,
-    max_tokens: Optional[int] = None,
+    max_tokens: int | None = None,
     retries: int = 3,
     backoff: float = 2.0,
-    usage_label: Optional[str] = None,
+    usage_label: str | None = None,
 ) -> str:
     """Call chat completions and return the response text. Retries on errors.
 
@@ -404,7 +423,7 @@ def call_model(
     JSON output is what makes extraction reliable, regardless of what the
     config file says.
     """
-    kwargs: Dict[str, Any] = {
+    kwargs: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": temperature,
@@ -412,22 +431,21 @@ def call_model(
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
 
-    last_err: Optional[Exception] = None
+    last_err: Exception | None = None
     # Audit the prompt once (do not duplicate for retries). This is intentionally
     # done before making the network call so we retain the exact input text
     # that was sent to the LLM.
-    try:
-        _log_prompt({
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "model": model,
-            "label": usage_label,
-            "max_tokens": max_tokens,
-            "prompt_len": len(prompt) if prompt is not None else 0,
-            "prompt": prompt,
-        })
-    except Exception:
-        # Never fail the call due to logging issues
-        pass
+    with suppress(Exception):
+        _log_prompt(
+            {
+                "ts": datetime.now(UTC).isoformat(),
+                "model": model,
+                "label": usage_label,
+                "max_tokens": max_tokens,
+                "prompt_len": len(prompt) if prompt is not None else 0,
+                "prompt": prompt,
+            }
+        )
     for attempt in range(retries):
         try:
             resp = client.chat.completions.create(**kwargs)
@@ -440,11 +458,11 @@ def call_model(
                 file=sys.stderr,
             )
             if attempt < retries - 1:
-                time.sleep(backoff ** attempt)
+                time.sleep(backoff**attempt)
     raise RuntimeError(f"All retries failed: {last_err}")
 
 
-def parse_json_response(text: str) -> Dict[str, Any]:
+def parse_json_response(text: str) -> dict[str, Any]:
     """Tolerantly parse a JSON object out of an LLM response."""
     if not text:
         return {"_parse_error": "empty response", "_raw": ""}
@@ -460,7 +478,7 @@ def parse_json_response(text: str) -> Dict[str, Any]:
     start = s.find("{")
     end = s.rfind("}")
     if 0 <= start < end:
-        candidate = s[start:end + 1]
+        candidate = s[start : end + 1]
         try:
             return json.loads(candidate)
         except json.JSONDecodeError as e:
@@ -472,10 +490,11 @@ def parse_json_response(text: str) -> Dict[str, Any]:
 # Embedding config + client
 # ---------------------------------------------------------------------------
 
+
 def load_embedding_config(
     path: str = "model_config.json",
     embedding_key: str = "embedding",
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """
     Load an embedding entry from model_config.json. Returns None when the
     entry is absent (callers decide whether that's an error).
@@ -509,7 +528,7 @@ def load_embedding_config(
     """
     if not os.path.exists(path):
         return None
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         raw = json.load(f)
     if not isinstance(raw, dict):
         return None
@@ -555,13 +574,13 @@ class EmbeddingClient:
     split / merge process is fully reconstructable.
     """
 
-    def __init__(self, cfg: Dict[str, Any], log_path: Optional[Any] = None) -> None:
+    def __init__(self, cfg: dict[str, Any], log_path: Any | None = None) -> None:
         self.client = OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"])
         self.model: str = cfg["model"]
         self.batch_size: int = int(cfg.get("batch_size", 32) or 32)
-        self.dimensions: Optional[int] = cfg.get("dimensions")
-        self._cache: Dict[str, List[float]] = {}
-        self._log_path: Optional[Path] = None
+        self.dimensions: int | None = cfg.get("dimensions")
+        self._cache: dict[str, list[float]] = {}
+        self._log_path: Path | None = None
         if log_path:
             self.set_log_path(log_path)
 
@@ -570,7 +589,7 @@ class EmbeddingClient:
         self._log_path = Path(path)
         self._log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def _log(self, record: Dict[str, Any]) -> None:
+    def _log(self, record: dict[str, Any]) -> None:
         if self._log_path is None:
             return
         with open(self._log_path, "a", encoding="utf-8") as f:
@@ -580,12 +599,12 @@ class EmbeddingClient:
         self._cache.clear()
 
     # -- main entry ---------------------------------------------------------
-    def embed(self, texts: List[str], purpose: str = "") -> List[List[float]]:
+    def embed(self, texts: list[str], purpose: str = "") -> list[list[float]]:
         """Embed a list of texts (order-preserving). Cached texts are reused."""
         t0 = time.time()
-        results: List[Optional[List[float]]] = [None] * len(texts)
-        cached_flags: List[bool] = [False] * len(texts)
-        missing_idx: List[int] = []
+        results: list[list[float] | None] = [None] * len(texts)
+        cached_flags: list[bool] = [False] * len(texts)
+        missing_idx: list[int] = []
         for i, t in enumerate(texts):
             v = self._cache.get(t)
             if v is not None:
@@ -595,12 +614,12 @@ class EmbeddingClient:
                 missing_idx.append(i)
 
         for batch_start in range(0, len(missing_idx), self.batch_size):
-            batch_ids = missing_idx[batch_start:batch_start + self.batch_size]
+            batch_ids = missing_idx[batch_start : batch_start + self.batch_size]
             batch = [texts[i] for i in batch_ids]
-            kwargs: Dict[str, Any] = {"model": self.model, "input": batch}
+            kwargs: dict[str, Any] = {"model": self.model, "input": batch}
             if self.dimensions:
                 kwargs["dimensions"] = int(self.dimensions)
-            last_err: Optional[Exception] = None
+            last_err: Exception | None = None
             resp = None
             for attempt in range(3):
                 try:
@@ -608,10 +627,12 @@ class EmbeddingClient:
                     break
                 except Exception as e:
                     last_err = e
-                    print(f"    [embed retry {attempt + 1}/3] {type(e).__name__}: {e}",
-                          file=sys.stderr)
+                    print(
+                        f"    [embed retry {attempt + 1}/3] {type(e).__name__}: {e}",
+                        file=sys.stderr,
+                    )
                     if attempt < 2:
-                        time.sleep(2 ** attempt)
+                        time.sleep(2**attempt)
             if resp is None:
                 raise RuntimeError(f"Embedding call failed after retries: {last_err}")
 
@@ -619,8 +640,9 @@ class EmbeddingClient:
             vecs = [list(d.embedding) for d in data]
             if len(vecs) != len(batch):
                 raise RuntimeError(
-                    f"Embedding API returned {len(vecs)} vectors for {len(batch)} inputs")
-            for i, t, v in zip(batch_ids, batch, vecs):
+                    f"Embedding API returned {len(vecs)} vectors for {len(batch)} inputs"
+                )
+            for i, t, v in zip(batch_ids, batch, vecs, strict=True):
                 self._cache[t] = v
                 results[i] = v
 
@@ -639,24 +661,29 @@ class EmbeddingClient:
             )
 
         dim = len(results[0]) if results and results[0] is not None else 0
-        self._log({
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "purpose": purpose,
-            "model": self.model,
-            "n_texts": len(texts),
-            "n_cached": sum(cached_flags),
-            "n_api": len(missing_idx),
-            "dimension": dim,
-            "elapsed_s": round(time.time() - t0, 3),
-            "texts": [{"index": i, "cached": cached_flags[i], "text": t}
-                      for i, t in enumerate(texts)],
-        })
+        self._log(
+            {
+                "ts": datetime.now(UTC).isoformat(),
+                "purpose": purpose,
+                "model": self.model,
+                "n_texts": len(texts),
+                "n_cached": sum(cached_flags),
+                "n_api": len(missing_idx),
+                "dimension": dim,
+                "elapsed_s": round(time.time() - t0, 3),
+                "texts": [
+                    {"index": i, "cached": cached_flags[i], "text": t}
+                    for i, t in enumerate(texts)
+                ],
+            }
+        )
         return [r if r is not None else [] for r in results]
 
 
-def cosine_similarity_matrix(vectors: List[List[float]]):
+def cosine_similarity_matrix(vectors: list[list[float]]):
     """Pairwise cosine similarity (numpy array, shape n x n)."""
     import numpy as np
+
     arr = np.asarray(vectors, dtype=np.float64)
     norms = np.linalg.norm(arr, axis=1, keepdims=True)
     norms[norms == 0.0] = 1.0
@@ -690,16 +717,16 @@ class LocalEmbeddingClient:
     embedding_calls.jsonl schema with "provider": "local".
     """
 
-    def __init__(self, cfg: Dict[str, Any], log_path: Optional[Any] = None) -> None:
+    def __init__(self, cfg: dict[str, Any], log_path: Any | None = None) -> None:
         self.model: str = cfg["model"]
         self.batch_size: int = int(cfg.get("batch_size", 8) or 8)
-        self.device: Optional[str] = cfg.get("device")
-        self.dtype: Optional[str] = cfg.get("dtype")
-        self.max_length: Optional[int] = cfg.get("max_length")
-        self.extra_model_kwargs: Dict[str, Any] = dict(cfg.get("model_kwargs") or {})
-        self._model = None                       # lazy-loaded
-        self._cache: Dict[str, List[float]] = {}
-        self._log_path: Optional[Path] = None
+        self.device: str | None = cfg.get("device")
+        self.dtype: str | None = cfg.get("dtype")
+        self.max_length: int | None = cfg.get("max_length")
+        self.extra_model_kwargs: dict[str, Any] = dict(cfg.get("model_kwargs") or {})
+        self._model = None  # lazy-loaded
+        self._cache: dict[str, list[float]] = {}
+        self._log_path: Path | None = None
         if log_path:
             self.set_log_path(log_path)
 
@@ -708,7 +735,7 @@ class LocalEmbeddingClient:
         self._log_path = Path(path)
         self._log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def _log(self, record: Dict[str, Any]) -> None:
+    def _log(self, record: dict[str, Any]) -> None:
         if self._log_path is None:
             return
         with open(self._log_path, "a", encoding="utf-8") as f:
@@ -732,28 +759,32 @@ class LocalEmbeddingClient:
         if self.dtype and self.dtype != "auto":
             model_kwargs.setdefault("torch_dtype", self.dtype)
         device = None if (not self.device or self.device == "auto") else self.device
-        print(f"[info] loading local embedding model {self.model!r}"
-              + (f" on {device}" if device else "") + " ...", file=sys.stderr)
+        print(
+            f"[info] loading local embedding model {self.model!r}"
+            + (f" on {device}" if device else "")
+            + " ...",
+            file=sys.stderr,
+        )
         t0 = time.time()
         self._model = SentenceTransformer(
-            self.model, device=device,
-            model_kwargs=model_kwargs or None)
+            self.model, device=device, model_kwargs=model_kwargs or None
+        )
         if self.max_length:
-            try:
+            with suppress(Exception):
                 self._model.max_seq_length = int(self.max_length)
-            except Exception:
-                pass
-        print(f"[info] local embedding model ready ({time.time() - t0:.1f}s)",
-              file=sys.stderr)
+        print(
+            f"[info] local embedding model ready ({time.time() - t0:.1f}s)",
+            file=sys.stderr,
+        )
         return self._model
 
     # -- main entry ----------------------------------------------------------
-    def embed(self, texts: List[str], purpose: str = "") -> List[List[float]]:
+    def embed(self, texts: list[str], purpose: str = "") -> list[list[float]]:
         """Embed a list of texts (order-preserving). Cached texts are reused."""
         t0 = time.time()
-        results: List[Optional[List[float]]] = [None] * len(texts)
-        cached_flags: List[bool] = [False] * len(texts)
-        missing_idx: List[int] = []
+        results: list[list[float] | None] = [None] * len(texts)
+        cached_flags: list[bool] = [False] * len(texts)
+        missing_idx: list[int] = []
         for i, t in enumerate(texts):
             v = self._cache.get(t)
             if v is not None:
@@ -776,8 +807,9 @@ class LocalEmbeddingClient:
             if len(vec_lists) != len(batch):
                 raise RuntimeError(
                     f"local embedding returned {len(vec_lists)} vectors "
-                    f"for {len(batch)} inputs")
-            for i, t, v in zip(missing_idx, batch, vec_lists):
+                    f"for {len(batch)} inputs"
+                )
+            for i, t, v in zip(missing_idx, batch, vec_lists, strict=True):
                 self._cache[t] = v
                 results[i] = v
             pt = sum(_estimate_tokens(t) for t in batch)
@@ -791,23 +823,27 @@ class LocalEmbeddingClient:
             )
 
         dim = len(results[0]) if results and results[0] is not None else 0
-        self._log({
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "provider": "local",
-            "purpose": purpose,
-            "model": self.model,
-            "n_texts": len(texts),
-            "n_cached": sum(cached_flags),
-            "n_api": len(missing_idx),
-            "dimension": dim,
-            "elapsed_s": round(time.time() - t0, 3),
-            "texts": [{"index": i, "cached": cached_flags[i], "text": t}
-                      for i, t in enumerate(texts)],
-        })
+        self._log(
+            {
+                "ts": datetime.now(UTC).isoformat(),
+                "provider": "local",
+                "purpose": purpose,
+                "model": self.model,
+                "n_texts": len(texts),
+                "n_cached": sum(cached_flags),
+                "n_api": len(missing_idx),
+                "dimension": dim,
+                "elapsed_s": round(time.time() - t0, 3),
+                "texts": [
+                    {"index": i, "cached": cached_flags[i], "text": t}
+                    for i, t in enumerate(texts)
+                ],
+            }
+        )
         return [r if r is not None else [] for r in results]
 
 
-def make_embedder(cfg: Dict[str, Any], log_path: Optional[Any] = None):
+def make_embedder(cfg: dict[str, Any], log_path: Any | None = None):
     """Build the right embedding client for a load_embedding_config() entry."""
     provider = (cfg.get("provider") or "openai").strip().lower()
     if provider == "openai":

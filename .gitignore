@@ -218,6 +218,9 @@ tempCodeRunnerFile.py
 # BCG local run artifacts
 .bcg/
 
+# Local nested external checkouts
+TongGraph/
+
 # PyPI configuration file
 .pypirc
 

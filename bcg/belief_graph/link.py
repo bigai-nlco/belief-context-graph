@@ -10,17 +10,17 @@ imports. It performs no work and should not be used by the current pipeline.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 def link_backward_all(
     client,
     model: str,
-    beliefs: List[Dict[str, Any]],
+    beliefs: list[dict[str, Any]],
     temperature: float = 0.0,
-    max_tokens: Optional[int] = None,
+    max_tokens: int | None = None,
     max_chars: int = 28000,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     return {
         "relations": [],
         "raw_output": None,
