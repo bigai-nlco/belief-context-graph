@@ -36,7 +36,6 @@ Examples
 
 from __future__ import annotations
 
-import argparse
 import json
 import sys
 from collections.abc import Iterable, Iterator
@@ -45,8 +44,9 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from bcg.belief_graph.online import SessionManager  # noqa: E402
-from bcg.belief_graph.stream import StreamOptions  # noqa: E402
+from bcg.cli_help import RichArgumentParser  # noqa: E402
+from bcg.construct.online import SessionManager  # noqa: E402
+from bcg.construct.stream import StreamOptions  # noqa: E402
 
 
 def iter_jsonl(stream: Iterable[str]) -> Iterator[dict[str, Any]]:
@@ -127,8 +127,11 @@ def build_manager(args) -> SessionManager:
     )
 
 
-def main() -> None:
-    p = argparse.ArgumentParser(description="construct_beliefs v3 streaming driver")
+def main(argv: list[str] | None = None) -> None:
+    p = RichArgumentParser(
+        prog="bcg construct replay",
+        description="construct_beliefs v3 streaming driver",
+    )
     p.add_argument(
         "--input",
         "-i",
@@ -173,7 +176,7 @@ def main() -> None:
     p.add_argument("--merge-threshold", type=float, default=0.86)
     p.add_argument("--context-chars", type=int, default=9000)
     p.add_argument("--quiet", "-q", default=False, action="store_true")
-    args = p.parse_args()
+    args = p.parse_args(argv)
 
     manager = build_manager(args)
 

@@ -5,11 +5,41 @@ description = "Belief Context Graph SDK."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "aiohttp",
+    "anthropic",
+    "cachetools",
+    "datasets",
+    "fastapi",
     "httpx>=0.28.1",
+    "jieba",
     "langfuse>=4.7.1",
+    "latex2sympy2",
+    "loguru",
+    "neo4j",
+    "nltk",
+    "numpy>=1.21",
     "openai>=2.40.0",
+    "pandas",
+    "pyarrow",
     "pydantic>=2.13.4",
+    "regex",
+    "requests",
+    "rich",
+    "scikit-learn",
+    "scipy",
+    "starlette",
+    "sympy",
+    "tqdm",
+    "transformers",
+    "typer>=0.16",
+    "uvicorn",
+    "word2number",
 ]
+# GPU inference backends (torch/ray/sglang/vllm) remain machine-specific and
+# are installed separately for the target hardware.
+
+[project.scripts]
+bcg = "bcg.cli:main"
 
 [dependency-groups]
 dev = ["pre-commit>=4.0.1", "pytest>=8.0.0", "ruff>=0.8.0"]
@@ -21,9 +51,38 @@ build-backend = "hatchling.build"
 [tool.uv]
 package = true
 
+[tool.hatch.build.targets.wheel]
+packages = ["bcg"]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 88
+# The two integrated upstream applications retain their established formatting
+# for now. Keep lint enforcement on the original SDK surface while their large
+# legacy trees are migrated incrementally.
+extend-exclude = [
+    "annotation",
+    "bcg/construct",
+    "bcg/online_server.py",
+    "bcg/run.py",
+    "bcg/visualize_beliefs_graph.py",
+    "scripts",
+    "bcg/agent",
+    "tests/test_api_engine_tool_call_parsing.py",
+    "tests/test_browsecomp_llm_reward.py",
+    "tests/test_cli_args.py",
+    "tests/test_context_memory_baselines.py",
+    "tests/test_gpqa_mcq_reward.py",
+    "tests/test_layered_archive.py",
+    "tests/test_multi_tool_call_e2e.py",
+    "tests/test_run_config_artifacts.py",
+    "tests/test_serper_search.py",
+    "tests/test_thinking_artifacts.py",
+    "tests/test_tonggraph_sync.py",
+    "tests/test_tool_call_protocol.py",
+    "tests/test_web_benchmark_data.py",
+    "tests/test_workflow_tonggraph_sync.py",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

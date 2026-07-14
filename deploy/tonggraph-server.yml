@@ -1,0 +1,33 @@
+# BeliefTracer TongGraph Server deployment.
+
+host: 0.0.0.0
+port: 8719
+
+data_dir: /data/user/fukeshu/belief-tracer3/var/tonggraph
+
+graphs:
+  agent_workspace:
+    path: agent_workspace.db
+    logical_graphs: true
+
+operations:
+  request_logging: true
+  request_timeout_seconds: 30
+  metrics: true
+
+auth:
+  mode: token
+  users:
+    admin:
+      admin: true
+      token_env: TONGGRAPH_ADMIN_TOKEN
+      graphs:
+        "*": write
+    agent_writer:
+      token_env: TONGGRAPH_AGENT_WRITER_TOKEN
+      graphs:
+        agent_workspace: write
+    agent_reader:
+      token_env: TONGGRAPH_AGENT_READER_TOKEN
+      graphs:
+        agent_workspace: read

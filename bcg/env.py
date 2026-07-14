@@ -1,0 +1,89 @@
+"""Project-wide environment loading from one user-controlled ``.env`` file."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+SOURCE_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def find_project_env() -> Path:
+    """Locate the shared env file for source and ``uv tool`` installations.
+
+    ``BCG_ENV_FILE`` has highest priority. Otherwise a ``.env`` in the current
+    working directory wins, followed by the source checkout's root ``.env``.
+    """
+
+    configured = os.environ.get("BCG_ENV_FILE")
+    if configured:
+        return Path(configured).expanduser().resolve()
+
+    working_env = Path.cwd() / ".env"
+    source_env = SOURCE_PROJECT_ROOT / ".env"
+    if working_env.is_file():
+        return working_env
+    if source_env.is_file():
+        return source_env
+    return working_env
+
+
+PROJECT_ENV_FILE = find_project_env()
+PROJECT_ROOT = PROJECT_ENV_FILE.parent
+
+
+def read_env_file(path: str | Path = PROJECT_ENV_FILE) -> dict[str, str]:
+    """Parse a small dotenv file without executing shell syntax."""
+
+    env_path = Path(path).expanduser()
+    try:
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}
+
+    values: dict[str, str] = {}
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        name, separator, value = line.partition("=")
+        name = name.strip()
+        if not separator or not name:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        values[name] = value
+    return values
+
+
+def load_project_env(
+    path: str | Path = PROJECT_ENV_FILE,
+    *,
+    override: bool = False,
+) -> dict[str, str]:
+    """Load dotenv values into ``os.environ`` and return values applied."""
+
+    loaded: dict[str, str] = {}
+    for name, value in read_env_file(path).items():
+        if override or name not in os.environ:
+            os.environ[name] = value
+            loaded[name] = value
+    return loaded
+
+
+# Importing any ``bcg`` module initializes this submodule before the rest of
+# the package, so credential-backed dataclass defaults see the root .env.
+load_project_env()
+
+
+__all__ = [
+    "PROJECT_ENV_FILE",
+    "PROJECT_ROOT",
+    "SOURCE_PROJECT_ROOT",
+    "find_project_env",
+    "load_project_env",
+    "read_env_file",
+]
