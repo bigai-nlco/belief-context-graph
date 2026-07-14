@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from click.utils import strip_ansi
 
 from bcg import cli
 from bcg.agent import cli as agent_cli
@@ -10,7 +11,7 @@ from bcg.construct import cli as construct_cli
 def test_root_help_lists_only_two_command_families(capsys) -> None:
     cli.main([])
 
-    output = capsys.readouterr().out
+    output = strip_ansi(capsys.readouterr().out)
     assert "Usage: bcg [OPTIONS] COMMAND [ARGS]..." in output
     assert "Commands" in output
     assert "agent" in output
