@@ -1,8 +1,8 @@
 {
-  "_comment": "Copy this file to model_config.json and fill in real values. Top-level keys are model names (model-key); any key starting with 'embedding' is reserved and never used as the default chat model. See README.md > Configuration.",
+  "_comment": "Copy this file to model_config.json for non-secret model settings. Put every API key in the project-root .env; api_key_env selects its variable name. Top-level keys are model names (model-key); any key starting with 'embedding' is reserved and never used as the default chat model. See README.md > Configuration.",
 
   "gpt-5.5": {
-    "api_key": "sk-REPLACE_ME",
+    "api_key_env": "OPENAI_API_KEY",
     "base_url": "https://your-openai-compatible-endpoint/v1",
     "max_tokens": 100000,
     "temperature": 1,
@@ -14,7 +14,7 @@
   },
 
   "deepseek-v4-flash-260425": {
-    "api_key": "REPLACE_ME",
+    "api_key_env": "DEEPSEEK_API_KEY",
     "base_url": "https://your-other-endpoint/api/v3",
     "max_tokens": 100000,
     "temperature": 1,
@@ -26,8 +26,8 @@
   },
 
   "embedding": {
-    "_comment": "OpenAI-compatible /v1/embeddings endpoint (vLLM / SGLang / TEI / OpenAI). This is the DEFAULT embedding entry the engine looks for. api_key may be 'EMPTY' for a local server that ignores it.",
-    "api_key": "EMPTY",
+    "_comment": "OpenAI-compatible /v1/embeddings endpoint (vLLM / SGLang / TEI / OpenAI). This is the DEFAULT embedding entry the engine looks for. Put EMBEDDING_API_KEY=EMPTY in the root .env for a local server that ignores authentication.",
+    "api_key_env": "EMBEDDING_API_KEY",
     "base_url": "http://localhost:8000/v1",
     "model": "Qwen/Qwen3-Embedding-8B",
     "batch_size": 8,
@@ -35,7 +35,7 @@
   },
 
   "embedding_local": {
-    "_comment": "Alternative: load embedding weights IN-PROCESS via sentence-transformers (no HTTP server). Select with --embedding-key embedding_local. Requires the optional 'sentence-transformers' + 'torch' dependencies (see requirements.txt). 'model' is a HF repo id or a local weights directory.",
+    "_comment": "Alternative: load embedding weights IN-PROCESS via sentence-transformers (no HTTP server). Select with --embedding-key embedding_local. Install the optional 'sentence-transformers' package and a hardware-compatible 'torch' build separately. 'model' is a HF repo id or a local weights directory.",
     "provider": "local",
     "model": "Qwen/Qwen3-Embedding-8B",
     "device": "auto",

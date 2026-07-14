@@ -11,8 +11,16 @@ from bcg.utils import get_random_uuid, utc_now
 
 BeliefLayer = Literal["io", "reasoning"]
 BeliefStance = Literal["asserted", "recalled", "speculated", "judged"]
-RelationType = Literal["informs", "confirms", "contradicts", "extends"]
-NodeKind = Literal["belief", "evidence", "episode", "entity"]
+RelationType = Literal[
+    "depends_on",
+    "supplements",
+    "contradicts",
+    # Legacy relation names remain readable during the compatibility window.
+    "informs",
+    "confirms",
+    "extends",
+]
+NodeKind = Literal["belief", "decision", "evidence", "factor", "episode", "entity"]
 CONFIDENCE_DIMENSION_KEYS = (
     "source_reliability",
     "evidence_directness",
@@ -99,10 +107,16 @@ class BeliefPayload(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: int = Field(..., ge=0)
+    node_type: Literal["belief", "decision"] = "belief"
     belief: str = Field(..., min_length=1)
+    decision: str | None = None
     stance: BeliefStance = "asserted"
     layer: BeliefLayer
+    role: str | None = None
+    entities: list[str] = Field(default_factory=list)
     source: BeliefSource
+    evidence_ids: list[int] = Field(default_factory=list)
+    factor_ids: list[int] = Field(default_factory=list)
     supporting_excerpts: list[str] = Field(default_factory=list)
     evidence: list[EvidenceExcerpt] = Field(default_factory=list)
     event_time: str | None = None
@@ -112,7 +126,10 @@ class BeliefPayload(BaseModel):
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     confidence_dimensions: dict[str, float] = Field(default_factory=dict)
     initial_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    evidence_confidence: float = 0.0
+    factor_confidence: float = 0.0
     confidence_history: list[ConfidenceHistoryEntry] = Field(default_factory=list)
+    decision_history: list[int] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -186,7 +203,7 @@ class BCGNode(BaseModel):
     def from_belief(cls, belief: BeliefPayload) -> BCGNode:
         return cls(
             name=belief.belief,
-            kind="belief",
+            kind=belief.node_type,
             probability=belief.confidence,
             belief=belief,
             payload=belief.model_dump(mode="json"),
@@ -239,6 +256,8 @@ class BCG(BaseModel):
     edges: list[BCGEdge] = Field(default_factory=list)
     merges: list[dict[str, Any]] = Field(default_factory=list)
     sessions: list[dict[str, Any]] = Field(default_factory=list)
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    factors: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     async def add_node(self, node: BCGNode) -> None:
@@ -478,21 +497,31 @@ class BCG(BaseModel):
     def to_memory_dict(self) -> dict[str, Any]:
         """Export the graph in a compact memory-protocol shape."""
 
-        beliefs = [belief.model_dump(mode="json") for belief in self.beliefs()]
+        nodes = [belief.model_dump(mode="json") for belief in self.beliefs()]
+        beliefs = [node for node in nodes if node.get("node_type") == "belief"]
+        decisions = [node for node in nodes if node.get("node_type") == "decision"]
+        relations = [relation.model_dump(mode="json") for relation in self.relations()]
         forward_relations = [
-            relation.model_dump(mode="json") for relation in self.relations("informs")
+            relation
+            for relation in relations
+            if relation["type"] in {"depends_on", "supplements", "informs"}
         ]
         backward_relations = [
-            relation.model_dump(mode="json")
-            for relation in self.relations()
-            if relation.type in {"confirms", "contradicts", "extends"}
+            relation
+            for relation in relations
+            if relation["type"] in {"contradicts", "confirms", "extends"}
         ]
         return {
             "beliefs": beliefs,
+            "nodes": nodes,
+            "decisions": decisions,
+            "relations": relations,
             "forward_relations": forward_relations,
             "backward_relations": backward_relations,
             "merges": list(self.merges),
             "sessions": list(self.sessions),
+            "evidence": list(self.evidence),
+            "factors": list(self.factors),
             "graph": self.model_dump(mode="json"),
             "counts": {
                 "beliefs": len(beliefs),

@@ -218,6 +218,24 @@ tempCodeRunnerFile.py
 # BCG local run artifacts
 .bcg/
 
+# Belief graph construction and BeliefTracer runtime artifacts
+outputs*/
+output/
+artifacts/
+archive/
+belief_graphs/
+prediction/
+tmp/
+
+# Local model/API configuration
+bcg/model_config.json
+model_config.json
+
+# External checkouts and editor state
+rllm/
+.claude/
+.cursorindexingignore
+
 # Local nested external checkouts
 TongGraph/
 

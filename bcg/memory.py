@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from bcg.belief_graph.confidence import ConfidenceConfig, init_belief_confidence
+from bcg.construct.confidence import init_belief_confidence
 from bcg.graph import (
     BCG,
     BeliefPayload,
@@ -28,7 +28,9 @@ class BCGMemory:
     namespace: str = "default"
     options: dict[str, Any] = field(default_factory=dict)
     graph: BCG | None = None
-    confidence_config: ConfidenceConfig | None = None
+    # Kept as a compatibility field. The canonical construct engine owns its
+    # confidence policy and no longer accepts the legacy dimension config.
+    confidence_config: Any | None = None
 
     def observe(
         self,
@@ -52,7 +54,9 @@ class BCGMemory:
         belief_dict: dict[str, Any] = {
             "id": graph.allocate_belief_id(),
             "belief": content,
+            "node_type": "belief",
             "stance": "asserted",
+            "role": source.role,
             "layer": "io",
             "source": source.model_dump(mode="json"),
             "supporting_excerpts": [content],
@@ -73,7 +77,7 @@ class BCGMemory:
                 "observed_at": observed_at,
             },
         }
-        init_belief_confidence(belief_dict, config=self.confidence_config)
+        init_belief_confidence(belief_dict)
         belief = BeliefPayload.model_validate(belief_dict)
         graph.add_belief(belief)
         return MemoryObservation(belief=belief, graph=graph)
