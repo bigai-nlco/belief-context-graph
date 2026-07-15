@@ -31,8 +31,9 @@ uv pip install \
 .venv/bin/bcg agent tasks
 ```
 
-安装完成后不需要再激活 Conda，也不需要设置 `PYTHONPATH`。GPU 后端所需的
-`torch`、`vllm`、`sglang` 或 `ray` 仍需按照目标机器的 CUDA 环境单独安装。
+安装完成后直接使用 uv 创建的 `.venv`，不需要设置 `PYTHONPATH`。GPU 后端所需的
+`torch`、`vllm`、`sglang` 或 `ray` 仍需按照目标机器的 CUDA 环境安装到该 `.venv`，例如
+`uv pip install --python .venv/bin/python vllm`。
 
 ### 可选：安装为用户级命令
 
@@ -55,13 +56,11 @@ bcg agent run averitec --model <模型名称> --backend api
 ## 快速开始
 
 `scripts/start.sh` 会读取根目录 `.env`，使用预设的 AVeriTeC、HerO4、归档和
-Belief Graph 参数，然后直接执行 `bcg agent run`。它不再调用 Conda 或
-`scripts/rollout.sh`。
+Belief Graph 参数，然后使用 uv 管理的项目环境执行 `bcg agent run`。
 
-使用项目 `.venv` 时：
+完成 `uv sync` 与 rLLM 的本地安装后，直接运行：
 
 ```bash
-source .venv/bin/activate
 bash scripts/start.sh
 ```
 

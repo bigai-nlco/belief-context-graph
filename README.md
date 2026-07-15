@@ -57,8 +57,8 @@ cp bcg/model_config.example.json bcg/model_config.json
 
 Use the files for different purposes:
 
-- `.env` is the only place for API keys and other credentials. It is ignored
-  by Git.
+- `.env` holds API keys plus machine-specific Agent and local-service settings.
+  It is ignored by Git.
 - `bcg/model_config.json` contains non-secret model URLs and generation
   settings. Its `api_key_env` values refer to variable names in `.env`.
 
@@ -141,15 +141,14 @@ uv pip install \
 ```
 
 This installation is local to `.venv` and does not add the sibling checkout
-to `pyproject.toml`. Activate that environment before running Agent commands:
+to `pyproject.toml`. Run the entry point from the uv-managed environment
+directly; activation is not required:
 
 ```bash
-source .venv/bin/activate
-
-bcg agent run gpqa_diamond \
+.venv/bin/bcg agent run gpqa_diamond \
     --model <MODEL_PATH_OR_ID> \
     --belief-graph-url http://127.0.0.1:8848
-bcg agent ui --artifacts-dir artifacts/belief_tracer
+.venv/bin/bcg agent ui --artifacts-dir artifacts/belief_tracer
 ```
 
 For the repository's preset AVeriTeC + HerO4 + Belief Graph rollout, configure
@@ -159,8 +158,8 @@ the Agent values in the root `.env` and run:
 bash scripts/start.sh
 ```
 
-The script loads `.env` and calls `bcg agent run --preset averitec-hero4`.
-It does not activate Conda; additional arguments override the named preset, for
+The script loads `.env` and calls the `bcg` entry point in the uv-managed
+project environment. Additional arguments override the named preset, for
 example `bash scripts/start.sh --max-problems 2`.
 
 #### Optional: install Agent as a user-level tool
@@ -181,12 +180,17 @@ source so uv rebuilds the local wheel instead of reusing a cached copy. The
 rLLM packages use editable installation, so their local checkout must not be
 moved or deleted.
 
-Do not rely on `PYTHONPATH` or a Conda environment after using either uv
-installation method above.
+Do not rely on `PYTHONPATH`; use one of the uv-managed environments above.
 
 Local GPU backends such as `vllm`, `sglang`, `ray`, and a hardware-compatible
-`torch` build are installed separately for the target machine. Remote
-OpenAI-compatible backends do not require those local inference packages.
+`torch` build are installed separately into the project `.venv` for the target
+machine, for example `uv pip install --python .venv/bin/python vllm` or
+`uv pip install --python .venv/bin/python sglang`. Remote OpenAI-compatible
+backends do not require those local inference packages.
+
+The GPU launch scripts load `.env` and use `VLLM_*` or `SGLANG_*` variables.
+They intentionally do not reuse `MODEL`, which identifies the Agent's remote
+API model.
 
 See [bcg/agent/README.md](bcg/agent/README.md) for benchmark data, retrieval,
 evaluation, and rollout options.

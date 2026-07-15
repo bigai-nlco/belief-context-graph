@@ -21,7 +21,18 @@ if [[ -z "$MODEL_ID" ]]; then
   exit 2
 fi
 
-exec "${BCG_BIN:-bcg}" agent run \
+BCG_BIN="${BCG_BIN:-${REPO_ROOT}/.venv/bin/bcg}"
+if [[ "$BCG_BIN" == */* ]]; then
+  [[ -x "$BCG_BIN" ]] || {
+    printf 'BCG executable not found at %s. Run `uv sync --all-groups` first.\n' "$BCG_BIN" >&2
+    exit 127
+  }
+elif ! command -v "$BCG_BIN" >/dev/null 2>&1; then
+  printf 'BCG executable %s not found. Run `uv sync --all-groups` first.\n' "$BCG_BIN" >&2
+  exit 127
+fi
+
+exec "$BCG_BIN" agent run \
   --preset averitec-hero4 \
   --model "$MODEL_ID" \
   "$@"
