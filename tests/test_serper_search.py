@@ -90,7 +90,7 @@ def test_serper_key_environment_resolution_and_missing_key_error(monkeypatch) ->
     assert SerperSearchTool().configured
 
     monkeypatch.delenv("SERPER_API_KEY", raising=False)
-    missing = SerperSearchTool()
+    missing = SerperSearchTool(api_key="")
     result = missing.forward("query")
     assert result.error is not None
     assert "SERPER_API_KEY is not configured" in result.error
