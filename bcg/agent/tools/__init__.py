@@ -20,6 +20,10 @@ def __getattr__(name: str):
         from bcg.agent.tools.serper_search import SerperSearchTool
 
         return SerperSearchTool
+    if name == "SerperScrapeTool":
+        from bcg.agent.tools.serper_scrape import SerperScrapeTool
+
+        return SerperScrapeTool
     raise AttributeError(name)
 
 
@@ -28,4 +32,5 @@ __all__ = [
     "FileReadTool",
     "BCPSearchTool",
     "SerperSearchTool",
+    "SerperScrapeTool",
 ]

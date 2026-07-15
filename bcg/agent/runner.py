@@ -1347,7 +1347,12 @@ def _resolve_tools(cfg: AgentRolloutConfig) -> dict[str, Any]:
     wants_local = "local_search" in names
     wants_averitec = "averitec_search" in names
     wants_bcp = "bcp_search" in names
-    wants_serper = "serper_search" in names
+    wants_serper_search = "serper_search" in names
+    wants_serper_scrape = "serper_scrape" in names
+    wants_serper = wants_serper_search or wants_serper_scrape
+    search_tool_name: str | None = None
+    search_tool_class: Any | None = None
+    serper_scrape_tool_class: Any | None = None
 
     # read_file is a sandboxed companion tool; it shares the averitec tool_map
     # (no tools/tool_map conflict) and may be requested explicitly or implied by
@@ -1362,7 +1367,7 @@ def _resolve_tools(cfg: AgentRolloutConfig) -> dict[str, Any]:
             for name, selected in (
                 ("averitec_search", wants_averitec),
                 ("bcp_search", wants_bcp),
-                ("serper_search", wants_serper),
+                ("serper_search", wants_serper_search),
             )
             if selected
         ]
@@ -1400,38 +1405,65 @@ def _resolve_tools(cfg: AgentRolloutConfig) -> dict[str, Any]:
             console.log(f"[cyan]  - Embedding model: {cfg.hero_embedding_model}")
             console.log(f"[cyan]  - Embedding URL: {cfg.hero_embedding_url}")
         elif wants_serper:
-            extra = [n for n in names if n not in ("serper_search", "read_file")]
+            extra = [
+                n
+                for n in names
+                if n not in ("serper_search", "serper_scrape", "read_file")
+            ]
             if extra:
                 raise ValueError(
-                    "'serper_search' cannot be combined with other tools in the same "
-                    f"run (except 'read_file'). Got tools={names}."
+                    "Serper tools cannot be combined with other search tools in the "
+                    f"same run (except 'read_file'). Got tools={names}."
                 )
-            from bcg.agent.tools.serper_search import SerperSearchTool
+            if wants_serper_search:
+                from bcg.agent.tools.serper_search import SerperSearchTool
 
-            class ConfiguredSerperSearchTool(SerperSearchTool):
-                def __init__(self, **kwargs):
-                    max_results = kwargs.pop("max_results", cfg.retrieval_max_results)
-                    max_output_chars = kwargs.pop(
-                        "max_output_chars", cfg.serper_max_output_chars
-                    )
-                    super().__init__(
-                        endpoint=cfg.serper_endpoint,
-                        country=cfg.serper_country,
-                        language=cfg.serper_language,
-                        max_results=max_results,
-                        max_output_chars=max_output_chars,
-                        timeout=cfg.serper_timeout,
-                        **kwargs,
-                    )
+                class ConfiguredSerperSearchTool(SerperSearchTool):
+                    def __init__(self, **kwargs):
+                        max_results = kwargs.pop("max_results", cfg.retrieval_max_results)
+                        max_output_chars = kwargs.pop(
+                            "max_output_chars", cfg.serper_max_output_chars
+                        )
+                        super().__init__(
+                            endpoint=cfg.serper_endpoint,
+                            country=cfg.serper_country,
+                            language=cfg.serper_language,
+                            max_results=max_results,
+                            max_output_chars=max_output_chars,
+                            timeout=cfg.serper_timeout,
+                            **kwargs,
+                        )
 
-            search_tool_name = "serper_search"
-            search_tool_class = ConfiguredSerperSearchTool
-            console.log("[cyan]Using SerperSearchTool for live Google web search")
-            console.log(f"[cyan]  - Endpoint: {cfg.serper_endpoint}")
-            console.log(
-                f"[cyan]  - Locale: gl={cfg.serper_country or '(default)'}, "
-                f"hl={cfg.serper_language or '(default)'}"
-            )
+                search_tool_name = "serper_search"
+                search_tool_class = ConfiguredSerperSearchTool
+                console.log("[cyan]Using SerperSearchTool for live Google web search")
+                console.log(f"[cyan]  - Search endpoint: {cfg.serper_endpoint}")
+                console.log(
+                    f"[cyan]  - Locale: gl={cfg.serper_country or '(default)'}, "
+                    f"hl={cfg.serper_language or '(default)'}"
+                )
+            if wants_serper_scrape:
+                from bcg.agent.tools.serper_scrape import SerperScrapeTool
+
+                class ConfiguredSerperScrapeTool(SerperScrapeTool):
+                    def __init__(self, **kwargs):
+                        max_output_chars = kwargs.pop(
+                            "max_output_chars", cfg.serper_scrape_max_output_chars
+                        )
+                        super().__init__(
+                            endpoint=cfg.serper_scrape_endpoint,
+                            max_output_chars=max_output_chars,
+                            timeout=cfg.serper_scrape_timeout,
+                            **kwargs,
+                        )
+
+                serper_scrape_tool_class = ConfiguredSerperScrapeTool
+                console.log("[cyan]Using SerperScrapeTool for full web-page content")
+                console.log(f"[cyan]  - Scrape endpoint: {cfg.serper_scrape_endpoint}")
+                console.log(
+                    "[cyan]  - Max page output: "
+                    f"{cfg.serper_scrape_max_output_chars} chars"
+                )
             console.log("[cyan]  - API key: project-root .env / SERPER_API_KEY")
         else:
             search_tool_name = "averitec_search"
@@ -1498,12 +1530,14 @@ def _resolve_tools(cfg: AgentRolloutConfig) -> dict[str, Any]:
         search_tool_name = "averitec_search"
 
     if wants_averitec or wants_bcp or wants_serper:
-        _mr = cfg.retrieval_max_results
-
         # Build the tool_map first; usage text is then assembled dynamically by
         # asking each tool for its own usage_prompt() — no hardcoded blob, and
         # only the tools actually present contribute instructions.
-        tool_map: dict[str, Any] = {search_tool_name: search_tool_class}
+        tool_map: dict[str, Any] = {}
+        if search_tool_name and search_tool_class:
+            tool_map[search_tool_name] = search_tool_class
+        if wants_serper_scrape and serper_scrape_tool_class:
+            tool_map["serper_scrape"] = serper_scrape_tool_class
         if wants_read_file:
             file_root = cfg.file_tool_root or os.environ.get(
                 "BELIEF_TRACER_FILE_ROOT", "ai_workspace"

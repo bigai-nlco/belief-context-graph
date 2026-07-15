@@ -106,6 +106,9 @@ SERPER_COUNTRY="${SERPER_COUNTRY:-us}"
 SERPER_LANGUAGE="${SERPER_LANGUAGE:-en}"
 SERPER_TIMEOUT="${SERPER_TIMEOUT:-30}"
 SERPER_MAX_OUTPUT_CHARS="${SERPER_MAX_OUTPUT_CHARS:-12000}"
+SERPER_SCRAPE_ENDPOINT="${SERPER_SCRAPE_ENDPOINT:-https://scrape.serper.dev}"
+SERPER_SCRAPE_TIMEOUT="${SERPER_SCRAPE_TIMEOUT:-30}"
+SERPER_SCRAPE_MAX_OUTPUT_CHARS="${SERPER_SCRAPE_MAX_OUTPUT_CHARS:-30000}"
 
 # BrowseComp answer judge (official-style LLM binary verdict).
 BROWSECOMP_GRADER_MODEL="${BROWSECOMP_GRADER_MODEL:-}"
@@ -252,6 +255,10 @@ Flags:
   --serper-language CODE            Serper hl language code (default: en)
   --serper-timeout SECONDS          Serper HTTP timeout (default: 30)
   --serper-max-output-chars N       Max formatted chars per search (default: 12000)
+  --serper-scrape-endpoint URL      Serper page-content endpoint
+  --serper-scrape-timeout SECONDS   Per-page scrape timeout (default: 30)
+  --serper-scrape-max-output-chars N
+                                    Max returned page chars (default: 30000)
   --browsecomp-grader-model MODEL   Answer judge model (default: agent model)
   --browsecomp-grader-base-url URL  Judge API base URL (default: agent base URL)
   --browsecomp-grader-timeout SEC   Judge request timeout (default: 120)
@@ -416,6 +423,9 @@ while [[ $# -gt 0 ]]; do
     --serper-language)       require_val "$1" "${2:-}"; SERPER_LANGUAGE="$2"; shift 2 ;;
     --serper-timeout)        require_val "$1" "${2:-}"; SERPER_TIMEOUT="$2"; shift 2 ;;
     --serper-max-output-chars) require_val "$1" "${2:-}"; SERPER_MAX_OUTPUT_CHARS="$2"; shift 2 ;;
+    --serper-scrape-endpoint) require_val "$1" "${2:-}"; SERPER_SCRAPE_ENDPOINT="$2"; shift 2 ;;
+    --serper-scrape-timeout) require_val "$1" "${2:-}"; SERPER_SCRAPE_TIMEOUT="$2"; shift 2 ;;
+    --serper-scrape-max-output-chars) require_val "$1" "${2:-}"; SERPER_SCRAPE_MAX_OUTPUT_CHARS="$2"; shift 2 ;;
     --browsecomp-grader-model) require_val "$1" "${2:-}"; BROWSECOMP_GRADER_MODEL="$2"; shift 2 ;;
     --browsecomp-grader-base-url) require_val "$1" "${2:-}"; BROWSECOMP_GRADER_BASE_URL="$2"; shift 2 ;;
     --browsecomp-grader-timeout) require_val "$1" "${2:-}"; BROWSECOMP_GRADER_TIMEOUT="$2"; shift 2 ;;
@@ -688,6 +698,9 @@ PY_CMD=(
   --serper-language "$SERPER_LANGUAGE"
   --serper-timeout "$SERPER_TIMEOUT"
   --serper-max-output-chars "$SERPER_MAX_OUTPUT_CHARS"
+  --serper-scrape-endpoint "$SERPER_SCRAPE_ENDPOINT"
+  --serper-scrape-timeout "$SERPER_SCRAPE_TIMEOUT"
+  --serper-scrape-max-output-chars "$SERPER_SCRAPE_MAX_OUTPUT_CHARS"
   --browsecomp-grader-timeout "$BROWSECOMP_GRADER_TIMEOUT"
   --browsecomp-grader-max-tokens "$BROWSECOMP_GRADER_MAX_TOKENS"
   --browsecomp-grader-max-retries "$BROWSECOMP_GRADER_MAX_RETRIES"

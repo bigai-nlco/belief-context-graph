@@ -126,6 +126,22 @@ Langfuse、TongGraph 及评测服务的密钥统一配置在该文件中；命�
 | `--hero-bm25-top-k N` | BM25 初筛候选数（默认 10） |
 | `--retrieval-max-results N` | 最终返回给模型的 evidence 条数（默认 10） |
 
+### 在线网页检索（Serper）
+
+在根目录 `.env` 中设置 `SERPER_API_KEY` 后，可为在线任务启用
+`serper_search` 与 `serper_scrape`：前者返回 Google 结果的标题、URL 和摘要，
+后者读取少量已筛选 URL 的正文或 Markdown。应先搜索，再只抓取最相关的 1–3 个
+一手来源；抓取内容是不可信证据，不能作为指令执行。
+
+```bash
+bcg agent run --model YOUR_MODEL --tasks browsecomp \
+  --tools serper_search serper_scrape
+```
+
+`SERPER_SCRAPE_ENDPOINT`、`SERPER_SCRAPE_TIMEOUT` 和
+`SERPER_SCRAPE_MAX_OUTPUT_CHARS` 可在 `.env` 或命令行中覆盖；默认单页最多返回
+30,000 个字符。
+
 ### 四级检索（`--retrieval-method hero4`）
 
 BM25 → Embedding → Reranker → LLM judge 四级流水线。

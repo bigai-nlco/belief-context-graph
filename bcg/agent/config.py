@@ -96,6 +96,19 @@ class AgentRolloutConfig:
     )
     serper_timeout: float = 30.0
     serper_max_output_chars: int = 12000
+    serper_scrape_endpoint: str = field(
+        default_factory=lambda: os.environ.get(
+            "SERPER_SCRAPE_ENDPOINT", "https://scrape.serper.dev"
+        )
+    )
+    serper_scrape_timeout: float = field(
+        default_factory=lambda: float(os.environ.get("SERPER_SCRAPE_TIMEOUT", "30"))
+    )
+    serper_scrape_max_output_chars: int = field(
+        default_factory=lambda: int(
+            os.environ.get("SERPER_SCRAPE_MAX_OUTPUT_CHARS", "30000")
+        )
+    )
 
     # BrowseComp official-style answer judge. The grader key is deliberately
     # environment-only so serialized run configs never contain it.

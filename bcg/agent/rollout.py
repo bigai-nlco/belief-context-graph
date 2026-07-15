@@ -209,6 +209,23 @@ def _parse_args(argv: list[str] | None = None, prog: str | None = None):
         help="Maximum formatted characters returned by one serper_search call.",
     )
     parser.add_argument(
+        "--serper-scrape-endpoint",
+        default=os.environ.get("SERPER_SCRAPE_ENDPOINT", "https://scrape.serper.dev"),
+        help="Serper page-content extraction endpoint.",
+    )
+    parser.add_argument(
+        "--serper-scrape-timeout",
+        type=float,
+        default=float(os.environ.get("SERPER_SCRAPE_TIMEOUT", "30")),
+        help="Timeout in seconds for one serper_scrape call.",
+    )
+    parser.add_argument(
+        "--serper-scrape-max-output-chars",
+        type=int,
+        default=int(os.environ.get("SERPER_SCRAPE_MAX_OUTPUT_CHARS", "30000")),
+        help="Maximum page-content characters returned by one serper_scrape call.",
+    )
+    parser.add_argument(
         "--browsecomp-grader-model",
         default=os.environ.get("BROWSECOMP_GRADER_MODEL", ""),
         help="LLM used for official-style BrowseComp judging (default: --model).",
@@ -661,6 +678,9 @@ def _parse_args(argv: list[str] | None = None, prog: str | None = None):
         serper_language=args.serper_language,
         serper_timeout=args.serper_timeout,
         serper_max_output_chars=args.serper_max_output_chars,
+        serper_scrape_endpoint=args.serper_scrape_endpoint,
+        serper_scrape_timeout=args.serper_scrape_timeout,
+        serper_scrape_max_output_chars=args.serper_scrape_max_output_chars,
         browsecomp_grader_model=args.browsecomp_grader_model,
         browsecomp_grader_base_url=args.browsecomp_grader_base_url,
         browsecomp_grader_timeout=args.browsecomp_grader_timeout,
