@@ -402,7 +402,7 @@ bcg/
   py.typed          # PEP 561 typed package marker
 dashboard/
   package.json      # optional Vite frontend
-scripts/            # deployment, dataset, retrieval, and evaluation helpers
+scripts/            # operational rollout, UI, and service launch helpers
 tests/
   ...               # SDK, Agent, Construct, env, and CLI tests
 ```
