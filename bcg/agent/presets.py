@@ -31,8 +31,6 @@ _PRESET_ARGUMENTS: dict[str, tuple[str, ...]] = {
         "32",
         "--stage3-rerank-k",
         "5",
-        "--rerank-url",
-        "http://127.0.0.1:8010",
         "--enable-archive",
         "--recent-turns",
         "2",

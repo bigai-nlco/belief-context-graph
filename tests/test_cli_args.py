@@ -71,6 +71,36 @@ def test_rollout_uses_config_as_its_default_source(monkeypatch) -> None:
     assert cfg.tonggraph_graph == expected.tonggraph_graph
 
 
+def test_rollout_reads_retrieval_service_defaults_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("HERO_EMBEDDING_URL", "https://embedding.test/v1")
+    monkeypatch.setenv("HERO_EMBEDDING_MODEL", "embedding-test-model")
+    monkeypatch.setenv("RERANK_URL", "https://rerank.test")
+    monkeypatch.setenv("RERANK_MODEL", "rerank-test-model")
+
+    cfg = parse_rollout_args(
+        ["--preset", "averitec-hero4", "--model", "agent-model", "--no-auto-ui"]
+    )
+
+    assert cfg.hero_embedding_url == "https://embedding.test/v1"
+    assert cfg.hero_embedding_model == "embedding-test-model"
+    assert cfg.rerank_url == "https://rerank.test"
+    assert cfg.rerank_model == "rerank-test-model"
+
+    override_cfg = parse_rollout_args(
+        [
+            "--preset",
+            "averitec-hero4",
+            "--model",
+            "agent-model",
+            "--rerank-url",
+            "https://rerank-override.test",
+            "--no-auto-ui",
+        ]
+    )
+
+    assert override_cfg.rerank_url == "https://rerank-override.test"
+
+
 def test_rollout_preset_can_be_overridden_by_explicit_flags() -> None:
     cfg = parse_rollout_args(
         [

@@ -102,6 +102,17 @@ bcg agent run --preset averitec-hero4 --model "$MODEL"
 
 显式传入的参数始终覆盖预设，例如 `--max-problems 2` 或 `--no-auto-ui`。
 
+HerO 和 rerank 服务的机器相关配置也从 `.env` 读取：
+
+| `.env` | 配置字段 | 临时覆盖参数 |
+|---|---|---|
+| `HERO_EMBEDDING_URL` | `hero_embedding_url` | `--hero-embedding-url` |
+| `HERO_EMBEDDING_MODEL` | `hero_embedding_model` | `--hero-embedding-model` |
+| `RERANK_URL` | `rerank_url` | `--rerank-url` |
+| `RERANK_MODEL` | `rerank_model` | `--rerank-model` |
+
+预设只保存评测与策略组合，不固定机器上的服务地址或模型名称。
+
 ## 核心参数
 
 ### 模型与后端

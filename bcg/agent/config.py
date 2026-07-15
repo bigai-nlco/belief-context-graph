@@ -141,10 +141,16 @@ class AgentRolloutConfig:
     # HerO retrieval configuration
     retrieval_method: str = "bm25"  # "bm25", "hero", or "hero4"
     hero_bm25_top_k: int = 10  # BM25 candidate pool size (reduced for CPU)
-    hero_embedding_model: str = "SFR-Embedding-2_R"
+    hero_embedding_model: str = field(
+        default_factory=lambda: os.environ.get(
+            "HERO_EMBEDDING_MODEL", "SFR-Embedding-2_R"
+        )
+    )
     hero_embedding_device: str = "cpu"
     hero_batch_size: int = 16
-    hero_embedding_url: str = ""  # empty = local SentenceTransformer; set URL for remote API
+    hero_embedding_url: str = field(
+        default_factory=lambda: os.environ.get("HERO_EMBEDDING_URL", "")
+    )  # empty = local SentenceTransformer; set URL for remote API
     hyde: bool = True  # whether to use HyDE (hypothetical document expansion) in queries
 
     # Four-stage retrieval ("hero4"): BM25 -> embedding -> reranker -> LLM judge
@@ -165,8 +171,16 @@ class AgentRolloutConfig:
     # jina-embedding-reranker-migration memory for the full investigation.
     stage2_embed_k: int = 32
     stage3_rerank_k: int = 10      # reranker survivors (also final top_k upper bound)
-    rerank_url: str = "http://10.2.152.9:8010"
-    rerank_model: str = "Qwen3-Reranker-0.6B"
+    rerank_url: str = field(
+        default_factory=lambda: os.environ.get(
+            "RERANK_URL", "http://127.0.0.1:8010"
+        )
+    )
+    rerank_model: str = field(
+        default_factory=lambda: os.environ.get(
+            "RERANK_MODEL", "Qwen3-Reranker-0.6B"
+        )
+    )
     enable_judge: bool = True      # LLM relevance judge as stage 4
     judge_model: str = ""          # empty = fall back to $MODEL / cfg.model
     judge_base_url: str = ""       # empty = fall back to $OPENAI_BASE_URL
