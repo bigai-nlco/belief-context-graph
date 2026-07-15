@@ -159,9 +159,9 @@ the Agent values in the root `.env` and run:
 bash scripts/start.sh
 ```
 
-The script loads `.env` and calls `bcg agent run` directly. It does not activate
-Conda or invoke `scripts/rollout.sh`; additional arguments override its preset,
-for example `bash scripts/start.sh --max-problems 2`.
+The script loads `.env` and calls `bcg agent run --preset averitec-hero4`.
+It does not activate Conda; additional arguments override the named preset, for
+example `bash scripts/start.sh --max-problems 2`.
 
 #### Optional: install Agent as a user-level tool
 

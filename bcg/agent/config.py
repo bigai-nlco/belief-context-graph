@@ -299,4 +299,16 @@ class AgentRolloutConfig:
         self.mixed_rollouts = value
 
 
+def default_rollout_config() -> AgentRolloutConfig:
+    """Return the single source of default values used by agent entry points.
+
+    CLI parsing and launch scripts must derive their values from this factory
+    instead of introducing a second set of literals. Environment-backed fields
+    are intentionally evaluated on each call so a caller can provide a
+    project-specific ``.env`` before constructing the configuration.
+    """
+
+    return AgentRolloutConfig(model="")
+
+
 AgenticEvalConfig = AgentRolloutConfig

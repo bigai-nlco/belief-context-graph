@@ -5,7 +5,7 @@ Default backend is in-process vLLM (no HTTP server needed). Use
 replicas on separate GPUs under Ray, or ``--backend openai`` to talk to
 an external OpenAI-compatible server.
 
-Usage (see scripts/rollout.sh for a batteries-included wrapper)::
+Usage (``scripts/rollout.sh`` forwards to the same command)::
 
     bcg agent run \
         --model /share/nlp/share/plm/Qwen3-4B-Thinking-2507 \
@@ -30,11 +30,34 @@ for p in (str(_REPO_ROOT), str(_THIS_DIR)):
         sys.path.insert(0, p)
 
 from bcg.agent.benchmark_loader import AVAILABLE_BENCHMARKS  # noqa: E402
+from bcg.agent.config import default_rollout_config  # noqa: E402
 from bcg.agent.context_memory import CONTEXT_MEMORY_BASELINE_MODES, CONTEXT_MEMORY_MODES  # noqa: E402
 from bcg.agent.harness import HARNESS_REGISTRY, get_harness  # noqa: E402
+from bcg.agent.presets import expand_preset_args, preset_names  # noqa: E402
 from bcg.cli_help import RichArgumentParser  # noqa: E402
 
 _PROMPTS_DIR = _THIS_DIR / "prompts"
+
+_CONFIG_DEFAULT_EXCLUSIONS = {"model", "harness", "parser_name", "tools"}
+_CONFIG_DEFAULT_ALIASES = {
+    "max_model_len": "vllm_max_model_len",
+    "tonggraph_url": "tonggraph_base_url",
+    "tonggraph_index_name": "tonggraph_text_index",
+}
+
+
+def _apply_config_defaults(parser: argparse.ArgumentParser) -> None:
+    """Make ``AgentRolloutConfig`` the only default source for CLI options."""
+
+    config_values = vars(default_rollout_config())
+    parser_defaults: dict[str, object] = {}
+    for action in parser._actions:
+        config_key = _CONFIG_DEFAULT_ALIASES.get(action.dest, action.dest)
+        if config_key in _CONFIG_DEFAULT_EXCLUSIONS:
+            continue
+        if config_key in config_values:
+            parser_defaults[action.dest] = config_values[config_key]
+    parser.set_defaults(**parser_defaults)
 
 
 def _parse_args(argv: list[str] | None = None, prog: str | None = None):
@@ -45,6 +68,11 @@ def _parse_args(argv: list[str] | None = None, prog: str | None = None):
 
     parser.add_argument(
         "--model", required=True, help="HF model path / name (local path or hub id)"
+    )
+    parser.add_argument(
+        "--preset",
+        choices=preset_names(),
+        help="Apply a named parameter bundle; explicit flags override it.",
     )
     parser.add_argument(
         "--backend",
@@ -609,7 +637,11 @@ def _parse_args(argv: list[str] | None = None, prog: str | None = None):
         help="Batch size for TongGraph embedding API calls.",
     )
 
-    args = parser.parse_args(argv)
+    _apply_config_defaults(parser)
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    selected_preset, expanded_argv = expand_preset_args(raw_argv)
+    parser.set_defaults(preset=selected_preset)
+    args = parser.parse_args(expanded_argv)
 
     # Resolve harness defaults — explicit flags override harness values.
     harness_cfg = get_harness(args.harness) if args.harness else None

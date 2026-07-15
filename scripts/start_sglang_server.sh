@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Start an OpenAI-compatible SGLang server for BeliefTracer rollouts.
 #
-# Defaults are kept close to scripts/rollout.sh. The server exposes:
+# Server parameters are configured through environment variables. The server exposes:
 #   base_url: http://<host>:<port>/v1
 #   api key:  none / EMPTY
 #

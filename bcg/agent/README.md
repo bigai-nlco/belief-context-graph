@@ -87,16 +87,31 @@ Python 包和脚本都会自动读取根目录 `.env`。OpenAI、Embedding、Ser
 Langfuse、TongGraph 及评测服务的密钥统一配置在该文件中；命令行参数仍可
 作为临时覆盖值。
 
+## 参数来源与预设
+
+`AgentRolloutConfig` 是运行参数默认值的唯一来源；`bcg agent run --help`
+显示当前可用参数。`.env` 只保存每台机器不同的模型地址、密钥和服务地址，避免
+在 shell 脚本中复制默认值。
+
+`scripts/rollout.sh` 是 `bcg agent run` 的薄包装，接受同一组参数。常用的
+AVeriTeC + HerO4 组合以版本化预设提供：
+
+```bash
+bcg agent run --preset averitec-hero4 --model "$MODEL"
+```
+
+显式传入的参数始终覆盖预设，例如 `--max-problems 2` 或 `--no-auto-ui`。
+
 ## 核心参数
 
 ### 模型与后端
 
 | 参数 | 说明 |
 |------|------|
-| `--model-path` | 模型名称（API 模型 ID 或本地 HF 路径） |
+| `--model` | 模型名称（API 模型 ID 或本地 HF 路径） |
 | `--backend` | 推理后端：`api`（远程 API）、`openai`（rllm OpenAI 引擎）、`vllm`（本地 vLLM） |
-| `--openai-base-url` | API 地址，覆盖 `.env` 中的 `OPENAI_BASE_URL` |
-| `--openai-api-key` | API Key，覆盖 `.env` 中的 `OPENAI_API_KEY` |
+| `--base-url` | API 地址，覆盖 `.env` 中的 `OPENAI_BASE_URL` |
+| `--api-key` | API Key，覆盖 `.env` 中的 `OPENAI_API_KEY` |
 
 `--backend api` 是我们新增的独立引擎，直接调用任何 OpenAI 兼容 API（火山引擎、DeepSeek 官方、硅基流动等），不依赖 vLLM。
 
@@ -194,11 +209,11 @@ HyDE 启用时，tool prompt 会指导模型在 query 中用 ` ||| ` 分隔 clai
 
 | 参数 | 说明 |
 |------|------|
-| `--benchmarks` | 评测集，逗号分隔（如 `averitec`） |
+| `--tasks` | 评测集，可传多个名称（如 `averitec`） |
 | `--max-problems N` | 每个 benchmark 最多跑 N 条（不设则跑全部） |
 | `--num-samples N` | 每条问题采样 N 次（默认 1） |
 | `--max-steps N` | 每条 rollout 最大工具调用轮数（默认 96） |
-| `--n-parallel N` | 并发 rollout 数（默认 8） |
+| `--n-parallel-tasks N` | 并发 rollout 数 |
 | `--shuffle` / `--no-shuffle` | 是否打乱数据顺序 |
 | `--shuffle-seed N` | 打乱种子（默认 0，相同种子保证相同顺序） |
 
@@ -225,26 +240,26 @@ HyDE 启用时，tool prompt 会指导模型在 query 中用 ` ||| ` 分隔 clai
 ### 1. 无工具纯推理（CoT）
 
 ```bash
-bash scripts/rollout.sh \
-  --model-path deepseek-v4-pro-260425 \
+bcg agent run \
+  --model deepseek-v4-pro-260425 \
   --backend api \
-  --benchmarks averitec \
+  --tasks averitec \
   --belief-graph-mode none \
   --tools none \
   --prompt bcg/agent/prompts/cot.txt \
   --max-problems 100 \
-  --n-parallel 8 \
+  --n-parallel-tasks 8 \
   --save-alias notool_cot \
-  --overwrite --verbose
+  --overwrite
 ```
 
 ### 2. HerO + HyDE（远程 Embedding API）
 
 ```bash
-bash scripts/rollout.sh \
-  --model-path deepseek-v4-pro-260425 \
+bcg agent run \
+  --model deepseek-v4-pro-260425 \
   --backend api \
-  --benchmarks averitec \
+  --tasks averitec \
   --belief-graph-mode none \
   --retrieval-method hero \
   --hero-embedding-url "http://10.2.152.9:8008/v1/embeddings" \
@@ -252,19 +267,19 @@ bash scripts/rollout.sh \
   --hero-bm25-top-k 1000 \
   --retrieval-max-results 5 \
   --max-problems 100 \
-  --n-parallel 4 \
+  --n-parallel-tasks 4 \
   --prompt bcg/agent/prompts/averitec.txt \
   --save-alias hero_hyde_100 \
-  --overwrite --verbose
+  --overwrite
 ```
 
 ### 3. HerO + 无 HyDE（自然语言查询）
 
 ```bash
-bash scripts/rollout.sh \
-  --model-path deepseek-v4-pro-260425 \
+bcg agent run \
+  --model deepseek-v4-pro-260425 \
   --backend api \
-  --benchmarks averitec \
+  --tasks averitec \
   --belief-graph-mode none \
   --retrieval-method hero \
   --hero-embedding-url "http://10.2.152.9:8008/v1/embeddings" \
@@ -273,19 +288,19 @@ bash scripts/rollout.sh \
   --retrieval-max-results 5 \
   --no-hyde \
   --max-problems 100 \
-  --n-parallel 4 \
+  --n-parallel-tasks 4 \
   --prompt bcg/agent/prompts/averitec_nohyde.txt \
   --save-alias hero_nohyde_100 \
-  --overwrite --verbose
+  --overwrite
 ```
 
 ### 4. Augment 模式：HerO + HyDE + Belief Graph
 
 ```bash
-bash scripts/rollout.sh \
-  --model-path deepseek-v4-pro-260425 \
+bcg agent run \
+  --model deepseek-v4-pro-260425 \
   --backend api \
-  --benchmarks averitec \
+  --tasks averitec \
   --belief-graph-mode augment \
   --belief-graph-url http://10.1.101.147:8849 \
   --belief-graph-timeout 300 \
@@ -295,19 +310,19 @@ bash scripts/rollout.sh \
   --hero-bm25-top-k 1000 \
   --retrieval-max-results 5 \
   --max-problems 100 \
-  --n-parallel 4 \
+  --n-parallel-tasks 4 \
   --prompt bcg/agent/prompts/averitec.txt \
   --save-alias augment_hero_hyde_100 \
-  --overwrite --verbose
+  --overwrite
 ```
 
 ### 5. Augment 模式：HerO + 无 HyDE + Belief Graph
 
 ```bash
-bash scripts/rollout.sh \
-  --model-path deepseek-v4-pro-260425 \
+bcg agent run \
+  --model deepseek-v4-pro-260425 \
   --backend api \
-  --benchmarks averitec \
+  --tasks averitec \
   --belief-graph-mode augment \
   --belief-graph-url http://10.1.101.147:8849 \
   --belief-graph-timeout 300 \
@@ -318,19 +333,19 @@ bash scripts/rollout.sh \
   --retrieval-max-results 5 \
   --no-hyde \
   --max-problems 100 \
-  --n-parallel 4 \
+  --n-parallel-tasks 4 \
   --prompt bcg/agent/prompts/averitec_nohyde.txt \
   --save-alias augment_hero_nohyde_100 \
-  --overwrite --verbose
+  --overwrite
 ```
 
 ### 6. Only 模式：Belief Graph 替换对话历史
 
 ```bash
-bash scripts/rollout.sh \
-  --model-path deepseek-v4-pro-260425 \
+bcg agent run \
+  --model deepseek-v4-pro-260425 \
   --backend api \
-  --benchmarks averitec \
+  --tasks averitec \
   --belief-graph-mode only \
   --belief-graph-url http://10.1.101.147:8849 \
   --belief-graph-timeout 300 \
@@ -340,10 +355,10 @@ bash scripts/rollout.sh \
   --hero-bm25-top-k 1000 \
   --retrieval-max-results 5 \
   --max-problems 100 \
-  --n-parallel 4 \
+  --n-parallel-tasks 4 \
   --prompt bcg/agent/prompts/averitec.txt \
   --save-alias only_hero_100 \
-  --overwrite --verbose
+  --overwrite
 ```
 
 ## 输出结构
