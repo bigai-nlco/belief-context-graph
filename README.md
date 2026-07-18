@@ -162,6 +162,98 @@ The script loads `.env` and calls the `bcg` entry point in the uv-managed
 project environment. Additional arguments override the named preset, for
 example `bash scripts/start.sh --max-problems 2`.
 
+#### Run BrowseComp and GAIA
+
+The following examples use an OpenAI-compatible DeepSeek endpoint, live web
+search through Serper, and the Belief Graph service. Configure these values in
+the root `.env` first:
+
+- `OPENAI_BASE_URL` and `OPENAI_API_KEY`
+- `SERPER_API_KEY`
+- `BELIEF_GRAPH_URL`
+- optionally `BROWSECOMP_GRADER_*` to use a separate BrowseComp judge; otherwise
+  the judge reuses the rollout model and endpoint
+
+Set the machine-local values used by the commands. The benchmark path below is
+specific to the current machine and must be replaced when the prepared datasets
+live elsewhere. Sourcing `.env` exports `BELIEF_GRAPH_URL` for the explicit CLI
+argument; `bcg` also loads the root `.env` itself.
+
+```bash
+set -a
+source .env
+set +a
+
+# Machine-local prepared benchmark root; replace this on another machine.
+BENCHMARKS_DIR=/data/user/fukeshu/belief-tracer3/datasets
+
+# API-side model ID; replace it when using another endpoint/model.
+MODEL_ID=deepseek-v4-pro-260425
+```
+
+Run one verified, attachment-free GAIA validation task. It is a text/web-search
+question and does not require a multimodal model:
+
+```bash
+GAIA_SPLIT=validation uv run --frozen bcg agent run gaia \
+    --model "$MODEL_ID" \
+    --backend api \
+    --benchmarks-dir "$BENCHMARKS_DIR" \
+    --task-ids 8e867cd7-cff9-4e6c-867a-ff5ddc2550be \
+    --tools serper_search serper_scrape \
+    --context-memory-mode belief_graph \
+    --belief-graph-url "$BELIEF_GRAPH_URL" \
+    --belief-graph-interval 3 \
+    --max-steps 12 \
+    --num-samples 1 \
+    --n-parallel-tasks 1 \
+    --no-auto-ui \
+    --output-dir artifacts/gaia_deepseek_graph_smoke
+```
+
+Run one deterministic BrowseComp smoke-test sample. `browsecomp` and
+`browse_comp` are aliases for the same benchmark; use `browsecomp` consistently
+in new commands:
+
+```bash
+uv run --frozen bcg agent run browsecomp \
+    --model "$MODEL_ID" \
+    --backend api \
+    --benchmarks-dir "$BENCHMARKS_DIR" \
+    --max-problems 1 \
+    --shuffle-seed 0 \
+    --tools serper_search serper_scrape \
+    --context-memory-mode belief_graph \
+    --belief-graph-url "$BELIEF_GRAPH_URL" \
+    --belief-graph-interval 3 \
+    --max-steps 12 \
+    --num-samples 1 \
+    --n-parallel-tasks 1 \
+    --no-auto-ui \
+    --output-dir artifacts/browsecomp_deepseek_graph_smoke
+```
+
+Operational notes:
+
+- Remove `--task-ids` or `--max-problems` to run the complete selected split.
+  Full BrowseComp contains 1,266 tasks; GAIA validation contains 165 tasks.
+- `GAIA_SPLIT` accepts `validation` or `test`, and `GAIA_LEVEL` accepts `all`,
+  `1`, `2`, or `3`. The public validation split has reference answers; the test
+  split does not.
+- Some GAIA tasks contain local attachments. For text-compatible files, add
+  `--enable-file-read --file-tool-root "$BENCHMARKS_DIR"`. Image, audio, video,
+  or other multimodal attachments still require a capable model/tool, so use
+  `--task-ids` to curate text-only tasks for a text-only DeepSeek endpoint.
+- `--backend api` uses BCG's compatibility layer, which fills the standard
+  `tool_calls.type`, `id`, and `function` fields required by stricter API
+  providers. Prefer it over `--backend openai` for the tested DeepSeek endpoint.
+- `--belief-graph-interval 1` rebuilds graph context after every model turn and
+  can make long BrowseComp runs extremely slow. Start with `3`; lower it only
+  when every-turn graph updates are required by the experiment.
+- Serper pages and snippets are untrusted evidence. BrowseComp in particular can
+  attract SEO-spam results, so inspect trajectories before treating a scored
+  answer or a high-confidence graph belief as reliable.
+
 #### Optional: install Agent as a user-level tool
 
 If you prefer to use `bcg` without activating `.venv`, install the project and
