@@ -96,6 +96,19 @@ class AgentRolloutConfig:
     )
     serper_timeout: float = 30.0
     serper_max_output_chars: int = 12000
+    serper_scrape_endpoint: str = field(
+        default_factory=lambda: os.environ.get(
+            "SERPER_SCRAPE_ENDPOINT", "https://scrape.serper.dev"
+        )
+    )
+    serper_scrape_timeout: float = field(
+        default_factory=lambda: float(os.environ.get("SERPER_SCRAPE_TIMEOUT", "30"))
+    )
+    serper_scrape_max_output_chars: int = field(
+        default_factory=lambda: int(
+            os.environ.get("SERPER_SCRAPE_MAX_OUTPUT_CHARS", "30000")
+        )
+    )
 
     # BrowseComp official-style answer judge. The grader key is deliberately
     # environment-only so serialized run configs never contain it.
@@ -128,10 +141,16 @@ class AgentRolloutConfig:
     # HerO retrieval configuration
     retrieval_method: str = "bm25"  # "bm25", "hero", or "hero4"
     hero_bm25_top_k: int = 10  # BM25 candidate pool size (reduced for CPU)
-    hero_embedding_model: str = "SFR-Embedding-2_R"
+    hero_embedding_model: str = field(
+        default_factory=lambda: os.environ.get(
+            "HERO_EMBEDDING_MODEL", "SFR-Embedding-2_R"
+        )
+    )
     hero_embedding_device: str = "cpu"
     hero_batch_size: int = 16
-    hero_embedding_url: str = ""  # empty = local SentenceTransformer; set URL for remote API
+    hero_embedding_url: str = field(
+        default_factory=lambda: os.environ.get("HERO_EMBEDDING_URL", "")
+    )  # empty = local SentenceTransformer; set URL for remote API
     hyde: bool = True  # whether to use HyDE (hypothetical document expansion) in queries
 
     # Four-stage retrieval ("hero4"): BM25 -> embedding -> reranker -> LLM judge
@@ -152,12 +171,26 @@ class AgentRolloutConfig:
     # jina-embedding-reranker-migration memory for the full investigation.
     stage2_embed_k: int = 32
     stage3_rerank_k: int = 10      # reranker survivors (also final top_k upper bound)
-    rerank_url: str = "http://10.2.152.9:8010"
-    rerank_model: str = "Qwen3-Reranker-0.6B"
+    rerank_url: str = field(
+        default_factory=lambda: os.environ.get(
+            "RERANK_URL", "http://127.0.0.1:8010"
+        )
+    )
+    rerank_model: str = field(
+        default_factory=lambda: os.environ.get(
+            "RERANK_MODEL", "Qwen3-Reranker-0.6B"
+        )
+    )
     enable_judge: bool = True      # LLM relevance judge as stage 4
-    judge_model: str = ""          # empty = fall back to $MODEL / cfg.model
-    judge_base_url: str = ""       # empty = fall back to $OPENAI_BASE_URL
-    judge_api_key: str = ""        # empty = fall back to $OPENAI_API_KEY
+    judge_model: str = field(
+        default_factory=lambda: os.environ.get("JUDGE_MODEL", "")
+    )  # empty = fall back to cfg.model
+    judge_base_url: str = field(
+        default_factory=lambda: os.environ.get("JUDGE_BASE_URL", "")
+    )  # empty = fall back to $OPENAI_BASE_URL
+    judge_api_key: str = field(
+        default_factory=lambda: os.environ.get("JUDGE_API_KEY", "")
+    )  # empty = fall back to $OPENAI_API_KEY
     judge_max_workers: int = 10    # concurrency for per-item judge calls
     judge_max_items: int = 10      # cap on items sent to the judge
 
@@ -284,6 +317,18 @@ class AgentRolloutConfig:
     @mixed_evals.setter
     def mixed_evals(self, value: bool) -> None:
         self.mixed_rollouts = value
+
+
+def default_rollout_config() -> AgentRolloutConfig:
+    """Return the single source of default values used by agent entry points.
+
+    CLI parsing and launch scripts must derive their values from this factory
+    instead of introducing a second set of literals. Environment-backed fields
+    are intentionally evaluated on each call so a caller can provide a
+    project-specific ``.env`` before constructing the configuration.
+    """
+
+    return AgentRolloutConfig(model="")
 
 
 AgenticEvalConfig = AgentRolloutConfig

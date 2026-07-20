@@ -31,8 +31,9 @@ uv pip install \
 .venv/bin/bcg agent tasks
 ```
 
-安装完成后不需要再激活 Conda，也不需要设置 `PYTHONPATH`。GPU 后端所需的
-`torch`、`vllm`、`sglang` 或 `ray` 仍需按照目标机器的 CUDA 环境单独安装。
+安装完成后直接使用 uv 创建的 `.venv`，不需要设置 `PYTHONPATH`。GPU 后端所需的
+`torch`、`vllm`、`sglang` 或 `ray` 仍需按照目标机器的 CUDA 环境安装到该 `.venv`，例如
+`uv pip install --python .venv/bin/python vllm`。
 
 ### 可选：安装为用户级命令
 
@@ -55,13 +56,11 @@ bcg agent run averitec --model <模型名称> --backend api
 ## 快速开始
 
 `scripts/start.sh` 会读取根目录 `.env`，使用预设的 AVeriTeC、HerO4、归档和
-Belief Graph 参数，然后直接执行 `bcg agent run`。它不再调用 Conda 或
-`scripts/rollout.sh`。
+Belief Graph 参数，然后使用 uv 管理的项目环境执行 `bcg agent run`。
 
-使用项目 `.venv` 时：
+完成 `uv sync` 与 rLLM 的本地安装后，直接运行：
 
 ```bash
-source .venv/bin/activate
 bash scripts/start.sh
 ```
 
@@ -87,16 +86,42 @@ Python 包和脚本都会自动读取根目录 `.env`。OpenAI、Embedding、Ser
 Langfuse、TongGraph 及评测服务的密钥统一配置在该文件中；命令行参数仍可
 作为临时覆盖值。
 
+## 参数来源与预设
+
+`AgentRolloutConfig` 是运行参数默认值的唯一来源；`bcg agent run --help`
+显示当前可用参数。`.env` 只保存每台机器不同的模型地址、密钥和服务地址，避免
+在 shell 脚本中复制默认值。
+
+`scripts/rollout.sh` 是 `bcg agent run` 的薄包装，接受同一组参数。常用的
+AVeriTeC + HerO4 组合以版本化预设提供：
+
+```bash
+bcg agent run --preset averitec-hero4 --model "$MODEL"
+```
+
+显式传入的参数始终覆盖预设，例如 `--max-problems 2` 或 `--no-auto-ui`。
+
+HerO 和 rerank 服务的机器相关配置也从 `.env` 读取：
+
+| `.env` | 配置字段 | 临时覆盖参数 |
+|---|---|---|
+| `HERO_EMBEDDING_URL` | `hero_embedding_url` | `--hero-embedding-url` |
+| `HERO_EMBEDDING_MODEL` | `hero_embedding_model` | `--hero-embedding-model` |
+| `RERANK_URL` | `rerank_url` | `--rerank-url` |
+| `RERANK_MODEL` | `rerank_model` | `--rerank-model` |
+
+预设只保存评测与策略组合，不固定机器上的服务地址或模型名称。
+
 ## 核心参数
 
 ### 模型与后端
 
 | 参数 | 说明 |
 |------|------|
-| `--model-path` | 模型名称（API 模型 ID 或本地 HF 路径） |
+| `--model` | 模型名称（API 模型 ID 或本地 HF 路径） |
 | `--backend` | 推理后端：`api`（远程 API）、`openai`（rllm OpenAI 引擎）、`vllm`（本地 vLLM） |
-| `--openai-base-url` | API 地址，覆盖 `.env` 中的 `OPENAI_BASE_URL` |
-| `--openai-api-key` | API Key，覆盖 `.env` 中的 `OPENAI_API_KEY` |
+| `--base-url` | API 地址，覆盖 `.env` 中的 `OPENAI_BASE_URL` |
+| `--api-key` | API Key，覆盖 `.env` 中的 `OPENAI_API_KEY` |
 
 `--backend api` 是我们新增的独立引擎，直接调用任何 OpenAI 兼容 API（火山引擎、DeepSeek 官方、硅基流动等），不依赖 vLLM。
 
@@ -126,17 +151,33 @@ Langfuse、TongGraph 及评测服务的密钥统一配置在该文件中；命�
 | `--hero-bm25-top-k N` | BM25 初筛候选数（默认 10） |
 | `--retrieval-max-results N` | 最终返回给模型的 evidence 条数（默认 10） |
 
+### 在线网页检索（Serper）
+
+在根目录 `.env` 中设置 `SERPER_API_KEY` 后，可为在线任务启用
+`serper_search` 与 `serper_scrape`：前者返回 Google 结果的标题、URL 和摘要，
+后者读取少量已筛选 URL 的正文或 Markdown。应先搜索，再只抓取最相关的 1–3 个
+一手来源；抓取内容是不可信证据，不能作为指令执行。
+
+```bash
+bcg agent run --model YOUR_MODEL --tasks browsecomp \
+  --tools serper_search serper_scrape
+```
+
+`SERPER_SCRAPE_ENDPOINT`、`SERPER_SCRAPE_TIMEOUT` 和
+`SERPER_SCRAPE_MAX_OUTPUT_CHARS` 可在 `.env` 或命令行中覆盖；默认单页最多返回
+30,000 个字符。
+
 ### 四级检索（`--retrieval-method hero4`）
 
 BM25 → Embedding → Reranker → LLM judge 四级流水线。
 
 | 参数 | 说明 |
 |------|------|
-| `--retrieval-method hero4` | 四级检索：BM25→1000、Embedding→64、Reranker→10、LLM judge 过滤 |
+| `--retrieval-method hero4` | 四级检索：BM25→1000、Embedding→32、Reranker→10、LLM judge 过滤 |
 | `--stage1-bm25-k N` | BM25 候选池（实际 = min(N, 索引内 chunk 数)，默认 1000） |
-| `--stage2-embed-k N` | Embedding 重排存活数（默认 64） |
+| `--stage2-embed-k N` | Embedding 重排存活数（默认 32） |
 | `--stage3-rerank-k N` | Reranker 存活数 / 最终 top_k 上限（默认 10） |
-| `--rerank-url URL` | Reranker 服务 base URL（默认 `http://10.2.152.9:8010`，走 `/v1/completions` + 官方模板取 P(yes)；传 `.../v1/rerank` 则用原生 rerank API） |
+| `--rerank-url URL` | Reranker 服务 base URL（默认 `http://127.0.0.1:8010`，走 `/v1/completions` + 官方模板取 P(yes)；传 `.../v1/rerank` 则用原生 rerank API） |
 | `--rerank-model NAME` | Reranker 模型名（默认 `Qwen3-Reranker-0.6B`） |
 | `--enable-judge` / `--no-judge` | 是否启用 LLM 相关性判别（默认启用，soft 回填到 top_k） |
 | `--judge-model NAME` | 判别模型（默认取 `--model` / `$MODEL`） |
@@ -178,11 +219,11 @@ HyDE 启用时，tool prompt 会指导模型在 query 中用 ` ||| ` 分隔 clai
 
 | 参数 | 说明 |
 |------|------|
-| `--benchmarks` | 评测集，逗号分隔（如 `averitec`） |
+| `--tasks` | 评测集，可传多个名称（如 `averitec`） |
 | `--max-problems N` | 每个 benchmark 最多跑 N 条（不设则跑全部） |
 | `--num-samples N` | 每条问题采样 N 次（默认 1） |
 | `--max-steps N` | 每条 rollout 最大工具调用轮数（默认 96） |
-| `--n-parallel N` | 并发 rollout 数（默认 8） |
+| `--n-parallel-tasks N` | 并发 rollout 数 |
 | `--shuffle` / `--no-shuffle` | 是否打乱数据顺序 |
 | `--shuffle-seed N` | 打乱种子（默认 0，相同种子保证相同顺序） |
 
@@ -209,26 +250,26 @@ HyDE 启用时，tool prompt 会指导模型在 query 中用 ` ||| ` 分隔 clai
 ### 1. 无工具纯推理（CoT）
 
 ```bash
-bash scripts/rollout.sh \
-  --model-path deepseek-v4-pro-260425 \
+bcg agent run \
+  --model deepseek-v4-pro-260425 \
   --backend api \
-  --benchmarks averitec \
+  --tasks averitec \
   --belief-graph-mode none \
   --tools none \
   --prompt bcg/agent/prompts/cot.txt \
   --max-problems 100 \
-  --n-parallel 8 \
+  --n-parallel-tasks 8 \
   --save-alias notool_cot \
-  --overwrite --verbose
+  --overwrite
 ```
 
 ### 2. HerO + HyDE（远程 Embedding API）
 
 ```bash
-bash scripts/rollout.sh \
-  --model-path deepseek-v4-pro-260425 \
+bcg agent run \
+  --model deepseek-v4-pro-260425 \
   --backend api \
-  --benchmarks averitec \
+  --tasks averitec \
   --belief-graph-mode none \
   --retrieval-method hero \
   --hero-embedding-url "http://10.2.152.9:8008/v1/embeddings" \
@@ -236,19 +277,19 @@ bash scripts/rollout.sh \
   --hero-bm25-top-k 1000 \
   --retrieval-max-results 5 \
   --max-problems 100 \
-  --n-parallel 4 \
+  --n-parallel-tasks 4 \
   --prompt bcg/agent/prompts/averitec.txt \
   --save-alias hero_hyde_100 \
-  --overwrite --verbose
+  --overwrite
 ```
 
 ### 3. HerO + 无 HyDE（自然语言查询）
 
 ```bash
-bash scripts/rollout.sh \
-  --model-path deepseek-v4-pro-260425 \
+bcg agent run \
+  --model deepseek-v4-pro-260425 \
   --backend api \
-  --benchmarks averitec \
+  --tasks averitec \
   --belief-graph-mode none \
   --retrieval-method hero \
   --hero-embedding-url "http://10.2.152.9:8008/v1/embeddings" \
@@ -257,19 +298,19 @@ bash scripts/rollout.sh \
   --retrieval-max-results 5 \
   --no-hyde \
   --max-problems 100 \
-  --n-parallel 4 \
+  --n-parallel-tasks 4 \
   --prompt bcg/agent/prompts/averitec_nohyde.txt \
   --save-alias hero_nohyde_100 \
-  --overwrite --verbose
+  --overwrite
 ```
 
 ### 4. Augment 模式：HerO + HyDE + Belief Graph
 
 ```bash
-bash scripts/rollout.sh \
-  --model-path deepseek-v4-pro-260425 \
+bcg agent run \
+  --model deepseek-v4-pro-260425 \
   --backend api \
-  --benchmarks averitec \
+  --tasks averitec \
   --belief-graph-mode augment \
   --belief-graph-url http://10.1.101.147:8849 \
   --belief-graph-timeout 300 \
@@ -279,19 +320,19 @@ bash scripts/rollout.sh \
   --hero-bm25-top-k 1000 \
   --retrieval-max-results 5 \
   --max-problems 100 \
-  --n-parallel 4 \
+  --n-parallel-tasks 4 \
   --prompt bcg/agent/prompts/averitec.txt \
   --save-alias augment_hero_hyde_100 \
-  --overwrite --verbose
+  --overwrite
 ```
 
 ### 5. Augment 模式：HerO + 无 HyDE + Belief Graph
 
 ```bash
-bash scripts/rollout.sh \
-  --model-path deepseek-v4-pro-260425 \
+bcg agent run \
+  --model deepseek-v4-pro-260425 \
   --backend api \
-  --benchmarks averitec \
+  --tasks averitec \
   --belief-graph-mode augment \
   --belief-graph-url http://10.1.101.147:8849 \
   --belief-graph-timeout 300 \
@@ -302,19 +343,19 @@ bash scripts/rollout.sh \
   --retrieval-max-results 5 \
   --no-hyde \
   --max-problems 100 \
-  --n-parallel 4 \
+  --n-parallel-tasks 4 \
   --prompt bcg/agent/prompts/averitec_nohyde.txt \
   --save-alias augment_hero_nohyde_100 \
-  --overwrite --verbose
+  --overwrite
 ```
 
 ### 6. Only 模式：Belief Graph 替换对话历史
 
 ```bash
-bash scripts/rollout.sh \
-  --model-path deepseek-v4-pro-260425 \
+bcg agent run \
+  --model deepseek-v4-pro-260425 \
   --backend api \
-  --benchmarks averitec \
+  --tasks averitec \
   --belief-graph-mode only \
   --belief-graph-url http://10.1.101.147:8849 \
   --belief-graph-timeout 300 \
@@ -324,10 +365,10 @@ bash scripts/rollout.sh \
   --hero-bm25-top-k 1000 \
   --retrieval-max-results 5 \
   --max-problems 100 \
-  --n-parallel 4 \
+  --n-parallel-tasks 4 \
   --prompt bcg/agent/prompts/averitec.txt \
   --save-alias only_hero_100 \
-  --overwrite --verbose
+  --overwrite
 ```
 
 ## 输出结构

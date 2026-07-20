@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Start an OpenAI-compatible SGLang server for BeliefTracer rollouts.
 #
-# Defaults are kept close to scripts/rollout.sh. The server exposes:
+# Server parameters are configured through environment variables. The server exposes:
 #   base_url: http://<host>:<port>/v1
 #   api key:  none / EMPTY
 #
@@ -15,8 +15,17 @@
 
 set -euo pipefail
 
-MODEL="${MODEL:-/data/user/baijun/models/Qwen3-8B}"
-SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-$MODEL}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+if [[ -f "$REPO_ROOT/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$REPO_ROOT/.env"
+  set +a
+fi
+
+MODEL="${SGLANG_MODEL:-${VLLM_MODEL:-}}"
+SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-}"
 HOST="${SGLANG_HOST:-${VLLM_HOST:-0.0.0.0}}"
 PORT="${SGLANG_PORT:-${VLLM_PORT:-8003}}"
 VISIBLE_GPUS="${SGLANG_VISIBLE_GPUS:-${VLLM_VISIBLE_GPUS:-${CUDA_VISIBLE_DEVICES:-1}}}"
@@ -32,7 +41,7 @@ DTYPE="${SGLANG_DTYPE:-${VLLM_DTYPE:-auto}}"
 TRUST_REMOTE_CODE="${SGLANG_TRUST_REMOTE_CODE:-${VLLM_TRUST_REMOTE_CODE:-1}}"
 DISABLE_CUDA_GRAPH="${SGLANG_DISABLE_CUDA_GRAPH:-0}"
 LOG_FILE="${SGLANG_LOG:-/tmp/belief_tracer-sglang-${USER:-unknown}-${PORT}.log}"
-PYTHON="${PYTHON:-python}"
+PYTHON="${BCG_PYTHON:-$REPO_ROOT/.venv/bin/python}"
 ACTION="start"
 BACKGROUND="0"
 RESTART="1"
@@ -68,7 +77,7 @@ Flags:
   -h, --help                Show this help
 
 Environment defaults:
-  MODEL, SERVED_MODEL_NAME, SGLANG_HOST, SGLANG_PORT, SGLANG_VISIBLE_GPUS,
+  SGLANG_MODEL, VLLM_MODEL, SERVED_MODEL_NAME, SGLANG_HOST, SGLANG_PORT, SGLANG_VISIBLE_GPUS,
   CUDA_VISIBLE_DEVICES, SGLANG_TP, SGLANG_DP, SGLANG_NNODES,
   SGLANG_NODE_RANK, SGLANG_DIST_INIT_ADDR, SGLANG_MEM_FRACTION_STATIC,
   SGLANG_CONTEXT_LENGTH, SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN,
@@ -128,6 +137,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-$MODEL}"
 URL_HOST="$HOST"
 if [[ "$URL_HOST" == "0.0.0.0" || "$URL_HOST" == "::" ]]; then
   URL_HOST="127.0.0.1"
@@ -135,7 +145,7 @@ fi
 BASE_URL="http://${URL_HOST}:${PORT}/v1"
 
 list_pids() {
-  python - "$PORT" <<'PY_LIST_PIDS'
+  "$PYTHON" - "$PORT" <<'PY_LIST_PIDS'
 import re
 import subprocess
 import sys
@@ -162,7 +172,7 @@ PY_LIST_PIDS
 }
 
 health_check() {
-  python - "$BASE_URL" <<'PY_HEALTH'
+  "$PYTHON" - "$BASE_URL" <<'PY_HEALTH'
 import json
 import sys
 import time
@@ -202,7 +212,7 @@ stop_server() {
   for pid in "${pids[@]}"; do
     kill "$pid" 2>/dev/null || true
   done
-  python - "${pids[@]}" <<'PY_STOP'
+  "$PYTHON" - "${pids[@]}" <<'PY_STOP'
 import os
 import signal
 import sys
@@ -243,8 +253,10 @@ case "$ACTION" in
     ;;
 esac
 
+[[ -n "$MODEL" ]] || die "Set SGLANG_MODEL (or VLLM_MODEL) in the root .env, or pass --model PATH."
+
 if ! "$PYTHON" -c 'import sglang' >/dev/null 2>&1; then
-  die "SGLang is not installed in this environment. Install sglang or activate the right env."
+  die "SGLang is unavailable at $PYTHON. Run `uv sync --all-groups` then `uv pip install --python .venv/bin/python sglang`."
 fi
 
 mapfile -t existing < <(list_pids)

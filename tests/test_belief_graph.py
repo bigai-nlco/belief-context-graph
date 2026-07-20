@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import json
 from collections.abc import Awaitable
 from pathlib import Path
@@ -342,26 +341,3 @@ def test_semantic_split_clusters_with_fake_embeddings() -> None:
 
     assert info["n_sentences"] == 3
     assert len(clusters) < len(sentences)
-
-
-def test_visualizer_renders_unified_memory(
-    tmp_path: Path,
-    fake_construct_calls: list[str],
-) -> None:
-    result = run(
-        BeliefGraphPipeline(
-            DummyLLM(),
-            output_root=tmp_path / ".bcg" / "runs",
-            run_id="viz-run",
-        ).run(sample_trajectory())
-    )
-    script = Path.cwd() / "scripts" / "visualize_belief_graph.py"
-    spec = importlib.util.spec_from_file_location("visualize_belief_graph", script)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    rendered = module.render_html(result.memory, result.output_paths.memory)
-    assert fake_construct_calls
-    assert "BCG Belief Graph" in rendered
-    assert "Alice likes green tea" in rendered

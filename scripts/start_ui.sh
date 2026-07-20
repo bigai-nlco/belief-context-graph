@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start or restart the BeliefTracer web UI in a conda/pip environment.
+# Start or restart the BeliefTracer web UI in the uv-managed project environment.
 #
 # Usage:
 #   scripts/start_ui.sh                            # defaults: 0.0.0.0:23456
@@ -17,11 +17,16 @@ ARTIFACTS_DIR="${BT_ARTIFACTS_DIR:-output}"
 LOG_FILE="${BT_UI_LOG:-/tmp/belief_tracer-ui-${USER:-unknown}.log}"
 RESTART="1"
 ACTION="start"
-PYTHON="${PYTHON:-python}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-export PYTHONPATH="$REPO_ROOT:$REPO_ROOT/rllm:${PYTHONPATH:-}"
+if [[ -f "$REPO_ROOT/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$REPO_ROOT/.env"
+  set +a
+fi
+PYTHON="${BCG_PYTHON:-$REPO_ROOT/.venv/bin/python}"
 
 # --- helpers ------------------------------------------------------------
 usage() {
@@ -175,6 +180,8 @@ if ((${#PIDS[@]})); then
 fi
 
 mkdir -p "$(dirname "$LOG_FILE")"
+
+[[ -x "$PYTHON" ]] || die "BCG Python not found at $PYTHON. Run `uv sync --all-groups` first."
 
 echo "[start_ui] Starting BeliefTracer UI on http://$HOST:$PORT"
 echo "[start_ui] Artifacts: $ARTIFACTS_DIR"

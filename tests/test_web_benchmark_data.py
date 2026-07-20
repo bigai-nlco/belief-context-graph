@@ -12,7 +12,9 @@ from scripts.prepare_web_benchmarks import convert_browsecomp_rows, derive_key
 def _encrypt_browsecomp(value: str, canary: str) -> str:
     raw = value.encode("utf-8")
     key = derive_key(canary, len(raw))
-    return base64.b64encode(bytes(a ^ b for a, b in zip(raw, key))).decode("ascii")
+    return base64.b64encode(bytes(a ^ b for a, b in zip(raw, key, strict=True))).decode(
+        "ascii"
+    )
 
 
 def test_convert_official_browsecomp_encrypted_rows() -> None:

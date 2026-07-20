@@ -21,16 +21,15 @@ from typing import Any, NamedTuple
 import numpy as np
 import requests
 from datasets import load_dataset
-from transformers import AutoTokenizer
 from tqdm import tqdm
+from transformers import AutoTokenizer
 
 from bcg.env import load_project_env
-
 
 load_project_env()
 
 DEFAULT_MODEL = "jina-embeddings-v5-text-small"
-DEFAULT_URL = "http://10.2.152.9:8016/v1/embeddings"
+DEFAULT_URL = "http://127.0.0.1:8016/v1/embeddings"
 DEFAULT_TOKENIZER = "jinaai/jina-embeddings-v5-text-small"
 
 
@@ -45,7 +44,9 @@ class ChunkRecord(NamedTuple):
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build BrowseComp-Plus dense index for bcp_search.")
+    parser = argparse.ArgumentParser(
+        description="Build BrowseComp-Plus dense index for bcp_search."
+    )
     parser.add_argument("--dataset-name", default="Tevatron/browsecomp-plus-corpus")
     parser.add_argument("--split", default="train")
     parser.add_argument(
@@ -60,7 +61,9 @@ def parse_args() -> argparse.Namespace:
         "--model-name",
         default=os.environ.get("HERO_EMBEDDING_MODEL", DEFAULT_MODEL),
     )
-    parser.add_argument("--api-key", default=os.environ.get("HERO_EMBEDDING_API_KEY", "EMPTY"))
+    parser.add_argument(
+        "--api-key", default=os.environ.get("HERO_EMBEDDING_API_KEY", "EMPTY")
+    )
     parser.add_argument(
         "--api-key-header",
         default=os.environ.get("HERO_EMBEDDING_API_KEY_HEADER", "Authorization"),
@@ -131,7 +134,9 @@ def extract_embeddings(payload: Any, expected: int) -> list[list[float]]:
         if expected == 1 and payload and isinstance(payload[0], (int, float)):
             return [payload]
     if not isinstance(payload, dict):
-        raise ValueError(f"Unsupported embedding response type: {type(payload).__name__}")
+        raise ValueError(
+            f"Unsupported embedding response type: {type(payload).__name__}"
+        )
     if "data" in payload:
         rows = sorted(payload["data"], key=lambda row: row.get("index", 0))
         return [row["embedding"] for row in rows]
@@ -142,10 +147,14 @@ def extract_embeddings(payload: Any, expected: int) -> list[list[float]]:
     value = payload.get("embedding")
     if isinstance(value, list):
         return [value]
-    raise ValueError(f"Cannot find embeddings in response keys: {sorted(payload.keys())}")
+    raise ValueError(
+        f"Cannot find embeddings in response keys: {sorted(payload.keys())}"
+    )
 
 
-def chunk_spans(text: str, chunk_chars: int, overlap_chars: int) -> list[tuple[int, int]]:
+def chunk_spans(
+    text: str, chunk_chars: int, overlap_chars: int
+) -> list[tuple[int, int]]:
     if chunk_chars <= 0:
         raise ValueError("--chunk-chars must be positive")
     if overlap_chars < 0:
@@ -181,7 +190,9 @@ def chunk_spans(text: str, chunk_chars: int, overlap_chars: int) -> list[tuple[i
     return spans
 
 
-def token_spans(token_count: int, chunk_tokens: int, overlap_tokens: int) -> list[tuple[int, int]]:
+def token_spans(
+    token_count: int, chunk_tokens: int, overlap_tokens: int
+) -> list[tuple[int, int]]:
     if chunk_tokens <= 0:
         raise ValueError("--chunk-tokens must be positive")
     if overlap_tokens < 0:
@@ -301,7 +312,9 @@ def embed_batch(
             last_error = exc
             if attempt < args.retries:
                 time.sleep(2 ** (attempt - 1))
-    raise RuntimeError(f"Embedding request failed after {args.retries} attempts: {last_error}")
+    raise RuntimeError(
+        f"Embedding request failed after {args.retries} attempts: {last_error}"
+    )
 
 
 def main() -> None:
@@ -352,7 +365,9 @@ def main() -> None:
     request_headers = headers(args)
 
     first_records = records[0 : min(args.batch_size, total)]
-    first_texts = [record_text(ds, args.text_field, rec, args, tokenizer) for rec in first_records]
+    first_texts = [
+        record_text(ds, args.text_field, rec, args, tokenizer) for rec in first_records
+    ]
     first_vecs = embed_batch(session, first_texts, args, request_headers, extra)
     dim = int(first_vecs.shape[1])
 
@@ -366,7 +381,9 @@ def main() -> None:
     docids: list[str] = [""] * total
     chunk_ids: list[str] = [""] * total
 
-    def write_rows(start: int, batch_records: list[ChunkRecord], texts: list[str], arr: np.ndarray) -> None:
+    def write_rows(
+        start: int, batch_records: list[ChunkRecord], texts: list[str], arr: np.ndarray
+    ) -> None:
         end = start + len(batch_records)
         vectors[start:end] = arr
         docids[start:end] = [rec.docid for rec in batch_records]
@@ -375,16 +392,21 @@ def main() -> None:
             "INSERT OR REPLACE INTO chunks(chunk_id, docid, chunk_index, text) VALUES (?, ?, ?, ?)",
             (
                 (rec.chunk_id, rec.docid, rec.chunk_index, text)
-                for rec, text in zip(batch_records, texts)
+                for rec, text in zip(batch_records, texts, strict=True)
             ),
         )
         conn.commit()
 
     write_rows(0, first_records, first_texts, first_vecs)
 
-    for start in tqdm(range(len(first_records), total, args.batch_size), desc="Encoding BCP chunks"):
+    for start in tqdm(
+        range(len(first_records), total, args.batch_size), desc="Encoding BCP chunks"
+    ):
         batch_records = records[start : min(start + args.batch_size, total)]
-        texts = [record_text(ds, args.text_field, rec, args, tokenizer) for rec in batch_records]
+        texts = [
+            record_text(ds, args.text_field, rec, args, tokenizer)
+            for rec in batch_records
+        ]
         arr = embed_batch(session, texts, args, request_headers, extra)
         if arr.shape[1] != dim:
             raise ValueError(f"Embedding dim changed from {dim} to {arr.shape[1]}")
@@ -413,7 +435,9 @@ def main() -> None:
         "chunks": total,
         "tokenizer": args.tokenizer_name if args.chunk_mode == "token" else None,
         "chunk_tokens": args.chunk_tokens if args.chunk_mode == "token" else None,
-        "chunk_overlap_tokens": args.chunk_overlap_tokens if args.chunk_mode == "token" else None,
+        "chunk_overlap_tokens": args.chunk_overlap_tokens
+        if args.chunk_mode == "token"
+        else None,
         "chunk_chars": args.chunk_chars,
         "chunk_overlap_chars": args.chunk_overlap_chars,
         "dimension": dim,

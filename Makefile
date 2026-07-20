@@ -14,9 +14,7 @@ UI_ARGS ?=
 CHECK_THINKING_ARGS ?=
 TEST_ARGS ?=
 ROLLOUT_ARGS ?=
-PASSK_ARGS ?=
 GRAPH_ARGS ?=
-WEB_DATA_ARGS ?=
 DOCKER_ARGS ?=
 
 .DEFAULT_GOAL := help
@@ -35,14 +33,9 @@ help:
 	@printf '%s\n' '  make ui-log               Tail detached UI log from Docker container'
 	@printf '%s\n' '  make check-thinking CHECK_THINKING_ARGS="..."'
 	@printf '%s\n' '  make test                 Run pytest'
-	@printf '%s\n' '  make memgraph-test        Run Memgraph unittest helper'
-	@printf '%s\n' '  make build-sgy-graph      Build/sample Memgraph graph data'
-	@printf '%s\n' '  make prepare-web-data     Download BrowseComp and GAIA benchmark data'
 	@printf '%s\n' '  make tonggraph-server     Start TongGraph Server for graph persistence'
 	@printf '%s\n' '  make tonggraph-sync GRAPH_ARGS="path/to/final_graph.json"'
-	@printf '%s\n' '  make compute-passk PASSK_ARGS="results.json"'
 	@printf '%s\n' '  make rollout ROLLOUT_ARGS="..."'
-	@printf '%s\n' '  make docker-load-base-image'
 	@printf '%s\n' '  make docker-build'
 	@printf '%s\n' '  make docker-up'
 	@printf '%s\n' '  make docker-run DOCKER_ARGS="run math500 --model MODEL"'
@@ -104,18 +97,6 @@ check-thinking:
 test:
 	@$(PYTHON) -m pytest $(TEST_ARGS)
 
-.PHONY: memgraph-test
-memgraph-test:
-	@scripts/run_memgraph_tests.sh
-
-.PHONY: build-sgy-graph
-build-sgy-graph:
-	@$(PYTHON) scripts/build_sgy_graph.py $(GRAPH_ARGS)
-
-.PHONY: prepare-web-data
-prepare-web-data:
-	@$(PYTHON) scripts/prepare_web_benchmarks.py $(WEB_DATA_ARGS)
-
 .PHONY: tonggraph-server
 tonggraph-server:
 	@scripts/start_tonggraph_server.sh
@@ -124,17 +105,9 @@ tonggraph-server:
 tonggraph-sync:
 	@$(BT) tonggraph-sync $(GRAPH_ARGS)
 
-.PHONY: compute-passk
-compute-passk:
-	@$(PYTHON) scripts/compute_passk.py $(PASSK_ARGS)
-
 .PHONY: rollout
 rollout:
 	@scripts/rollout.sh $(ROLLOUT_ARGS)
-
-.PHONY: docker-load-base-image
-docker-load-base-image:
-	@scripts/docker/load_base_image.sh
 
 .PHONY: docker-build
 docker-build:

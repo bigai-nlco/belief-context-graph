@@ -23,20 +23,20 @@ import os
 import shutil
 import sys
 import urllib.request
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from contextlib import suppress
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from bcg.env import load_project_env
-
 
 load_project_env()
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATA_ROOT = PROJECT_ROOT / "datasets"
 BROWSECOMP_URL = (
-    "https://openaipublic.blob.core.windows.net/simple-evals/"
-    "browse_comp_test_set.csv"
+    "https://openaipublic.blob.core.windows.net/simple-evals/browse_comp_test_set.csv"
 )
 GAIA_PUBLIC_REPO = "smolagents/GAIA-annotated"
 GAIA_OFFICIAL_REPO = "gaia-benchmark/GAIA"
@@ -52,7 +52,7 @@ def decrypt_browsecomp(ciphertext_b64: str, password: str) -> str:
     """Decrypt one official BrowseComp field."""
     encrypted = base64.b64decode(ciphertext_b64)
     key = derive_key(password, len(encrypted))
-    return bytes(a ^ b for a, b in zip(encrypted, key)).decode("utf-8")
+    return bytes(a ^ b for a, b in zip(encrypted, key, strict=True)).decode("utf-8")
 
 
 def convert_browsecomp_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -70,7 +70,9 @@ def convert_browsecomp_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, An
             question = decrypt_browsecomp(encrypted_problem, canary)
             answer = decrypt_browsecomp(encrypted_answer, canary)
         except Exception as exc:
-            raise ValueError(f"Could not decrypt BrowseComp row {index}: {exc}") from exc
+            raise ValueError(
+                f"Could not decrypt BrowseComp row {index}: {exc}"
+            ) from exc
         converted.append(
             {
                 "task_id": f"browsecomp-{index:04d}",
@@ -115,9 +117,10 @@ def _download(url: str, destination: Path, *, force: bool = False) -> Path:
     )
     print(f"[download] {url}")
     try:
-        with urllib.request.urlopen(request, timeout=120) as response, temporary.open(
-            "wb"
-        ) as handle:
+        with (
+            urllib.request.urlopen(request, timeout=120) as response,
+            temporary.open("wb") as handle,
+        ):
             shutil.copyfileobj(response, handle)
     except Exception:
         temporary.unlink(missing_ok=True)
@@ -151,7 +154,7 @@ def prepare_browsecomp(
         "source_url": url,
         "source_sha256": _sha256(raw_path),
         "num_tasks": len(tasks),
-        "prepared_at": datetime.now(timezone.utc).isoformat(),
+        "prepared_at": datetime.now(UTC).isoformat(),
         "data_file": str(output_path),
     }
     _write_json(target / "manifest.json", manifest)
@@ -179,7 +182,9 @@ def _gaia_metadata_stats(path: Path) -> tuple[int, int]:
         try:
             import pandas as pd
         except ImportError as exc:  # pragma: no cover - runtime dependency guidance
-            raise RuntimeError("pandas and pyarrow are required for GAIA parquet") from exc
+            raise RuntimeError(
+                "pandas and pyarrow are required for GAIA parquet"
+            ) from exc
         rows = pd.read_parquet(path).to_dict(orient="records")
     attachments = sum(bool(str(row.get("file_name") or "").strip()) for row in rows)
     return len(rows), attachments
@@ -221,7 +226,9 @@ def prepare_gaia(
     for split in ("validation", "test"):
         metadata_path = _gaia_metadata_path(target, split)
         if metadata_path is None:
-            raise RuntimeError(f"GAIA {split} metadata was not downloaded under {target}")
+            raise RuntimeError(
+                f"GAIA {split} metadata was not downloaded under {target}"
+            )
         count, attachments = _gaia_metadata_stats(metadata_path)
         split_stats[split] = {
             "metadata_file": str(metadata_path),
@@ -230,15 +237,13 @@ def prepare_gaia(
         }
 
     revision = ""
-    try:
+    with suppress(Exception):
         revision = HfApi().dataset_info(repo_id=repo_id, token=token).sha or ""
-    except Exception:
-        pass
     manifest = {
         "benchmark": "GAIA 2023",
         "repo_id": repo_id,
         "revision": revision,
-        "prepared_at": datetime.now(timezone.utc).isoformat(),
+        "prepared_at": datetime.now(UTC).isoformat(),
         "default_split": "validation",
         "splits": split_stats,
     }

@@ -57,8 +57,8 @@ cp bcg/model_config.example.json bcg/model_config.json
 
 Use the files for different purposes:
 
-- `.env` is the only place for API keys and other credentials. It is ignored
-  by Git.
+- `.env` holds API keys plus machine-specific Agent and local-service settings.
+  It is ignored by Git.
 - `bcg/model_config.json` contains non-secret model URLs and generation
   settings. Its `api_key_env` values refer to variable names in `.env`.
 
@@ -141,15 +141,14 @@ uv pip install \
 ```
 
 This installation is local to `.venv` and does not add the sibling checkout
-to `pyproject.toml`. Activate that environment before running Agent commands:
+to `pyproject.toml`. Run the entry point from the uv-managed environment
+directly; activation is not required:
 
 ```bash
-source .venv/bin/activate
-
-bcg agent run gpqa_diamond \
+.venv/bin/bcg agent run gpqa_diamond \
     --model <MODEL_PATH_OR_ID> \
     --belief-graph-url http://127.0.0.1:8848
-bcg agent ui --artifacts-dir artifacts/belief_tracer
+.venv/bin/bcg agent ui --artifacts-dir artifacts/belief_tracer
 ```
 
 For the repository's preset AVeriTeC + HerO4 + Belief Graph rollout, configure
@@ -159,9 +158,120 @@ the Agent values in the root `.env` and run:
 bash scripts/start.sh
 ```
 
-The script loads `.env` and calls `bcg agent run` directly. It does not activate
-Conda or invoke `scripts/rollout.sh`; additional arguments override its preset,
-for example `bash scripts/start.sh --max-problems 2`.
+The script loads `.env`, prefers `.venv/bin/bcg`, and falls back to a `bcg`
+installed on `PATH` with `uv tool install`. Additional arguments override the
+named preset, for example `bash scripts/start.sh --max-problems 2`.
+
+#### Run BrowseComp and GAIA
+
+The following examples use an OpenAI-compatible DeepSeek endpoint, live web
+search through Serper, and the Belief Graph service. Configure these values in
+the root `.env` first:
+
+- `OPENAI_BASE_URL` and `OPENAI_API_KEY`
+- `SERPER_API_KEY`
+- `BELIEF_GRAPH_URL`
+- optionally `BROWSECOMP_GRADER_*` to use a separate BrowseComp judge; otherwise
+  the judge reuses the rollout model and endpoint
+
+Set the machine-local values used by the commands. Sourcing `.env` exports
+`BELIEF_GRAPH_URL` for the explicit CLI argument; `bcg` also loads the root
+`.env` itself.
+
+```bash
+set -a
+source .env
+set +a
+
+# Defaults to a portable repository-local data directory. Override it in .env.
+BENCHMARKS_DIR="${BENCHMARKS_DIR:-$PWD/datasets}"
+
+# API-side model ID comes from the same root configuration as other Agent runs.
+MODEL_ID="${MODEL:-${OPENAI_MODEL:-}}"
+test -n "$MODEL_ID" || { echo "Set MODEL or OPENAI_MODEL in .env" >&2; exit 2; }
+```
+
+Prepare the public BrowseComp and GAIA datasets in that directory before the
+first run:
+
+```bash
+uv run --frozen python scripts/prepare_web_benchmarks.py \
+    --data-root "$BENCHMARKS_DIR"
+```
+
+BrowseComp-Plus uses a separate dense corpus index. Configure an embedding
+endpoint, choose a local output directory, and build it with:
+
+```bash
+BCP_INDEX_DIR="${BCP_INDEX_DIR:-$PWD/datasets/browsecomp_plus/indexes/hero}"
+uv run --frozen python scripts/build_bcp_dense_index.py \
+    --output-dir "$BCP_INDEX_DIR" \
+    --embedding-url "$HERO_EMBEDDING_URL" \
+    --model-name "$HERO_EMBEDDING_MODEL"
+```
+
+Run one verified, attachment-free GAIA validation task. It is a text/web-search
+question and does not require a multimodal model:
+
+```bash
+GAIA_SPLIT=validation uv run --frozen bcg agent run gaia \
+    --model "$MODEL_ID" \
+    --backend api \
+    --benchmarks-dir "$BENCHMARKS_DIR" \
+    --task-ids 8e867cd7-cff9-4e6c-867a-ff5ddc2550be \
+    --tools serper_search serper_scrape \
+    --context-memory-mode belief_graph \
+    --belief-graph-url "$BELIEF_GRAPH_URL" \
+    --belief-graph-interval 3 \
+    --max-steps 12 \
+    --num-samples 1 \
+    --n-parallel-tasks 1 \
+    --no-auto-ui \
+    --output-dir artifacts/gaia_deepseek_graph_smoke
+```
+
+Run one deterministic BrowseComp smoke-test sample. `browsecomp` and
+`browse_comp` are aliases for the same benchmark; use `browsecomp` consistently
+in new commands:
+
+```bash
+uv run --frozen bcg agent run browsecomp \
+    --model "$MODEL_ID" \
+    --backend api \
+    --benchmarks-dir "$BENCHMARKS_DIR" \
+    --max-problems 1 \
+    --shuffle-seed 0 \
+    --tools serper_search serper_scrape \
+    --context-memory-mode belief_graph \
+    --belief-graph-url "$BELIEF_GRAPH_URL" \
+    --belief-graph-interval 3 \
+    --max-steps 12 \
+    --num-samples 1 \
+    --n-parallel-tasks 1 \
+    --no-auto-ui \
+    --output-dir artifacts/browsecomp_deepseek_graph_smoke
+```
+
+Operational notes:
+
+- Remove `--task-ids` or `--max-problems` to run the complete selected split.
+  Full BrowseComp contains 1,266 tasks; GAIA validation contains 165 tasks.
+- `GAIA_SPLIT` accepts `validation` or `test`, and `GAIA_LEVEL` accepts `all`,
+  `1`, `2`, or `3`. The public validation split has reference answers; the test
+  split does not.
+- Some GAIA tasks contain local attachments. For text-compatible files, add
+  `--enable-file-read --file-tool-root "$BENCHMARKS_DIR"`. Image, audio, video,
+  or other multimodal attachments still require a capable model/tool, so use
+  `--task-ids` to curate text-only tasks for a text-only DeepSeek endpoint.
+- `--backend api` uses BCG's compatibility layer, which fills the standard
+  `tool_calls.type`, `id`, and `function` fields required by stricter API
+  providers. Prefer it over `--backend openai` for the tested DeepSeek endpoint.
+- `--belief-graph-interval 1` rebuilds graph context after every model turn and
+  can make long BrowseComp runs extremely slow. Start with `3`; lower it only
+  when every-turn graph updates are required by the experiment.
+- Serper pages and snippets are untrusted evidence. BrowseComp in particular can
+  attract SEO-spam results, so inspect trajectories before treating a scored
+  answer or a high-confidence graph belief as reliable.
 
 #### Optional: install Agent as a user-level tool
 
@@ -181,12 +291,17 @@ source so uv rebuilds the local wheel instead of reusing a cached copy. The
 rLLM packages use editable installation, so their local checkout must not be
 moved or deleted.
 
-Do not rely on `PYTHONPATH` or a Conda environment after using either uv
-installation method above.
+Do not rely on `PYTHONPATH`; use one of the uv-managed environments above.
 
 Local GPU backends such as `vllm`, `sglang`, `ray`, and a hardware-compatible
-`torch` build are installed separately for the target machine. Remote
-OpenAI-compatible backends do not require those local inference packages.
+`torch` build are installed separately into the project `.venv` for the target
+machine, for example `uv pip install --python .venv/bin/python vllm` or
+`uv pip install --python .venv/bin/python sglang`. Remote OpenAI-compatible
+backends do not require those local inference packages.
+
+The GPU launch scripts load `.env` and use `VLLM_*` or `SGLANG_*` variables.
+They intentionally do not reuse `MODEL`, which identifies the Agent's remote
+API model.
 
 See [bcg/agent/README.md](bcg/agent/README.md) for benchmark data, retrieval,
 evaluation, and rollout options.
@@ -402,7 +517,7 @@ bcg/
   py.typed          # PEP 561 typed package marker
 dashboard/
   package.json      # optional Vite frontend
-scripts/            # deployment, dataset, retrieval, and evaluation helpers
+scripts/            # operational rollout, UI, and service launch helpers
 tests/
   ...               # SDK, Agent, Construct, env, and CLI tests
 ```

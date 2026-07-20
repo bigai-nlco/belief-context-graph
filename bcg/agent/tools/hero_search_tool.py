@@ -1008,12 +1008,11 @@ class HerOSearchTool(AVeriTeCSearchTool):
         negotiation over shared state needed. Returns e.g. "1_2" (turn 1,
         2nd call in that turn).
 
-        Fallback: a call made without going through the environment (e.g. a
-        standalone script invoking ``.forward()`` directly, as
-        ``scripts/test_hero_retrieval.py`` does) has no label set. Falls back
-        to the pre-existing shared-counter behavior, which self-numbers but
-        can race under concurrent calls on the same claim outside the
-        environment's control.
+        Fallback: a call made without going through the environment (for
+        example, a standalone caller invoking ``.forward()`` directly) has no
+        label set. It falls back to the pre-existing shared-counter behavior,
+        which self-numbers but can race under concurrent calls on the same
+        claim outside the environment's control.
         """
         label = getattr(HerOSearchTool._call_label, "value", None)
         if label is not None:
