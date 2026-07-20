@@ -18,7 +18,7 @@ if [[ -f "$REPO_ROOT/.env" ]]; then
 fi
 
 # Defaults
-MODEL="${VLLM_MODEL:-/data/user/fukeshu/model/Qwen3-8B}"
+MODEL="${VLLM_MODEL:-}"
 PORT="${VLLM_PORT:-8001}"
 HOST="${VLLM_HOST:-0.0.0.0}"
 MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-65536}"
@@ -41,6 +41,11 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown flag: $1"; exit 1 ;;
   esac
 done
+
+[[ -n "$MODEL" ]] || {
+  printf 'Set VLLM_MODEL in the root .env or pass --model PATH.\n' >&2
+  exit 2
+}
 
 [[ -x "$VLLM_BIN" ]] || {
   printf 'vLLM executable not found at %s. Run `uv sync --all-groups` then `uv pip install --python .venv/bin/python vllm`.\n' "$VLLM_BIN" >&2

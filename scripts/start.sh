@@ -21,7 +21,16 @@ if [[ -z "$MODEL_ID" ]]; then
   exit 2
 fi
 
-BCG_BIN="${BCG_BIN:-${REPO_ROOT}/.venv/bin/bcg}"
+if [[ -z "${BCG_BIN:-}" ]]; then
+  if [[ -x "${REPO_ROOT}/.venv/bin/bcg" ]]; then
+    BCG_BIN="${REPO_ROOT}/.venv/bin/bcg"
+  elif command -v bcg >/dev/null 2>&1; then
+    BCG_BIN="bcg"
+  else
+    printf 'BCG executable not found. Run `uv sync --all-groups` or `uv tool install .`.\n' >&2
+    exit 127
+  fi
+fi
 if [[ "$BCG_BIN" == */* ]]; then
   [[ -x "$BCG_BIN" ]] || {
     printf 'BCG executable not found at %s. Run `uv sync --all-groups` first.\n' "$BCG_BIN" >&2

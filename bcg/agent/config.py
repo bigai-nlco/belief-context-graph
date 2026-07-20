@@ -182,9 +182,15 @@ class AgentRolloutConfig:
         )
     )
     enable_judge: bool = True      # LLM relevance judge as stage 4
-    judge_model: str = ""          # empty = fall back to $MODEL / cfg.model
-    judge_base_url: str = ""       # empty = fall back to $OPENAI_BASE_URL
-    judge_api_key: str = ""        # empty = fall back to $OPENAI_API_KEY
+    judge_model: str = field(
+        default_factory=lambda: os.environ.get("JUDGE_MODEL", "")
+    )  # empty = fall back to cfg.model
+    judge_base_url: str = field(
+        default_factory=lambda: os.environ.get("JUDGE_BASE_URL", "")
+    )  # empty = fall back to $OPENAI_BASE_URL
+    judge_api_key: str = field(
+        default_factory=lambda: os.environ.get("JUDGE_API_KEY", "")
+    )  # empty = fall back to $OPENAI_API_KEY
     judge_max_workers: int = 10    # concurrency for per-item judge calls
     judge_max_items: int = 10      # cap on items sent to the judge
 

@@ -71,11 +71,15 @@ def test_rollout_uses_config_as_its_default_source(monkeypatch) -> None:
     assert cfg.tonggraph_graph == expected.tonggraph_graph
 
 
-def test_rollout_reads_retrieval_service_defaults_from_env(monkeypatch) -> None:
+def test_rollout_reads_service_defaults_from_env(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("HERO_EMBEDDING_URL", "https://embedding.test/v1")
     monkeypatch.setenv("HERO_EMBEDDING_MODEL", "embedding-test-model")
     monkeypatch.setenv("RERANK_URL", "https://rerank.test")
     monkeypatch.setenv("RERANK_MODEL", "rerank-test-model")
+    monkeypatch.setenv("JUDGE_MODEL", "judge-test-model")
+    monkeypatch.setenv("JUDGE_BASE_URL", "https://judge.test/v1")
+    monkeypatch.setenv("JUDGE_API_KEY", "judge-test-key")
+    monkeypatch.chdir(tmp_path)
 
     cfg = parse_rollout_args(
         ["--preset", "averitec-hero4", "--model", "agent-model", "--no-auto-ui"]
@@ -85,6 +89,9 @@ def test_rollout_reads_retrieval_service_defaults_from_env(monkeypatch) -> None:
     assert cfg.hero_embedding_model == "embedding-test-model"
     assert cfg.rerank_url == "https://rerank.test"
     assert cfg.rerank_model == "rerank-test-model"
+    assert cfg.judge_model == "judge-test-model"
+    assert cfg.judge_base_url == "https://judge.test/v1"
+    assert cfg.judge_api_key == "judge-test-key"
 
     override_cfg = parse_rollout_args(
         [

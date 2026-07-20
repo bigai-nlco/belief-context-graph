@@ -24,8 +24,8 @@ if [[ -f "$REPO_ROOT/.env" ]]; then
   set +a
 fi
 
-MODEL="${SGLANG_MODEL:-${VLLM_MODEL:-/data/user/baijun/models/Qwen3-8B}}"
-SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-$MODEL}"
+MODEL="${SGLANG_MODEL:-${VLLM_MODEL:-}}"
+SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-}"
 HOST="${SGLANG_HOST:-${VLLM_HOST:-0.0.0.0}}"
 PORT="${SGLANG_PORT:-${VLLM_PORT:-8003}}"
 VISIBLE_GPUS="${SGLANG_VISIBLE_GPUS:-${VLLM_VISIBLE_GPUS:-${CUDA_VISIBLE_DEVICES:-1}}}"
@@ -137,6 +137,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-$MODEL}"
 URL_HOST="$HOST"
 if [[ "$URL_HOST" == "0.0.0.0" || "$URL_HOST" == "::" ]]; then
   URL_HOST="127.0.0.1"
@@ -251,6 +252,8 @@ case "$ACTION" in
     exit 0
     ;;
 esac
+
+[[ -n "$MODEL" ]] || die "Set SGLANG_MODEL (or VLLM_MODEL) in the root .env, or pass --model PATH."
 
 if ! "$PYTHON" -c 'import sglang' >/dev/null 2>&1; then
   die "SGLang is unavailable at $PYTHON. Run `uv sync --all-groups` then `uv pip install --python .venv/bin/python sglang`."

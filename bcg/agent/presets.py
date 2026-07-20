@@ -68,7 +68,7 @@ _PRESET_ARGUMENTS: dict[str, tuple[str, ...]] = {
         "--max-prompt-length",
         "32768",
         "--prompt",
-        "bcg/agent/prompts/averitec_nohyde.txt",
+        "averitec_nohyde.txt",
         "--no-hyde",
         "--no-shuffle",
         "--shuffle-seed",

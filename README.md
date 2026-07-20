@@ -158,9 +158,9 @@ the Agent values in the root `.env` and run:
 bash scripts/start.sh
 ```
 
-The script loads `.env` and calls the `bcg` entry point in the uv-managed
-project environment. Additional arguments override the named preset, for
-example `bash scripts/start.sh --max-problems 2`.
+The script loads `.env`, prefers `.venv/bin/bcg`, and falls back to a `bcg`
+installed on `PATH` with `uv tool install`. Additional arguments override the
+named preset, for example `bash scripts/start.sh --max-problems 2`.
 
 #### Run BrowseComp and GAIA
 
@@ -174,21 +174,40 @@ the root `.env` first:
 - optionally `BROWSECOMP_GRADER_*` to use a separate BrowseComp judge; otherwise
   the judge reuses the rollout model and endpoint
 
-Set the machine-local values used by the commands. The benchmark path below is
-specific to the current machine and must be replaced when the prepared datasets
-live elsewhere. Sourcing `.env` exports `BELIEF_GRAPH_URL` for the explicit CLI
-argument; `bcg` also loads the root `.env` itself.
+Set the machine-local values used by the commands. Sourcing `.env` exports
+`BELIEF_GRAPH_URL` for the explicit CLI argument; `bcg` also loads the root
+`.env` itself.
 
 ```bash
 set -a
 source .env
 set +a
 
-# Machine-local prepared benchmark root; replace this on another machine.
-BENCHMARKS_DIR=/data/user/fukeshu/belief-tracer3/datasets
+# Defaults to a portable repository-local data directory. Override it in .env.
+BENCHMARKS_DIR="${BENCHMARKS_DIR:-$PWD/datasets}"
 
-# API-side model ID; replace it when using another endpoint/model.
-MODEL_ID=deepseek-v4-pro-260425
+# API-side model ID comes from the same root configuration as other Agent runs.
+MODEL_ID="${MODEL:-${OPENAI_MODEL:-}}"
+test -n "$MODEL_ID" || { echo "Set MODEL or OPENAI_MODEL in .env" >&2; exit 2; }
+```
+
+Prepare the public BrowseComp and GAIA datasets in that directory before the
+first run:
+
+```bash
+uv run --frozen python scripts/prepare_web_benchmarks.py \
+    --data-root "$BENCHMARKS_DIR"
+```
+
+BrowseComp-Plus uses a separate dense corpus index. Configure an embedding
+endpoint, choose a local output directory, and build it with:
+
+```bash
+BCP_INDEX_DIR="${BCP_INDEX_DIR:-$PWD/datasets/browsecomp_plus/indexes/hero}"
+uv run --frozen python scripts/build_bcp_dense_index.py \
+    --output-dir "$BCP_INDEX_DIR" \
+    --embedding-url "$HERO_EMBEDDING_URL" \
+    --model-name "$HERO_EMBEDDING_MODEL"
 ```
 
 Run one verified, attachment-free GAIA validation task. It is a text/web-search

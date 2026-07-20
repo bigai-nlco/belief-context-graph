@@ -173,11 +173,11 @@ BM25 → Embedding → Reranker → LLM judge 四级流水线。
 
 | 参数 | 说明 |
 |------|------|
-| `--retrieval-method hero4` | 四级检索：BM25→1000、Embedding→64、Reranker→10、LLM judge 过滤 |
+| `--retrieval-method hero4` | 四级检索：BM25→1000、Embedding→32、Reranker→10、LLM judge 过滤 |
 | `--stage1-bm25-k N` | BM25 候选池（实际 = min(N, 索引内 chunk 数)，默认 1000） |
-| `--stage2-embed-k N` | Embedding 重排存活数（默认 64） |
+| `--stage2-embed-k N` | Embedding 重排存活数（默认 32） |
 | `--stage3-rerank-k N` | Reranker 存活数 / 最终 top_k 上限（默认 10） |
-| `--rerank-url URL` | Reranker 服务 base URL（默认 `http://10.2.152.9:8010`，走 `/v1/completions` + 官方模板取 P(yes)；传 `.../v1/rerank` 则用原生 rerank API） |
+| `--rerank-url URL` | Reranker 服务 base URL（默认 `http://127.0.0.1:8010`，走 `/v1/completions` + 官方模板取 P(yes)；传 `.../v1/rerank` 则用原生 rerank API） |
 | `--rerank-model NAME` | Reranker 模型名（默认 `Qwen3-Reranker-0.6B`） |
 | `--enable-judge` / `--no-judge` | 是否启用 LLM 相关性判别（默认启用，soft 回填到 top_k） |
 | `--judge-model NAME` | 判别模型（默认取 `--model` / `$MODEL`） |
