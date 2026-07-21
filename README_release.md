@@ -205,12 +205,9 @@ A **run** (`BCGRunner`) is the top-level lifecycle orchestrator. Each run contai
 | Benchmark | Task Perf. (w/o BCG) | Task Perf. (w/ BCG) | Time Cost  | Token Effiency | API Cost  |
 |---|---|---|---|---|---|
 | **GAIA** | | | | | | 
-| **WebArena**| | | | | | 
-| **SWE-bench** | | | | | | 
-| **HotpotQA**| | | | | | 
-| **ALFWorld** | | | | | | 
+| **Browsecomp** | | | | | | 
 | **Mind2Web** | | | | | | 
-| **AgentBench** | | | | | | 
+| | | | | | | 
 
 
 ## Comparison with Existing Memory Solutions
