@@ -540,8 +540,6 @@ class SessionManager:
         if bg_cfg:
             self.options = copy.deepcopy(self.options)
             self.options.apply_belief_graph_config(bg_cfg)
-        else:
-            self.options.apply_belief_graph_config({})
         self.client = make_client(cfg)
         self.model = cfg["model"]
         self.max_tokens = cfg.get("max_tokens")
