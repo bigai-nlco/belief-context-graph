@@ -79,8 +79,12 @@ def run_input(
     if bg_cfg:
         options = copy.deepcopy(options)
         options.apply_belief_graph_config(bg_cfg)
-    else:
-        options.apply_belief_graph_config({})
+    # else: no belief_graph section supplied — keep the caller-provided
+    # StreamOptions() defaults as-is. Do NOT call
+    # apply_belief_graph_config({}) here: an empty/missing config is a
+    # normal, documented case (see model_config.example.json), and that
+    # call raises ValueError("belief_graph.runtime must be an object")
+    # because {} has no "runtime" key.
     client = make_client(cfg)
     model = cfg["model"]
     max_tokens = cfg.get("max_tokens")

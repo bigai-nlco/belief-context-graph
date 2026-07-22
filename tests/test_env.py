@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from bcg.construct.llm import load_config, load_embedding_config
+from bcg.construct.api_based.llm import load_config, load_embedding_config
 from bcg.env import find_project_env, load_project_env, read_env_file
 
 

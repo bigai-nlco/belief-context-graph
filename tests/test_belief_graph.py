@@ -9,11 +9,16 @@ from typing import Any, TypeVar
 import pytest
 
 from bcg import BCG, BCGMemory, BCGRunner
-from bcg.construct import BeliefGraphPipeline
-from bcg.construct.confidence import init_belief_confidence, initial_confidence
-from bcg.construct.evidence import evidence_from_excerpt, locate_excerpt
-from bcg.construct.graph import BeliefGraph
-from bcg.construct.split import cluster_sentences, split_sentences
+from bcg.construct.api_based import BeliefGraphPipeline
+from bcg.construct.api_based.confidence import (
+    init_belief_confidence,
+    initial_confidence,
+)
+from bcg.construct.api_based.evidence import evidence_from_excerpt, locate_excerpt
+from bcg.construct.api_based.graph import BeliefGraph
+from bcg.construct.light.extractor import ExtractedNode
+from bcg.construct.light.split import semantic_breakpoint_chunks, split_sentences
+from bcg.construct.light.stance import StancePrediction
 from bcg.graph import BCGEdge, BCGNode, BeliefPayload, BeliefSource, RelationPayload
 from bcg.llm import LLMResponse
 from bcg.runner import _bcg_from_construct, _ConstructClientAdapter
@@ -116,7 +121,7 @@ def fake_construct_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
             }
         )
 
-    monkeypatch.setattr("bcg.construct.llm.call_model", fake_call_model)
+    monkeypatch.setattr("bcg.construct.api_based.llm.call_model", fake_call_model)
     return prompts
 
 
@@ -284,7 +289,7 @@ def test_pipeline_writes_sdk_and_native_outputs(
     assert result.output_paths.final_graph.exists()
     assert result.output_paths.graph_stream.exists()
     assert result.output_paths.segments.parent.name == "artifacts"
-    assert result.memory["engine"] == "bcg.construct"
+    assert result.memory["engine"] == "bcg.construct.api_based"
 
 
 def test_memory_manual_observe_uses_construct_confidence() -> None:
@@ -314,7 +319,7 @@ def test_runner_incremental_session_methods(
     assert fake_construct_calls
     assert result.counts["sessions"] == 1
     assert result.memory["trajectory"][0]["session_id"] == "chat-1"
-    assert result.graph.metadata["engine"] == "bcg.construct"
+    assert result.graph.metadata["engine"] == "bcg.construct.api_based"
 
 
 def test_async_public_llm_adapter_forwards_model_and_usage() -> None:
@@ -331,13 +336,222 @@ def test_async_public_llm_adapter_forwards_model_and_usage() -> None:
     assert llm.models == ["custom-model"]
 
 
-def test_semantic_split_clusters_with_fake_embeddings() -> None:
-    sentences = split_sentences("Alice likes tea. Alice drinks tea. Bob codes.")
-    clusters, info = cluster_sentences(
-        sentences,
-        FakeEmbedder(),
-        similarity_threshold=0.8,
+def light_belief_graph_config() -> dict[str, Any]:
+    """Minimal-but-complete belief_graph section for the light backend.
+
+    Chunking / incremental_merge / edge_generation are all turned off so the
+    test doesn't need a real embedder or a real Qwen edge-generator endpoint;
+    the extractor/stance/NER components are monkeypatched below instead of
+    loading real weights.
+    """
+
+    return {
+        "extractor": {
+            "enabled": True,
+            "provider": "openai",
+            "base_url": "http://unused.invalid/v1",
+            "api_key": "unused",
+            "model": "unused",
+            "temperature": 0,
+            "max_tokens": 4096,
+            "max_concurrency": 4,
+            "request_timeout": 60,
+            "retries": 1,
+            "context_scope": "none",
+            "enable_thinking": False,
+            "include_turn_content": False,
+            "require_excerpt": False,
+            "dynamic_node_cap": False,
+            "node_cap_unit": "char",
+            "node_cap_ratio": 0.004,
+            "node_cap_min": 1,
+            "node_cap_max": 0,
+        },
+        "stance": {
+            "enabled": True,
+            "model_path": "unused",
+            "device": "cpu",
+            "dtype": "auto",
+            "batch_size": 16,
+            "max_length": 512,
+            "local_files_only": True,
+            "hypothesis_template": "{description}",
+            "labels": {
+                "asserted": {"description": "asserted"},
+                "recalled": {"description": "recalled"},
+                "judged": {"description": "judged"},
+                "speculated": {"description": "speculated"},
+            },
+        },
+        "edge_generation": {
+            "enabled": False,
+            "provider": "openai",
+            "base_url": "http://unused.invalid/v1",
+            "api_key": "unused",
+            "model": "unused",
+            "temperature": 0,
+            "max_tokens": 4096,
+            "retries": 1,
+            "enable_thinking": False,
+            "fail_on_error": True,
+            "search_previous_turns": True,
+        },
+        "runtime": {
+            "evidence_mode": "chunk",
+            "context_chars": 20000,
+            "min_content_len": 0,
+        },
+        "incremental_merge": {
+            "enabled": False,
+            "threshold": 0.8,
+            "keep_newest_text": False,
+        },
+        "entities": {
+            "method": "ml",
+            "spacy_model": "unused",
+            "huggingface_model": "unused",
+            "device": "cpu",
+            "confidence_threshold": 0.5,
+            "merge_overlapping": True,
+            "include_standard_types": True,
+            "fallback_methods": [],
+            "patterns": [],
+        },
+        "confidence": {
+            "initial_method": "weighted_average",
+            "evidence_method": "product",
+            "source_weight": 0.5,
+            "stance_weight": 0.5,
+            "default_source_reliability": 0.55,
+            "default_stance_quality": 0.65,
+            "source_reliability": {"user": 0.85, "assistant": 0.65},
+            "stance_quality": {"asserted": 0.9},
+        },
+        "chunking": {
+            "enabled": False,
+            "breakpoint_percentile_threshold": 95.0,
+            "buffer_size": 1,
+            "min_chunk_sentences": 1,
+            "isolate_tool_calls": True,
+        },
+    }
+
+
+class FakeLightExtractor:
+    """Stand-in for QwenChunkExtractor: no HTTP calls, scripted node output."""
+
+    def extract_turn(
+        self,
+        chunks: list[Any],
+        role: str,
+        *,
+        turn_content: str,
+        graph_nodes: list[Any],
+        context_chars: int,
+        turn_index: int,
+    ) -> list[list[ExtractedNode]]:
+        del graph_nodes, context_chars, turn_index
+        if "Final answer:" in turn_content:
+            node = ExtractedNode(
+                chunk_index=0,
+                node_type="decision",
+                text="The assistant concludes Alice likes green tea.",
+            )
+        elif role == "user":
+            node = ExtractedNode(
+                chunk_index=0,
+                node_type="belief",
+                text="The user states Alice likes tea.",
+            )
+        else:
+            return [[] for _ in chunks]
+        # Chunking is disabled in light_belief_graph_config(), so there is
+        # always exactly one chunk per turn; attach the node to it.
+        return [[node]] + [[] for _ in chunks[1:]]
+
+
+class FakeLightStanceClassifier:
+    """Stand-in for LocalZeroShotStanceClassifier: always 'asserted'."""
+
+    def classify_texts(self, texts: list[str]) -> list[StancePrediction]:
+        return [
+            StancePrediction(
+                stance="asserted",
+                confidence=0.99,
+                scores={"asserted": 0.99, "recalled": 0.0, "judged": 0.0, "speculated": 0.01},
+                model_path="fake",
+            )
+            for _ in texts
+        ]
+
+
+class FakeLightEntityRecognizer:
+    """Stand-in for NamedEntityRecognizer: no spaCy/HF model loading."""
+
+    load_errors: list[Any] | None = None
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+
+    def extract_entity_texts(self, text: str, **options: Any) -> list[str]:
+        del text, options
+        return []
+
+
+@pytest.fixture
+def fake_light_construct(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replace the light backend's heavy components (HTTP extractor, local
+    stance model, local NER model) with lightweight fakes. Patched on
+    bcg.construct.light.stream because that module imports these names
+    directly (``from .extractor import get_extractor`` etc.), so patching the
+    defining modules would not affect stream.py's own bound references."""
+
+    monkeypatch.setattr(
+        "bcg.construct.light.stream.get_extractor",
+        lambda config: FakeLightExtractor(),
+    )
+    monkeypatch.setattr(
+        "bcg.construct.light.stream.get_stance_classifier",
+        lambda config: FakeLightStanceClassifier(),
+    )
+    monkeypatch.setattr(
+        "bcg.construct.light.stream.NamedEntityRecognizer",
+        FakeLightEntityRecognizer,
     )
 
+
+def test_runner_incremental_session_methods_light_backend(
+    tmp_path: Path,
+    fake_light_construct: None,
+) -> None:
+    memory = BCGMemory(graph=BCG())
+    runner = BCGRunner(
+        memory=memory,
+        llm=DummyLLM(),
+        output_root=tmp_path / ".bcg" / "runs",
+        backend="light",
+    )
+    runner.begin_belief_run(
+        run_id="incremental-run-light",
+        belief_graph_config=light_belief_graph_config(),
+    )
+    runner.start_session("chat-1", "2024-01-01")
+    run(runner.observe_turn("user", "Alice likes tea."))
+    run(runner.end_session())
+    result = run(runner.finalize())
+
+    assert result.counts["sessions"] == 1
+    assert result.counts["beliefs"] == 1
+    assert result.memory["trajectory"][0]["session_id"] == "chat-1"
+    assert result.graph.metadata["engine"] == "bcg.construct.light"
+    belief = result.memory["beliefs"][0]
+    assert belief["belief"] == "The user states Alice likes tea."
+
+
+def test_semantic_split_clusters_with_fake_embeddings() -> None:
+    content = "Alice likes tea. Alice drinks tea. Bob codes."
+    sentences = split_sentences(content)
+    chunks, info = semantic_breakpoint_chunks(sentences, content, FakeEmbedder())
+
     assert info["n_sentences"] == 3
-    assert len(clusters) < len(sentences)
+    assert len(chunks) < len(sentences)
