@@ -16,8 +16,8 @@ from bcg.construct.api_based.confidence import (
 )
 from bcg.construct.api_based.evidence import evidence_from_excerpt, locate_excerpt
 from bcg.construct.api_based.graph import BeliefGraph
-from bcg.construct.light.split import semantic_breakpoint_chunks, split_sentences
 from bcg.construct.light.extractor import ExtractedNode
+from bcg.construct.light.split import semantic_breakpoint_chunks, split_sentences
 from bcg.construct.light.stance import StancePrediction
 from bcg.graph import BCGEdge, BCGNode, BeliefPayload, BeliefSource, RelationPayload
 from bcg.llm import LLMResponse
