@@ -14,18 +14,13 @@ Node schema additions:
   * node_type: "belief" | "decision"
   * entities: list[str]
   * evidence_ids: list[int]
-  * confidence / initial_confidence / evidence_confidence / factor_confidence
-  * factor_ids: list[int]
+  * confidence / initial_confidence / evidence_confidence
 
 Relation schema:
   * depends_on | supplements | contradicts
 
-Factor handling:
-  * depends_on / contradicts activate reusable Factor templates; supplements does not.
-  * relation endpoints provide the concrete input/output binding for each activation.
-  * node.factor_ids records inbound factors that affect that node's confidence.
-  * confidence is recomputed from prior + additional evidence + activated factors.
-  * the trajectory-end global merge is controlled by merge_strategy and defaults to off.
+  * merging is incremental only (per-turn, embedding-based); there is no
+    trajectory-end global merge/dedup pass.
 """
 
 from __future__ import annotations
@@ -40,7 +35,6 @@ from typing import Any, Dict, List, Optional
 
 from .confidence import (
     init_belief_confidence,
-    propagate_factor_confidences,
     recompute_evidence_confidence_from_node,
 )
 from .evidence import (
@@ -53,13 +47,12 @@ from .extract import (
     extract_relations,
     format_graph_edges,
     format_graph_nodes,
-    generate_factor_note,
 )
 from .graph import BeliefGraph
 from . import llm
 from .llm import USAGE
 from .merge import run_merge_pass
-from .split import cluster_sentences, split_sentences
+from .split import split_sentences
 
 # roles that produce beliefs; "function" is treated as "tool".
 _ROLE_ALIASES = {"function": "tool"}
@@ -70,28 +63,16 @@ BELIEF_ROLES = {"user", "assistant", "tool"}
 class StreamOptions:
     # evidence mode: "sentence" (whole-sentence evidence) | "excerpt" (free spans)
     evidence_mode: str = "sentence"
-    # optional topic clustering of sentences (sentence mode only; needs embedder)
-    use_clustering: bool = False
-    cluster_threshold: float = 0.6
-    cluster_buffer: int = 0
-    cluster_min_sentences: int = 4        # below this, skip clustering (flat call)
-    # merge / dedup (runs once at finalize)
-    merge_strategy: str = "embedding"     # embedding | llm | off
-    merge_threshold: float = 0.86
     # incremental embedding-ONLY merge after EACH turn's new nodes/edges
-    # (no LLM verification). Independent of merge_strategy; needs an embedder.
+    # (no LLM verification by default).
     incremental_merge: bool = True
     incremental_merge_threshold: float = 0.8
     # When True, the per-turn incremental merge additionally calls the LLM once per
     # embedding-flagged candidate group to (1) verify the merge is reasonable
     # (apply-time gate: only LLM-confirmed groups are merged) and (2) rewrite the
     # surviving node's content so it covers the full meaning of all merged nodes.
-    # Only affects the incremental merge; the trajectory-end final merge is unchanged.
     # Needs an embedder (same as incremental_merge).
     verify_merge: bool = False
-    # factor reuse / activation
-    factor_similarity_threshold: float = 0.85
-    factor_input_confidence_threshold: float = 0.5
     # prompt budgets
     context_chars: int = 9000             # existing-nodes context budget
     # skip turns whose content is shorter than this (0 = never skip)
@@ -100,17 +81,9 @@ class StreamOptions:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "evidence_mode": self.evidence_mode,
-            "use_clustering": self.use_clustering,
-            "cluster_threshold": self.cluster_threshold,
-            "cluster_buffer": self.cluster_buffer,
-            "cluster_min_sentences": self.cluster_min_sentences,
-            "merge_strategy": self.merge_strategy,
-            "merge_threshold": self.merge_threshold,
             "incremental_merge": self.incremental_merge,
             "incremental_merge_threshold": self.incremental_merge_threshold,
             "verify_merge": self.verify_merge,
-            "factor_similarity_threshold": self.factor_similarity_threshold,
-            "factor_input_confidence_threshold": self.factor_input_confidence_threshold,
             "context_chars": self.context_chars,
             "min_content_len": self.min_content_len,
         }
@@ -138,12 +111,6 @@ class StreamingBeliefBuilder:
         self.embedder = embedder
 
         self.graph = BeliefGraph()
-        self.graph.configure_factor_reuse(
-            embedder=self.embedder,
-            note_generator=self._generate_factor_note_for_relation,
-            similarity_threshold=self.options.factor_similarity_threshold,
-            input_confidence_threshold=self.options.factor_input_confidence_threshold,
-        )
         self.out_dir = Path(out_dir)
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir = self.out_dir / "logs"
@@ -165,30 +132,10 @@ class StreamingBeliefBuilder:
         #   {turn_index, role, node_generation, merging, llm_check,
         #    edge_generation, turn_total}. Populated in ingest_turn.
         self._turn_timings: List[Dict[str, Any]] = []
-        # Final (trajectory-end) merge timing; filled in finalize(). Zero when
-        # merge_strategy == "off" (the default), since that pass is skipped.
+        # Final (trajectory-end) merge timing; filled in finalize(). Always
+        # zero now that the trajectory-end global merge has been removed.
         self._final_merge_timing: Dict[str, Any] = {
             "merging": 0.0, "llm_check": 0.0, "total": 0.0}
-
-    def _generate_factor_note_for_relation(
-        self,
-        relation: Dict[str, Any],
-        input_node: Optional[Dict[str, Any]],
-        output_node: Optional[Dict[str, Any]],
-    ) -> Optional[str]:
-        """Generate a mechanism-level factor note without changing relation.note."""
-        res = generate_factor_note(
-            self.client,
-            self.model,
-            relation=relation,
-            input_node=input_node,
-            output_node=output_node,
-            max_tokens=min(self.max_tokens or 512, 512),
-        )
-        note = res.get("note")
-        if isinstance(note, str) and note.strip():
-            return note.strip()
-        return None
 
     # ------------------------------------------------------------------ events
     def _event(self, kind: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -279,7 +226,6 @@ class StreamingBeliefBuilder:
                 "edge_linked_previous_trajectory_index"),
             "edge_skip_reason": report.get("edge_skip_reason"),
             "incremental_merge": report.get("incremental_merge"),
-            "incremental_factor_update": report.get("incremental_factor_update"),
             "timing": report.get("timing"),
         })
 
@@ -319,19 +265,6 @@ class StreamingBeliefBuilder:
             sents = split_sentences(content)
             sentences = [s.text for s in sents]
             self._last_sentences = sents
-            if (opt.use_clustering and self.embedder is not None
-                    and len(sents) >= opt.cluster_min_sentences):
-                try:
-                    clusters, split_info = cluster_sentences(
-                        sents, self.embedder,
-                        similarity_threshold=opt.cluster_threshold,
-                        buffer_size=opt.cluster_buffer,
-                        purpose=f"split:t{turn_idx}")
-                    clusters_idx = [c.sentence_indices for c in clusters]
-                    report["split"] = split_info
-                except Exception as e:
-                    report["split"] = {"error": str(e)}
-                    clusters_idx = None
         else:
             self._last_sentences = []
 
@@ -395,12 +328,6 @@ class StreamingBeliefBuilder:
                     "excluded_decision_ids": inc.get("excluded_node_ids", []),
                     "relation_rewire": inc.get("relation_rewire"),
                 }
-                if inc.get("applied"):
-                    self.graph.sync_factors_from_relations()
-                    report["incremental_factor_update"] = propagate_factor_confidences(
-                        self.graph.beliefs, self.graph.relations, self.graph.factors,
-                        step=f"turn_{turn_idx}_post_merge_factors",
-                    )
                 for m in inc.get("applied", []):
                     for aid in (m.get("absorbed_ids") or []):
                         new_node_ids.discard(aid)
@@ -563,12 +490,6 @@ class StreamingBeliefBuilder:
             )
         )
         relations_added = self.graph.add_relations(resolved)
-        factor_update = None
-        if relations_added:
-            factor_update = propagate_factor_confidences(
-                self.graph.beliefs, self.graph.relations, self.graph.factors,
-                step=f"turn_{turn_idx}_relation_factors",
-            )
 
         attempt = {
             "previous_trajectory_index": previous_trajectory_index,
@@ -578,7 +499,6 @@ class StreamingBeliefBuilder:
             "relations_added": relations_added,
             "cross_turn_relations_added": cross_turn_relations_added,
             "raw_relation_output": rel_res.get("raw_output"),
-            "factor_update": factor_update,
         }
         if rel_res.get("skipped"):
             attempt["skip_reason"] = rel_res.get("skip_reason") or "relation extraction skipped"
@@ -724,7 +644,6 @@ class StreamingBeliefBuilder:
             "time_text": cleaned.get("time_text"),
             "source": dict(src),
             "evidence_ids": evidence_ids,
-            "factor_ids": [],
             "supporting_excerpts": [ev["text"] for ev in evid if ev.get("text")],
         }
         if node_type == "decision":
@@ -840,39 +759,17 @@ class StreamingBeliefBuilder:
             {final_decision_id} if isinstance(final_decision_id, int) else set()
         )
 
-        final_factor_update = None
         _t_fm = time.perf_counter()
-        if self.options.merge_strategy == "off":
-            merge_report = {
-                "skipped": True,
-                "skip_reason": "strategy off",
-                "applied": [],
-                "excluded_node_ids": sorted(final_merge_excluded_ids),
-            }
-        else:
-            USAGE.set_label("final.merge")
-            merge_report = run_merge_pass(
-                graph=self.graph, strategy=self.options.merge_strategy,
-                client=self.client, model=self.model, embedder=self.embedder,
-                threshold=self.options.merge_threshold, max_tokens=self.max_tokens,
-                pass_label="final", log_dir=self.logs_dir,
-                exclude_node_ids=final_merge_excluded_ids)
+        # Trajectory-end global merge/dedup has been removed; only the
+        # per-turn incremental merge (StreamOptions.incremental_merge) runs.
+        merge_report = {
+            "skipped": True,
+            "skip_reason": "final merge removed",
+            "applied": [],
+            "excluded_node_ids": sorted(final_merge_excluded_ids),
+        }
         _fm_wall = time.perf_counter() - _t_fm
-        _fm_t = merge_report.get("timing") or {}
-        if self.options.merge_strategy == "off":
-            self._final_merge_timing = {"merging": 0.0, "llm_check": 0.0, "total": 0.0}
-        else:
-            self._final_merge_timing = {
-                "merging": round(float(_fm_t.get("embedding_seconds", 0.0) or 0.0), 6),
-                "llm_check": round(float(_fm_t.get("llm_verify_seconds", 0.0) or 0.0), 6),
-                "total": round(_fm_wall, 6),
-            }
-        if merge_report.get("applied"):
-            self.graph.sync_factors_from_relations()
-            final_factor_update = propagate_factor_confidences(
-                self.graph.beliefs, self.graph.relations, self.graph.factors,
-                step="final_post_merge_factors",
-            )
+        self._final_merge_timing = {"merging": 0.0, "llm_check": 0.0, "total": 0.0}
 
         # Record former decisions centrally only after the optional final merge.
         # The history keeps all demoted decision ids, even if one is absorbed by
@@ -900,8 +797,7 @@ class StreamingBeliefBuilder:
             "final_decision_id": final_decision_id,
             "relations": len(self.graph.relations),
             "n_final_merges": len(merge_report.get("applied", [])),
-            "final_merge_strategy": self.options.merge_strategy,
-            "final_factor_update": final_factor_update,
+            "final_merge_strategy": "off",  # trajectory-end global merge removed
             "snapshot": snap_path.name,
         }
         self.graph.sessions.append(summary)
@@ -947,7 +843,6 @@ class StreamingBeliefBuilder:
             "all_beliefs": [n for n in nodes if n.get("node_type", "belief") == "belief"],
             "all_decisions": [n for n in nodes if n.get("node_type") == "decision"],
             "evidence": [self.graph.evidence[i] for i in sorted(self.graph.evidence.keys())],
-            "factors": [self.graph.factors[i] for i in sorted(self.graph.factors.keys())],
             "relations": self.graph.relations,
             "merges": self.graph.merges,
             "source_counts": _count_by(nodes, lambda b: b.get("role") or (b.get("source") or {}).get("role") or (b.get("source") or {}).get("type")),
@@ -970,8 +865,9 @@ class StreamingBeliefBuilder:
         #   row_type="turn"        one row per built turn: the four sub-steps +
         #                          turn_total; item-level count/duration columns
         #                          are left blank.
-        #   row_type="final_merge" the trajectory-end merge pass (merging +
-        #                          llm_check; 0 when merge-strategy=off).
+        #   row_type="final_merge" the trajectory-end merge pass, kept as an
+        #                          always-zero row (the pass itself was removed;
+        #                          only the per-turn incremental merge runs now).
         #   row_type="item"        one summary row per trajectory: the four
         #                          sub-step totals, the summed turn_total, and the
         #                          full-trajectory counts + duration_seconds.
@@ -1002,7 +898,7 @@ class StreamingBeliefBuilder:
                         _f(t.get("turn_total")),
                         "", "", "", "", "", "", "",
                     ])
-                # trajectory-end merge pass (0 when merge-strategy=off)
+                # trajectory-end merge pass — removed, always 0
                 fm = self._final_merge_timing or {}
                 writer.writerow([
                     "final_merge", self.item_id, "", "",

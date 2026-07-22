@@ -1,29 +1,28 @@
 """
 merge.py
 ========
-Session-end belief disambiguation & merging.
+Belief-node disambiguation and merging — INCREMENTAL only.
 
-Strategies (--merge-strategy):
-  * embedding (default) — embed every active belief statement, flag pairs with
-    cosine similarity >= --merge-threshold, group candidates via union-find,
-    then have the LLM VERIFY each candidate group (only LLM-confirmed
-    duplicates are merged).
-  * llm                  — the LLM sees the whole belief list and proposes
-    merge groups directly (no embeddings needed).
-  * off                  — skip merging.
+This backend has no trajectory-end/final merge pass and no CLI-level
+``--merge-strategy``/``--merge-threshold``: stream.py's only call site always
+passes ``strategy="embedding", verify=False`` for the per-turn incremental
+merge (``StreamOptions.incremental_merge`` / ``incremental_merge_threshold``).
+``run_merge_pass()`` below keeps ``strategy``/``verify`` as general internal
+parameters (also supporting ``llm`` and ``off``), but nothing in this backend
+exercises those other values.
 
-Role-aware & type-aware merge policy:
-  * nodes are eligible to merge ONLY when their source role is identical
+Role-aware belief-only merge policy:
+  * decision nodes are excluded from every merge pass, incremental or final;
+  * belief nodes are eligible to merge ONLY when their source role is identical
     (source.role/source.type; e.g. user with user, assistant with assistant,
-    tool with tool) AND their node_type is identical (belief with belief,
-    decision with decision). Both hard gates are enforced before embedding-only
+    tool with tool). The role gate is enforced before embedding-only
     incremental merges and again before applying LLM-proposed groups.
 
 Merge semantics (one confirmed group):
   * canonical  = the SMALLEST id in the group (the node every earlier edge
                  already points at stays stable);
-  * statement  = the LLM's `canonical_belief` wording (original wording is
-                 preserved in `belief_original` and in the merge record);
+  * statement  = regenerated locally from the canonical node's deduplicated
+                 evidence after every group in the pass has been applied;
   * confidence = recomputed from the canonical node's initial_confidence plus
                  additional evidence absorbed from duplicate nodes. The original
                  evidence attached at canonical creation is not counted twice;
@@ -36,7 +35,7 @@ Merge semantics (one confirmed group):
 
 Auditability: every pass writes logs/merge_<pass>.json (machine-readable —
 beliefs in, embedding similarities, candidate pairs, every LLM verification
-prompt+raw output, applied merges, edge rewiring report) and a human-readable
+prompt+raw output when verification is enabled, applied merges, edge rewiring report) and a human-readable
 logs/merge_<pass>.log. Embedding API calls additionally land in
 logs/embedding_calls.jsonl via the shared EmbeddingClient.
 """
@@ -49,7 +48,7 @@ import json
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from . import llm
 from .confidence import record_evidence_merge_confidence
@@ -58,9 +57,6 @@ from .graph import BeliefGraph
 from .prompts import (
     BELIEFS_LIST_PLACEHOLDER,
     CANDIDATE_GROUP_PLACEHOLDER,
-    PROMPT_MERGE_FULL,
-    PROMPT_MERGE_VERIFY,
-    PROMPT_MERGE_VERIFY_REWRITE,
 )
 
 
@@ -108,10 +104,6 @@ def _compact_for_merge(b: Dict[str, Any]) -> Dict[str, Any]:
         "entities":  b.get("entities") or [],
         "belief":    _node_text(b),
     }
-    if b.get("event_time"):
-        c["time"] = b.get("event_time")
-    if b.get("time_text"):
-        c["time_text"] = b.get("time_text")
     return c
 
 
@@ -392,9 +384,6 @@ def _parse_merge_groups(
         if not role_groups:
             continue
 
-        canonical = g.get("canonical_belief")
-        if not isinstance(canonical, str) or not canonical.strip():
-            canonical = None
         reason = g.get("reason") or ""
         if not isinstance(reason, str):
             reason = str(reason)
@@ -411,7 +400,7 @@ def _parse_merge_groups(
                 final_reason = f"{final_reason} ({role_note})"
             else:
                 final_reason = role_note
-            out.append({"ids": ids, "canonical_belief": canonical, "reason": final_reason})
+            out.append({"ids": ids, "reason": final_reason})
     return out
 
 
@@ -422,18 +411,34 @@ def _parse_merge_groups(
 def _apply_merge_group(
     graph: BeliefGraph,
     ids: List[int],
-    canonical_belief: Optional[str],
     reason: str,
     pass_label: str,
+    keep_newest_text: bool = True,
 ) -> Dict[str, Any]:
+    """Merge one exact-duplicate group into its smallest-id node.
+
+    The smallest id always SURVIVES as the canonical node (every earlier edge and
+    evidence record already points at it). ``keep_newest_text`` controls only which
+    member's *content* the survivor displays:
+      * True  (default) -> adopt the most recently generated member's text
+                           (the largest id in the group);
+      * False           -> keep the smallest-id member's own text.
+    Either way the canonical id, edges, and unioned evidence are unchanged. If a
+    ``summary_regenerator`` runs later in the pass it overrides this text.
+
+    Evidence is deduplicated before any later summary regeneration. Entity
+    metadata is cleared because the canonical text is not stable until the
+    whole merge pass has finished and ``summary_regenerator`` has run.
+    """
     ids = sorted(ids)
     canon_id, absorbed_ids, newest_id = ids[0], ids[1:], ids[-1]
     canon = graph.beliefs[canon_id]
     absorbed_snapshots = [copy.deepcopy(graph.beliefs[a]) for a in absorbed_ids]
     old_conf = float(canon.get("confidence") or 0.0)
+    previous_summary = _node_text(canon)
 
-    # evidence_ids union (order-preserving, deduped). Evidence from absorbed
-    # duplicate nodes becomes ADDITIONAL evidence for the canonical node.
+    # Evidence union in deterministic member/id order. Duplicate records are
+    # suppressed by both id and semantic evidence_key; the first id wins.
     merged_eids: List[int] = []
     seen_ids: Set[int] = set()
     seen_keys: Set[tuple] = set()
@@ -448,11 +453,11 @@ def _apply_merge_group(
         ev = graph.evidence.get(eid)
         if ev is None:
             return
-        k = evidence_key(ev)
-        if eid in seen_ids or k in seen_keys:
+        key = evidence_key(ev)
+        if eid in seen_ids or key in seen_keys:
             return
         seen_ids.add(eid)
-        seen_keys.add(k)
+        seen_keys.add(key)
         merged_eids.append(eid)
         if is_additional:
             added_eids.append(eid)
@@ -460,18 +465,15 @@ def _apply_merge_group(
 
     for eid in canon.get("evidence_ids") or []:
         _append_evidence_id(eid, is_additional=False)
-
-    # Compatibility for very old in-memory nodes that still carry embedded
-    # evidence instead of evidence_ids. Newly generated nodes never use this.
     for ev in canon.get("evidence") or []:
         if isinstance(ev, dict):
             _append_evidence_id(graph.add_evidence(ev), is_additional=False)
     canon.pop("evidence", None)
 
-    for snap in absorbed_snapshots:
-        for eid in snap.get("evidence_ids") or []:
+    for snapshot in absorbed_snapshots:
+        for eid in snapshot.get("evidence_ids") or []:
             _append_evidence_id(eid, is_additional=True)
-        for ev in snap.get("evidence") or []:
+        for ev in snapshot.get("evidence") or []:
             if isinstance(ev, dict):
                 _append_evidence_id(graph.add_evidence(ev), is_additional=True)
 
@@ -479,41 +481,36 @@ def _apply_merge_group(
     canon["supporting_excerpts"] = list(dict.fromkeys(
         graph.evidence[eid].get("text")
         for eid in merged_eids
-        if eid in graph.evidence and graph.evidence[eid].get("text")))
+        if eid in graph.evidence and graph.evidence[eid].get("text")
+    ))
 
-    # merged_from accumulates across passes (absorbed nodes' own merged_from too)
     merged_from = list(canon.get("merged_from") or [])
-    for a, snap in zip(absorbed_ids, absorbed_snapshots):
-        merged_from.append(a)
-        merged_from.extend(snap.get("merged_from") or [])
+    for absorbed_id, snapshot in zip(absorbed_ids, absorbed_snapshots):
+        merged_from.append(absorbed_id)
+        merged_from.extend(snapshot.get("merged_from") or [])
     canon["merged_from"] = sorted(set(merged_from))
 
-    # time fields: fill canonical gaps from absorbed members (newest first)
-    for snap in reversed(absorbed_snapshots):
-        if not canon.get("event_time") and snap.get("event_time"):
-            canon["event_time"] = snap["event_time"]
-        if not canon.get("time_text") and snap.get("time_text"):
-            canon["time_text"] = snap["time_text"]
+    # Adopt the most recently generated member's text as the canonical content,
+    # keeping the smallest id as the surviving node (edges/evidence already point
+    # at it). Groups are homogeneous in (role, node_type), so the primary text
+    # field is consistent across members.
+    if keep_newest_text and newest_id != canon_id:
+        newest_snapshot = next(
+            (snap for aid, snap in zip(absorbed_ids, absorbed_snapshots)
+             if aid == newest_id),
+            None,
+        )
+        if newest_snapshot is not None:
+            newest_text = _node_text(newest_snapshot)
+            if newest_text:
+                text_key = "decision" if canon.get("node_type") == "decision" else "belief"
+                _set_primary_text_field(canon, text_key=text_key, text=newest_text)
 
-    # canonical statement (preserve the original wording once)
-    if canonical_belief and canonical_belief.strip() and canonical_belief.strip() != _node_text(canon):
-        if canon.get("node_type") == "decision":
-            canon.setdefault("decision_original", _node_text(canon))
-            _set_primary_text_field(
-                canon,
-                text_key="decision",
-                text=canonical_belief.strip(),
-            )
-        else:
-            canon.setdefault("belief_original", _node_text(canon))
-            _set_primary_text_field(
-                canon,
-                text_key="belief",
-                text=canonical_belief.strip(),
-            )
+    # Old member entities must not survive a text-changing merge. The stable
+    # canonical summary is regenerated after every group in this pass is applied,
+    # and stream.py extracts entities from that final text afterwards.
+    canon["entities"] = []
 
-    # confidence: recompute P_posterior from canonical P_prior plus additional
-    # evidence. Factor flow is intentionally not applied yet.
     record_evidence_merge_confidence(
         canon,
         added_evidence_ids=added_eids,
@@ -521,11 +518,12 @@ def _apply_merge_group(
         absorbed_ids=absorbed_ids,
         newest_id=newest_id,
         evidence_by_id=graph.evidence,
+        config=getattr(graph, "confidence_config", None),
     )
     new_conf = float(canon.get("confidence") or 0.0)
 
-    for a in absorbed_ids:
-        graph.remove_belief(a)
+    for absorbed_id in absorbed_ids:
+        graph.remove_belief(absorbed_id)
 
     record = {
         "pass": pass_label,
@@ -535,12 +533,11 @@ def _apply_merge_group(
         "newest_id": newest_id,
         "old_confidence": round(old_conf, 3),
         "new_confidence": round(new_conf, 3),
-        # Kept for older log consumers; this is now the recomputed posterior,
-        # not an adopted newest-member value.
         "adopted_confidence": round(new_conf, 3),
         "added_evidence_ids": added_eids,
-        "canonical_belief": canon.get("belief"),
-        "canonical_belief_original": canon.get("belief_original"),
+        "evidence_ids": list(merged_eids),
+        "previous_summary": previous_summary,
+        "canonical_belief": _node_text(canon),
         "reason": reason,
         "absorbed_snapshots": absorbed_snapshots,
     }
@@ -597,10 +594,13 @@ def run_merge_pass(
     pass_label: str = "merge",
     log_dir: Optional[Path] = None,
     verify: bool = True,
-    verify_rewrite: bool = False,
     incremental_new_ids: Optional[Set[int]] = None,
     exclude_node_ids: Optional[Set[int]] = None,
     max_verify_workers: int = 8,
+    summary_regenerator: Optional[
+        Callable[[Dict[str, Any], List[Dict[str, Any]]], str]
+    ] = None,
+    keep_newest_text: bool = True,
 ) -> Dict[str, Any]:
     """Run one merge pass over the active graph. Returns a report dict.
 
@@ -608,18 +608,9 @@ def run_merge_pass(
         embedding candidate group is verified by the LLM before merging. When
         False the merge is embedding-ONLY: every candidate group whose pairwise
         cosine >= threshold is merged directly, with NO LLM call. This is the
-        per-turn incremental merge mode (see stream.py). canonical_belief stays
-        None in this mode, so the canonical (smallest id == earliest) keeps its
-        own wording and evidence_ids are unioned onto it.
-
-    verify_rewrite — only meaningful when verify=True. When True, the LLM
-        verification step uses PROMPT_MERGE_VERIFY_REWRITE instead of
-        PROMPT_MERGE_VERIFY: in one call the LLM both (1) gates each candidate
-        group (only groups it confirms are merged) and (2) returns a
-        canonical_belief that must cover the FULL meaning of all merged members,
-        which _apply_merge_group then writes onto the surviving node. This is the
-        per-turn incremental merge mode enabled by StreamOptions.verify_merge.
-        The trajectory-end (final) merge leaves this False and is unchanged.
+        per-turn incremental merge mode (see stream.py). The canonical is always
+        the smallest id; its evidence is deduplicated and its summary is then
+        regenerated locally by ``summary_regenerator``.
 
     incremental_new_ids — optional explicit set of nodes created in the current
         turn. When omitted, ``turn_<index>`` pass labels infer the set from each
@@ -627,10 +618,11 @@ def run_merge_pass(
         new x old and new x new pairs. Final/non-turn passes still compare the
         complete eligible graph, including old x old.
 
-    exclude_node_ids — optional ids that must not participate in this merge pass
-        at all. They are omitted from embedding/LLM candidate generation and can
-        never be absorbed or selected as canonical nodes. Relations incident to
-        excluded nodes are still rewired if their non-excluded endpoints merge.
+    exclude_node_ids — optional additional ids that must not participate in this
+        merge pass. All active decision nodes are always excluded automatically.
+        Excluded nodes can never be absorbed or selected as canonical nodes.
+        Relations incident to excluded nodes are still rewired if their
+        non-excluded endpoints merge.
 
     max_verify_workers — upper bound on how many candidate groups' LLM-verify
         calls run concurrently (strategy="embedding", verify=True only). Each
@@ -639,9 +631,20 @@ def run_merge_pass(
         thread pool instead of one-at-a-time; parsing/applying the results
         stays strictly sequential. Default 8; set to 1 to force the old
         one-at-a-time behaviour.
+
+    summary_regenerator — optional local callback invoked once per surviving
+        canonical node only after every merge group in this pass has been
+        applied. It receives the canonical node and its deduplicated evidence
+        records, and returns the replacement summary text.
     """
     all_active = graph.active()
-    requested_excluded_ids: Set[int] = set()
+    decision_ids = {
+        int(node["id"])
+        for node in all_active
+        if node.get("node_type") == "decision"
+        and isinstance(node.get("id"), int)
+    }
+    requested_excluded_ids: Set[int] = set(decision_ids)
     for raw_id in (exclude_node_ids or set()):
         try:
             requested_excluded_ids.add(int(raw_id))
@@ -649,6 +652,7 @@ def run_merge_pass(
             continue
     active_all_ids = {int(b["id"]) for b in all_active}
     excluded_existing_ids = sorted(requested_excluded_ids & active_all_ids)
+    excluded_decision_ids = sorted(decision_ids & active_all_ids)
     active = [
         b for b in all_active
         if int(b["id"]) not in requested_excluded_ids
@@ -660,6 +664,7 @@ def run_merge_pass(
                             else "fewer than 2 eligible beliefs"),
             "applied": [],
             "excluded_node_ids": excluded_existing_ids,
+            "excluded_decision_ids": excluded_decision_ids,
         }
 
     if incremental_new_ids is None:
@@ -673,16 +678,23 @@ def run_merge_pass(
         if not incremental_new_ids:
             return {
                 "skipped": True,
-                "skip_reason": "incremental pass has no active current-turn nodes",
+                "skip_reason": "incremental pass has no active current-turn belief nodes",
                 "applied": [],
+                "excluded_node_ids": excluded_existing_ids,
+                "excluded_decision_ids": excluded_decision_ids,
             }
 
     if strategy == "embedding" and embedder is None:
         if incremental_new_ids is not None or not verify:
             # Incremental merge must never fall back to a full-graph LLM pass,
             # because that would re-enable old x old merging.
-            return {"skipped": True,
-                    "skip_reason": "embedding merge needs an embedder", "applied": []}
+            return {
+                "skipped": True,
+                "skip_reason": "embedding merge needs an embedder",
+                "applied": [],
+                "excluded_node_ids": excluded_existing_ids,
+                "excluded_decision_ids": excluded_decision_ids,
+            }
         print(f"  [merge:{pass_label}] no embedding client — falling back to strategy=llm")
         strategy = "llm"
 
@@ -694,6 +706,7 @@ def run_merge_pass(
         "n_beliefs": len(active),
         "beliefs": [_compact_for_merge(b) for b in active],
         "excluded_node_ids": excluded_existing_ids,
+        "excluded_decision_ids": excluded_decision_ids,
     }
     allowed_ids = {b["id"] for b in active}
     used_ids: Set[int] = set()
@@ -724,79 +737,11 @@ def run_merge_pass(
             _embedding_candidates, "last_incremental_policy", {"enabled": False})
         log["candidate_groups"] = candidate_groups
         if verify:
-            verify_template = (PROMPT_MERGE_VERIFY_REWRITE if verify_rewrite
-                               else PROMPT_MERGE_VERIFY)
-            log["verify_rewrite"] = verify_rewrite
-            log["llm_verifications"] = []
-            _t_verify = time.perf_counter()
-
-            # Each candidate group here comes from union-find connected
-            # components (see _embedding_candidates): groups are node-disjoint
-            # by construction, so verifying them is an embarrassingly
-            # parallel, independent LLM call per group. We fire the network
-            # calls concurrently and keep the (cheap, CPU-only) parsing /
-            # used_ids bookkeeping strictly sequential and in original group
-            # order afterwards — that keeps _parse_merge_groups' shared
-            # `used_ids` mutation race-free without needing a lock, and keeps
-            # logs/merge_<pass>.json deterministic regardless of which call
-            # happens to return first.
-            #
-            # contextvars.ContextVar values (the active USAGE tracker, the
-            # prompt/embedding audit log paths — see llm.py) are NOT inherited
-            # by threads spawned via ThreadPoolExecutor, so we capture them
-            # once in this thread and re-bind them inside each worker before
-            # it calls the LLM; otherwise token accounting and prompt auditing
-            # would silently go missing for these parallel calls.
-            _usage_tracker = llm.current_usage_tracker()
-            _prompt_log_path = llm.current_prompt_log_path()
-
-            def _verify_one(g_ids: List[int]) -> Tuple[List[int], Optional[str], Optional[str]]:
-                u_tok = llm.bind_usage_tracker(_usage_tracker)
-                p_tok = (llm.bind_prompt_log_path(_prompt_log_path)
-                         if _prompt_log_path is not None else None)
-                try:
-                    group_beliefs = [by_id[i] for i in g_ids if i in by_id]
-                    prompt = verify_template.replace(
-                        CANDIDATE_GROUP_PLACEHOLDER, _blob(group_beliefs))
-                    try:
-                        raw = llm.call_model(client, model, prompt, temperature=0.0,
-                                             max_tokens=max_tokens)
-                        return g_ids, raw, None
-                    except Exception as e:
-                        return g_ids, None, str(e)
-                finally:
-                    llm.unbind_usage_tracker(u_tok)
-                    if p_tok is not None:
-                        llm.unbind_prompt_log_path(p_tok)
-
-            n_workers = max(1, min(max_verify_workers, len(candidate_groups)))
-            if n_workers <= 1:
-                raw_results = [_verify_one(g_ids) for g_ids in candidate_groups]
-            else:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as ex:
-                    # map() preserves input order in its output regardless of
-                    # completion order, so downstream logging/used_ids stay
-                    # identical to the old sequential-loop ordering.
-                    raw_results = list(ex.map(_verify_one, candidate_groups))
-
-            for g_ids, raw, err in raw_results:
-                if err is not None:
-                    log["llm_verifications"].append(
-                        {"candidate_ids": g_ids, "error": err})
-                    continue
-                groups = _parse_merge_groups(raw, set(g_ids), used_ids, by_id)
-                log["llm_verifications"].append({
-                    "candidate_ids": g_ids,
-                    "raw_output": raw,
-                    "accepted_groups": groups,
-                })
-                confirmed.extend(groups)
-            llm_verify_seconds += time.perf_counter() - _t_verify
+            print("No LLM verification for embedding strategy is not yet implemented in this snippet.")
         else:
             # embedding-ONLY (no LLM verification): confirm every candidate group
-            # directly. canonical_belief stays None so the canonical (smallest
-            # id == earliest) keeps its own wording; evidence_ids are unioned in
-            # _apply_merge_group.
+            # directly. Evidence is unioned/deduplicated in _apply_merge_group;
+            # the canonical summary is regenerated locally after all groups.
             for g_ids in candidate_groups:
                 ids = [i for i in g_ids if i in allowed_ids and i not in used_ids]
                 if (len(ids) < 2 or not _same_merge_role(ids, by_id)
@@ -806,24 +751,25 @@ def run_merge_pass(
                 role = _merge_role(by_id[ids[0]]) if ids[0] in by_id else "unknown"
                 ntype = _merge_node_type(by_id[ids[0]]) if ids[0] in by_id else "belief"
                 confirmed.append({
-                    "ids": ids, "canonical_belief": None,
+                    "ids": ids,
                     "reason": (f"embedding cosine >= {threshold} "
                                f"within role={role}, node_type={ntype} "
                                f"(no LLM verification)"),
                 })
     else:  # strategy == "llm"
-        prompt = PROMPT_MERGE_FULL.replace(BELIEFS_LIST_PLACEHOLDER, _blob(active))
-        _t_verify = time.perf_counter()
-        try:
-            raw = llm.call_model(client, model, prompt, temperature=0.0,
-                                 max_tokens=max_tokens)
-            confirmed = _parse_merge_groups(raw, allowed_ids, used_ids, by_id)
-            log["llm_full"] = {"raw_output": raw, "accepted_groups": confirmed}
-        except Exception as e:
-            log["llm_full"] = {"error": str(e)}
-        llm_verify_seconds += time.perf_counter() - _t_verify
+        print("No LLM full-list merge in this snippet.")
+        # prompt = PROMPT_MERGE_FULL.replace(BELIEFS_LIST_PLACEHOLDER, _blob(active))
+        # _t_verify = time.perf_counter()
+        # try:
+        #     raw = llm.call_model(client, model, prompt, temperature=0.0,
+        #                          max_tokens=max_tokens)
+        #     confirmed = _parse_merge_groups(raw, allowed_ids, used_ids, by_id)
+        #     log["llm_full"] = {"raw_output": raw, "accepted_groups": confirmed}
+        # except Exception as e:
+        #     log["llm_full"] = {"error": str(e)}
+        # llm_verify_seconds += time.perf_counter() - _t_verify
 
-    applied: List[Dict[str, Any]] = []
+    applied_records: List[Dict[str, Any]] = []
     mapping: Dict[int, int] = {}
     skipped_role_mismatch: List[Dict[str, Any]] = []
     skipped_type_mismatch: List[Dict[str, Any]] = []
@@ -834,25 +780,89 @@ def run_merge_pass(
         if not _same_node_type(g["ids"], by_id):
             skipped_type_mismatch.append({"ids": g["ids"], "reason": "cross_type_group"})
             continue
-        rec = _apply_merge_group(graph, g["ids"], g["canonical_belief"],
-                                 g["reason"], pass_label)
-        applied.append({k: rec[k] for k in
-                        ("canonical_id", "absorbed_ids", "newest_id",
-                         "old_confidence", "new_confidence", "adopted_confidence",
-                         "added_evidence_ids", "canonical_belief", "reason")})
-        for a in rec["absorbed_ids"]:
-            mapping[a] = rec["canonical_id"]
+        rec = _apply_merge_group(
+            graph, g["ids"], g["reason"], pass_label,
+            keep_newest_text=keep_newest_text,
+        )
+        applied_records.append(rec)
+        for absorbed_id in rec["absorbed_ids"]:
+            mapping[absorbed_id] = rec["canonical_id"]
 
     rewire = graph.remap_relations(mapping) if mapping else {
         "rewritten": 0, "dropped_self": 0, "dropped_duplicate": 0}
+
+    # Duplicate evidence ids that lost the first-id tie-break are no longer
+    # referenced after absorbed nodes are removed. Prune them before summary
+    # regeneration so both the graph output and summary input are deduplicated.
+    evidence_prune = graph.prune_unreferenced_evidence()
+
+    summary_regeneration: List[Dict[str, Any]] = []
+    summary_regeneration_seconds = 0.0
+    if summary_regenerator is not None and applied_records:
+        _t_summary = time.perf_counter()
+        for rec in applied_records:
+            canonical_id = int(rec["canonical_id"])
+            node = graph.beliefs.get(canonical_id)
+            if node is None:
+                continue
+            evidence_records = graph.evidence_records(node.get("evidence_ids") or [])
+            before = _node_text(node)
+            entry: Dict[str, Any] = {
+                "canonical_id": canonical_id,
+                "evidence_ids": list(node.get("evidence_ids") or []),
+                "before": before,
+            }
+            try:
+                regenerated = str(summary_regenerator(node, evidence_records) or "").strip()
+                if regenerated:
+                    text_key = "decision" if node.get("node_type") == "decision" else "belief"
+                    original_key = (
+                        "decision_original" if text_key == "decision" else "belief_original"
+                    )
+                    if regenerated != before:
+                        node.setdefault(original_key, before)
+                        _set_primary_text_field(node, text_key=text_key, text=regenerated)
+                    node["entities"] = []
+                entry["after"] = _node_text(node)
+            except Exception as exc:
+                entry["after"] = before
+                entry["error"] = str(exc)
+            rec["canonical_belief"] = _node_text(node)
+            rec["summary_regeneration"] = dict(entry)
+            summary_regeneration.append(entry)
+        summary_regeneration_seconds += time.perf_counter() - _t_summary
+
+    applied: List[Dict[str, Any]] = [
+        {
+            key: rec.get(key)
+            for key in (
+                "canonical_id",
+                "absorbed_ids",
+                "newest_id",
+                "old_confidence",
+                "new_confidence",
+                "adopted_confidence",
+                "added_evidence_ids",
+                "evidence_ids",
+                "canonical_belief",
+                "previous_summary",
+                "summary_regeneration",
+                "reason",
+            )
+        }
+        for rec in applied_records
+    ]
 
     log["applied_merges"] = applied
     log["skipped_role_mismatch_groups"] = skipped_role_mismatch
     log["skipped_type_mismatch_groups"] = skipped_type_mismatch
     log["relation_rewire"] = rewire
+    log["evidence_prune"] = evidence_prune
+    log["summary_regeneration"] = summary_regeneration
     log["timing"] = {
         "embedding_seconds": round(embedding_seconds, 6),
         "llm_verify_seconds": round(llm_verify_seconds, 6),
+        "summary_regeneration_seconds": round(summary_regeneration_seconds, 6),
     }
     log["finished_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -870,9 +880,13 @@ def run_merge_pass(
             "n_candidate_groups": len(log.get("candidate_groups", confirmed)),
             "incremental_policy": log.get("incremental_policy"),
             "excluded_node_ids": excluded_existing_ids,
+            "excluded_decision_ids": excluded_decision_ids,
             "relation_rewire": rewire,
+            "evidence_prune": evidence_prune,
+            "summary_regeneration": summary_regeneration,
             "timing": {"embedding_seconds": round(embedding_seconds, 6),
-                       "llm_verify_seconds": round(llm_verify_seconds, 6)},
+                       "llm_verify_seconds": round(llm_verify_seconds, 6),
+                       "summary_regeneration_seconds": round(summary_regeneration_seconds, 6)},
             "log_path": log.get("log_path")}
 
 
