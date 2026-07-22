@@ -16,8 +16,8 @@ from bcg.construct.api_based.confidence import (
 )
 from bcg.construct.api_based.evidence import evidence_from_excerpt, locate_excerpt
 from bcg.construct.api_based.graph import BeliefGraph
-from bcg.construct.light.extractor import ExtractedNode
 from bcg.construct.light.split import semantic_breakpoint_chunks, split_sentences
+from bcg.construct.light.extractor import ExtractedNode
 from bcg.construct.light.stance import StancePrediction
 from bcg.graph import BCGEdge, BCGNode, BeliefPayload, BeliefSource, RelationPayload
 from bcg.llm import LLMResponse
@@ -478,7 +478,12 @@ class FakeLightStanceClassifier:
             StancePrediction(
                 stance="asserted",
                 confidence=0.99,
-                scores={"asserted": 0.99, "recalled": 0.0, "judged": 0.0, "speculated": 0.01},
+                scores={
+                    "asserted": 0.99,
+                    "recalled": 0.0,
+                    "judged": 0.0,
+                    "speculated": 0.01,
+                },
                 model_path="fake",
             )
             for _ in texts
