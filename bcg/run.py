@@ -32,6 +32,8 @@ from pathlib import Path
 # directory of this `bcg` package), matching both original projects' scripts.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from bcg.cli_help import RichArgumentParser  # noqa: E402
+
 
 def _add_common_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--input", "-i", required=True,
@@ -137,9 +139,19 @@ def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
 
     if not argv or argv[0] in ("-h", "--help"):
-        print(__doc__)
-        print(f"Available backends: {', '.join(_BACKENDS)}")
-        return
+        parser = RichArgumentParser(
+            prog="bcg construct run",
+            description="construct_beliefs v3 streaming pipeline driver "
+                        "(builds belief graphs from a trajectory or dataset).",
+            epilog="Run 'bcg construct run <backend> --help' for a backend's "
+                   "full option list.",
+        )
+        parser.add_argument(
+            "backend", choices=list(_BACKENDS),
+            help="Which construct backend to use.",
+        )
+        parser.print_help()
+        raise SystemExit(0)
 
     backend, rest = argv[0], argv[1:]
     if backend not in _BACKENDS:

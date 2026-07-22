@@ -89,6 +89,8 @@ from urllib.parse import parse_qs, urlparse
 # (the parent directory of this `bcg` package).
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from bcg.cli_help import RichArgumentParser  # noqa: E402
+
 
 # ---------------------------------------------------------------------------
 # Shared HTTP plumbing (backend-agnostic: works against any SessionManager
@@ -384,9 +386,18 @@ def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
 
     if not argv or argv[0] in ("-h", "--help"):
-        print(__doc__)
-        print(f"Available backends: {', '.join(_BACKENDS)}")
-        return
+        parser = RichArgumentParser(
+            prog="bcg construct server",
+            description="construct_beliefs v3 streaming belief-graph HTTP server.",
+            epilog="Run 'bcg construct server <backend> --help' for a backend's "
+                   "full option list.",
+        )
+        parser.add_argument(
+            "backend", choices=list(_BACKENDS),
+            help="Which construct backend to use.",
+        )
+        parser.print_help()
+        raise SystemExit(0)
 
     backend, rest = argv[0], argv[1:]
     if backend not in _BACKENDS:

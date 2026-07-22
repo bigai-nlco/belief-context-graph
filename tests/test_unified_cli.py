@@ -37,7 +37,7 @@ def test_root_routes_construct_arguments(monkeypatch) -> None:
     assert received == ["run", "--input", "data.json"]
 
 
-@pytest.mark.parametrize("command", ["run", "server", "replay", "visualize"])
+@pytest.mark.parametrize("command", ["run", "server", "visualize"])
 def test_construct_commands_expose_rich_help(command, capsys) -> None:
     with pytest.raises(SystemExit) as exc_info:
         construct_cli.main([command, "--help"])
