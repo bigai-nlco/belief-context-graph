@@ -56,6 +56,18 @@ def _server(ctx: typer.Context) -> None:
 
 
 @app.command(
+    "replay",
+    help="Replay a JSONL turn stream through a construction backend.",
+    context_settings=_FORWARD_CONTEXT,
+    add_help_option=False,
+)
+def _replay(ctx: typer.Context) -> None:
+    from bcg.online_driver import main as replay_main
+
+    replay_main(list(ctx.args))
+
+
+@app.command(
     "visualize",
     help="Render a belief-graph result as an HTML visualization.",
     context_settings=_FORWARD_CONTEXT,

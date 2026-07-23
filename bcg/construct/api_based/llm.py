@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from bcg.env import PROJECT_ENV_FILE, load_project_env
+from bcg.env import resolve_config_api_key
 
 try:
     from openai import OpenAI
@@ -474,25 +474,11 @@ def _resolve_config_api_key(
 ) -> None:
     """Resolve a runtime key from the root .env without storing it in JSON."""
 
-    load_project_env()
-    env_name = cfg.get("api_key_env") or default_env
-    if not isinstance(env_name, str) or not env_name.strip():
-        raise ValueError(
-            f"Config field 'api_key_env' must be a non-empty environment "
-            f"variable name in {config_path}."
-        )
-    env_name = env_name.strip()
-    legacy_key = cfg.get("api_key")
-    api_key = os.environ.get(env_name) or (
-        legacy_key if isinstance(legacy_key, str) else ""
+    resolve_config_api_key(
+        cfg,
+        default_env=default_env,
+        config_path=config_path,
     )
-    if not api_key.strip():
-        raise ValueError(
-            f"API key environment variable {env_name!r} is empty. Add it to "
-            f"the project root {PROJECT_ENV_FILE.name} file."
-        )
-    cfg["api_key_env"] = env_name
-    cfg["api_key"] = api_key
 
 def load_config(
     path: str = "model_config.json",

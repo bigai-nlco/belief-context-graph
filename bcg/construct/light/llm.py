@@ -36,6 +36,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from bcg.env import resolve_config_api_key as resolve_project_api_key
+
 try:
     from openai import OpenAI
 except ImportError:
@@ -470,11 +472,15 @@ def load_config(
     """
     Load the chat-model config. Supports two schemas:
 
+    API keys are resolved from the project-root ``.env``. JSON stores only an
+    ``api_key_env`` variable name, never the secret itself.
+
     1) Flat:
-         { "base_url": "...", "api_key": "...", "model": "gpt-4o" }
+         { "base_url": "...", "api_key_env": "OPENAI_API_KEY",
+           "model": "gpt-4o" }
 
     2) Nested by model name (LiteLLM-style):
-         { "gpt-5.5":  { "api_key": "...", "base_url": "...",
+         { "gpt-5.5":  { "api_key_env": "OPENAI_API_KEY", "base_url": "...",
                          "max_tokens": 16000, ... },
            "deepseek-v4-flash-260425": { ... },
            "embedding": { ... }              <- reserved, never a chat default }
@@ -484,7 +490,7 @@ def load_config(
     """
     if not os.path.exists(path):
         raise FileNotFoundError(
-            f"Missing {path}. Create it with base_url / api_key / model "
+            f"Missing {path}. Create it with base_url / api_key_env / model "
             f"(flat) or nested by model name."
         )
     with open(path, "r", encoding="utf-8") as f:
@@ -512,7 +518,7 @@ def load_config(
         cfg = dict(inner)
         cfg.setdefault("model", chosen)
 
-    for required in ("base_url", "api_key"):
+    for required in ("base_url",):
         v = cfg.get(required)
         if not isinstance(v, str) or not v.strip():
             raise ValueError(
@@ -520,7 +526,27 @@ def load_config(
                 f"Got type={type(v).__name__}, value={v!r}"
             )
 
+    resolve_config_api_key(
+        cfg,
+        default_env="OPENAI_API_KEY",
+        config_path=path,
+    )
     return cfg
+
+
+def resolve_config_api_key(
+    cfg: Dict[str, Any],
+    *,
+    default_env: str,
+    config_path: str,
+) -> None:
+    """Resolve a light-backend runtime credential from the root ``.env``."""
+
+    resolve_project_api_key(
+        cfg,
+        default_env=default_env,
+        config_path=config_path,
+    )
 
 
 def _deep_merge_dict(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
@@ -679,11 +705,11 @@ def load_embedding_config(
     Two providers are supported, selected by the entry's "provider" field:
 
     1) "openai" (default) — any OpenAI-compatible /v1/embeddings endpoint
-       (vLLM / SGLang / TEI / OpenAI). Requires base_url, api_key, model:
+       (vLLM / SGLang / TEI / OpenAI). Requires base_url, api_key_env, model:
 
         "embedding": {
           "provider": "openai",
-          "api_key":  "EMPTY-or-real-key",
+          "api_key_env": "EMBEDDING_API_KEY",
           "base_url": "http://localhost:8000/v1",
           "model":    "Qwen/Qwen3-Embedding-8B",
           "batch_size": 32,
@@ -727,13 +753,18 @@ def load_embedding_config(
             )
         cfg.setdefault("batch_size", 8)
     elif provider == "openai":
-        for required in ("base_url", "api_key", "model"):
+        for required in ("base_url", "model"):
             v = cfg.get(required)
             if not isinstance(v, str) or not v.strip():
                 raise ValueError(
                     f"Embedding config field {required!r} must be a non-empty string "
                     f"(in entry {embedding_key!r} of {path})."
                 )
+        resolve_config_api_key(
+            cfg,
+            default_env="EMBEDDING_API_KEY",
+            config_path=path,
+        )
         cfg.setdefault("batch_size", 32)
     else:
         raise ValueError(

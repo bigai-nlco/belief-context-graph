@@ -197,6 +197,16 @@ class StreamOptions:
             "confidence_config": normalize_confidence_config(self.confidence_config),
         }
 
+    def to_public_dict(self) -> Dict[str, Any]:
+        """Serialize options without resolved runtime credentials."""
+
+        data = self.to_dict()
+        for section in ("extractor", "edge_generation"):
+            value = data.get(section)
+            if isinstance(value, dict):
+                value.pop("api_key", None)
+        return data
+
 
 class StreamingBeliefBuilder:
     def __init__(
@@ -1089,7 +1099,7 @@ class StreamingBeliefBuilder:
             "item_id": self.item_id,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "mode": "stream",
-            "options": self.options.to_dict(),
+            "options": self.options.to_public_dict(),
             "embedding_model": getattr(self.embedder, "model", None),
             "timing": self._turn_timings,
             "turn_chunks": self._turn_chunks,

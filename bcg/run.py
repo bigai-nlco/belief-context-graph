@@ -33,6 +33,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from bcg.cli_help import RichArgumentParser  # noqa: E402
+from bcg.construct.dispatch import (  # noqa: E402
+    DEFAULT_BACKEND,
+    split_backend_args,
+)
 
 
 def _add_common_args(p: argparse.ArgumentParser) -> None:
@@ -144,19 +148,23 @@ def main(argv: list[str] | None = None) -> None:
             description="construct_beliefs v3 streaming pipeline driver "
                         "(builds belief graphs from a trajectory or dataset).",
             epilog="Run 'bcg construct run <backend> --help' for a backend's "
-                   "full option list.",
+                   "full option list. If omitted, the backend defaults to "
+                   f"{DEFAULT_BACKEND!r} for compatibility.",
         )
         parser.add_argument(
-            "backend", choices=list(_BACKENDS),
-            help="Which construct backend to use.",
+            "backend",
+            choices=list(_BACKENDS),
+            nargs="?",
+            default=DEFAULT_BACKEND,
+            help=f"Which construct backend to use (default: {DEFAULT_BACKEND}).",
         )
         parser.print_help()
         raise SystemExit(0)
 
-    backend, rest = argv[0], argv[1:]
-    if backend not in _BACKENDS:
-        print(f"error: unknown backend {backend!r}; choose one of: "
-              f"{', '.join(_BACKENDS)}", file=sys.stderr)
+    try:
+        backend, rest = split_backend_args(argv, backends=_BACKENDS)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2)
 
     _BACKENDS[backend](rest)

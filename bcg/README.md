@@ -121,6 +121,17 @@ If no embedding entry is found, clustering is disabled and the merge strategy si
 Real key values belong only in the ignored root `.env`. Do not put them in
 `model_config.json` or command files.
 
+### Construction backends
+
+The commands `run`, `server`, and `replay` accept a backend name:
+
+- `api_based`: one large API model performs extraction and relation building.
+- `light`: local embeddings and spaCy are combined with the smaller extractor
+  and edge-generation services configured under `belief_graph`.
+
+Use `bcg construct <command> <backend> ...`. For compatibility, omitting the
+backend still works and selects `api_based`.
+
 ---
 
 ## Quick start (HTTP server)
@@ -130,7 +141,7 @@ This is the recommended way to use the engine: start the server once, then push 
 **1. Start the server.**
 
 ```bash
-bcg construct server \
+bcg construct server api_based \
     --config model_config.json \
     --model-key gpt-5.5 \
     --host 127.0.0.1 --port 8848 \
@@ -185,22 +196,22 @@ When you already have a whole conversation in a file and just want to process it
 
 ```bash
 # simplest: a trajectory or conversation file, default options
-bcg construct run --input data.json
+bcg construct run api_based --input data.json
 
 # pick the chat model and embedding entry from the config
-bcg construct run --input data.json \
+bcg construct run api_based --input data.json \
     --model-key gpt-5.5 --embedding-key embedding
 
 # whole-sentence evidence + topic clustering + embedding-verified final merge
-bcg construct run --input data.json \
+bcg construct run api_based --input data.json \
     --evidence-mode sentence --use-clustering \
     --merge-strategy embedding --merge-threshold 0.86
 
 # free-span evidence (model quotes excerpts; no sentence splitting)
-bcg construct run --input data.json --evidence-mode excerpt
+bcg construct run api_based --input data.json --evidence-mode excerpt
 
 # process only one item out of a multi-item file (by id or 0-based index)
-bcg construct run --input data.json --item 3
+bcg construct run api_based --input data.json --item 3
 ```
 
 `run.py`'s defaults for the options it shares with the server (`--model-key`, `--context-chars`, `--incremental-merge-threshold`) are aligned with `online_server.py`, so a file run and an HTTP run behave the same way unless you override them.
@@ -215,11 +226,11 @@ bcg construct run --input data.json --item 3
 
 ```bash
 # replay a recorded stream file
-bcg construct replay -i stream.jsonl \
+bcg construct replay api_based -i stream.jsonl \
     --config model_config.json --model-key gpt-5.5 --output-dir outputs_stream
 
 # pipe a live generator straight in
-my_agent --stream | bcg construct replay --config model_config.json
+my_agent --stream | bcg construct replay api_based --config model_config.json
 ```
 
 Any trajectory that never sent `is_trajectory_end` is finalized automatically when the input ends.
@@ -338,22 +349,11 @@ These flags are common to `run.py`, `online_server.py`, and `online_driver.py` (
 ```
 .
 ├── bcg/
-    ├── construct/           # the engine (importable as bcg.construct)
-    │   ├── __init__.py           # exports BeliefGraph, StreamingBeliefBuilder, StreamOptions
-    │   ├── stream.py             # StreamingBeliefBuilder — per-turn engine + finalize
-    │   ├── online.py             # SessionManager / StreamingTrajectorySession (streaming driver; per-session lock, concurrent problem_ids)
-    │   ├── pipeline.py           # run_item / run_input — batch drivers over the engine
-    │   ├── extract.py            # per-turn extraction: nodes (phase 1) + relations (phase 3)
-    │   ├── prompts.py            # all LLM prompts
-    │   ├── merge.py              # incremental (per-turn) + optional final merge, role & node_type gated, sub-step timed, parallel LLM-verify
-    │   ├── confidence.py         # two-stage confidence assignment
-    │   ├── evidence.py           # evidence offsets / excerpt matching
-    │   ├── split.py              # sentence splitting + global clustering
-    │   ├── graph.py              # the in-memory belief graph
-    │   ├── loaders.py            # input normalisers (trajectory / multi-session)
-    │   ├── llm.py                # OpenAI-compatible chat + embedding clients, token ledger (context-local state, concurrency-safe)
-    │   ├── constants.py          # shared constants
-    │   └── link.py               # legacy no-op shim (kept for import compatibility)
+    ├── construct/           # unified construction package and CLI
+    │   ├── api_based/       # large API-model implementation
+    │   ├── light/           # local/small-model implementation
+    │   ├── cli.py           # run/server/replay/visualize command group
+    │   └── dispatch.py      # backend selection and legacy fallback
     │
     ├── online_server.py      # the HTTP server (recommended entry point)
     ├── run.py                # single-machine batch driver
@@ -372,7 +372,7 @@ You can also drive the engine directly, without the CLI or HTTP layer.
 **Multiplex many trajectories** with a `SessionManager` (this is what the server uses):
 
 ```python
-from bcg.construct.online import SessionManager
+from bcg.construct.api_based.online import SessionManager
 
 mgr = SessionManager(config_path="model_config.json", model_key="gpt-5.5")
 for turn in incoming_stream:                 # dicts with problem_id / role / content
@@ -383,8 +383,8 @@ for turn in incoming_stream:                 # dicts with problem_id / role / co
 **Build one trajectory** directly with the engine:
 
 ```python
-from bcg.construct.stream import StreamingBeliefBuilder, StreamOptions
-from bcg.construct.llm import load_config, make_client
+from bcg.construct.api_based.stream import StreamingBeliefBuilder, StreamOptions
+from bcg.construct.api_based.llm import load_config, make_client
 
 cfg = load_config("model_config.json", model_key="gpt-5.5")
 builder = StreamingBeliefBuilder(

@@ -35,6 +35,7 @@ from .llm import (
     current_usage_tracker,
     make_client,
     parse_json_response,
+    resolve_config_api_key,
     unbind_prompt_log_path,
     unbind_usage_tracker,
 )
@@ -50,7 +51,7 @@ def normalize_extractor_config(
     """Return a validated, JSON-serialisable generative-extractor config."""
     raw = dict(config or {})
     required = (
-        "enabled", "provider", "base_url", "api_key", "model", "temperature",
+        "enabled", "provider", "base_url", "model", "temperature",
         "max_tokens", "max_concurrency", "request_timeout", "retries",
         "context_scope", "enable_thinking", "include_turn_content",
         "require_excerpt", "dynamic_node_cap", "node_cap_unit",
@@ -62,11 +63,17 @@ def normalize_extractor_config(
             "belief_graph.extractor is missing required field(s): "
             + ", ".join(missing)
         )
+    resolve_config_api_key(
+        raw,
+        default_env="BELIEF_GRAPH_LOCAL_API_KEY",
+        config_path="belief_graph.extractor",
+    )
     return {
         "enabled": bool(raw["enabled"]),
         "provider": str(raw["provider"]),
         "base_url": str(raw["base_url"]),
         "api_key": str(raw["api_key"]),
+        "api_key_env": str(raw["api_key_env"]),
         "model": str(raw["model"]),
         "temperature": float(raw["temperature"]),
         "max_tokens": max(16, int(raw["max_tokens"])),

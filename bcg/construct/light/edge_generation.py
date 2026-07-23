@@ -6,7 +6,12 @@ import json
 import threading
 from typing import Any, Dict, List, Mapping, Optional
 
-from .llm import call_model, make_client, parse_json_response
+from .llm import (
+    call_model,
+    make_client,
+    parse_json_response,
+    resolve_config_api_key,
+)
 from .prompts import build_relation_prompt
 
 VALID_RELATION_TYPES = {"depends_on", "supplements", "contradicts"}
@@ -16,7 +21,7 @@ def normalize_edge_config(config: Optional[Mapping[str, Any]]) -> Dict[str, Any]
     """Validate the complete ``belief_graph.edge_generation`` config block."""
     raw = dict(config or {})
     required = (
-        "enabled", "provider", "base_url", "api_key", "model", "temperature",
+        "enabled", "provider", "base_url", "model", "temperature",
         "max_tokens", "retries", "enable_thinking", "fail_on_error",
         "search_previous_turns",
     )
@@ -28,6 +33,11 @@ def normalize_edge_config(config: Optional[Mapping[str, Any]]) -> Dict[str, Any]
         )
     if str(raw["provider"]).lower() != "openai":
         raise ValueError("belief_graph.edge_generation.provider must be 'openai'")
+    resolve_config_api_key(
+        raw,
+        default_env="BELIEF_GRAPH_LOCAL_API_KEY",
+        config_path="belief_graph.edge_generation",
+    )
     for key in ("base_url", "api_key", "model"):
         if not isinstance(raw[key], str) or not raw[key].strip():
             raise ValueError(f"belief_graph.edge_generation.{key} must be non-empty")
@@ -36,6 +46,7 @@ def normalize_edge_config(config: Optional[Mapping[str, Any]]) -> Dict[str, Any]
         "provider": "openai",
         "base_url": raw["base_url"].strip(),
         "api_key": raw["api_key"].strip(),
+        "api_key_env": raw["api_key_env"].strip(),
         "model": raw["model"].strip(),
         "temperature": float(raw["temperature"]),
         "max_tokens": max(16, int(raw["max_tokens"])),

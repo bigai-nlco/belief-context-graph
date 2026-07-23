@@ -81,21 +81,31 @@ bcg construct --help
 
 ### Construct belief graphs
 
+Construction has two interchangeable backends:
+
+- `api_based` uses one large OpenAI-compatible chat model for extraction and
+  relations.
+- `light` uses local embeddings, spaCy, and smaller OpenAI-compatible models
+  configured under `belief_graph`.
+
+Put the backend immediately after `run`, `server`, or `replay`. Existing
+commands that omit it remain supported and default to `api_based`.
+
 ```bash
 # Process a complete trajectory or dataset.
-bcg construct run \
+bcg construct run api_based \
     --input data.json \
     --config bcg/model_config.json \
     --output-dir outputs
 
 # Start the incremental HTTP service.
-bcg construct server \
+bcg construct server light \
     --config bcg/model_config.json \
     --host 127.0.0.1 \
     --port 8848
 
 # Replay recorded JSONL turns through the streaming constructor.
-bcg construct replay \
+bcg construct replay api_based \
     --input stream.jsonl \
     --config bcg/model_config.json
 

@@ -1,8 +1,8 @@
 {
   "_comment": "Copy this file to model_config.json and fill in real values. Top-level keys are model names (model-key); any key starting with 'embedding' is reserved and never used as the default chat model. Shared by BOTH backends (construct.light and construct.api_based). See README.md > Configuration.",
-  "_comment_api_key": "The 'light' backend reads 'api_key' directly from this file. The 'api_based' backend prefers an 'api_key_env' entry (e.g. \"api_key_env\": \"OPENAI_API_KEY\") resolved from a .env file at the project root (see bcg/env.py) and only falls back to the plain 'api_key' below if that env var isn't set.",
+  "_comment_api_key": "Both backends resolve API keys through api_key_env names loaded from the project-root .env. Do not place secrets in this JSON file.",
   "gpt-5.5": {
-    "api_key": "sk-REPLACE_WITH_YOUR_KEY",
+    "api_key_env": "OPENAI_API_KEY",
     "base_url": "https://litellm.mybigai.ac.cn/v1",
     "max_tokens": 100000,
     "temperature": 1,
@@ -31,7 +31,7 @@
       "enabled": true,
       "provider": "openai",
       "base_url": "http://localhost:8001/v1",
-      "api_key": "EMPTY",
+      "api_key_env": "BELIEF_GRAPH_LOCAL_API_KEY",
       "model": "Qwen3.5-4B",
       "temperature": 0,
       "max_tokens": 4096,
@@ -78,7 +78,7 @@
       "enabled": true,
       "provider": "openai",
       "base_url": "http://localhost:8001/v1",
-      "api_key": "EMPTY",
+      "api_key_env": "BELIEF_GRAPH_LOCAL_API_KEY",
       "model": "Qwen3.5-4B",
       "temperature": 0,
       "max_tokens": 4096,
