@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any
+from xml.etree import ElementTree as ET
 
 import aiohttp
 
@@ -161,7 +162,10 @@ class BeliefGraphClient:
 
     @staticmethod
     def format_graph_for_prompt(
-        snapshot: dict, fmt: str = "structured", include_relations: bool = True,
+        snapshot: dict,
+        fmt: str = "structured",
+        include_relations: bool = True,
+        deepseek_v4_payload_format: str = "json",
     ) -> str:
         """Format beliefs + relations into a text block for model context.
 
@@ -177,6 +181,8 @@ class BeliefGraphClient:
                 - "json": Dialogue-like JSON messages converted from beliefs.
                 - "deepseek_v4": DeepSeek-V4 encoded dialogue-like belief context.
             include_relations: Whether to include edges in the output.
+            deepseek_v4_payload_format: Serialization used for each belief inside
+                DeepSeek-V4 role markers: "json", "xml", or "markdown".
         """
         beliefs = snapshot.get("beliefs", [])
         relations = (
@@ -184,6 +190,13 @@ class BeliefGraphClient:
         ) if include_relations else []
         if not beliefs:
             return ""
+
+        if fmt == "deepseek_v4":
+            return _fmt_deepseek_v4(
+                beliefs,
+                relations,
+                payload_format=deepseek_v4_payload_format,
+            )
 
         formatter = _GRAPH_FORMATTERS.get(fmt)
         if formatter is None:
@@ -312,9 +325,10 @@ def _belief_dialogue_messages(beliefs: list[dict], relations: list[dict]) -> lis
     by_belief_id: dict = {}
     for b in beliefs:
         bid = b.get("id", "?")
+        source = b.get("source") or {}
         by_belief_id[bid] = {
             "id": bid,
-            "role": (b.get("source") or {}).get("role", "assistant"),
+            "role": b.get("role") or source.get("role") or "assistant",
             "content": b.get("belief", ""),
             "relations": [],
             "confidence": b.get("confidence"),
@@ -379,7 +393,72 @@ def _encode_deepseek_v4_context(messages: list[dict]) -> str:
     return "".join(parts)
 
 
-def _fmt_deepseek_v4(beliefs: list[dict], relations: list[dict]) -> str:
+def _deepseek_v4_payload_json(msg: dict) -> str:
+    return json.dumps(msg, ensure_ascii=False, separators=(",", ":"))
+
+
+def _deepseek_v4_payload_xml(msg: dict) -> str:
+    root = ET.Element("belief", {"id": str(msg.get("id", "?"))})
+    ET.SubElement(root, "content").text = str(msg.get("content") or "")
+    relations_el = ET.SubElement(root, "relations")
+    for relation in msg.get("relations") or []:
+        attrs = {
+            str(key): str(value)
+            for key, value in relation.items()
+            if key != "reason" and value is not None
+        }
+        relation_el = ET.SubElement(relations_el, "relation", attrs)
+        if relation.get("reason"):
+            ET.SubElement(relation_el, "reason").text = str(relation["reason"])
+    confidence = msg.get("confidence")
+    ET.SubElement(root, "confidence").text = (
+        "" if confidence is None else str(confidence)
+    )
+    return ET.tostring(root, encoding="unicode", short_empty_elements=True)
+
+
+def _deepseek_v4_payload_markdown(msg: dict) -> str:
+    lines = [
+        f"### Belief {msg.get('id', '?')}",
+        f"**Content:** {msg.get('content') or ''}",
+        "**Relations:**",
+    ]
+    relations = msg.get("relations") or []
+    if relations:
+        for relation in relations:
+            fields = [
+                f"{key}={value}"
+                for key, value in relation.items()
+                if value is not None and value != ""
+            ]
+            lines.append("- " + "; ".join(fields))
+    else:
+        lines.append("- None")
+    confidence = msg.get("confidence")
+    lines.append(f"**Confidence:** {'' if confidence is None else confidence}")
+    return "\n".join(lines)
+
+
+_DSV4_PAYLOAD_FORMATTERS = {
+    "json": _deepseek_v4_payload_json,
+    "xml": _deepseek_v4_payload_xml,
+    "markdown": _deepseek_v4_payload_markdown,
+}
+
+
+def _fmt_deepseek_v4(
+    beliefs: list[dict],
+    relations: list[dict],
+    payload_format: str = "json",
+) -> str:
+    payload_formatter = _DSV4_PAYLOAD_FORMATTERS.get(payload_format)
+    if payload_formatter is None:
+        logger.warning(
+            "Unknown DeepSeek-V4 payload format '%s', falling back to 'json'",
+            payload_format,
+        )
+        payload_formatter = _DSV4_PAYLOAD_FORMATTERS["json"]
+
     messages: list[dict] = []
     for msg in _belief_dialogue_messages(beliefs, relations):
         role = msg.get("role")
@@ -393,7 +472,7 @@ def _fmt_deepseek_v4(beliefs: list[dict], relations: list[dict]) -> str:
         }
         messages.append({
             "role": role,
-            "content": json.dumps(content_obj, ensure_ascii=False, separators=(",", ":")),
+            "content": payload_formatter(content_obj),
         })
     return _encode_deepseek_v4_context(messages)
 
@@ -406,7 +485,6 @@ _GRAPH_FORMATTERS = {
     "triplet": _fmt_triplet,
     "yaml": _fmt_yaml,
     "json": _fmt_json,
-    "deepseek_v4": _fmt_deepseek_v4,
 }
 
 

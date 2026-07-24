@@ -869,11 +869,11 @@ def _benchmark_output_dir(cfg: AgentRolloutConfig, bench: str) -> Path:
 
 def _artifact_stem_path(cfg: AgentRolloutConfig, bench: str, stem: str, suffix: str) -> Path:
     out_dir = _benchmark_output_dir(cfg, bench)
-    path = out_dir / f"{stem}{suffix}"
-    if path.exists() and not cfg.overwrite:
-        stamp = time.strftime("%Y%m%d-%H%M%S")
-        path = out_dir / f"{stem}_{stamp}{suffix}"
-    return path
+    # Keep a stable path so non-overwrite runs can inspect trajectories.jsonl,
+    # skip completed task IDs, and append only the missing trajectories.  The
+    # previous timestamped path made the resume logic below inspect a new empty
+    # file, so every interrupted run silently started over.
+    return out_dir / f"{stem}{suffix}"
 
 
 def _planned_result_path(cfg: AgentRolloutConfig, bench: str) -> Path:
@@ -1738,6 +1738,7 @@ def _build_workflow_engine(
             "enable_thinking": cfg.enable_thinking,
             "belief_graph_mode": cfg.belief_graph_mode,
             "graph_format": cfg.graph_format,
+            "deepseek_v4_payload_format": cfg.deepseek_v4_payload_format,
             "graph_include_relations": cfg.graph_include_relations,
             "belief_graph_placement": cfg.belief_graph_placement,
             "archive_enabled": cfg.enable_archive,
@@ -1759,6 +1760,7 @@ def _build_workflow_engine(
         "archive_enabled": cfg.enable_archive,
         "file_tool_root": cfg.file_tool_root,
         "belief_graph_interval": cfg.belief_graph_interval,
+        "recent_turns": cfg.recent_turns,
         "context_memory_config": {
             "mode": cfg.context_memory_mode,
             "recent_observations": cfg.context_memory_recent_observations,

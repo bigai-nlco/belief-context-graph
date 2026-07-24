@@ -179,6 +179,7 @@ def test_runner_resolves_separate_serper_search_and_scrape_tools(
     cfg = AgentRolloutConfig(
         model="test-model",
         tools=["serper_search", "serper_scrape"],
+        enable_archive=False,
         retrieval_max_results=4,
         serper_scrape_endpoint="https://serper.test/scrape",
         serper_scrape_max_output_chars=4321,

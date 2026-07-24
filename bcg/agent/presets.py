@@ -40,6 +40,8 @@ _PRESET_ARGUMENTS: dict[str, tuple[str, ...]] = {
         "600",
         "--graph-format",
         "deepseek_v4",
+        "--deepseek-v4-payload-format",
+        "json",
         "--belief-graph-placement",
         "system",
         "--file-tool-root",

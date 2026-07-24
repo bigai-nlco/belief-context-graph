@@ -46,6 +46,13 @@ _CONFIG_DEFAULT_ALIASES = {
 }
 
 
+def _recent_turns_arg(value: str) -> int:
+    parsed = int(value)
+    if parsed < -1:
+        raise argparse.ArgumentTypeError("must be -1 or a non-negative integer")
+    return parsed
+
+
 def _apply_config_defaults(parser: argparse.ArgumentParser) -> None:
     """Make ``AgentRolloutConfig`` the only default source for CLI options."""
 
@@ -379,17 +386,21 @@ def _parse_args(argv: list[str] | None = None, prog: str | None = None):
                         "(default: $BELIEF_TRACER_FILE_ROOT or ai_workspace/).")
     parser.add_argument("--enable-file-read", action="store_true",
                         help="Expose the read_file tool (auto-on with --enable-archive).")
-    parser.add_argument("--enable-archive", action="store_true",
+    parser.add_argument("--enable-archive", dest="enable_archive", action="store_true",
                         help="Write a two-layer archive of tool results and inject "
-                        "manifest refs into the system prompt (implies --enable-file-read).")
+                        "manifest refs into the system prompt (default; implies "
+                        "--enable-file-read).")
+    parser.add_argument("--no-archive", dest="enable_archive", action="store_false",
+                        help="Disable tool-result archiving and its implied layered context.")
     parser.add_argument("--layered-context", action="store_true",
                         help="Use layered message assembly: belief graph as a standalone "
                         "user message (not in system prompt), detailed rules in user msg. "
                         "Implied by --enable-archive; use this flag alone to get the "
                         "message layout without archiving.")
-    parser.add_argument("--recent-turns", type=int, default=0,
+    parser.add_argument("--recent-turns", type=_recent_turns_arg, default=2,
                         help="Archive mode: keep only the last N conversation turns in "
-                        "context (0 = keep all, no trimming). Default 0.")
+                        "context (0 = keep no raw turns, equivalent to graph-only; "
+                        "-1 = keep all raw turns, no eviction). Default 2.")
     parser.add_argument(
         "--context-memory-mode",
         choices=sorted(CONTEXT_MEMORY_MODES),
@@ -553,6 +564,13 @@ def _parse_args(argv: list[str] | None = None, prog: str | None = None):
         help="Exclude relation edges from belief graph context (only include belief nodes).",
     )
     parser.add_argument(
+        "--deepseek-v4-payload-format",
+        choices=["json", "xml", "markdown"],
+        default="json",
+        help="Serialization for each belief inside DeepSeek-V4 role markers "
+        "(default: json). Only used with --graph-format deepseek_v4.",
+    )
+    parser.add_argument(
         "--belief-graph-placement",
         choices=["user", "system"],
         default="user",
@@ -563,10 +581,9 @@ def _parse_args(argv: list[str] | None = None, prog: str | None = None):
     )
     parser.add_argument(
         "--belief-graph-interval", type=int, default=1,
-        help="Rebuild the belief graph every N model turns instead of every turn "
-        "(default 1 = every turn, no behavior change). Turns in between are "
-        "buffered and pushed together on the triggering turn; the prompt keeps "
-        "showing the last built snapshot until then.",
+        help="Legacy graph rebuild interval used only when archive mode is "
+        "disabled. In archive mode, each turn is added to the graph exactly "
+        "when it leaves the raw context window.",
     )
     parser.add_argument(
         "--tonggraph-sync",
@@ -787,6 +804,7 @@ def _parse_args(argv: list[str] | None = None, prog: str | None = None):
         belief_graph_timeout=args.belief_graph_timeout,
         belief_graph_mode=args.belief_graph_mode,
         graph_format=args.graph_format,
+        deepseek_v4_payload_format=args.deepseek_v4_payload_format,
         graph_include_relations=args.graph_include_relations,
         belief_graph_placement=args.belief_graph_placement,
         belief_graph_interval=args.belief_graph_interval,

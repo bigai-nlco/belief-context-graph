@@ -197,9 +197,9 @@ class AgentRolloutConfig:
     # Sandboxed file-read tool + two-layer archive
     file_tool_root: str = ""       # empty = $BELIEF_TRACER_FILE_ROOT or ai_workspace/
     enable_file_read: bool = False  # expose read_file tool (auto-on when enable_archive)
-    enable_archive: bool = False   # write two-layer archive + manifest refs
+    enable_archive: bool = True    # write two-layer archive + manifest refs
     layered_context: bool = False  # graph/rules split into context blocks (implied by enable_archive)
-    recent_turns: int = 0          # 0 = keep all (no trimming); >0 = keep last N turns
+    recent_turns: int = 2          # 0 = graph-only; -1 = keep all; >0 = keep last N turns
 
     # Context-memory baselines. "belief_graph" preserves the existing service
     # path; other modes replace the graph prompt slot and never call the graph
@@ -253,13 +253,12 @@ class AgentRolloutConfig:
     belief_graph_scenario: str = "research"
     belief_graph_mode: str = "augment"  # "none", "augment", "only"
     graph_format: str = "structured"  # "structured", "narrative", "markdown", "xml"
+    deepseek_v4_payload_format: str = "json"  # "json", "xml", "markdown"
     graph_include_relations: bool = True
     belief_graph_placement: str = "user"  # layered mode: "user" or "system"
-    # Rebuild the graph every N model turns instead of every turn. 1 (default)
-    # pushes/refreshes every turn (no behavior change). Turns in between are
-    # buffered and flushed together on the triggering turn; the prompt keeps
-    # showing the last built snapshot until then. Always flushed on done=True
-    # so no buffered content is lost at trajectory end.
+    # Legacy graph update interval used when archive mode is disabled. With
+    # archive enabled, graph updates are aligned to raw-context eviction: a
+    # turn enters the graph exactly when it leaves the raw window.
     belief_graph_interval: int = 1
 
     # TongGraph Server persistence for belief graph snapshots.

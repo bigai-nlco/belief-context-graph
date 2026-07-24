@@ -101,3 +101,32 @@ def test_record_graph_snapshot_syncs_each_snapshot(monkeypatch) -> None:
     assert [call["payload"] for call in calls] == [first, second]
     assert all(call["kwargs"]["verify_readback"] is True for call in calls)
     assert all(call["kwargs"]["logical_graph_id"] == "claim_roundtrip" for call in calls)
+
+
+def test_graph_payloads_move_only_when_raw_turn_is_evicted() -> None:
+    _install_rllm_workflow_stubs()
+    from bcg.agent.workflow import _evict_graph_turn_payloads
+
+    window: list[list[dict]] = []
+    turn0 = [{"role": "assistant", "content": "a0"}, {"role": "tool", "content": "t0"}]
+    turn1 = [{"role": "assistant", "content": "a1"}, {"role": "tool", "content": "t1"}]
+    turn2 = [{"role": "assistant", "content": "a2"}, {"role": "tool", "content": "t2"}]
+
+    assert _evict_graph_turn_payloads(window, turn0, 2) == []
+    assert _evict_graph_turn_payloads(window, turn1, 2) == []
+    assert _evict_graph_turn_payloads(window, turn2, 2) == turn0
+    assert window == [turn1, turn2]
+
+
+def test_graph_payload_eviction_handles_unbounded_and_graph_only_modes() -> None:
+    _install_rllm_workflow_stubs()
+    from bcg.agent.workflow import _evict_graph_turn_payloads
+
+    turn = [{"role": "assistant", "content": "answer"}]
+    unbounded: list[list[dict]] = []
+    graph_only: list[list[dict]] = []
+
+    assert _evict_graph_turn_payloads(unbounded, turn, None) == []
+    assert unbounded == []
+    assert _evict_graph_turn_payloads(graph_only, turn, 0) == turn
+    assert graph_only == []

@@ -95,6 +95,19 @@ bcg construct replay api_based --input stream.jsonl --config bcg/model_config.js
 See [bcg/README.md](bcg/README.md) for backend configuration, input formats,
 HTTP endpoints, and Python APIs.
 
+### Agent Context and Graph Updates
+
+Agent runs enable the two-layer archive by default and keep the latest two
+completed turns verbatim (`--recent-turns 2`). The initial system message and
+question still create a task-anchor graph. After that, a completed Agent turn
+is added to the graph only when it leaves the raw recent-turn window, so the
+same turn is never present both verbatim and in graph context.
+
+`--belief-graph-interval` remains available for legacy `--no-archive` runs; in
+archive mode, graph updates follow context eviction instead of that interval.
+Use `--recent-turns 0` for graph-only context, or `--recent-turns -1` to keep
+raw turn history unbounded so later turns are never evicted into the graph.
+
 ### Minimal Example
 
 ```python

@@ -59,6 +59,29 @@ def test_rollout_accepts_browsecomp_grader_options() -> None:
     assert cfg.browsecomp_grader_max_retries == 1
 
 
+def test_rollout_deepseek_v4_payload_format_defaults_to_json() -> None:
+    cfg = parse_rollout_args(["--model", "agent-model", "--no-auto-ui"])
+
+    assert cfg.deepseek_v4_payload_format == "json"
+
+
+def test_rollout_accepts_deepseek_v4_payload_format() -> None:
+    cfg = parse_rollout_args(
+        [
+            "--model",
+            "agent-model",
+            "--graph-format",
+            "deepseek_v4",
+            "--deepseek-v4-payload-format",
+            "xml",
+            "--no-auto-ui",
+        ]
+    )
+
+    assert cfg.graph_format == "deepseek_v4"
+    assert cfg.deepseek_v4_payload_format == "xml"
+
+
 def test_rollout_uses_config_as_its_default_source(monkeypatch) -> None:
     monkeypatch.setenv("SERPER_ENDPOINT", "https://serper.test/search")
     expected = default_rollout_config()

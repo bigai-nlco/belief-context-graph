@@ -134,6 +134,8 @@ HerO 和 rerank 服务的机器相关配置也从 `.env` 读取：
 | `--belief-graph-mode only` | **仅 graph 模式**：belief graph 替换中间对话历史，只保留 system prompt + 首条 user message + 最新 graph |
 | `--belief-graph-url URL` | Belief graph 服务地址（默认 `http://10.1.101.147:8848`） |
 | `--belief-graph-timeout N` | Belief graph HTTP 超时秒数（默认 300） |
+| `--graph-format FORMAT` | 图注入格式：`structured`、`narrative`、`markdown`、`xml`、`triplet`、`yaml`、`json` 或 `deepseek_v4` |
+| `--deepseek-v4-payload-format FORMAT` | `deepseek_v4` 角色标记内部的 belief 格式：`json`（默认）、`xml` 或 `markdown` |
 | `--no-belief-graph` | 完全禁用 belief graph 服务连接（等价于清空 URL） |
 
 `none` 模式下不会连接 belief graph 服务，可以独立运行。
@@ -193,12 +195,15 @@ BM25 → Embedding → Reranker → LLM judge 四级流水线。
 | 参数 | 说明 |
 |------|------|
 | `--enable-file-read` | 开放 `read_file` 工具（沙箱内按 `file://` URL 读文件，防越界） |
-| `--enable-archive` | 把每步 tool 结果写入两层归档，并在 system prompt 挂 manifest 引用（自动带出 `--enable-file-read`） |
+| `--enable-archive` | 默认启用；把每步 tool 结果写入两层归档，并在 system prompt 挂 manifest 引用（自动带出 `--enable-file-read`） |
+| `--no-archive` | 禁用两层归档及其隐含的 layered context；此时 `--recent-turns` 不裁剪原始历史 |
 | `--file-tool-root DIR` | 沙箱根目录（默认 `$BELIEF_TRACER_FILE_ROOT` 或 `ai_workspace/`） |
-| `--recent-turns N` | 归档模式下只在上下文保留最近 N 轮对话（0 = 全保留，不裁剪） |
+| `--recent-turns N` | 归档模式下保留最近 N 轮原始对话（默认 2；0 = 不保留原始 turn，等价于 graph-only；-1 = 全保留、永不淘汰） |
 
 > 归档启用后，belief graph 改为「user 问题之后的一条独立消息」（取代 summary 位置，
 > 每步只留最新一条）；system prompt 只含基础规则 + 文本块说明 + 工具用法 + manifest 引用。
+> 初始 system + 原始问题仍会建立一次任务锚点图。之后，只有刚从最近 N 轮原始上下文中
+> 淘汰的 Agent turn 才会进入 graph；仍以原文保留的 turn 不会重复出现在 graph 中。
 > AVeriTeC 任务规则与标签集放在 user message。归档结构：
 > `<root>/archives/<thread>/manifest.json`（第一层概要+raw_url）+ `raw/eNNN.json`（第二层完整输入输出）。
 

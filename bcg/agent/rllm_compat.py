@@ -68,6 +68,7 @@ class BeliefTracerAgent(BaseAgent):
         user_rules_prompt: str = "",
         belief_graph_mode: str = "augment",
         graph_format: str = "structured",
+        deepseek_v4_payload_format: str = "json",
         graph_include_relations: bool = True,
         belief_graph_placement: str = "user",
         layered_context: bool = False,
@@ -101,12 +102,16 @@ class BeliefTracerAgent(BaseAgent):
         self.enable_thinking = bool(enable_thinking)
         self.belief_graph_mode = belief_graph_mode
         self.graph_format = graph_format
+        if deepseek_v4_payload_format not in {"json", "xml", "markdown"}:
+            deepseek_v4_payload_format = "json"
+        self.deepseek_v4_payload_format = deepseek_v4_payload_format
         self.graph_include_relations = graph_include_relations
         if belief_graph_placement not in {"user", "system"}:
             belief_graph_placement = "user"
         self.belief_graph_placement = belief_graph_placement
         self.archive_enabled = bool(archive_enabled)
-        self.recent_turns = int(recent_turns or 0)
+        parsed_recent_turns = int(recent_turns)
+        self.recent_turns = -1 if parsed_recent_turns < 0 else parsed_recent_turns
         self._parser = get_tool_parser_compat(self.parser_name, model=model)
         self.reset()
 
@@ -195,11 +200,11 @@ class BeliefTracerAgent(BaseAgent):
         rest = [m for m in rest if m.get("role") != "system"]
 
         # Optional trimming: keep only the last N turns (1 turn = assistant + its
-        # tool result). recent_turns <= 0 means keep everything (regression-safe).
+        # tool result). Zero keeps no raw turns; -1 keeps the full raw history.
         if (
             self.belief_graph_mode != "none"
             and self.archive_enabled
-            and self.recent_turns > 0
+            and self.recent_turns >= 0
         ):
             rest = self._keep_recent_turns(rest, self.recent_turns)
 
@@ -213,6 +218,10 @@ class BeliefTracerAgent(BaseAgent):
         A turn starts at an assistant message and includes any following tool
         messages. Older turns are dropped (they live in the archive instead).
         """
+        if n_turns < 0:
+            return messages
+        if n_turns == 0:
+            return []
         # Indices where a new turn begins (assistant messages).
         starts = [i for i, m in enumerate(messages) if m.get("role") == "assistant"]
         if len(starts) <= n_turns:
@@ -232,11 +241,18 @@ class BeliefTracerAgent(BaseAgent):
 
         guide_lines: list[str] = []
         if self.context_memory_mode == BELIEF_GRAPH_MODE and self.belief_graph_mode != "none":
-            guide_lines.append(
-                "- A <belief_graph> block holds preliminary beliefs from earlier "
-                "turns. They are NOT verified evidence — use them to decide what "
-                "to search next, and always confirm with the search tool."
-            )
+            if self.graph_format == "deepseek_v4":
+                guide_lines.append(
+                    "- DeepSeek-V4 encoded dialogue context holds preliminary beliefs "
+                    "from earlier turns. They are NOT verified evidence — use them to "
+                    "decide what to search next, and always confirm with the search tool."
+                )
+            else:
+                guide_lines.append(
+                    "- A <belief_graph> block holds preliminary beliefs from earlier "
+                    "turns. They are NOT verified evidence — use them to decide what "
+                    "to search next, and always confirm with the search tool."
+                )
         elif self.context_memory_mode != "none":
             guide_lines.append(
                 "- A context-memory message (right after the question) holds compressed "
@@ -283,6 +299,8 @@ class BeliefTracerAgent(BaseAgent):
         return "\n\n".join(p for p in parts if p)
 
     def _belief_graph_block(self) -> str:
+        if self.graph_format == "deepseek_v4":
+            return self._belief_graph_text
         return f"<belief_graph>\n{self._belief_graph_text}\n</belief_graph>"
 
     @property
@@ -432,12 +450,10 @@ class BeliefTracerAgent(BaseAgent):
                 self.context_memory_mode,
             )
             return
-        # The "how to use the graph" guidance is carried as a preamble inside the
-        # <belief_graph> block itself (both layered and legacy), so the graph
-        # message is self-describing.
         graph_text = client.format_graph_for_prompt(
             snapshot, fmt=self.graph_format,
             include_relations=self.graph_include_relations,
+            deepseek_v4_payload_format=self.deepseek_v4_payload_format,
         )
         n_relations = len(
             snapshot.get("forward_relations") or snapshot.get("relations") or []
@@ -458,11 +474,12 @@ class BeliefTracerAgent(BaseAgent):
         if not self._messages or self._messages[0].get("role") != "system":
             return
         if graph_text:
-            self._messages[0]["content"] = (
-                f"{self._base_system_prompt}\n\n"
-                f"<belief_graph>\n{graph_text}\n</belief_graph>"
+            self._belief_graph_text = graph_text
+            self._messages[0]["content"] = _join_prompt_parts(
+                self._base_system_prompt, self._belief_graph_block()
             )
         else:
+            self._belief_graph_text = ""
             self._messages[0]["content"] = self._base_system_prompt
         _logger.info(
             "[Agent] Injecting belief graph into system prompt (%d beliefs, %d relations)",

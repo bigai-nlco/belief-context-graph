@@ -21,6 +21,25 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _evict_graph_turn_payloads(
+    window: list[list[dict[str, Any]]],
+    completed_turn: list[dict[str, Any]],
+    raw_turn_limit: int | None,
+) -> list[dict[str, Any]]:
+    """Return graph payloads for turns that just left the raw context.
+
+    ``raw_turn_limit=None`` means raw history is unbounded, so no completed
+    turn is graph-eligible.  A limit of zero is used by graph-only mode.
+    """
+    if raw_turn_limit is None:
+        return []
+    window.append(completed_turn)
+    evicted: list[dict[str, Any]] = []
+    while len(window) > raw_turn_limit:
+        evicted.extend(window.pop(0))
+    return evicted
+
+
 def _is_context_length_error(exc: BaseException) -> bool:
     """Return True for server-side context-window overflow errors."""
     seen: set[int] = set()
@@ -79,6 +98,7 @@ class BeliefTracerWorkflow(MultiTurnWorkflow):
     def __init__(self, *args, belief_client: "BeliefGraphClient | None" = None,
                  graph_output_dir: str = "", archive_enabled: bool = False,
                  file_tool_root: str = "", belief_graph_interval: int = 1,
+                 recent_turns: int = 0,
                  tonggraph_sync_config: dict[str, Any] | None = None,
                  context_memory_config: dict[str, Any] | None = None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -86,10 +106,17 @@ class BeliefTracerWorkflow(MultiTurnWorkflow):
         self._graph_output_dir = graph_output_dir
         self._archive_enabled = bool(archive_enabled)
         self._file_tool_root = file_tool_root
-        # Rebuild the graph every N turns instead of every turn. Turns in
-        # between are buffered (see _pending_graph_turns) and flushed together
-        # on the triggering turn or at trajectory end.
+        # Legacy interval path used only when archive mode is disabled. Archive
+        # mode aligns graph updates directly with raw-context eviction.
         self._belief_graph_interval = max(1, int(belief_graph_interval or 1))
+        parsed_recent_turns = int(recent_turns)
+        self._recent_turns = -1 if parsed_recent_turns < 0 else parsed_recent_turns
+        # In archive mode, graph ingestion follows the same sliding-window
+        # boundary as prompt assembly: a completed turn enters the graph only
+        # when it is evicted from the raw recent-turn context.  This prevents a
+        # turn from appearing both verbatim and as graph beliefs.  The initial
+        # system + question graph remains a deliberate shared task anchor.
+        self._eviction_aligned_graph = self._archive_enabled
         self._tonggraph_sync_config = dict(tonggraph_sync_config or {})
         self._context_memory_config = dict(context_memory_config or {})
 
@@ -110,6 +137,14 @@ class BeliefTracerWorkflow(MultiTurnWorkflow):
         # Turns buffered since the last graph push, flushed together when the
         # interval triggers (or at trajectory end). See __init__ docstring.
         self._pending_graph_turns: list[dict[str, Any]] = []
+        # Completed assistant/tool turns still present verbatim in the model
+        # context.  Each entry is one logical turn and its graph payloads.
+        self._raw_graph_turn_window: list[list[dict[str, Any]]] = []
+        self._graph_raw_turn_limit: int | None = (
+            0
+            if getattr(self.agent, "belief_graph_mode", "augment") == "only"
+            else (None if self._recent_turns == -1 else self._recent_turns)
+        )
         logger.info("[Workflow] Starting problem_id=%s  uid=%s", self._problem_id, uid)
 
         # Two-layer archive of tool results (layered context mode).
@@ -253,7 +288,11 @@ class BeliefTracerWorkflow(MultiTurnWorkflow):
             # _pending_graph_turns instead (see below), so kicking off a real POST
             # here would double-push it.
             _assistant_push_task = None
-            if self.belief_client and self._belief_graph_interval == 1:
+            if (
+                self.belief_client
+                and not self._eviction_aligned_graph
+                and self._belief_graph_interval == 1
+            ):
                 _assistant_push_task = asyncio.ensure_future(self.belief_client.push_turn(
                     problem_id=self._problem_id,
                     role="assistant",
@@ -344,9 +383,9 @@ class BeliefTracerWorkflow(MultiTurnWorkflow):
                 await self._context_memory.maybe_compact()
                 context_memory_message = self._context_memory.render_message()
 
-            # Buffer this turn's content for the belief graph, then push (and
-            # rebuild the graph) only every `belief_graph_interval` turns — or
-            # always, when interval is 1 (default, no behavior change).
+            # In archive mode, feed only turns that just fell out of the raw
+            # recent-turn window.  Legacy/non-trimming modes retain the older
+            # interval-based graph ingestion behavior.
             _bg_snapshot = None
             _t_graph = 0.0
             if self.belief_client:
@@ -364,7 +403,52 @@ class BeliefTracerWorkflow(MultiTurnWorkflow):
                         "[Workflow] Tool result fed to graph (%d chars): %s",
                         len(obs_str), obs_str[:150] + ("..." if len(obs_str) > 150 else ""),
                     )
-                if self._belief_graph_interval == 1:
+                if self._eviction_aligned_graph:
+                    completed_turn = [{
+                        "problem_id": self._problem_id,
+                        "role": "assistant",
+                        "content": response,
+                        "is_message_end": True,
+                        "is_trajectory_end": False,
+                        "timings": {"llm": round(_t_llm, 3)},
+                    }]
+                    if obs_str:
+                        completed_turn.append({
+                            "problem_id": self._problem_id,
+                            "role": "tool",
+                            "content": obs_str,
+                            "is_message_end": True,
+                            "is_trajectory_end": False,
+                            "timings": {"tool": round(_t_tool, 3)},
+                        })
+                    evicted_payloads = _evict_graph_turn_payloads(
+                        self._raw_graph_turn_window,
+                        completed_turn,
+                        self._graph_raw_turn_limit,
+                    )
+
+                    if evicted_payloads:
+                        _bg_snapshot = await self.belief_client.push_turns(evicted_payloads)
+                        if _bg_snapshot:
+                            await self._record_graph_snapshot(_bg_snapshot, phase="evicted_turn")
+                        logger.info(
+                            "[Workflow] Moved %d evicted raw turn(s) into graph; "
+                            "%d recent turn(s) remain verbatim",
+                            sum(1 for item in evicted_payloads if item.get("role") == "assistant"),
+                            len(self._raw_graph_turn_window),
+                        )
+                    elif self._graph_raw_turn_limit is None:
+                        logger.info(
+                            "[Workflow] Raw history is unbounded; completed turn "
+                            "remains verbatim and is not added to graph"
+                        )
+                    else:
+                        logger.info(
+                            "[Workflow] Keeping completed turn verbatim (%d/%d); "
+                            "not yet added to graph",
+                            len(self._raw_graph_turn_window), self._graph_raw_turn_limit,
+                        )
+                elif self._belief_graph_interval == 1:
                     # Wait for the assistant push we kicked off before the tool (it
                     # likely finished during tool execution). This preserves ordering
                     # and gives us the assistant-only snapshot for the no-tool case.

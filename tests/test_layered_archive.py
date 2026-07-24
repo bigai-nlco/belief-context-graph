@@ -203,20 +203,30 @@ def test_cli_four_stage_and_archive_flags():
     assert cfg.recent_turns == 3
 
 
-def test_cli_defaults_unchanged():
+def test_cli_defaults_enable_archive_with_two_recent_turns():
     from bcg.agent.rollout import _parse_args
 
     cfg = _parse_args(["--model", "/m/Qwen", "--no-auto-ui"])
     assert cfg.retrieval_method == "bm25"
-    assert cfg.enable_archive is False
-    assert cfg.enable_file_read is False
-    assert cfg.recent_turns == 0
+    assert cfg.enable_archive is True
+    assert cfg.enable_file_read is True
+    assert cfg.recent_turns == 2
     # Default keeps sequential tool-call execution (no behavior change).
     assert cfg.max_tool_workers == 1
-    # Default rebuilds the graph every turn (no behavior change).
+    # Retained for legacy --no-archive runs; archive mode aligns updates to eviction.
     assert cfg.belief_graph_interval == 1
     # Default keeps layered graph placement as the historical user message.
     assert cfg.belief_graph_placement == "user"
+
+
+def test_cli_can_disable_default_archive():
+    from bcg.agent.rollout import _parse_args
+
+    cfg = _parse_args(["--model", "/m/Qwen", "--no-auto-ui", "--no-archive"])
+
+    assert cfg.enable_archive is False
+    assert cfg.enable_file_read is False
+    assert cfg.layered_context is False
 
 
 def test_cli_belief_graph_interval():
@@ -226,6 +236,29 @@ def test_cli_belief_graph_interval():
         "--model", "/m/Qwen", "--no-auto-ui", "--belief-graph-interval", "3",
     ])
     assert cfg.belief_graph_interval == 3
+
+
+def test_cli_recent_turns_zero_is_graph_only_and_minus_one_is_unbounded():
+    from bcg.agent.rollout import _parse_args
+
+    graph_only = _parse_args([
+        "--model", "/m/Qwen", "--no-auto-ui", "--recent-turns", "0",
+    ])
+    unbounded = _parse_args([
+        "--model", "/m/Qwen", "--no-auto-ui", "--recent-turns", "-1",
+    ])
+
+    assert graph_only.recent_turns == 0
+    assert unbounded.recent_turns == -1
+
+
+def test_cli_rejects_recent_turns_below_minus_one():
+    from bcg.agent.rollout import _parse_args
+
+    with pytest.raises(SystemExit):
+        _parse_args([
+            "--model", "/m/Qwen", "--no-auto-ui", "--recent-turns", "-2",
+        ])
 
 
 def test_cli_belief_graph_placement():

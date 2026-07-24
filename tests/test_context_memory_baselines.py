@@ -101,7 +101,9 @@ def test_cli_context_memory_defaults_preserve_graph_mode():
 
     assert cfg.context_memory_mode == "belief_graph"
     assert cfg.belief_graph_mode == "augment"
-    assert cfg.layered_context is False
+    assert cfg.enable_archive is True
+    assert cfg.recent_turns == 2
+    assert cfg.layered_context is True
 
 
 def test_cli_context_memory_baseline_forces_layered_context():
@@ -136,7 +138,9 @@ def test_agent_graph_mode_still_renders_belief_graph_slot():
     from bcg.agent.rllm_compat import BeliefTracerAgent
 
     class Client:
-        def format_graph_for_prompt(self, snapshot, fmt="structured", include_relations=True):
+        def format_graph_for_prompt(
+            self, snapshot, fmt="structured", include_relations=True, **kwargs
+        ):
             return "graph text"
 
     agent = BeliefTracerAgent(system_prompt="sys", layered_context=True)
@@ -146,6 +150,53 @@ def test_agent_graph_mode_still_renders_belief_graph_slot():
     messages = agent.chat_completions
     assert any("<belief_graph>" in m["content"] for m in messages)
     assert not any("<context_memory" in m["content"] for m in messages)
+
+
+def test_recent_turns_zero_keeps_no_raw_turns_and_minus_one_keeps_all():
+    _stub_rllm()
+    from bcg.agent.rllm_compat import BeliefTracerAgent
+
+    history = [
+        {"role": "assistant", "content": "a0"},
+        {"role": "tool", "content": "t0"},
+        {"role": "assistant", "content": "a1"},
+        {"role": "tool", "content": "t1"},
+    ]
+
+    assert BeliefTracerAgent._keep_recent_turns(history, 0) == []
+    assert BeliefTracerAgent._keep_recent_turns(history, -1) == history
+
+
+def test_agent_deepseek_v4_graph_uses_raw_role_markers_without_xml_wrapper():
+    _stub_rllm()
+    from bcg.agent.rllm_compat import BeliefTracerAgent
+
+    encoded = (
+        '<｜begin▁of▁sentence｜><｜User｜>{"id":1,"content":"belief"}'
+        "<｜end▁of▁sentence｜>"
+    )
+
+    class Client:
+        def format_graph_for_prompt(
+            self, snapshot, fmt="structured", include_relations=True, **kwargs
+        ):
+            assert fmt == "deepseek_v4"
+            assert kwargs["deepseek_v4_payload_format"] == "xml"
+            return encoded
+
+    agent = BeliefTracerAgent(
+        system_prompt="sys",
+        layered_context=True,
+        graph_format="deepseek_v4",
+        deepseek_v4_payload_format="xml",
+        belief_graph_placement="user",
+    )
+    agent.update_from_env({"question": "claim"}, 0, False, {})
+    agent.inject_belief_graph({"beliefs": [{"id": 1}]}, Client())
+
+    messages = agent.chat_completions
+    assert messages[2]["content"] == encoded
+    assert not any("<belief_graph>" in message["content"] for message in messages)
 
 
 def test_agent_baseline_uses_context_memory_slot_not_graph_slot():
