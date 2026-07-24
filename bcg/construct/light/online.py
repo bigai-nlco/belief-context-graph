@@ -57,7 +57,6 @@ from __future__ import annotations
 import concurrent.futures
 import copy
 import json
-import re
 import sys
 import threading
 from contextlib import contextmanager
@@ -68,6 +67,7 @@ from typing import Any, Dict, List, Optional
 from . import llm
 from .llm import (
     load_config,
+    load_belief_graph_config,
     load_embedding_config,
     make_client,
     make_embedder,
@@ -82,52 +82,6 @@ class TrajectoryClosedError(RuntimeError):
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-_DATED_OUTPUT_RE = re.compile(
-    r"^(?P<prefix>outputs_)(?:(?P<year>\d{4})_)?(?P<month>\d{1,2})_(?P<day>\d{1,2})$"
-)
-
-
-def resolve_dated_output_root(output_root: Any, now: Optional[datetime] = None) -> Path:
-    """
-    Resolve daily output roots at use time.
-
-    Supported forms:
-      * outputs_7_6       -> outputs_<today month>_<today day>
-      * outputs_2026_7_6  -> outputs_<today year>_<today month>_<today day>
-      * outputs_{Y}_{m}_{d} -> explicit template
-      * outputs_{date}    -> e.g. outputs_2026-07-07
-
-    Plain roots such as outputs_stream are left unchanged.
-    """
-    root = Path(output_root)
-    local_now = now or datetime.now().astimezone()
-    values = {
-        "Y": f"{local_now.year:04d}",
-        "y": f"{local_now.year % 100:02d}",
-        "m": str(local_now.month),
-        "mm": f"{local_now.month:02d}",
-        "month": str(local_now.month),
-        "d": str(local_now.day),
-        "dd": f"{local_now.day:02d}",
-        "day": str(local_now.day),
-        "date": f"{local_now.year:04d}-{local_now.month:02d}-{local_now.day:02d}",
-    }
-    raw = str(root)
-    if any(("{" + key + "}") in raw for key in values):
-        try:
-            return Path(raw.format(**values))
-        except (KeyError, ValueError):
-            return root
-
-    m = _DATED_OUTPUT_RE.match(root.name)
-    if not m:
-        return root
-    month = f"{local_now.month:02d}" if len(m.group("month")) == 2 else str(local_now.month)
-    day = f"{local_now.day:02d}" if len(m.group("day")) == 2 else str(local_now.day)
-    year = f"{local_now.year:04d}_" if m.group("year") else ""
-    return root.with_name(f"{m.group('prefix')}{year}{month}_{day}")
 
 
 def _optional_bool(value: Any) -> Optional[bool]:
@@ -164,6 +118,7 @@ class StreamingTrajectorySession:
         output_root: Any = "outputs_stream",
         options: Optional[StreamOptions] = None,
         embedder=None,
+        edge_generator=None,
         pricing: Optional[Dict[str, Any]] = None,
         max_tokens: Optional[int] = None,
         item_meta: Optional[Dict[str, Any]] = None,
@@ -174,6 +129,7 @@ class StreamingTrajectorySession:
         self.model = model
         self.options = options or StreamOptions()
         self.embedder = embedder
+        self.edge_generator = edge_generator
         self.pricing = pricing
         self.max_tokens = max_tokens
         self.item_meta = dict(item_meta or {})
@@ -292,6 +248,7 @@ class StreamingTrajectorySession:
                     out_dir=self.out_dir,
                     options=self.options,
                     embedder=self.embedder,
+                    edge_generator=self.edge_generator,
                     max_tokens=self.max_tokens,
                 )
         return self._builder
@@ -332,7 +289,6 @@ class StreamingTrajectorySession:
                 "beliefs": [],
                 "decisions": [],
                 "evidence": [],
-                "factors": [],
                 "relations": [],
                 "merges": [],
                 "sessions": [],
@@ -547,13 +503,14 @@ class SessionManager:
         client: Any = "__from_config__",
         model: Optional[str] = None,
         embedder: Any = "__from_config__",
+        edge_generator=None,
         pricing: Optional[Dict[str, Any]] = None,
     ) -> None:
-        self.output_root_template = Path(output_root)
-        self.output_root = resolve_dated_output_root(self.output_root_template)
+        self.output_root = Path(output_root)
         self.output_root.mkdir(parents=True, exist_ok=True)
         self.options = options or StreamOptions()
         self.pricing = pricing
+        self.edge_generator = edge_generator
         self.max_tokens: Optional[int] = None
         self._sessions: Dict[str, StreamingTrajectorySession] = {}
         # Guards ONLY the check-and-create step in get_session(): without it,
@@ -569,22 +526,22 @@ class SessionManager:
         injected = (client != "__from_config__") or (model is not None)
         if injected:
             self.client = None if client == "__from_config__" else client
+            if options is None:
+                raise ValueError("injected SessionManager requires config-populated options")
             self.model = model or "model"
             self.embedder = None if embedder == "__from_config__" else embedder
         else:
             self._wire_from_config(config_path, model_key, embedding_key)
 
-    def current_output_root(self) -> Path:
-        root = resolve_dated_output_root(self.output_root_template)
-        root.mkdir(parents=True, exist_ok=True)
-        self.output_root = root
-        return root
-
     # ---- config wiring (mirrors pipeline.run_input) -----------------------
     def _wire_from_config(self, config_path, model_key, embedding_key) -> None:
         cfg = load_config(config_path, model_key=model_key)
+        bg_cfg = load_belief_graph_config(config_path, model_key=model_key)
+        if bg_cfg:
+            self.options = copy.deepcopy(self.options)
+            self.options.apply_belief_graph_config(bg_cfg)
         self.client = make_client(cfg)
-        self.model = cfg.get("model") or cfg.get("model_name") or "gpt-4o-mini"
+        self.model = cfg["model"]
         self.max_tokens = cfg.get("max_tokens")
         if self.pricing is None:
             self.pricing = cfg.get("pricing")
@@ -593,6 +550,37 @@ class SessionManager:
         print(
             f"[online] model={self.model}  base_url={cfg['base_url']}  api_key={masked}"
             + (f"  max_tokens={self.max_tokens}" if self.max_tokens else "")
+        )
+        extractor_cfg = self.options.to_dict()["extractor"]
+        if extractor_cfg.get("enabled", True):
+            print(
+                f"[online] extractor={extractor_cfg['model']}  "
+                f"base_url={extractor_cfg['base_url']}  "
+                f"max_concurrency={extractor_cfg['max_concurrency']}  "
+                f"context_scope={extractor_cfg['context_scope']}"
+            )
+        else:
+            print(
+                "[warn] generative extractor disabled; turns will produce no nodes",
+                file=sys.stderr,
+            )
+        entity_cfg = self.options.to_dict()["entities"]
+        print(
+            f"[online] entities method={entity_cfg['method']}  "
+            f"spaCy={entity_cfg['spacy_model']}  "
+            "stage=post-merge"
+        )
+        edge_cfg = self.options.to_dict()["edge_generation"]
+        print(
+            f"[online] edge_generator={edge_cfg['model']}  "
+            f"base_url={edge_cfg['base_url']}  "
+            f"non_thinking={not edge_cfg['enable_thinking']}"
+        )
+        stance_cfg = self.options.to_dict()["stance"]
+        print(
+            f"[online] stance_model={stance_cfg['model_path']}  "
+            f"device={stance_cfg['device']}  labels={','.join(stance_cfg['labels'])} "
+            "(weights load lazily on first use)"
         )
 
         emb_cfg = load_embedding_config(config_path, embedding_key=embedding_key)
@@ -609,24 +597,19 @@ class SessionManager:
                     f"[online] embedding model={emb_cfg['model']}  base_url={emb_cfg['base_url']}"
                 )
         else:
-            # Match pipeline.run_input: do not mutate a caller-owned options object
-            # in place unless needed; clone before fallback adjustments.
-            if self.options.use_clustering:
+            # Match pipeline.run_input fallback behaviour.
+            if self.options.chunking_enabled:
                 print(
-                    f"[warn] --use-clustering needs an {embedding_key!r} config entry — "
-                    f"clustering DISABLED",
+                    f"[warn] semantic chunking needs an {embedding_key!r} config entry; "
+                    "each turn will fall back to one chunk",
                     file=sys.stderr,
                 )
-                self.options = copy.deepcopy(self.options)
-                self.options.use_clustering = False
-            if self.options.merge_strategy == "embedding":
+            if self.options.incremental_merge:
                 print(
-                    f"[warn] merge-strategy=embedding needs an {embedding_key!r} entry — "
-                    f"falling back to merge-strategy=llm",
+                    f"[warn] incremental merge needs an {embedding_key!r} config entry; "
+                    "incremental merge passes will be skipped",
                     file=sys.stderr,
                 )
-                self.options = copy.deepcopy(self.options)
-                self.options.merge_strategy = "llm"
 
     # ---- routing ----------------------------------------------------------
     def get_session(
@@ -645,9 +628,10 @@ class SessionManager:
                     pid,
                     client=self.client,
                     model=self.model,
-                    output_root=self.current_output_root(),
+                    output_root=self.output_root,
                     options=self.options,
                     embedder=self.embedder,
+                    edge_generator=self.edge_generator,
                     pricing=self.pricing,
                     max_tokens=self.max_tokens,
                     item_meta=item_meta,

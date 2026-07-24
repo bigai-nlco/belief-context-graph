@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from bcg.construct.confidence import init_belief_confidence
+from bcg.construct.api_based.confidence import init_belief_confidence
 from bcg.graph import (
     BCG,
     BeliefPayload,

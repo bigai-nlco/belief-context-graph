@@ -13,13 +13,23 @@ canonical graph implementation.
 
 from __future__ import annotations
 
-import copy
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from bcg.graph import BCG
+try:
+    # NOTE: BeliefGraphPipeline/BeliefGraphRunResult below are a legacy SDK-style
+    # wrapper kept from the original project for reference; they target an
+    # external ``bcg.graph`` / ``bcg.memory`` / ``bcg.runner`` module set that is
+    # not part of this repo and is not wired into run_input/run_item (the
+    # actual entry points used by run.py / online_server.py). Rather than
+    # delete this code, the import is made optional so the rest of this
+    # subpackage keeps working even without those external modules; only
+    # calling BeliefGraphPipeline.run(...) requires them to be importable.
+    from bcg.graph import BCG
+except ImportError:  # pragma: no cover - see note above
+    BCG = Any  # type: ignore[assignment]
 
 from .llm import (
     USAGE,
@@ -95,16 +105,8 @@ def run_input(
         else:
             print(f"[info] embedding model={emb_cfg['model']}  base_url={emb_cfg['base_url']}")
     else:
-        if options.use_clustering:
-            print(f"[warn] --use-clustering requires an {embedding_key!r} entry in "
-                  f"{config_path} — clustering DISABLED for this run", file=sys.stderr)
-            options = copy.deepcopy(options)
-            options.use_clustering = False
-        if options.merge_strategy == "embedding":
-            print(f"[warn] merge-strategy=embedding requires an {embedding_key!r} entry "
-                  f"in {config_path} — falling back to merge-strategy=llm", file=sys.stderr)
-            options = copy.deepcopy(options)
-            options.merge_strategy = "llm"
+        print(f"[warn] no {embedding_key!r} entry in {config_path} — the incremental "
+              "merge pass will be skipped", file=sys.stderr)
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -165,17 +167,9 @@ class BeliefGraphOptions:
     """Public SDK options mapped onto :class:`StreamOptions`."""
 
     evidence_mode: str = "sentence"
-    use_split: bool = False
-    split_threshold: float = 0.6
-    split_min_sentences: int = 4
-    split_buffer: int = 0
-    merge_strategy: str = "off"
-    merge_threshold: float = 0.86
     incremental_merge: bool = True
     incremental_merge_threshold: float = 0.8
     verify_merge: bool = False
-    factor_similarity_threshold: float = 0.85
-    factor_input_confidence_threshold: float = 0.5
     context_chars: int = 9000
     io_context_chars: int = 6000
     min_content_len: int = 0
@@ -183,17 +177,9 @@ class BeliefGraphOptions:
     def to_stream_options(self) -> StreamOptions:
         return StreamOptions(
             evidence_mode=self.evidence_mode,
-            use_clustering=self.use_split,
-            cluster_threshold=self.split_threshold,
-            cluster_min_sentences=self.split_min_sentences,
-            cluster_buffer=self.split_buffer,
-            merge_strategy=self.merge_strategy,
-            merge_threshold=self.merge_threshold,
             incremental_merge=self.incremental_merge,
             incremental_merge_threshold=self.incremental_merge_threshold,
             verify_merge=self.verify_merge,
-            factor_similarity_threshold=self.factor_similarity_threshold,
-            factor_input_confidence_threshold=self.factor_input_confidence_threshold,
             context_chars=self.context_chars,
             min_content_len=self.min_content_len,
         )
@@ -201,10 +187,6 @@ class BeliefGraphOptions:
     def to_dict(self) -> dict[str, Any]:
         return {
             **self.to_stream_options().to_dict(),
-            "use_split": self.use_split,
-            "split_threshold": self.split_threshold,
-            "split_min_sentences": self.split_min_sentences,
-            "split_buffer": self.split_buffer,
             "io_context_chars": self.io_context_chars,
         }
 
@@ -223,17 +205,9 @@ class BeliefGraphPipeline:
         scenario: str = "research",
         item_id: str = "trajectory",
         evidence_mode: str = "sentence",
-        use_split: bool = False,
-        split_threshold: float = 0.6,
-        split_min_sentences: int = 4,
-        split_buffer: int = 0,
-        merge_strategy: str = "off",
-        merge_threshold: float = 0.86,
         incremental_merge: bool = True,
         incremental_merge_threshold: float = 0.8,
         verify_merge: bool = False,
-        factor_similarity_threshold: float = 0.85,
-        factor_input_confidence_threshold: float = 0.5,
         context_chars: int = 9000,
         io_context_chars: int = 6000,
         min_content_len: int = 0,
@@ -251,17 +225,9 @@ class BeliefGraphPipeline:
         self.item_id = item_id
         self.options = BeliefGraphOptions(
             evidence_mode=evidence_mode,
-            use_split=use_split,
-            split_threshold=split_threshold,
-            split_min_sentences=split_min_sentences,
-            split_buffer=split_buffer,
-            merge_strategy=merge_strategy,
-            merge_threshold=merge_threshold,
             incremental_merge=incremental_merge,
             incremental_merge_threshold=incremental_merge_threshold,
             verify_merge=verify_merge,
-            factor_similarity_threshold=factor_similarity_threshold,
-            factor_input_confidence_threshold=factor_input_confidence_threshold,
             context_chars=context_chars,
             io_context_chars=io_context_chars,
             min_content_len=min_content_len,

@@ -138,7 +138,7 @@ The belief graph construction gpipeline transforms raw conversation trajectories
 └──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
        │                   │                   │                   │                   │
        ▼                   ▼                   ▼                   ▼                   ▼
-  Raw messages      Semantic split      Belief extraction      Forward/backward    
+  Raw messages      Semantic split      Belief extraction      Forward/backward
   or turns          into segments       & confidence scoring   belief linking    Graph assembly
 ```
 
@@ -204,10 +204,10 @@ A **run** (`BCGRunner`) is the top-level lifecycle orchestrator. Each run contai
 
 | Benchmark | Task Perf. (w/o BCG) | Task Perf. (w/ BCG) | Time Cost  | Token Effiency | API Cost  |
 |---|---|---|---|---|---|
-| **GAIA** | | | | | | 
-| **Browsecomp** | | | | | | 
-| **Mind2Web** | | | | | | 
-| | | | | | | 
+| **GAIA** | | | | | |
+| **Browsecomp** | | | | | |
+| **Mind2Web** | | | | | |
+| | | | | | |
 
 
 ## Comparison with Existing Memory Solutions
@@ -238,7 +238,7 @@ BCG is a Python library with a minimal dependency footprint. It integrates with 
 
 
 ### Supported Frameworks
-<!-- 
+<!--
 | Framework | Integration Method | Notes |
 |---|---|---|
 | **Claude Code** | MCP server or Python tool | Expose BCG as an MCP tool for belief extraction and query during agent sessions |
@@ -253,7 +253,7 @@ BCG is a Python library with a minimal dependency footprint. It integrates with 
 -->
 
 ### MCP Server
-<!-- 
+<!--
 A built-in MCP server is on the roadmap, exposing:
 
 | Tool | Purpose |
@@ -309,7 +309,7 @@ Pipeline behavior — semantic splitting, merge strategy, context budgets, run I
 
 ## Contributing
 
-Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.  
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ---
 

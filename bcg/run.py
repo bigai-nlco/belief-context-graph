@@ -1,47 +1,45 @@
 #!/usr/bin/env python3
 """
-scripts/run.py  (v3)
-====================
-Command-line driver for the streaming `construct_beliefs` pipeline.
+bcg/run.py
+==========
+Single command-line driver for BOTH belief-context-graph construction
+backends. Pick one with the first positional argument:
 
-No scenarios, no sessions. Any input (a trajectory, or multi-session QA data) is
-normalised into items, each a flat list of role-tagged turns; each turn is
-processed by role in ONE LLM call (new nodes + new forward edges).
+  python bcg/run.py light      --input data.json [...]
+  python bcg/run.py api_based  --input data.json [...]
+
+Each subcommand mirrors the CLI of its original standalone project exactly
+(same flags, same defaults) — only the dispatch is new. Run with
+``light -h`` / ``api_based -h`` to see each backend's full option list.
 
 Examples
 --------
-  # A trajectory or conversation file (auto-normalised), default options:
-  python scripts/run.py --input data.json
+  # light backend: local embeddings + small generative model
+  python bcg/run.py light --input data.json --model-key gpt-5.5 --embedding-key embedding
 
-  # Whole-sentence evidence (default) with topic clustering + embedding merge:
-  python scripts/run.py --input data.json \
-      --evidence-mode sentence --use-clustering \
-      --merge-strategy embedding --merge-threshold 0.86
-
-  # Free-span evidence (model quotes excerpts; no sentence splitting):
-  python scripts/run.py --input data.json --evidence-mode excerpt
-
-  # Pick the chat model / embedding entry from model_config.json:
-  python scripts/run.py --input data.json \
-      --model-key deepseek-v4-flash-260425 --embedding-key embedding
+  # api_based backend: one large API-based chat model does extraction + relations
+  python bcg/run.py api_based --input data.json \\
+      --evidence-mode sentence --incremental-merge --incremental-merge-threshold 0.86
 """
+
+from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
 
+# Allow running as `python bcg/run.py ...` from the project root (the parent
+# directory of this `bcg` package), matching both original projects' scripts.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from bcg.construct.pipeline import run_input
-from bcg.construct.stream import StreamOptions
-from bcg.cli_help import RichArgumentParser
+from bcg.cli_help import RichArgumentParser  # noqa: E402
+from bcg.construct.dispatch import (  # noqa: E402
+    DEFAULT_BACKEND,
+    split_backend_args,
+)
 
 
-def main(argv: list[str] | None = None) -> None:
-    p = RichArgumentParser(
-        prog="bcg construct run",
-        description="construct_beliefs v3 streaming pipeline driver",
-    )
+def _add_common_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--input", "-i", required=True,
                    help="Input JSON/TXT (a trajectory, or multi-session QA items).")
     p.add_argument("--config", "-c", default="bcg/model_config.json",
@@ -54,33 +52,46 @@ def main(argv: list[str] | None = None) -> None:
                         "(default: gpt-5.5, matching the online server).")
     p.add_argument("--embedding-key", default="embedding",
                    help="Which config entry holds the embedding endpoint.")
-
     p.add_argument("--item", default=None,
                    help="Process only this item (id or 0-based index).")
     p.add_argument("--keep-order", default=False, action="store_true",
                    help="For multi-session inputs, do NOT sort sessions by date when "
                         "flattening; keep the input array order.")
 
+
+def _run_light(argv: list[str]) -> None:
+    from bcg.construct.light.pipeline import run_input
+
+    p = argparse.ArgumentParser(
+        prog="bcg/run.py light",
+        description="construct_beliefs v3 streaming pipeline driver (light backend: "
+                    "local embeddings + small generative model).",
+    )
+    _add_common_args(p)
+    args = p.parse_args(argv)
+
+    run_input(
+        args.input, args.config, Path(args.output_dir),
+        model_key=args.model_key, embedding_key=args.embedding_key,
+        item_selector=args.item, keep_order=args.keep_order,
+    )
+
+
+def _run_api_based(argv: list[str]) -> None:
+    from bcg.construct.api_based.pipeline import run_input
+    from bcg.construct.api_based.stream import StreamOptions
+
+    p = argparse.ArgumentParser(
+        prog="bcg/run.py api_based",
+        description="construct_beliefs v3 streaming pipeline driver (api_based backend: "
+                    "one large API-based chat model).",
+    )
+    _add_common_args(p)
+
     # evidence mode (HP1)
     p.add_argument("--evidence-mode", choices=["sentence", "excerpt"], default="sentence",
                    help="'sentence' = evidence is always a complete sentence (split + indices); "
                         "'excerpt' = model quotes verbatim spans (may be fragments). Default: sentence.")
-    # clustering (HP2) — sentence mode only; needs the embedding entry
-    p.add_argument("--use-clustering", default=False, action="store_true",
-                   help="Group a turn's sentences by topic cluster inside the single "
-                        "extraction call (sentence mode only; requires the embedding entry).")
-    p.add_argument("--cluster-threshold", type=float, default=0.6,
-                   help="Cosine-similarity floor for merging sentence clusters. Default 0.6.")
-    p.add_argument("--cluster-min-sentences", type=int, default=4,
-                   help="Turns with fewer sentences skip clustering. Default 4.")
-    p.add_argument("--cluster-buffer", type=int, default=0,
-                   help="Neighbour window used ONLY for sentence embedding. Default 0.")
-
-    # merge / dedup
-    p.add_argument("--merge-strategy", choices=["embedding", "llm", "off"], default="off",
-                   help="Trajectory-end dedup strategy. Default: off (no final global merge).")
-    p.add_argument("--merge-threshold", type=float, default=0.86,
-                   help="Cosine-similarity threshold for merge candidate pairs. Default 0.86.")
 
     # incremental per-turn merge (embedding-only, no LLM verification)
     p.add_argument("--incremental-merge", dest="incremental_merge",
@@ -94,20 +105,12 @@ def main(argv: list[str] | None = None) -> None:
                    help="Cosine threshold for the per-turn incremental merge. Default 0.86 "
                         "(matching the online server).")
     p.add_argument("--verify-merge", dest="verify_merge",
-                   default= True, action="store_true",
+                   default=True, action="store_true",
                    help="Add an LLM check to the per-turn incremental merge: for each "
                         "embedding-flagged candidate group, call the LLM once to verify the "
                         "merge is reasonable (apply-time gate) AND rewrite the surviving "
-                        "node's content to cover all merged nodes' meaning. Default: OFF. "
-                        "Only affects the incremental merge; the final merge is unchanged. "
+                        "node's content to cover all merged nodes' meaning. Default: ON. "
                         "Needs the embedding entry.")
-
-    p.add_argument("--factor-similarity-threshold", type=float, default=0.80,
-                   help="Cosine threshold for reusing an existing same-type factor by "
-                        "activation_condition[note] embedding similarity. ")
-    p.add_argument("--factor-input-confidence-threshold", type=float, default=0.5,
-                   help="Only activate a depends_on/contradicts factor when its input "
-                        "node confidence is greater than this value. Default 0.5.")
 
     p.add_argument("--context-chars", type=int, default=100000,
                    help="Char budget of the existing-nodes context block. Default 100000 "
@@ -119,17 +122,9 @@ def main(argv: list[str] | None = None) -> None:
 
     options = StreamOptions(
         evidence_mode=args.evidence_mode,
-        use_clustering=args.use_clustering,
-        cluster_threshold=args.cluster_threshold,
-        cluster_min_sentences=args.cluster_min_sentences,
-        cluster_buffer=args.cluster_buffer,
-        merge_strategy=args.merge_strategy,
-        merge_threshold=args.merge_threshold,
         incremental_merge=args.incremental_merge,
         incremental_merge_threshold=args.incremental_merge_threshold,
         verify_merge=args.verify_merge,
-        factor_similarity_threshold=args.factor_similarity_threshold,
-        factor_input_confidence_threshold=args.factor_input_confidence_threshold,
         context_chars=args.context_chars,
         min_content_len=args.min_content_len,
     )
@@ -139,6 +134,40 @@ def main(argv: list[str] | None = None) -> None:
         model_key=args.model_key, embedding_key=args.embedding_key,
         options=options, item_selector=args.item, keep_order=args.keep_order,
     )
+
+
+_BACKENDS = {"light": _run_light, "api_based": _run_api_based}
+
+
+def main(argv: list[str] | None = None) -> None:
+    argv = list(sys.argv[1:] if argv is None else argv)
+
+    if not argv or argv[0] in ("-h", "--help"):
+        parser = RichArgumentParser(
+            prog="bcg construct run",
+            description="construct_beliefs v3 streaming pipeline driver "
+                        "(builds belief graphs from a trajectory or dataset).",
+            epilog="Run 'bcg construct run <backend> --help' for a backend's "
+                   "full option list. If omitted, the backend defaults to "
+                   f"{DEFAULT_BACKEND!r} for compatibility.",
+        )
+        parser.add_argument(
+            "backend",
+            choices=list(_BACKENDS),
+            nargs="?",
+            default=DEFAULT_BACKEND,
+            help=f"Which construct backend to use (default: {DEFAULT_BACKEND}).",
+        )
+        parser.print_help()
+        raise SystemExit(0)
+
+    try:
+        backend, rest = split_backend_args(argv, backends=_BACKENDS)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(2)
+
+    _BACKENDS[backend](rest)
 
 
 if __name__ == "__main__":

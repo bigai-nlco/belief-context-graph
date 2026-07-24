@@ -58,6 +58,43 @@ cd belief-context-graph
 uv sync
 ```
 
+This creates a repository-local `.venv`. You may alternatively install the
+single `bcg` executable in an isolated user tool environment:
+
+```bash
+uv tool install .
+bcg --version
+```
+
+### Configuration
+
+Keep credentials in the ignored root `.env`, and model routing in the
+non-secret JSON config:
+
+```bash
+cp .env.example .env
+cp bcg/model_config.example.json bcg/model_config.json
+```
+
+Every `api_key_env` value in `model_config.json` names a variable from
+`.env`; do not put API keys directly in JSON.
+
+### Construct Commands
+
+The constructor provides two backends: `api_based` uses one large
+OpenAI-compatible model, while `light` uses local embeddings, spaCy, and
+smaller extractor/relation models. Put the backend after `run`, `server`,
+or `replay`. Omitting it remains compatible and defaults to `api_based`.
+
+```bash
+bcg construct run api_based --input data.json --config bcg/model_config.json
+bcg construct server light --config bcg/model_config.json --host 127.0.0.1 --port 8848
+bcg construct replay api_based --input stream.jsonl --config bcg/model_config.json
+```
+
+See [bcg/README.md](bcg/README.md) for backend configuration, input formats,
+HTTP endpoints, and Python APIs.
+
 ### Minimal Example
 
 ```python
@@ -138,7 +175,7 @@ The belief graph construction gpipeline transforms raw conversation trajectories
 └──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
        │                   │                   │                   │                   │
        ▼                   ▼                   ▼                   ▼                   ▼
-  Raw messages      Semantic split      Belief extraction      Forward/backward    
+  Raw messages      Semantic split      Belief extraction      Forward/backward
   or turns          into segments       & confidence scoring   belief linking    Graph assembly
 ```
 
@@ -204,13 +241,13 @@ A **run** (`BCGRunner`) is the top-level lifecycle orchestrator. Each run contai
 
 | Benchmark | Task Perf. (w/o BCG) | Task Perf. (w/ BCG) | Time Cost  | Token Effiency | API Cost  |
 |---|---|---|---|---|---|
-| **GAIA** | | | | | | 
-| **WebArena**| | | | | | 
-| **SWE-bench** | | | | | | 
-| **HotpotQA**| | | | | | 
-| **ALFWorld** | | | | | | 
-| **Mind2Web** | | | | | | 
-| **AgentBench** | | | | | | 
+| **GAIA** | | | | | |
+| **WebArena**| | | | | |
+| **SWE-bench** | | | | | |
+| **HotpotQA**| | | | | |
+| **ALFWorld** | | | | | |
+| **Mind2Web** | | | | | |
+| **AgentBench** | | | | | |
 
 
 ## Comparison with Existing Memory Solutions
@@ -241,7 +278,7 @@ BCG is a Python library with a minimal dependency footprint. It integrates with 
 
 
 ### Supported Frameworks
-<!-- 
+<!--
 | Framework | Integration Method | Notes |
 |---|---|---|
 | **Claude Code** | MCP server or Python tool | Expose BCG as an MCP tool for belief extraction and query during agent sessions |
@@ -256,7 +293,7 @@ BCG is a Python library with a minimal dependency footprint. It integrates with 
 -->
 
 ### MCP Server
-<!-- 
+<!--
 A built-in MCP server is on the roadmap, exposing:
 
 | Tool | Purpose |
@@ -312,7 +349,7 @@ Pipeline behavior — semantic splitting, merge strategy, context budgets, run I
 
 ## Contributing
 
-Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.  
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ---
 

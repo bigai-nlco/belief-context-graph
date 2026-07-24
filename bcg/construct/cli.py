@@ -57,7 +57,7 @@ def _server(ctx: typer.Context) -> None:
 
 @app.command(
     "replay",
-    help="Replay JSONL turns into the streaming constructor.",
+    help="Replay a JSONL turn stream through a construction backend.",
     context_settings=_FORWARD_CONTEXT,
     add_help_option=False,
 )

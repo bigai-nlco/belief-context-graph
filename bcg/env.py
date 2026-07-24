@@ -74,6 +74,40 @@ def load_project_env(
     return loaded
 
 
+def resolve_config_api_key(
+    config: dict[str, object],
+    *,
+    default_env: str,
+    config_path: str,
+) -> None:
+    """Resolve an API key referenced by a non-secret model config.
+
+    ``api_key_env`` names the variable in the project-root ``.env``. A legacy
+    inline ``api_key`` remains a fallback so existing private configs keep
+    working, but templates and documentation must use ``api_key_env``.
+    """
+
+    load_project_env()
+    env_name = config.get("api_key_env") or default_env
+    if not isinstance(env_name, str) or not env_name.strip():
+        raise ValueError(
+            f"Config field 'api_key_env' must be a non-empty environment "
+            f"variable name in {config_path}."
+        )
+    env_name = env_name.strip()
+    legacy_key = config.get("api_key")
+    api_key = os.environ.get(env_name) or (
+        legacy_key if isinstance(legacy_key, str) else ""
+    )
+    if not api_key.strip():
+        raise ValueError(
+            f"API key environment variable {env_name!r} is empty. Add it to "
+            f"the project root {PROJECT_ENV_FILE.name} file."
+        )
+    config["api_key_env"] = env_name
+    config["api_key"] = api_key
+
+
 # Importing any ``bcg`` module initializes this submodule before the rest of
 # the package, so credential-backed dataclass defaults see the root .env.
 load_project_env()
@@ -86,4 +120,5 @@ __all__ = [
     "find_project_env",
     "load_project_env",
     "read_env_file",
+    "resolve_config_api_key",
 ]

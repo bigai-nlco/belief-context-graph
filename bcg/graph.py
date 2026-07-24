@@ -71,7 +71,9 @@ class EvidenceExcerpt(BaseModel):
     start: int | None = Field(default=None, ge=0)
     end: int | None = Field(default=None, ge=0)
     match: Literal["exact", "normalized", "fuzzy", "not_found"] | None = None
-    via: Literal["llm_excerpt", "split_sentence", "manual"] | None = None
+    via: Literal["llm_excerpt", "split_sentence", "semantic_chunk", "manual"] | None = (
+        None
+    )
     source: BeliefSource | None = None
 
 

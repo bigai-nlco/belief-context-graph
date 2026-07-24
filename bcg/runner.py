@@ -1,4 +1,4 @@
-"""Public SDK orchestration backed exclusively by :mod:`bcg.construct`."""
+"""Public SDK orchestration backed by :mod:`bcg.construct` (api_based or light)."""
 
 from __future__ import annotations
 
@@ -6,47 +6,85 @@ import asyncio
 import inspect
 from dataclasses import dataclass, field
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
-from bcg.construct import llm as construct_llm
-from bcg.construct.online import StreamingTrajectorySession
-from bcg.construct.pipeline import (
+from bcg.construct.api_based import llm as api_based_llm
+from bcg.construct.api_based.online import (
+    StreamingTrajectorySession as ApiBasedSession,
+)
+from bcg.construct.api_based.pipeline import (
     BeliefGraphOptions,
     BeliefGraphRunPaths,
     BeliefGraphRunResult,
 )
-from bcg.construct.utils import new_run_id, save_json
+from bcg.construct.api_based.utils import new_run_id, save_json
+from bcg.construct.light import llm as light_llm
+from bcg.construct.light.online import StreamingTrajectorySession as LightSession
+from bcg.construct.light.stream import StreamOptions as LightStreamOptions
 from bcg.graph import BCG, BeliefPayload, BeliefSource, EvidenceExcerpt
 from bcg.memory import BCGMemory
 from bcg.utils import utc_now
 
 
+@dataclass(frozen=True, slots=True)
+class _Backend:
+    """Everything BCGRunner needs to drive one construct backend."""
+
+    name: str
+    session_cls: type
+    llm_module: ModuleType
+
+
+# The two backends' StreamingTrajectorySession classes share an identical
+# push()/finalize()/.result contract (see bcg/construct/{light,api_based}/online.py),
+# so BCGRunner's session bookkeeping (start_session/observe_turn/end_session)
+# never needs to know which one is underneath — only construction differs.
+_BACKENDS: dict[str, _Backend] = {
+    "api_based": _Backend("api_based", ApiBasedSession, api_based_llm),
+    "light": _Backend("light", LightSession, light_llm),
+}
+
+
+def _resolve_backend(name: str) -> _Backend:
+    try:
+        return _BACKENDS[name]
+    except KeyError as exc:
+        raise ValueError(
+            f"unknown backend {name!r}; choose one of: {', '.join(_BACKENDS)}"
+        ) from exc
+
+
 @dataclass(slots=True)
 class BCGRunner:
-    """Own a belief run while delegating all construction to the v3 engine."""
+    """Own a belief run while delegating all construction to either backend."""
 
     memory: BCGMemory
     llm: Any
     output_root: str | Path = ".bcg/runs"
+    backend: str = "api_based"
     graph: BCG | None = field(default=None, init=False, repr=False)
     run_id: str | None = field(default=None, init=False)
     model: str | None = field(default=None, init=False, repr=False)
     max_tokens: int | None = field(default=None, init=False, repr=False)
     scenario: str = field(default="research", init=False)
     item_id: str = field(default="trajectory", init=False)
-    options: BeliefGraphOptions | None = field(default=None, init=False, repr=False)
+    # Either a BeliefGraphOptions (api_based) or a light StreamOptions,
+    # depending on which backend built this run.
+    options: Any = field(default=None, init=False, repr=False)
     embedder: Any | None = field(default=None, init=False, repr=False)
     metadata: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
     paths: BeliefGraphRunPaths | None = field(default=None, init=False, repr=False)
     trajectory: list[dict[str, Any]] = field(default_factory=list, init=False)
-    _engine: StreamingTrajectorySession | None = field(
-        default=None, init=False, repr=False
-    )
+    _backend: _Backend = field(init=False, repr=False)
+    _engine: Any | None = field(default=None, init=False, repr=False)
     _session: dict[str, Any] | None = field(default=None, init=False, repr=False)
     _sessions: list[dict[str, Any]] = field(default_factory=list, init=False)
     _active: bool = field(default=False, init=False, repr=False)
     _finalized: bool = field(default=False, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._backend = _resolve_backend(self.backend)
 
     async def observe_trajectory(
         self,
@@ -57,49 +95,34 @@ class BCGRunner:
         max_tokens: int | None = None,
         scenario: str = "research",
         item_id: str = "trajectory",
+        backend: str | None = None,
         evidence_mode: str = "sentence",
-        use_split: bool = False,
-        split_threshold: float = 0.6,
-        split_min_sentences: int = 4,
-        split_buffer: int = 0,
-        merge_strategy: str = "off",
-        merge_threshold: float = 0.86,
         incremental_merge: bool = True,
         incremental_merge_threshold: float = 0.8,
         verify_merge: bool = False,
-        factor_similarity_threshold: float = 0.85,
-        factor_input_confidence_threshold: float = 0.5,
         context_chars: int = 9000,
         io_context_chars: int = 6000,
         min_content_len: int = 0,
-        min_segment_len: dict[str, int] | None = None,
+        belief_graph_config: dict[str, Any] | None = None,
         embedder: Any | None = None,
-        confidence_config: Any | None = None,
         metadata: dict[str, Any] | None = None,
-        options: BeliefGraphOptions | None = None,
+        options: Any | None = None,
     ) -> BeliefGraphRunResult:
-        del min_segment_len, confidence_config
         self.begin_belief_run(
             run_id=run_id,
             model=model,
             max_tokens=max_tokens,
             scenario=scenario,
             item_id=item_id,
+            backend=backend,
             evidence_mode=evidence_mode,
-            use_split=use_split,
-            split_threshold=split_threshold,
-            split_min_sentences=split_min_sentences,
-            split_buffer=split_buffer,
-            merge_strategy=merge_strategy,
-            merge_threshold=merge_threshold,
             incremental_merge=incremental_merge,
             incremental_merge_threshold=incremental_merge_threshold,
             verify_merge=verify_merge,
-            factor_similarity_threshold=factor_similarity_threshold,
-            factor_input_confidence_threshold=factor_input_confidence_threshold,
             context_chars=context_chars,
             io_context_chars=io_context_chars,
             min_content_len=min_content_len,
+            belief_graph_config=belief_graph_config,
             embedder=embedder,
             metadata=metadata,
             options=options,
@@ -123,52 +146,59 @@ class BCGRunner:
         max_tokens: int | None = None,
         scenario: str = "research",
         item_id: str = "trajectory",
+        backend: str | None = None,
+        # --- api_based-only knobs, mapped onto BeliefGraphOptions ---
         evidence_mode: str = "sentence",
-        use_split: bool = False,
-        split_threshold: float = 0.6,
-        split_min_sentences: int = 4,
-        split_buffer: int = 0,
-        merge_strategy: str = "off",
-        merge_threshold: float = 0.86,
         incremental_merge: bool = True,
         incremental_merge_threshold: float = 0.8,
         verify_merge: bool = False,
-        factor_similarity_threshold: float = 0.85,
-        factor_input_confidence_threshold: float = 0.5,
         context_chars: int = 9000,
         io_context_chars: int = 6000,
         min_content_len: int = 0,
-        min_segment_len: dict[str, int] | None = None,
+        # --- light-only knob: the `belief_graph` section of model_config.json
+        # (see bcg/model_config.example.json), applied via StreamOptions
+        # .apply_belief_graph_config(). Omit it to fall back to that
+        # StreamOptions' own built-in defaults.
+        belief_graph_config: dict[str, Any] | None = None,
         embedder: Any | None = None,
-        confidence_config: Any | None = None,
         metadata: dict[str, Any] | None = None,
-        options: BeliefGraphOptions | None = None,
+        options: Any | None = None,
     ) -> str:
-        del min_segment_len, confidence_config
         if self._active:
             raise RuntimeError("A belief run is already active")
+        if backend is not None:
+            self._backend = _resolve_backend(backend)
+            self.backend = self._backend.name
+
         self.run_id = run_id or new_run_id()
         self.model = model or _model_name(self.llm)
         self.max_tokens = max_tokens
         self.scenario = scenario
         self.item_id = item_id
-        self.options = options or BeliefGraphOptions(
-            evidence_mode=evidence_mode,
-            use_split=use_split,
-            split_threshold=split_threshold,
-            split_min_sentences=split_min_sentences,
-            split_buffer=split_buffer,
-            merge_strategy=merge_strategy,
-            merge_threshold=merge_threshold,
-            incremental_merge=incremental_merge,
-            incremental_merge_threshold=incremental_merge_threshold,
-            verify_merge=verify_merge,
-            factor_similarity_threshold=factor_similarity_threshold,
-            factor_input_confidence_threshold=factor_input_confidence_threshold,
-            context_chars=context_chars,
-            io_context_chars=io_context_chars,
-            min_content_len=min_content_len,
-        )
+
+        if options is not None:
+            self.options = options
+        elif self._backend.name == "light":
+            light_options = LightStreamOptions()
+            if belief_graph_config:
+                # Skip the call entirely when no config is supplied: an empty
+                # dict makes apply_belief_graph_config() raise (it requires a
+                # "runtime" object), whereas leaving the dataclass defaults in
+                # place lets StreamingBeliefBuilder's own normalizers fill in
+                # sane extractor/stance/entity/edge/confidence defaults.
+                light_options.apply_belief_graph_config(belief_graph_config)
+            self.options = light_options
+        else:
+            self.options = BeliefGraphOptions(
+                evidence_mode=evidence_mode,
+                incremental_merge=incremental_merge,
+                incremental_merge_threshold=incremental_merge_threshold,
+                verify_merge=verify_merge,
+                context_chars=context_chars,
+                io_context_chars=io_context_chars,
+                min_content_len=min_content_len,
+            )
+
         self.embedder = embedder
         self.metadata = dict(metadata or {})
         self.paths = _run_paths(Path(self.output_root), self.run_id)
@@ -177,19 +207,25 @@ class BCGRunner:
             metadata={
                 "run_id": self.run_id,
                 "namespace": self.memory.namespace,
-                "engine": "bcg.construct",
+                "engine": f"bcg.construct.{self._backend.name}",
             }
         )
         self.memory.graph = self.graph
         self.trajectory = []
         self._sessions = []
         self._session = None
-        self._engine = StreamingTrajectorySession(
+
+        engine_options = (
+            self.options.to_stream_options()
+            if isinstance(self.options, BeliefGraphOptions)
+            else self.options
+        )
+        self._engine = self._backend.session_cls(
             self.run_id,
-            client=_ConstructClientAdapter(self.llm),
+            client=_ConstructClientAdapter(self.llm, self._backend.llm_module),
             model=self.model,
             output_root=Path(self.output_root),
-            options=self.options.to_stream_options(),
+            options=engine_options,
             embedder=self.embedder,
             max_tokens=self.max_tokens,
             item_meta={"scenario": self.scenario, "item_id": self.item_id},
@@ -283,13 +319,17 @@ class BCGRunner:
                 "generated_at": native.get("generated_at"),
             }
         )
+        options_dict = (
+            self.options.to_dict() if hasattr(self.options, "to_dict") else {}
+        )
         memory = _memory_document(
             self.graph,
             native=native,
             run_id=self.run_id,
             trajectory=self.trajectory,
-            options=self.options,
+            options_dict=options_dict,
             metadata=self.metadata,
+            engine=f"bcg.construct.{self._backend.name}",
         )
         token_usage = dict(native.get("token_usage") or {})
         counts = dict(memory["counts"])
@@ -319,7 +359,7 @@ class BCGRunner:
             metadata={
                 "run_id": self.run_id,
                 "namespace": self.memory.namespace,
-                "engine": "bcg.construct",
+                "engine": f"bcg.construct.{self._backend.name}",
             },
         )
         self.memory.graph = self.graph
@@ -332,8 +372,13 @@ class BCGRunner:
 class _ConstructClientAdapter:
     """Expose an OpenAI chat-completions shape over the public SDK LLM client."""
 
-    def __init__(self, llm: Any) -> None:
+    def __init__(
+        self,
+        llm: Any,
+        backend_llm_module: ModuleType = api_based_llm,
+    ) -> None:
         self.llm = llm
+        self._backend_llm_module = backend_llm_module
         self.chat = SimpleNamespace(
             completions=SimpleNamespace(create=self._create),
         )
@@ -360,7 +405,7 @@ class _ConstructClientAdapter:
                 "max_tokens": max_tokens,
             }
             if _accepts_keyword(self.llm.generate_text, "label"):
-                tracker = construct_llm.current_usage_tracker()
+                tracker = self._backend_llm_module.current_usage_tracker()
                 call_kwargs["label"] = getattr(tracker, "_label", "unlabeled")
             if model and _accepts_keyword(self.llm.generate_text, "model"):
                 call_kwargs["model"] = model
@@ -521,8 +566,9 @@ def _memory_document(
     native: dict[str, Any],
     run_id: str,
     trajectory: list[dict[str, Any]],
-    options: BeliefGraphOptions,
+    options_dict: dict[str, Any],
     metadata: dict[str, Any],
+    engine: str,
 ) -> dict[str, Any]:
     base = graph.to_memory_dict()
     all_nodes = graph.belief_dicts()
@@ -531,13 +577,13 @@ def _memory_document(
     base.update(
         {
             "schema": "bcg.memory.v2",
-            "engine": "bcg.construct",
+            "engine": engine,
             "run_id": run_id,
             "prompt_name": native.get("prompt_name", "construct_beliefs"),
             "model": native.get("model"),
             "generated_at": native.get("generated_at") or utc_now().isoformat(),
             "mode": "stream",
-            "options": options.to_dict(),
+            "options": options_dict,
             "trajectory": trajectory,
             "nodes": all_nodes,
             "beliefs": beliefs,

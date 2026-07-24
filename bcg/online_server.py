@@ -1,15 +1,26 @@
 #!/usr/bin/env python3
 """
-scripts/online_server.py
-========================
-Dependency-free HTTP server for the same streaming pipeline used by ``run.py``.
+bcg/online_server.py
+====================
+Single dependency-free HTTP server for BOTH belief-context-graph
+construction backends. Pick one with the first positional argument, same as
+``bcg/run.py``:
+
+  python bcg/online_server.py light      --config bcg/model_config.json --port 8848
+  python bcg/online_server.py api_based  --config bcg/model_config.json --port 8848
+
+The HTTP request-handling code below (routing, (de)serialisation, endpoints)
+is identical for both backends — only the config wiring / SessionManager
+construction differs, so that part is factored into one shared handler and
+each backend gets its own small ``build_manager`` + argument parser.
 
 The server supports two ways to feed data:
 
   1. True online mode: POST one completed turn at a time to /turn.
   2. run.py-compatible mode: POST a whole trajectory / messages object /
-     multi-session QA payload to /input; it is normalised with the same loader
-     used by run.py, then ingested turn-by-turn through the online engine.
+     multi-session QA payload to /input; it is normalised with the same
+     loader used by run.py, then ingested turn-by-turn through the online
+     engine.
 
 Endpoints
 ---------
@@ -21,8 +32,6 @@ Endpoints
               {"problem_id": "p1", "role": "user", "content": "..."}
               {"problem_id": "p1", "role": "assistant", "content": "...",
                "is_trajectory_end": true}
-        Optional fields such as date/session_date and has_answer are passed
-        through exactly like the local run.py pipeline.
         -> the current belief-graph snapshot for that problem_id.
 
   POST /turns
@@ -46,38 +55,24 @@ Endpoints
   GET  /graph?problem_id=p1
         -> the latest snapshot for that trajectory (404 if unknown).
 
-All artifacts are written to <resolved-output-dir>/<problem_id>/. If
-<output-dir> is a daily root such as outputs_2026_7_6 or a template such as
-outputs_{Y}_{m}_{d}, new sessions resolve it at creation time so a long-running
-server rolls over after midnight without restart:
-trajectory_stream.jsonl, trajectory.json, belief_graph.jsonl,
-belief_graph_latest.json, result.json, final_graph.json, events.jsonl,
-token_usage.*, and logs/.
-
 Concurrency
 -----------
-Each problem_id is backed by its own StreamingTrajectorySession, which now
-guards its own mutable state (belief graph, builder, output files) with its
-own lock, and binds its own token-usage tracker / audit-log paths through
-belief_graph.llm's context-local helpers instead of process-global state.
-Because of that, this server no longer needs a single global lock: turns for
-the SAME problem_id are still processed strictly in arrival order (whichever
-request gets to that session first), while turns for DIFFERENT problem_ids
-run fully concurrently on ThreadingHTTPServer's per-request threads. /turns
-and /input additionally fan out their distinct problem_ids/items across a
-small thread pool so one batch request doesn't itself serialize unrelated
-trajectories.
+Each problem_id is backed by its own StreamingTrajectorySession, which guards
+its own mutable state (belief graph, builder, output files) with its own
+lock, so different problem_ids run fully concurrently on
+ThreadingHTTPServer's per-request threads while turns for the SAME
+problem_id stay strictly in arrival order.
 
 Run
 ---
-  python scripts/online_server.py --config model_config.json \
+  python bcg/online_server.py light --config bcg/model_config.json \\
       --model-key gpt-5.5 --host 127.0.0.1 --port 8848 --output-dir outputs_stream
 
-  curl -s -X POST localhost:8848/turn -H 'content-type: application/json' \
-       -d '{"problem_id":"p1","role":"user","content":"hello"}'
+  python bcg/online_server.py api_based --config bcg/model_config.json \\
+      --model-key gpt-5.5 --host 127.0.0.1 --port 8848 --output-dir outputs_stream
 
-  curl -s -X POST localhost:8848/input -H 'content-type: application/json' \
-       --data-binary @data.json
+  curl -s -X POST localhost:8848/turn -H 'content-type: application/json' \\
+       -d '{"problem_id":"p1","role":"user","content":"hello"}'
 """
 
 from __future__ import annotations
@@ -87,20 +82,25 @@ import json
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-
-from bcg.cli_help import RichArgumentParser
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
+# Allow running as `python bcg/online_server.py ...` from the project root
+# (the parent directory of this `bcg` package).
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from bcg.construct.online import (  # noqa: E402
-    SessionManager,
-    TrajectoryClosedError,
-    resolve_dated_output_root,
+from bcg.cli_help import RichArgumentParser  # noqa: E402
+from bcg.construct.dispatch import (  # noqa: E402
+    DEFAULT_BACKEND,
+    split_backend_args,
 )
-from bcg.construct.stream import StreamOptions  # noqa: E402
 
+
+# ---------------------------------------------------------------------------
+# Shared HTTP plumbing (backend-agnostic: works against any SessionManager
+# exposing push / push_many / push_input / finalize / get_graph /
+# active_problem_ids / all_problem_ids).
+# ---------------------------------------------------------------------------
 
 def _parse_turns_body(raw: bytes) -> List[Dict[str, Any]]:
     """Accept a JSON array of dicts OR NDJSON (one dict per line)."""
@@ -150,13 +150,12 @@ def _query_str(qs: Dict[str, List[str]], name: str) -> Optional[str]:
     return val if val != "" else None
 
 
-def make_handler(manager: SessionManager, *, quiet: bool = False):
+def make_handler(manager, trajectory_closed_error: type, *, quiet: bool = False):
     """Build a request-handler class bound to one manager.
 
-    No serialization lock here: concurrency safety now lives inside
-    SessionManager / StreamingTrajectorySession (see construct/online.py),
-    so different problem_ids can be handled by different threads with no
-    coordination required at this layer.
+    ``trajectory_closed_error`` is the backend-specific ``TrajectoryClosedError``
+    class, passed in so this module never needs to import both backends just
+    to catch it.
     """
 
     class Handler(BaseHTTPRequestHandler):
@@ -219,9 +218,6 @@ def make_handler(manager: SessionManager, *, quiet: bool = False):
 
                 if url.path == "/turns":
                     turns = _parse_turns_body(raw)
-                    # Different problem_ids in this batch run concurrently;
-                    # each problem_id's own turns stay in order. See
-                    # SessionManager.push_many.
                     result = manager.push_many(turns)
                     self._send(200, result)
                     return
@@ -231,8 +227,6 @@ def make_handler(manager: SessionManager, *, quiet: bool = False):
                     keep_order = _query_bool(qs, "keep_order", False)
                     finalize = _query_bool(qs, "finalize", True)
                     item_selector = _query_str(qs, "item")
-                    # Different items (problem_ids) in this payload run
-                    # concurrently; see SessionManager.push_input.
                     result = manager.push_input(
                         data,
                         keep_order=keep_order,
@@ -255,7 +249,7 @@ def make_handler(manager: SessionManager, *, quiet: bool = False):
 
             except json.JSONDecodeError as e:
                 self._send(400, {"error": f"invalid JSON: {e}"})
-            except TrajectoryClosedError as e:
+            except trajectory_closed_error as e:
                 self._send(409, {"error": str(e)})
             except KeyError as e:
                 self._send(404, {"error": str(e)})
@@ -267,50 +261,78 @@ def make_handler(manager: SessionManager, *, quiet: bool = False):
     return Handler
 
 
-def serve(manager: SessionManager, host: str, port: int, *, quiet: bool = False):
+def serve(manager, trajectory_closed_error: type, host: str, port: int, *, quiet: bool = False):
     """Create (but do not block) a ThreadingHTTPServer. Caller runs serve_forever."""
-    httpd = ThreadingHTTPServer((host, port), make_handler(manager, quiet=quiet))
+    httpd = ThreadingHTTPServer(
+        (host, port), make_handler(manager, trajectory_closed_error, quiet=quiet)
+    )
     return httpd
 
 
-def build_manager(args) -> SessionManager:
-    options = StreamOptions(
-        evidence_mode=args.evidence_mode,
-        use_clustering=args.use_clustering,
-        cluster_threshold=args.cluster_threshold,
-        cluster_min_sentences=args.cluster_min_sentences,
-        cluster_buffer=args.cluster_buffer,
-        merge_strategy=args.merge_strategy,
-        merge_threshold=args.merge_threshold,
-        incremental_merge=args.incremental_merge,
-        incremental_merge_threshold=args.incremental_merge_threshold,
-        verify_merge=args.verify_merge,
-        factor_similarity_threshold=args.factor_similarity_threshold,
-        factor_input_confidence_threshold=args.factor_input_confidence_threshold,
-        context_chars=args.context_chars,
-        min_content_len=args.min_content_len,
+def _serve_forever(manager, trajectory_closed_error: type, args) -> None:
+    httpd = serve(manager, trajectory_closed_error, args.host, args.port, quiet=args.quiet)
+    print(
+        f"[online-server] listening on http://{args.host}:{args.port}  "
+        f"(POST /turn, /turns, /input, /finalize ; GET /graph, /health)"
     )
-    return SessionManager(
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\n[online-server] shutting down")
+    finally:
+        httpd.server_close()
+
+
+# ---------------------------------------------------------------------------
+# light backend
+# ---------------------------------------------------------------------------
+
+def _run_light(argv: list[str]) -> None:
+    from bcg.construct.light.online import SessionManager, TrajectoryClosedError
+
+    p = argparse.ArgumentParser(
+        prog="bcg/online_server.py light",
+        description="construct_beliefs v3 streaming HTTP server (light backend).",
+    )
+    p.add_argument("--host", default="0.0.0.0", help="interface to bind to (default: 0.0.0.0)")
+    p.add_argument("--port", type=int, default=8848)
+    p.add_argument("--config", "-c", default="bcg/model_config.json")
+    p.add_argument("--output-dir", "-o", default="outputs_stream")
+    p.add_argument("--model-key", default="gpt-5.5")
+    p.add_argument("--embedding-key", default="embedding")
+    p.add_argument("--quiet", "-q", default=False, action="store_true")
+    args = p.parse_args(argv)
+
+    manager = SessionManager(
         config_path=args.config,
         model_key=args.model_key,
         embedding_key=args.embedding_key,
         output_root=Path(args.output_dir),
-        options=options,
     )
+    _serve_forever(manager, TrajectoryClosedError, args)
 
 
-def main(argv: list[str] | None = None) -> None:
-    p = RichArgumentParser(
-        prog="bcg construct server",
-        description="construct_beliefs v3 streaming HTTP server",
+# ---------------------------------------------------------------------------
+# api_based backend
+# ---------------------------------------------------------------------------
+
+def _run_api_based(argv: list[str]) -> None:
+    from bcg.construct.api_based.online import (
+        SessionManager,
+        TrajectoryClosedError,
+        resolve_dated_output_root,
+    )
+    from bcg.construct.api_based.stream import StreamOptions
+
+    p = argparse.ArgumentParser(
+        prog="bcg/online_server.py api_based",
+        description="construct_beliefs v3 streaming HTTP server (api_based backend).",
     )
     p.add_argument("--host", default="0.0.0.0", help="interface to bind to (default: 0.0.0.0)")
     p.add_argument("--port", type=int, default=8848)
     p.add_argument("--config", "-c", default="bcg/model_config.json")
     p.add_argument(
-        "--output-dir",
-        "-o",
-        default="outputs_stream",
+        "--output-dir", "-o", default="outputs_stream",
         help="output root. Basenames like outputs_2026_7_6 auto-roll to "
              "today's outputs_Y_M_D for new sessions; templates such as "
              "outputs_{Y}_{m}_{d} or outputs_{date} are also supported. "
@@ -320,80 +342,78 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--embedding-key", default="embedding")
 
     p.add_argument("--evidence-mode", choices=["sentence", "excerpt"], default="sentence")
-    p.add_argument("--use-clustering", default=False, action="store_true")
-    p.add_argument("--cluster-threshold", type=float, default=0.6)
-    p.add_argument("--cluster-min-sentences", type=int, default=4)
-    p.add_argument("--cluster-buffer", type=int, default=0)
 
-    # Defaults intentionally match the current run.py in this project.
-    p.add_argument("--merge-strategy", choices=["embedding", "llm", "off"], default="off")
-    p.add_argument("--merge-threshold", type=float, default=0.86)
-    p.add_argument(
-        "--incremental-merge",
-        dest="incremental_merge",
-        default=True,
-        action="store_true",
-        help="Per-turn embedding merge. Default: ON.",
-    )
-    p.add_argument(
-        "--no-incremental-merge",
-        dest="incremental_merge",
-        action="store_false",
-        help="Disable the per-turn incremental merge.",
-    )
-    p.add_argument(
-        "--incremental-merge-threshold",
-        type=float,
-        default=0.86,
-        help="Cosine threshold for the per-turn incremental merge. Default: 0.86.",
-    )
-    p.add_argument(
-        "--verify-merge",
-        dest="verify_merge",
-        default=True,
-        action="store_true",
-        help="LLM-verify and rewrite per-turn embedding merge groups. Default: ON, matching run.py.",
-    )
-    p.add_argument(
-        "--no-verify-merge",
-        dest="verify_merge",
-        action="store_false",
-        help="Disable LLM verification for the per-turn incremental merge.",
-    )
-    p.add_argument(
-        "--factor-similarity-threshold",
-        type=float,
-        default=0.80,
-        help="Cosine threshold for reusing an existing same-type factor by "
-             "activation_condition[note] embedding similarity.",
-    )
-    p.add_argument(
-        "--factor-input-confidence-threshold",
-        type=float,
-        default=0.5,
-        help="Only activate a depends_on/contradicts factor when its input node "
-             "confidence is greater than this value. Default: 0.5.",
-    )
+    p.add_argument("--incremental-merge", dest="incremental_merge",
+                   default=True, action="store_true",
+                   help="Per-turn embedding merge. Default: ON.")
+    p.add_argument("--no-incremental-merge", dest="incremental_merge",
+                   action="store_false", help="Disable the per-turn incremental merge.")
+    p.add_argument("--incremental-merge-threshold", type=float, default=0.86,
+                   help="Cosine threshold for the per-turn incremental merge. Default: 0.86.")
+    p.add_argument("--verify-merge", dest="verify_merge",
+                   default=True, action="store_true",
+                   help="LLM-verify and rewrite per-turn embedding merge groups. "
+                        "Default: ON, matching run.py.")
+    p.add_argument("--no-verify-merge", dest="verify_merge",
+                   action="store_false",
+                   help="Disable LLM verification for the per-turn incremental merge.")
     p.add_argument("--context-chars", type=int, default=100000)
     p.add_argument("--min-content-len", type=int, default=0)
 
     p.add_argument("--quiet", "-q", default=False, action="store_true")
     args = p.parse_args(argv)
 
-    manager = build_manager(args)
-    httpd = serve(manager, args.host, args.port, quiet=args.quiet)
-    print(
-        f"[online-server] listening on http://{args.host}:{args.port}  "
-        f"(POST /turn, /turns, /input, /finalize ; GET /graph, /health)"
+    options = StreamOptions(
+        evidence_mode=args.evidence_mode,
+        incremental_merge=args.incremental_merge,
+        incremental_merge_threshold=args.incremental_merge_threshold,
+        verify_merge=args.verify_merge,
+        context_chars=args.context_chars,
+        min_content_len=args.min_content_len,
+    )
+    manager = SessionManager(
+        config_path=args.config,
+        model_key=args.model_key,
+        embedding_key=args.embedding_key,
+        output_root=Path(args.output_dir),
+        options=options,
     )
     print(f"[online-server] output-tpl = {Path(args.output_dir)}")
     print(f"[online-server] output-dir = {resolve_dated_output_root(args.output_dir)}")
+    _serve_forever(manager, TrajectoryClosedError, args)
+
+
+_BACKENDS = {"light": _run_light, "api_based": _run_api_based}
+
+
+def main(argv: list[str] | None = None) -> None:
+    argv = list(sys.argv[1:] if argv is None else argv)
+
+    if not argv or argv[0] in ("-h", "--help"):
+        parser = RichArgumentParser(
+            prog="bcg construct server",
+            description="construct_beliefs v3 streaming belief-graph HTTP server.",
+            epilog="Run 'bcg construct server <backend> --help' for a backend's "
+                   "full option list. If omitted, the backend defaults to "
+                   f"{DEFAULT_BACKEND!r} for compatibility.",
+        )
+        parser.add_argument(
+            "backend",
+            choices=list(_BACKENDS),
+            nargs="?",
+            default=DEFAULT_BACKEND,
+            help=f"Which construct backend to use (default: {DEFAULT_BACKEND}).",
+        )
+        parser.print_help()
+        raise SystemExit(0)
+
     try:
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        print("\n[online-server] shutting down")
-    finally:
-        httpd.server_close()
+        backend, rest = split_backend_args(argv, backends=_BACKENDS)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(2)
+
+    _BACKENDS[backend](rest)
 
 
 if __name__ == "__main__":

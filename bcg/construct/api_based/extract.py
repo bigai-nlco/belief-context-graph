@@ -18,7 +18,6 @@ from typing import Any, Dict, List, Optional
 
 from . import llm
 from .prompts import (
-    build_factor_note_prompt,
     build_node_extraction_prompt,
     build_relation_extraction_prompt,
     build_update_prompt,
@@ -394,66 +393,3 @@ def extract_relations(
     parsed = parsed if isinstance(parsed, dict) else {}
     relations = _clean_relations(parsed.get("relations", []) or [])
     return {"relations": relations, "raw_output": raw, "skipped": False}
-
-def _node_semantic_text(node: Optional[Dict[str, Any]]) -> str:
-    if not isinstance(node, dict):
-        return ""
-    keys = ("decision", "belief", "content", "text") if node.get("node_type") == "decision" else ("belief", "decision", "content", "text")
-    for key in keys:
-        value = node.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return ""
-
-
-def generate_factor_note(
-    client,
-    model: str,
-    *,
-    relation: Dict[str, Any],
-    input_node: Optional[Dict[str, Any]],
-    output_node: Optional[Dict[str, Any]],
-    temperature: float = 0.0,
-    max_tokens: Optional[int] = None,
-) -> Dict[str, Any]:
-    """Generate a mechanism-level Factor note for one factor-activating relation.
-
-    This is separate from relation extraction: relation.note remains the concrete
-    edge reason, while the returned note is used as
-    factor.activation_condition["note"] for embedding-based factor reuse.
-    """
-    rtype = str(relation.get("type") or "")
-    if rtype == "depends_on":
-        direction_text = "the input node supports the output node as a required premise"
-    elif rtype == "contradicts":
-        direction_text = "the input node refutes or corrects the output node"
-    else:
-        return {"note": "", "raw_output": "", "skipped": True}
-
-    prompt = build_factor_note_prompt(
-        input_node_text=_node_semantic_text(input_node),
-        output_node_text=_node_semantic_text(output_node),
-        relation_type=rtype,
-        direction_text=direction_text,
-        relation_note=str(relation.get("note") or ""),
-    )
-
-    try:
-        raw = llm.call_model(
-            client, model, prompt,
-            temperature=temperature, max_tokens=max_tokens,
-            usage_label=f"factor_note:r{relation.get('id', 'unknown')}",
-        )
-    except Exception as e:
-        return {"note": "", "raw_output": f"[ERROR] {e}", "skipped": True}
-
-    parsed = llm.parse_json_response(raw)
-    note = ""
-    if isinstance(parsed, dict):
-        value = parsed.get("note")
-        if isinstance(value, str):
-            note = value.strip()
-    if not note and isinstance(raw, str):
-        # Last-resort tolerant fallback for a model that returned a bare sentence.
-        note = raw.strip().strip('"')
-    return {"note": note, "raw_output": raw, "skipped": False}
