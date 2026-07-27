@@ -278,7 +278,7 @@ Agent memory systems serve different purposes. Below is a feature-level comparis
 | **Graph queryability** | ❌| ✅|❌ |❌ | ⚡| ✅|✅ |⚡ |
 | **Merge / dedup** |⚡ |✅ | ⚡|⚡ |⚡ |⚡ |✅ | ✅|
 | **Conflict detection** |⚡ | ✅|❌ | ⚡| ❌|❌ |✅ | ✅|
-| **Run without an independent DB** | ✅|✅ | ✅|✅ | ✅| ❌|✅ |
+| **Run without an independent DB** | ✅|✅ | ✅|✅ | ✅| ❌|✅ |✅ |
 
 > ✅ Full support &nbsp;&nbsp; ⚡ Partial / optional &nbsp;&nbsp; ❌ Not supported
 
