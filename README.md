@@ -269,17 +269,16 @@ Agent memory systems serve different purposes. Below is a feature-level comparis
 
 | | Mem0 | Zep | Letta (MemGPT) | LangChain Memory | LlamaIndex | TrustGraph | Semantica | **BCG** |
 |---|---|---|---|---|---|---|---|---|
-| **Belief-native extraction** | | | | | | | | |
-| **Deterministic confidence** | | | | | | | | |
-| **Evidence provenance** | | | | | | | | |
-| **Temporal lifecycle** | | | | | | | | |
-| **Relation linking** | | | | | | | | |
-| **Local-first artifacts** | | | | | | | | |
-| **Graph queryability** | | | | | | | | |
-| **Merge / dedup** | | | | | | | | |
-| **Conflict detection** | | | | | | | | |
-| **Multi-agent shared context** | | | | | | | | |
-| **External DB required** | | | | | | | |
+| **Belief-native extraction** |⚡ | ⚡|❌ |⚡ |⚡ |⚡ |⚡ |✅ |
+| **Deterministic confidence** | ❌| ❌|❌ |❌ |❌ |❌ |⚡ |✅ |
+| **Evidence provenance** | ⚡|✅ | ⚡| ⚡| ⚡| ✅|✅ | ✅|
+| **Temporal lifecycle** | ⚡| ✅| ⚡| ⚡| ❌|⚡| ✅| ⚡|
+| **Relation linking** |⚡ | ✅| ❌|❌ | ⚡| ✅| ✅| ✅|
+| **Local-first artifacts** |⚡ | ❌| ✅| ⚡| ✅|✅ | ✅|✅ |
+| **Graph queryability** | ❌| ✅|❌ |❌ | ⚡| ✅|✅ |⚡ |
+| **Merge / dedup** |⚡ |✅ | ⚡|⚡ |⚡ |⚡ |✅ | ✅|
+| **Conflict detection** |⚡ | ✅|❌ | ⚡| ❌|❌ |✅ | ✅|
+| **Run without an independent DB** | ✅|✅ | ✅|✅ | ✅| ❌|✅ |
 
 > ✅ Full support &nbsp;&nbsp; ⚡ Partial / optional &nbsp;&nbsp; ❌ Not supported
 
