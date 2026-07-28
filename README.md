@@ -62,8 +62,7 @@ loop, tools, UI, and context policy.
 ## Quick Start
 
 Core BCG uses Python/`uv` for the SDK and Graph Construction. The optional
-reference terminal Agent uses an isolated Node.js 22.19+ runtime. RLLM is not
-used.
+reference terminal Agent uses an isolated Node.js 22.19+ runtime.
 
 ### 1. Install BCG
 
