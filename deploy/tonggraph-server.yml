@@ -1,4 +1,4 @@
-# BeliefTracer TongGraph Server deployment.
+# BCG TongGraph Server deployment.
 
 host: 0.0.0.0
 port: 8719
