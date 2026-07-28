@@ -3,7 +3,7 @@ name = "bcg"
 version = "0.1.0"
 description = "Belief Context Graph SDK."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
     "httpx>=0.28.1",
