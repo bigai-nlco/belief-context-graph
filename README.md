@@ -31,6 +31,19 @@ But agents executing real tasks also need to answer **belief questions**:
 
 Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to **belief computation memory**. It is a probabilistic, temporal, evidence-grounded memory substrate that helps agents continuously maintain: what to believe, at what confidence, from which evidence, and whether uncertainty should block action. The result is agent memory you can query, audit, and trust.
 
+### BCG is agent-independent
+
+BCG is not bound to the Agent included in this repository, or to any particular
+agent framework, model provider, or runtime. The graph data model, construction
+backends, Python SDK, and HTTP interface can be integrated into an existing
+agent or used to build a different one.
+
+This repository includes a simple terminal Agent as a reference integration. It
+exists to give users the shortest path to testing and experiencing graph-backed
+context management; it is not a required part of BCG and does not define how
+BCG must be used. Applications may call BCG directly and keep their own agent
+loop, tools, UI, and context policy.
+
 ## **Core capabilities:**
 
 - **Belief Extraction:** Segment trajectories, extract structured beliefs that counts for agent reasoning and link them into a connected graph
@@ -48,8 +61,9 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 
 ## Quick Start
 
-BCG uses two isolated runtimes: Python/`uv` for the SDK and Graph Construction,
-and Node.js 22.19+ for the interactive terminal Agent. RLLM is not used.
+Core BCG uses Python/`uv` for the SDK and Graph Construction. The optional
+reference terminal Agent uses an isolated Node.js 22.19+ runtime. RLLM is not
+used.
 
 ### 1. Install BCG
 
@@ -104,7 +118,11 @@ The editable Python install follows changes in the checkout. The Node package
 provides the internal `bcg-agent` executable launched by `bcg`; users normally
 do not invoke it directly.
 
-### 2. Start the BCG Agent
+### 2. Start the reference BCG Agent
+
+This step is optional. It launches the bundled reference Agent so you can test
+BCG immediately; integrating BCG into another Agent does not require using this
+CLI.
 
 For a curl or global installation:
 
