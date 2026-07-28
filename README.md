@@ -306,7 +306,27 @@ artifacts, and Python APIs.
 
 ## Python SDK
 
-### Minimal Example
+The Python SDK exposes the graph data model, memory operations, construction
+lifecycle, and model client as regular Python objects. Use it when BCG needs to
+run inside another Python application without going through the terminal Agent
+or the Graph Server HTTP API.
+
+### Core Classes
+
+| Class | Purpose |
+|---|---|
+| `BCG` | The in-memory Belief Context Graph. It stores typed belief nodes, relation edges, evidence, merge history, sessions, and graph metadata. Use it to inspect, serialize, or modify a graph directly. |
+| `BCGMemory` | The application-facing memory wrapper around a `BCG` graph. It supports manual belief insertion with `observe()`, substring lookup with `believe()`/`search()`, and task-context assembly with `context()`. Manual `observe()` treats the supplied content as one asserted belief; it does not call an LLM. |
+| `BCGRunner` | The graph-construction orchestrator. It sends complete trajectories or individual turns through the `api_based` or `light` construction backend, synchronizes the resulting graph into `BCGMemory`, tracks sessions, and writes run artifacts. |
+| `LLMClient` | The asynchronous OpenAI-compatible model client used by `BCGRunner`. It reads `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` from the environment or BCG configuration, and records model token usage. |
+
+`BCG`, `BCGMemory`, and `BCGRunner` are exported directly from `bcg`.
+`LLMClient` and its explicit `LLMConfig` are available from `bcg.llm`.
+
+### Example: Manual Belief Storage
+
+Use `BCGMemory.observe()` when the input is already a belief and does not need
+model-based extraction:
 
 ```python
 from bcg import BCG, BCGMemory
@@ -318,43 +338,106 @@ observation = memory.observe(
     source_type="message",
     content="Acme is threatening to churn after repeated outages.",
 )
+
+print(observation.belief.id)
+print(observation.belief.belief)
+print(memory.context(task="Review customer churn risk"))
 ```
 
-### Multi-Turn Belief Construction
+This example runs locally and does not require an API key. The complete
+`content` string becomes one asserted belief node.
 
-For full trajectory processing, use `BCGRunner` with an LLM client:
+### Example: Build a Graph from a Conversation
+
+Use `BCGRunner` when raw messages need to be segmented and converted into
+beliefs, decisions, evidence, confidence values, and relations by a construction
+model.
+
+Configure the OpenAI-compatible endpoint first:
+
+```bash
+export OPENAI_API_KEY="..."
+export OPENAI_BASE_URL="https://api.openai.com/v1"
+export OPENAI_MODEL="gpt-4.1-mini"
+```
+
+Then run the following as a normal Python program:
 
 ```python
+import asyncio
+
 from bcg import BCG, BCGMemory, BCGRunner
 from bcg.llm import LLMClient
 
-memory = BCGMemory(graph=BCG())
-runner = BCGRunner(memory=memory, llm=LLMClient())
 
-# Process a conversation and build the belief graph
-result = await runner.observe_trajectory(
-    [{"role": "user", "content": "Acme is threatening to churn."}],
-)
-print(result.output_paths.memory)
+async def main() -> None:
+    memory = BCGMemory(graph=BCG())
+    runner = BCGRunner(
+        memory=memory,
+        llm=LLMClient(),
+        backend="api_based",  # use "light" for the light construction backend
+    )
+
+    result = await runner.observe_trajectory(
+        [
+            {
+                "role": "user",
+                "content": "Acme is threatening to churn after repeated outages.",
+            },
+            {
+                "role": "assistant",
+                "content": "We should prioritize a reliability review and contact Acme.",
+            },
+        ],
+        run_id="acme-risk-review",
+    )
+
+    print(f"beliefs: {len(result.graph.beliefs())}")
+    print(f"relations: {len(result.graph.relations())}")
+    print(f"memory artifact: {result.output_paths.memory}")
+    print(f"token usage: {result.token_usage}")
+
+
+asyncio.run(main())
 ```
 
-### Run Lifecycle (Step by Step)
+`observe_trajectory()` starts and finalizes one construction run automatically.
+Its result contains the final graph, a memory snapshot, output paths, token
+usage, and node/relation counts.
 
-For fine-grained control over sessions and turns:
+### Example: Control Sessions and Turns
+
+For a streaming application, manage the lifecycle explicitly and push turns as
+they arrive:
 
 ```python
-memory = BCGMemory(graph=BCG())
-runner = BCGRunner(memory=memory, llm=LLMClient())
+import asyncio
 
-runner.begin_belief_run(run_id="demo")
-runner.start_session("session-1", "2026-06-12")
-await runner.observe_turn("user", "Alice likes green tea.")
-await runner.observe_turn("assistant", "Noted. I'll remember that preference.")
-await runner.end_session()
-result = await runner.finalize()
+from bcg import BCG, BCGMemory, BCGRunner
+from bcg.llm import LLMClient
+
+
+async def main() -> None:
+    runner = BCGRunner(
+        memory=BCGMemory(graph=BCG()),
+        llm=LLMClient(),
+    )
+
+    runner.begin_belief_run(run_id="preference-demo")
+    runner.start_session("session-1", "2026-06-12")
+    await runner.observe_turn("user", "Alice likes green tea.")
+    await runner.observe_turn(
+        "assistant",
+        "Noted. I'll remember that preference.",
+    )
+    await runner.end_session()
+    result = await runner.finalize()
+
+    print(result.graph.model_dump_json(indent=2))
+
+
+asyncio.run(main())
 ```
-
-
 
 ### Run Output Artifacts
 
