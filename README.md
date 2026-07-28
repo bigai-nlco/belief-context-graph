@@ -7,7 +7,7 @@
 
 **Probabilistic · Temporal · Explainable · Stateful**
 
-[![Python 3.11–3.13](https://img.shields.io/badge/python-3.11--3.13-blue.svg?style=flat-square)](https://www.python.org/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg?style=flat-square)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![uv](https://img.shields.io/badge/uv-managed-6E4BF9.svg?style=flat-square)](https://docs.astral.sh/uv/)
 
@@ -48,285 +48,67 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 
 ## Quick Start
 
-BCG uses two isolated runtimes: Python/`uv` for the SDK and Graph Construction,
-and Node.js 22.19+ for the interactive terminal Agent. RLLM is not used.
+### Install
 
-### 1. Install BCG
-
-Choose one of the following installation methods.
-
-#### Option A: install globally with curl
-
-Use this method when you want the `bcg` command without keeping a source
-checkout:
-
-```bash
-curl -LsSf https://raw.githubusercontent.com/bigai-nlco/belief-context-graph/main/install.sh | sh
-bcg --version
-```
-
-The installer requires `curl`, `tar`, npm, and Node.js 22.19 or newer. It
-installs `uv` when necessary, downloads the repository into a temporary
-directory, installs the Python and Node runtimes, and then removes the temporary
-source.
-
-#### Option B: clone and run from source
-
-Use this method for development or when you want to inspect and modify the
-code:
+This project uses `uv` for dependency management. Python 3.11+ required.
 
 ```bash
 git clone https://github.com/bigai-nlco/belief-context-graph.git
 cd belief-context-graph
-
 uv sync
-npm --prefix agent-cli ci
-npm --prefix agent-cli run build
-
-uv run bcg --version
 ```
 
-Run the source checkout with:
+This creates a repository-local `.venv`. You may alternatively install the
+single `bcg` executable in an isolated user tool environment:
 
 ```bash
-uv run bcg
-```
-
-Optionally expose the current checkout as the global `bcg` command:
-
-```bash
-uv tool install --editable .
-npm install -g ./agent-cli
+uv tool install .
 bcg --version
 ```
 
-The editable Python install follows changes in the checkout. The Node package
-provides the internal `bcg-agent` executable launched by `bcg`; users normally
-do not invoke it directly.
+### Configuration
 
-### 2. Start the BCG Agent
-
-For a curl or global installation:
+Keep credentials in the ignored root `.env`, and model routing in the
+non-secret JSON config:
 
 ```bash
-bcg
+cp .env.example .env
+cp bcg/model_config.example.json bcg/model_config.json
 ```
 
-From a source checkout:
+Every `api_key_env` value in `model_config.json` names a variable from
+`.env`; do not put API keys directly in JSON.
+
+### Construct Commands
+
+The constructor provides two backends: `api_based` uses one large
+OpenAI-compatible model, while `light` uses local embeddings, spaCy, and
+smaller extractor/relation models. Put the backend after `run`, `server`,
+or `replay`. Omitting it remains compatible and defaults to `api_based`.
 
 ```bash
-uv run bcg
+bcg construct run api_based --input data.json --config bcg/model_config.json
+bcg construct server light --config bcg/model_config.json --host 127.0.0.1 --port 8848
+bcg construct replay api_based --input stream.jsonl --config bcg/model_config.json
 ```
 
-On the first launch, the setup guide asks for:
+See [bcg/README.md](bcg/README.md) for backend configuration, input formats,
+HTTP endpoints, and Python APIs.
 
-1. Agent authentication: an OpenAI-compatible API key and base URL, or the
-   interactive `/login` flow.
-2. The Agent model.
-3. The default context mode: **BCG** or **Default**.
-4. Whether BCG should manage a local Graph Construction server or connect to an
-   existing one.
-5. For a managed server, the Graph backend: **api_based** or **light**.
+### Agent Context and Graph Updates
 
-The setup is saved under `~/.bcg` and works from every directory:
+Agent runs enable the two-layer archive by default and keep the latest two
+completed turns verbatim (`--recent-turns 2`). The initial system message and
+question still create a task-anchor graph. After that, a completed Agent turn
+is added to the graph only when it leaves the raw recent-turn window, so the
+same turn is never present both verbatim and in graph context.
 
-```text
-~/.bcg/config.json        # Agent, context, and Graph runtime choices
-~/.bcg/.env               # API keys and credentials; mode 0600
-~/.bcg/model_config.json  # Graph model routing; no inline secrets
-~/.bcg/agent/             # Agent settings, authentication, and sessions
-```
+`--belief-graph-interval` remains available for legacy `--no-archive` runs; in
+archive mode, graph updates follow context eviction instead of that interval.
+Use `--recent-turns 0` for graph-only context, or `--recent-turns -1` to keep
+raw turn history unbounded so later turns are never evicted into the graph.
 
-Run `bcg setup` at any time to change these settings.
-
-When a managed Graph backend is selected, `bcg` automatically:
-
-1. Checks `http://127.0.0.1:8848/health`.
-2. Reuses a healthy Graph Construction server or starts one with the selected
-   backend and `~/.bcg/model_config.json`.
-3. Writes its log to `~/.bcg/logs/graph-server.log` and graph artifacts to
-   `~/.bcg/graphs/`.
-4. Opens the terminal Agent after the Graph server is ready.
-
-`bcg agent` is an explicit alias for the same terminal interface.
-
-The terminal exposes the following commands:
-
-| Command | Purpose |
-| --- | --- |
-| `/help` | Show commands and essential keyboard controls |
-| `/model` | Select the inference model |
-| `/mode` | Choose Default or BCG context before the session's first message |
-| `/login` / `/logout` | Configure or remove the model API key |
-| `/new` / `/resume` | Start or restore a BCG session |
-| `/graph` | Check Graph connectivity and context policy |
-| `/exit` | Exit BCG |
-
-Context mode is fixed after the first user message. Use `/new` to start a
-session with another mode:
-
-- **BCG** permanently retains the initial user input and keeps the latest two
-  completed turns as raw messages. On the first request, the system prompt and
-  initial user input seed the Graph. Messages leaving the two-turn raw window
-  are then added incrementally. The current Markdown Graph is wrapped in
-  `<belief_graph format="markdown">...</belief_graph>` and appended to the
-  system prompt. Traditional compaction is disabled.
-- **Default** uses the full normal Agent conversation with automatic
-  compaction. Graph context is not injected.
-
-Use `/mode` for the selector, or `/mode bcg` and `/mode default` directly.
-`BCG_RECENT_TURNS` can override the default raw window of `2`.
-
-### 3. Configure and Start Graph Construction
-
-BCG supports two construction backends. In normal Agent use, you choose one
-during `bcg setup` and `bcg` starts or reuses the Graph Construction HTTP server
-automatically. The commands below are also provided for independent deployment
-and debugging.
-
-#### Option A: `api_based`
-
-`api_based` uses one OpenAI-compatible model for graph node and relation
-generation. During setup, it can reuse the Agent model endpoint and API key or
-use a separate endpoint:
-
-```bash
-bcg setup
-# Graph server: Start and manage a local Graph server automatically
-# Graph backend: API based
-
-bcg
-```
-
-No vLLM process is required when the configured API endpoint is already
-available.
-
-The equivalent manual Graph server command is:
-
-```bash
-bcg construct server api_based \
-  --config ~/.bcg/model_config.json \
-  --model-key graph-model \
-  --embedding-key embedding \
-  --host 127.0.0.1 \
-  --port 8848 \
-  --output-dir ~/.bcg/graphs
-```
-
-If that server is already healthy, a later `bcg` invocation reuses it.
-
-#### Option B: `light`
-
-`light` uses:
-
-- a small generative model served through an OpenAI-compatible vLLM endpoint;
-- a local sentence-transformers embedding model;
-- a local/Hugging Face stance classifier;
-- spaCy for local language processing and entity extraction.
-
-The BCG Python installation contains the Graph-side dependencies, but it does
-not install or manage the separate vLLM GPU service.
-
-First create a dedicated vLLM environment:
-
-```bash
-uv venv ~/.bcg/vllm --python 3.11
-uv pip install --python ~/.bcg/vllm/bin/python vllm
-```
-
-Start vLLM in another terminal or a persistent service such as tmux:
-
-```bash
-~/.bcg/vllm/bin/vllm serve <MODEL_OR_LOCAL_PATH> \
-  --served-model-name <MODEL_NAME> \
-  --host 127.0.0.1 \
-  --port 8001 \
-  --max-model-len 10000 \
-  --max-num-seqs 8
-```
-
-Then configure BCG with:
-
-```text
-Graph server: Start and manage a local Graph server automatically
-Graph backend: Light
-vLLM base URL: http://127.0.0.1:8001/v1
-Model served by vLLM: <MODEL_NAME>
-vLLM API key: EMPTY
-```
-
-`<MODEL_NAME>` must match the value passed to `--served-model-name`. After vLLM
-is ready, launch the Agent:
-
-```bash
-bcg
-```
-
-BCG starts the light Graph Construction server at `127.0.0.1:8848`; it does not
-start the vLLM process. To start Graph Construction manually instead:
-
-```bash
-bcg construct server light \
-  --config ~/.bcg/model_config.json \
-  --model-key graph-model \
-  --embedding-key embedding \
-  --host 127.0.0.1 \
-  --port 8848 \
-  --output-dir ~/.bcg/graphs
-```
-
-For source development, `scripts/start_vllm.sh` is also available, but it reads
-`VLLM_*` values from the checkout's root `.env` or explicit command-line
-arguments; it does not read `~/.bcg/model_config.json`.
-
-#### Connect to an existing Graph server
-
-If Graph Construction is already hosted elsewhere, run `bcg setup`, choose
-**Connect to an existing Graph server**, and enter its URL. In this mode BCG
-checks and reuses that endpoint but does not start or manage it.
-
-### 4. Run Graph Construction Without the Agent
-
-The same two backends can process saved trajectories:
-
-```bash
-bcg construct run api_based \
-  --input data.json \
-  --config ~/.bcg/model_config.json \
-  --model-key graph-model
-
-bcg construct replay light \
-  --input stream.jsonl \
-  --config ~/.bcg/model_config.json \
-  --model-key graph-model
-```
-
-See [bcg/README.md](bcg/README.md) for input formats, HTTP endpoints, output
-artifacts, and Python APIs.
-
-## Python SDK
-
-The Python SDK exposes the graph data model, memory operations, construction
-lifecycle, and model client as regular Python objects. Use it when BCG needs to
-run inside another Python application without going through the terminal Agent
-or the Graph Server HTTP API.
-
-### Core Classes
-
-| Class | Purpose |
-|---|---|
-| `BCG` | The in-memory Belief Context Graph. It stores typed belief nodes, relation edges, evidence, merge history, sessions, and graph metadata. Use it to inspect, serialize, or modify a graph directly. |
-| `BCGMemory` | The application-facing memory wrapper around a `BCG` graph. It supports manual belief insertion with `observe()`, substring lookup with `believe()`/`search()`, and task-context assembly with `context()`. Manual `observe()` treats the supplied content as one asserted belief; it does not call an LLM. |
-| `BCGRunner` | The graph-construction orchestrator. It sends complete trajectories or individual turns through the `api_based` or `light` construction backend, synchronizes the resulting graph into `BCGMemory`, tracks sessions, and writes run artifacts. |
-| `LLMClient` | The asynchronous OpenAI-compatible model client used by `BCGRunner`. It reads `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` from the environment or BCG configuration, and records model token usage. |
-
-`BCG`, `BCGMemory`, and `BCGRunner` are exported directly from `bcg`.
-`LLMClient` and its explicit `LLMConfig` are available from `bcg.llm`.
-
-### Example: Manual Belief Storage
-
-Use `BCGMemory.observe()` when the input is already a belief and does not need
-model-based extraction:
+### Minimal Example
 
 ```python
 from bcg import BCG, BCGMemory
@@ -338,106 +120,43 @@ observation = memory.observe(
     source_type="message",
     content="Acme is threatening to churn after repeated outages.",
 )
-
-print(observation.belief.id)
-print(observation.belief.belief)
-print(memory.context(task="Review customer churn risk"))
 ```
 
-This example runs locally and does not require an API key. The complete
-`content` string becomes one asserted belief node.
+### Multi-Turn Belief Construction
 
-### Example: Build a Graph from a Conversation
-
-Use `BCGRunner` when raw messages need to be segmented and converted into
-beliefs, decisions, evidence, confidence values, and relations by a construction
-model.
-
-Configure the OpenAI-compatible endpoint first:
-
-```bash
-export OPENAI_API_KEY="..."
-export OPENAI_BASE_URL="https://api.openai.com/v1"
-export OPENAI_MODEL="gpt-4.1-mini"
-```
-
-Then run the following as a normal Python program:
+For full trajectory processing, use `BCGRunner` with an LLM client:
 
 ```python
-import asyncio
-
 from bcg import BCG, BCGMemory, BCGRunner
 from bcg.llm import LLMClient
 
+memory = BCGMemory(graph=BCG())
+runner = BCGRunner(memory=memory, llm=LLMClient())
 
-async def main() -> None:
-    memory = BCGMemory(graph=BCG())
-    runner = BCGRunner(
-        memory=memory,
-        llm=LLMClient(),
-        backend="api_based",  # use "light" for the light construction backend
-    )
-
-    result = await runner.observe_trajectory(
-        [
-            {
-                "role": "user",
-                "content": "Acme is threatening to churn after repeated outages.",
-            },
-            {
-                "role": "assistant",
-                "content": "We should prioritize a reliability review and contact Acme.",
-            },
-        ],
-        run_id="acme-risk-review",
-    )
-
-    print(f"beliefs: {len(result.graph.beliefs())}")
-    print(f"relations: {len(result.graph.relations())}")
-    print(f"memory artifact: {result.output_paths.memory}")
-    print(f"token usage: {result.token_usage}")
-
-
-asyncio.run(main())
+# Process a conversation and build the belief graph
+result = await runner.observe_trajectory(
+    [{"role": "user", "content": "Acme is threatening to churn."}],
+)
+print(result.output_paths.memory)
 ```
 
-`observe_trajectory()` starts and finalizes one construction run automatically.
-Its result contains the final graph, a memory snapshot, output paths, token
-usage, and node/relation counts.
+### Run Lifecycle (Step by Step)
 
-### Example: Control Sessions and Turns
-
-For a streaming application, manage the lifecycle explicitly and push turns as
-they arrive:
+For fine-grained control over sessions and turns:
 
 ```python
-import asyncio
+memory = BCGMemory(graph=BCG())
+runner = BCGRunner(memory=memory, llm=LLMClient())
 
-from bcg import BCG, BCGMemory, BCGRunner
-from bcg.llm import LLMClient
-
-
-async def main() -> None:
-    runner = BCGRunner(
-        memory=BCGMemory(graph=BCG()),
-        llm=LLMClient(),
-    )
-
-    runner.begin_belief_run(run_id="preference-demo")
-    runner.start_session("session-1", "2026-06-12")
-    await runner.observe_turn("user", "Alice likes green tea.")
-    await runner.observe_turn(
-        "assistant",
-        "Noted. I'll remember that preference.",
-    )
-    await runner.end_session()
-    result = await runner.finalize()
-
-    print(result.graph.model_dump_json(indent=2))
-
-
-asyncio.run(main())
+runner.begin_belief_run(run_id="demo")
+runner.start_session("session-1", "2026-06-12")
+await runner.observe_turn("user", "Alice likes green tea.")
+await runner.observe_turn("assistant", "Noted. I'll remember that preference.")
+await runner.end_session()
+result = await runner.finalize()
 ```
+
+
 
 ### Run Output Artifacts
 
@@ -605,9 +324,7 @@ Until the native MCP server ships, BCG can be used with any MCP-compatible agent
 
 ### Environment Variables
 
-Normal users configure these values through `bcg setup`; they are persisted in
-`~/.bcg/config.json` and `~/.bcg/.env`. `.env.example` is a development and
-automation reference:
+Copy `.env.example` when you need local API credentials:
 
 ```bash
 cp .env.example .env

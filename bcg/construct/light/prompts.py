@@ -136,12 +136,12 @@ The chunk may mix internal reasoning, tool invocations, and the final answer. Ex
 - Final decisions: when the assistant gives a final answer, especially inside
   ``\\boxed{...}``, put it in ``decisions`` instead of ``beliefs``.
 - Tool calls: a chunk may be exactly one tool call, e.g.
-  ``<tool_call>{"name": "serper_search", "arguments": {"query": "..."}}</tool_call>``.
+  ``<tool_call>{"name": "averitec_search", "arguments": {"query": "..."}}</tool_call>``.
   For such a chunk, emit EXACTLY ONE belief that renders the call in natural
   language — the tool name, the key argument(s)/query, and the hypothesis/goal it
-  checks ("The assistant calls serper_search with the query 'annual rainfall in
-  Lisbon 2024' to find an authoritative weather report."). Do NOT copy the raw
-  JSON, and do NOT emit the field names
+  checks ("The assistant calls averitec_search with the query 'In 2018, how many
+  torture and assault cases were South African police accused of?' to find the
+  official figures."). Do NOT copy the raw JSON, and do NOT emit the field names
   (name/arguments/query) as separate nodes.
 - Key reasoning steps that are falsifiable, reusable, or needed by later turns.
  
@@ -359,17 +359,21 @@ Use ONLY these three relation types in the `relations` field:
    A relies on B as a premise, input, assumption, tool result, user constraint,
    or required context.
    Examples:
-   - "The assistant calls serper_search with the query 'annual rainfall in Lisbon
-     2024'" depends_on "The user asks for Lisbon's 2024 rainfall total".
-   - "The assistant concludes that the reported total is 774 mm" depends_on "The
-     weather service result lists a 2024 annual total of 774 mm".
+   - "The assistant calls the averitec_search tool with the query: 'In 2018, how
+     many cases of torture and assault were South African police officers accused
+     of?'" depends_on "The assistant states that the task is to verify the claim
+     about 217 torture cases and 3,661 assault cases".
+   - "The assistant asserts that the evidence confirms the Amber Alert for license
+     plate Q72B381 is a known hoax" depends_on "The user is asking to verify the
+     specified claim using the AVeriTeC label set".
 
 2. **supplements**
    A adds detail, scope, parameters, examples, evidence, or elaboration to B
    without changing or refuting it.
    Examples:
-   - "The user requests that the answer include both millimetres and inches"
-     supplements "The user asks for Lisbon's 2024 rainfall total".
+   - "The user instructs that exactly one label must be chosen from Supported,
+     Refuted, Not Enough Evidence, and Conflicting Evidence/Cherrypicking, using
+     the search tool" supplements "The user asks to verify the claim".
    - "Trump described houses of worship as essential places" supplements
      "President Trump ordered states to reopen houses of worship".
 

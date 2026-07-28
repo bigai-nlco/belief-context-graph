@@ -1,49 +1,138 @@
-UV ?= uv
-BCG ?= bcg
+PYTHON ?= python
+PIP ?= pip
+BT ?= bcg agent
+
+BT_CONTAINER ?= belief_tracer
+BT_UI_HOST ?= 172.25.10.2
+BT_UI_PORT ?= 23456
+BT_ARTIFACTS_DIR ?= artifacts/belief_tracer
+BT_WORKDIR ?=
+BT_UI_LOG ?= /tmp/belief_tracer-ui.log
+
+RUN_ARGS ?=
+UI_ARGS ?=
+CHECK_THINKING_ARGS ?=
 TEST_ARGS ?=
-AGENT_ARGS ?=
-CONSTRUCT_ARGS ?=
+ROLLOUT_ARGS ?=
+GRAPH_ARGS ?=
+DOCKER_ARGS ?=
 
 .DEFAULT_GOAL := help
 
 .PHONY: help
 help:
-	@printf '%s\n' 'BCG Make targets:'
-	@printf '%s\n' '  make install              Create/update the uv environment'
-	@printf '%s\n' '  make install-tool         Install the Python bcg command with uv tool'
-	@printf '%s\n' '  make agent                Start Graph Construction and open the Agent TUI'
-	@printf '%s\n' '  make construct            Run bcg construct with CONSTRUCT_ARGS'
-	@printf '%s\n' '  make test                 Run the Python test suite'
-	@printf '%s\n' '  make vllm-server          Start the configured construction-model server'
-	@printf '%s\n' '  make sglang-server        Start the configured construction-model server'
+	@printf '%s\n' 'BeliefTracer Make targets:'
+	@printf '%s\n' '  make install              Install package in editable mode'
+	@printf '%s\n' '  make version              Print BeliefTracer version'
+	@printf '%s\n' '  make tasks                List supported benchmark tasks'
+	@printf '%s\n' '  make run RUN_ARGS="..."   Run bcg agent run with arguments'
+	@printf '%s\n' '  make run-help             Show rollout help'
+	@printf '%s\n' '  make ui                   Start local UI in the foreground'
+	@printf '%s\n' '  make ui-help              Show UI help'
+	@printf '%s\n' '  make restart-ui           Restart detached UI in Docker container'
+	@printf '%s\n' '  make ui-log               Tail detached UI log from Docker container'
+	@printf '%s\n' '  make check-thinking CHECK_THINKING_ARGS="..."'
+	@printf '%s\n' '  make test                 Run pytest'
+	@printf '%s\n' '  make tonggraph-server     Start TongGraph Server for graph persistence'
+	@printf '%s\n' '  make tonggraph-sync GRAPH_ARGS="path/to/final_graph.json"'
+	@printf '%s\n' '  make rollout ROLLOUT_ARGS="..."'
+	@printf '%s\n' '  make docker-build'
+	@printf '%s\n' '  make docker-up'
+	@printf '%s\n' '  make docker-run DOCKER_ARGS="run math500 --model MODEL"'
+	@printf '%s\n' '  make docker-ui            Start UI through docker compose run'
+	@printf '%s\n' '  make docker-shell         Open a shell in the running container'
+	@printf '%s\n' '  make docker-ps            Show BeliefTracer Docker container status'
 
 .PHONY: install
 install:
-	@$(UV) sync
-	@npm --prefix agent-cli install
-	@npm --prefix agent-cli run build
+	@$(PIP) install -e .
 
-.PHONY: install-tool
-install-tool:
-	@$(UV) tool install .
-	@npm install -g ./agent-cli
+.PHONY: version
+version:
+	@$(BT) --version
 
-.PHONY: agent
-agent:
-	@$(BCG) $(AGENT_ARGS)
+.PHONY: tasks
+tasks:
+	@$(BT) tasks
 
-.PHONY: construct
-construct:
-	@$(BCG) construct $(CONSTRUCT_ARGS)
+.PHONY: run
+run:
+	@$(BT) run $(RUN_ARGS)
+
+.PHONY: run-help
+run-help:
+	@$(BT) run --help
+
+.PHONY: ui
+ui:
+	@$(BT) ui \
+		--host "$(BT_UI_HOST)" \
+		--port "$(BT_UI_PORT)" \
+		--artifacts-dir "$(BT_ARTIFACTS_DIR)" \
+		$(UI_ARGS)
+
+.PHONY: ui-help
+ui-help:
+	@$(BT) ui --help
+
+.PHONY: restart-ui
+restart-ui:
+	@BT_CONTAINER="$(BT_CONTAINER)" \
+	BT_UI_HOST="$(BT_UI_HOST)" \
+	BT_UI_PORT="$(BT_UI_PORT)" \
+	BT_ARTIFACTS_DIR="$(BT_ARTIFACTS_DIR)" \
+	BT_UI_LOG="$(BT_UI_LOG)" \
+	BT_WORKDIR="$(BT_WORKDIR)" \
+	scripts/restart_ui.sh
+
+.PHONY: ui-log
+ui-log:
+	@docker exec "$(BT_CONTAINER)" sh -lc 'tail -n 100 -f "$(BT_UI_LOG)"'
+
+.PHONY: check-thinking
+check-thinking:
+	@$(BT) check-thinking $(CHECK_THINKING_ARGS)
 
 .PHONY: test
 test:
-	@$(UV) run pytest $(TEST_ARGS)
+	@$(PYTHON) -m pytest $(TEST_ARGS)
 
-.PHONY: vllm-server
-vllm-server:
-	@scripts/start_vllm.sh
+.PHONY: tonggraph-server
+tonggraph-server:
+	@scripts/start_tonggraph_server.sh
 
-.PHONY: sglang-server
-sglang-server:
-	@scripts/start_sglang_server.sh
+.PHONY: tonggraph-sync
+tonggraph-sync:
+	@$(BT) tonggraph-sync $(GRAPH_ARGS)
+
+.PHONY: rollout
+rollout:
+	@scripts/rollout.sh $(ROLLOUT_ARGS)
+
+.PHONY: docker-build
+docker-build:
+	@docker compose build
+
+.PHONY: docker-up
+docker-up:
+	@docker compose up --build
+
+.PHONY: docker-run
+docker-run:
+	@docker compose run --rm belief_tracer $(DOCKER_ARGS)
+
+.PHONY: docker-ui
+docker-ui:
+	@docker compose run --rm belief_tracer ui \
+		--host "$(BT_UI_HOST)" \
+		--port "$(BT_UI_PORT)" \
+		--artifacts-dir "$(BT_ARTIFACTS_DIR)" \
+		$(UI_ARGS)
+
+.PHONY: docker-shell
+docker-shell:
+	@docker exec -it "$(BT_CONTAINER)" sh
+
+.PHONY: docker-ps
+docker-ps:
+	@docker ps -a --filter "name=^/$(BT_CONTAINER)$$"

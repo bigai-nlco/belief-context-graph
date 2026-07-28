@@ -9,24 +9,15 @@ SOURCE_PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def find_project_env() -> Path:
-    """Locate credentials for source and globally installed BCG runtimes.
+    """Locate the shared env file for source and ``uv tool`` installations.
 
-    ``BCG_ENV_FILE`` has highest priority. The first-run wizard's private
-    ``~/.bcg/.env`` is next so an installed ``bcg`` behaves consistently in
-    every working directory. Project-local files remain a development fallback.
+    ``BCG_ENV_FILE`` has highest priority. Otherwise a ``.env`` in the current
+    working directory wins, followed by the source checkout's root ``.env``.
     """
 
     configured = os.environ.get("BCG_ENV_FILE")
     if configured:
         return Path(configured).expanduser().resolve()
-
-    configured_home = os.environ.get("BCG_HOME")
-    state_root = (
-        Path(configured_home).expanduser() if configured_home else Path.home() / ".bcg"
-    )
-    user_env = state_root / ".env"
-    if user_env.is_file():
-        return user_env
 
     working_env = Path.cwd() / ".env"
     source_env = SOURCE_PROJECT_ROOT / ".env"

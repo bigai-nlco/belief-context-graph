@@ -4,39 +4,28 @@ import pytest
 from click.utils import strip_ansi
 
 from bcg import cli
+from bcg.agent import cli as agent_cli
 from bcg.construct import cli as construct_cli
 
 
-def test_root_without_arguments_launches_interactive_agent(monkeypatch) -> None:
-    calls: list[list[str]] = []
-    monkeypatch.setattr("bcg.agent_runtime.main", lambda args: calls.append(args) or 0)
-
+def test_root_help_lists_only_two_command_families(capsys) -> None:
     cli.main([])
 
-    assert calls == [[]]
-
-
-def test_root_help_lists_public_command_families(capsys) -> None:
-    cli.main(["--help"])
     output = strip_ansi(capsys.readouterr().out)
     assert "Usage: bcg [OPTIONS] COMMAND [ARGS]..." in output
     assert "Commands" in output
     assert "agent" in output
     assert "construct" in output
-    assert "setup" in output
     assert "belief_tracer" not in output
 
 
-def test_root_routes_interactive_agent_arguments(monkeypatch) -> None:
-    received: list[list[str]] = []
-    monkeypatch.setattr(
-        "bcg.agent_runtime.main",
-        lambda args: received.append(args) or 0,
-    )
+def test_root_routes_agent_arguments(monkeypatch) -> None:
+    received: list[str] = []
+    monkeypatch.setattr("bcg.agent.cli.main", received.extend)
 
-    cli.main(["agent", "--model", "gpt-5.6-terra"])
+    cli.main(["agent", "run", "gpqa_diamond"])
 
-    assert received == [["--model", "gpt-5.6-terra"]]
+    assert received == ["run", "gpqa_diamond"]
 
 
 def test_root_routes_construct_arguments(monkeypatch) -> None:
@@ -46,15 +35,6 @@ def test_root_routes_construct_arguments(monkeypatch) -> None:
     cli.main(["construct", "run", "--input", "data.json"])
 
     assert received == ["run", "--input", "data.json"]
-
-
-def test_root_routes_setup(monkeypatch) -> None:
-    calls: list[bool] = []
-    monkeypatch.setattr("bcg.setup.run_setup", lambda: calls.append(True))
-
-    cli.main(["setup"])
-
-    assert calls == [True]
 
 
 @pytest.mark.parametrize("command", ["run", "server", "replay", "visualize"])
@@ -136,3 +116,14 @@ def test_api_based_module_cli_prepends_backend(command, target, monkeypatch) -> 
     api_cli.main([command, "--config", "model_config.json"])
 
     assert received == ["api_based", "--config", "model_config.json"]
+
+
+@pytest.mark.parametrize("command", ["run", "ui", "check-thinking", "tonggraph-sync"])
+def test_agent_commands_expose_rich_help(command, capsys) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        agent_cli.main([command, "--help"])
+
+    assert exc_info.value.code == 0
+    output = capsys.readouterr().out
+    assert f"Usage: bcg agent {command} [OPTIONS]" in output
+    assert "╭─" in output

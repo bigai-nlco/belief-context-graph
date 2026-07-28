@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start an OpenAI-compatible SGLang server for BCG Graph Construction.
+# Start an OpenAI-compatible SGLang server for BeliefTracer rollouts.
 #
 # Server parameters are configured through environment variables. The server exposes:
 #   base_url: http://<host>:<port>/v1
@@ -40,7 +40,7 @@ ALLOW_LONGER_CONTEXT="${SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN:-1}"
 DTYPE="${SGLANG_DTYPE:-${VLLM_DTYPE:-auto}}"
 TRUST_REMOTE_CODE="${SGLANG_TRUST_REMOTE_CODE:-${VLLM_TRUST_REMOTE_CODE:-1}}"
 DISABLE_CUDA_GRAPH="${SGLANG_DISABLE_CUDA_GRAPH:-0}"
-LOG_FILE="${SGLANG_LOG:-${HOME}/.bcg/logs/sglang-${PORT}.log}"
+LOG_FILE="${SGLANG_LOG:-/tmp/belief_tracer-sglang-${USER:-unknown}-${PORT}.log}"
 PYTHON="${BCG_PYTHON:-$REPO_ROOT/.venv/bin/python}"
 ACTION="start"
 BACKGROUND="0"

@@ -56,22 +56,19 @@ def _root(
 
     del version_requested
     if ctx.invoked_subcommand is None:
-        from bcg.agent_runtime import main as agent_runtime_main
-
-        raise typer.Exit(agent_runtime_main([]))
+        typer.echo(ctx.get_help())
 
 
 @app.command(
     "agent",
-    help="Open the interactive BCG terminal agent.",
+    help="Run agent benchmarks, UI, and graph synchronization tools.",
     context_settings=_FORWARD_CONTEXT,
     add_help_option=False,
 )
 def _agent(ctx: typer.Context) -> None:
-    arguments = list(ctx.args)
-    from bcg.agent_runtime import main as agent_runtime_main
+    from bcg.agent.cli import main as agent_main
 
-    raise typer.Exit(agent_runtime_main(arguments))
+    agent_main(list(ctx.args))
 
 
 @app.command(
@@ -86,22 +83,8 @@ def _construct(ctx: typer.Context) -> None:
     construct_main(list(ctx.args))
 
 
-@app.command(
-    "setup",
-    help="Configure global Agent, model, context, and Graph settings.",
-)
-def _setup() -> None:
-    from bcg.setup import SetupError, run_setup
-
-    try:
-        run_setup()
-    except SetupError as exc:
-        typer.echo(f"bcg: {exc}", err=True)
-        raise typer.Exit(1) from exc
-
-
 def main(argv: list[str] | None = None) -> None:
-    """Launch the Agent TUI or dispatch an explicit command family."""
+    """Dispatch to the ``bcg.agent`` or ``bcg.construct`` command family."""
 
     standalone = argv is None
     args = list(sys.argv[1:] if argv is None else argv)
