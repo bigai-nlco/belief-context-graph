@@ -7,9 +7,9 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
-import type { AssistantMessage, ImageContent, Message, Model } from "@earendil-works/pi-ai/compat";
+import type { AgentMessage } from "@bigai-nlco/bcg-agent-core";
+import type { AuthEvent, AuthPrompt } from "@bigai-nlco/bcg-ai";
+import type { AssistantMessage, ImageContent, Message, Model } from "@bigai-nlco/bcg-ai/compat";
 import type {
 	AutocompleteItem,
 	AutocompleteProvider,
@@ -20,7 +20,7 @@ import type {
 	OverlayHandle,
 	OverlayOptions,
 	SlashCommand,
-} from "@earendil-works/pi-tui";
+} from "@bigai-nlco/bcg-tui";
 import {
 	CombinedAutocompleteProvider,
 	type Component,
@@ -37,7 +37,7 @@ import {
 	TruncatedText,
 	TUI,
 	visibleWidth,
-} from "@earendil-works/pi-tui";
+} from "@bigai-nlco/bcg-tui";
 import chalk from "chalk";
 import { spawn, spawnSync } from "child_process";
 import {
@@ -47,7 +47,7 @@ import {
 	getAgentDir,
 	getAuthPath,
 	getDebugLogPath,
-	getDocsPath,
+	getReadmePath,
 	getShareViewerUrl,
 	VERSION,
 } from "../../config.ts";
@@ -104,8 +104,7 @@ import { parseGitUrl } from "../../utils/git.ts";
 import { getCwdRelativePath } from "../../utils/paths.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
-import { checkForNewPiVersion, type LatestPiRelease } from "../../utils/version-check.ts";
-import { ArminComponent } from "./components/armin.ts";
+import { checkForNewBCGVersion, type LatestBCGRelease } from "../../utils/version-check.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
 import { BorderedLoader } from "./components/bordered-loader.ts";
@@ -115,9 +114,7 @@ import { ContextModeSelectorComponent } from "./components/context-mode-selector
 import { CustomEditor } from "./components/custom-editor.ts";
 import { CustomEntryComponent } from "./components/custom-entry.ts";
 import { CustomMessageComponent } from "./components/custom-message.ts";
-import { DaxnutsComponent } from "./components/daxnuts.ts";
 import { DynamicBorder } from "./components/dynamic-border.ts";
-import { EarendilAnnouncementComponent } from "./components/earendil-announcement.ts";
 import { ExtensionEditorComponent } from "./components/extension-editor.ts";
 import { ExtensionInputComponent } from "./components/extension-input.ts";
 import { ExtensionSelectorComponent } from "./components/extension-selector.ts";
@@ -313,7 +310,7 @@ export interface InteractiveModeOptions {
 	migratedProviders?: string[];
 	/** Warning message if session model couldn't be restored */
 	modelFallbackMessage?: string;
-	/** Cwd to trust after reload if it gained a .pi directory during this implicitly trusted session. */
+	/** Cwd to trust after reload if it gained a .bcg directory during this implicitly trusted session. */
 	autoTrustOnReloadCwd?: string;
 	/** Initial message to send on startup (can include @file content) */
 	initialMessage?: string;
@@ -775,7 +772,7 @@ export class InteractiveMode {
 	async run(): Promise<void> {
 		await this.init();
 
-		if (!process.env.PI_OFFLINE) {
+		if (!process.env.BCG_OFFLINE) {
 			void this.session.modelRuntime
 				.refresh()
 				.then(() => this.updateAvailableProviderCount())
@@ -783,7 +780,7 @@ export class InteractiveMode {
 		}
 
 		// Start version check asynchronously
-		checkForNewPiVersion(this.version).then((newRelease) => {
+		checkForNewBCGVersion(this.version).then((newRelease) => {
 			if (newRelease) {
 				this.showNewVersionNotification(newRelease);
 			}
@@ -798,7 +795,7 @@ export class InteractiveMode {
 			})
 			.finally(() => {
 				// On Windows, npm can overwrite the shared console title while checking
-				// extension package versions. Restore Pi's title after the startup check.
+				// extension package versions. Restore BCG's title after the startup check.
 				if (process.platform === "win32" && this.isInitialized) {
 					this.updateTerminalTitle();
 				}
@@ -868,7 +865,7 @@ export class InteractiveMode {
 	}
 
 	private async checkForPackageUpdates(): Promise<string[]> {
-		if (process.env.PI_OFFLINE) {
+		if (process.env.BCG_OFFLINE) {
 			return [];
 		}
 
@@ -926,7 +923,7 @@ export class InteractiveMode {
 		}
 
 		if (extendedKeysFormat === "xterm") {
-			return "tmux extended-keys-format is xterm. Pi works best with csi-u. Add `set -g extended-keys-format csi-u` to ~/.tmux.conf and restart tmux.";
+			return "tmux extended-keys-format is xterm. BCG works best with csi-u. Add `set -g extended-keys-format csi-u` to ~/.tmux.conf and restart tmux.";
 		}
 
 		return undefined;
@@ -2566,7 +2563,7 @@ export class InteractiveMode {
 			if (image) {
 				const tmpDir = os.tmpdir();
 				const ext = extensionForImageMimeType(image.mimeType) ?? "png";
-				const fileName = `pi-clipboard-${crypto.randomUUID()}.${ext}`;
+				const fileName = `bcg-clipboard-${crypto.randomUUID()}.${ext}`;
 				const filePath = path.join(tmpDir, fileName);
 				fs.writeFileSync(filePath, Buffer.from(image.bytes));
 
@@ -3492,7 +3489,7 @@ export class InteractiveMode {
 		try {
 			this.ui.stop();
 		} catch {}
-		console.error("pi exiting due to uncaughtException:");
+		console.error("bcg exiting due to uncaughtException:");
 		console.error(error);
 		process.exit(1);
 	}
@@ -3539,7 +3536,7 @@ export class InteractiveMode {
 
 		// Restore the terminal before the process dies on any uncaught throw.
 		// Without this, an unhandled exception from extension code (or anywhere
-		// in pi) leaves the terminal in raw mode with no cursor.
+		// in bcg) leaves the terminal in raw mode with no cursor.
 		const uncaughtExceptionHandler = (error: Error) => this.uncaughtCrash(error);
 		process.prependListener("uncaughtException", uncaughtExceptionHandler);
 		this.signalCleanupHandlers.push(() => process.off("uncaughtException", uncaughtExceptionHandler));
@@ -3747,7 +3744,7 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
-	showNewVersionNotification(release: LatestPiRelease): void {
+	showNewVersionNotification(release: LatestBCGRelease): void {
 		const action = theme.fg("accent", `${APP_NAME} update`);
 		const updateInstruction = theme.fg("muted", `New version ${release.version} is available. Run `) + action;
 		const changelogUrl = "https://github.com/bigai-nlco/belief-context-graph/releases";
@@ -4197,7 +4194,6 @@ export class InteractiveMode {
 				this.updateEditorBorderColor();
 				this.showStatus(`Model: ${model.id}`);
 				void this.maybeWarnAboutAnthropicSubscriptionAuth(model);
-				this.checkDaxnutsEasterEgg(model);
 			} catch (error) {
 				this.showError(error instanceof Error ? error.message : String(error));
 			}
@@ -4332,7 +4328,6 @@ export class InteractiveMode {
 						done();
 						this.showStatus(`Model: ${model.id}`);
 						void this.maybeWarnAboutAnthropicSubscriptionAuth(model);
-						this.checkDaxnutsEasterEgg(model);
 					} catch (error) {
 						done();
 						this.showError(error instanceof Error ? error.message : String(error));
@@ -4987,7 +4982,6 @@ export class InteractiveMode {
 		if (selectedModel) {
 			this.showStatus(`${actionLabel}. Selected ${selectedModel.id}. Credentials saved to ${getAuthPath()}`);
 			void this.maybeWarnAboutAnthropicSubscriptionAuth(selectedModel);
-			this.checkDaxnutsEasterEgg(selectedModel);
 		} else {
 			this.showStatus(`${actionLabel}. Credentials saved to ${getAuthPath()}`);
 			if (selectionError) {
@@ -5037,7 +5031,7 @@ export class InteractiveMode {
 			dialog.showDetails([
 				theme.fg("text", "You can also use an AWS profile, IAM keys, or role-based credentials."),
 				theme.fg("muted", "See:"),
-				theme.fg("accent", `  ${path.join(getDocsPath(), "providers.md")}`),
+				theme.fg("accent", `  ${getReadmePath()}`),
 			]);
 		}
 
@@ -5920,30 +5914,6 @@ export class InteractiveMode {
 			new Text(`${theme.fg("accent", "✓ Debug log written")}\n${theme.fg("muted", debugLogPath)}`, 1, 1),
 		);
 		this.ui.requestRender();
-	}
-
-	private handleArminSaysHi(): void {
-		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new ArminComponent(this.ui));
-		this.ui.requestRender();
-	}
-
-	private handleDementedDelves(): void {
-		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new EarendilAnnouncementComponent());
-		this.ui.requestRender();
-	}
-
-	private handleDaxnuts(): void {
-		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new DaxnutsComponent(this.ui));
-		this.ui.requestRender();
-	}
-
-	private checkDaxnutsEasterEgg(model: { provider: string; id: string }): void {
-		if (model.provider === "opencode" && model.id.toLowerCase().includes("kimi-k2.5")) {
-			this.handleDaxnuts();
-		}
 	}
 
 	private async handleBashCommand(command: string, excludeFromContext = false): Promise<void> {

@@ -1,4 +1,4 @@
-import type { Credential, CredentialInfo, CredentialStore } from "@earendil-works/pi-ai";
+import type { Credential, CredentialInfo, CredentialStore } from "@bigai-nlco/bcg-ai";
 
 /** Async credential store overlay for non-persistent runtime API keys. */
 export class RuntimeCredentials implements CredentialStore {

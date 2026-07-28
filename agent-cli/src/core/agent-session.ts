@@ -23,8 +23,8 @@ import type {
 	AgentTool,
 	PrepareNextTurnContext,
 	ThinkingLevel,
-} from "@earendil-works/pi-agent-core";
-import { contentText } from "@earendil-works/pi-ai";
+} from "@bigai-nlco/bcg-agent-core";
+import { contentText } from "@bigai-nlco/bcg-ai";
 import type {
 	AssistantMessage,
 	AuthResult,
@@ -33,7 +33,7 @@ import type {
 	ProviderHeaders,
 	TextContent,
 	Usage,
-} from "@earendil-works/pi-ai/compat";
+} from "@bigai-nlco/bcg-ai/compat";
 import {
 	clampThinkingLevel,
 	cleanupSessionResources,
@@ -44,7 +44,7 @@ import {
 	type RetryCallbacks,
 	resetApiProviders,
 	streamSimple,
-} from "@earendil-works/pi-ai/compat";
+} from "@bigai-nlco/bcg-ai/compat";
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { resolvePath } from "../utils/paths.ts";
@@ -847,7 +847,7 @@ export class AgentSession {
 		}
 
 		this._extensionRunner.invalidate(
-			"This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().",
+			"This extension ctx is stale after session replacement or reload. Do not use a captured bcg or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().",
 		);
 		this._disconnectFromAgent();
 		this._eventListeners = [];
@@ -1105,7 +1105,7 @@ export class AgentSession {
 
 	/**
 	 * Send a prompt to the agent.
-	 * - Handles extension commands (registered via pi.registerCommand) immediately, even during streaming
+	 * - Handles extension commands (registered via bcg.registerCommand) immediately, even during streaming
 	 * - Expands file-based prompt templates by default
 	 * - During streaming, queues via steer() or followUp() based on streamingBehavior option
 	 * - Validates model and API key before sending (when not streaming)
@@ -1119,7 +1119,7 @@ export class AgentSession {
 
 		try {
 			// Handle extension commands first (execute immediately, even during streaming)
-			// Extension commands manage their own LLM interaction via pi.sendMessage()
+			// Extension commands manage their own LLM interaction via bcg.sendMessage()
 			if (expandPromptTemplates && text.startsWith("/")) {
 				const handled = await this._tryExecuteExtensionCommand(text);
 				if (handled) {

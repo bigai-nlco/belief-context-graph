@@ -1,7 +1,7 @@
 import { basename, dirname, isAbsolute, relative, resolve as resolvePath, sep } from "node:path";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { Api, ImageContent, Model, TextContent } from "@earendil-works/pi-ai";
-import { Text } from "@earendil-works/pi-tui";
+import type { AgentTool } from "@bigai-nlco/bcg-agent-core";
+import type { Api, ImageContent, Model, TextContent } from "@bigai-nlco/bcg-ai";
+import { Text } from "@bigai-nlco/bcg-tui";
 import { constants } from "fs";
 import { access as fsAccess, readFile as fsReadFile } from "fs/promises";
 import { type Static, Type } from "typebox";
@@ -95,7 +95,7 @@ function toPosixPath(filePath: string): string {
 	return filePath.split(sep).join("/");
 }
 
-function getPiDocsClassification(absolutePath: string): CompactReadClassification | undefined {
+function getBCGDocsClassification(absolutePath: string): CompactReadClassification | undefined {
 	const packageRoot = dirname(getReadmePath());
 	const relativePath = relative(resolvePath(packageRoot), resolvePath(absolutePath));
 	if (
@@ -108,7 +108,7 @@ function getPiDocsClassification(absolutePath: string): CompactReadClassificatio
 	}
 
 	const label = toPosixPath(relativePath);
-	if (label === "README.md" || label.startsWith("docs/") || label.startsWith("examples/")) {
+	if (label === "README.md") {
 		return { kind: "docs", label };
 	}
 	return undefined;
@@ -127,7 +127,7 @@ function getCompactReadClassification(
 		return { kind: "skill", label: basename(dirname(absolutePath)) || fileName };
 	}
 
-	const docsClassification = getPiDocsClassification(absolutePath);
+	const docsClassification = getBCGDocsClassification(absolutePath);
 	if (docsClassification) return docsClassification;
 
 	if (COMPACT_RESOURCE_FILE_NAMES.has(fileName)) {

@@ -51,7 +51,7 @@ const ignoreUndiciDispatcherError = (_error: unknown): void => {};
 
 // Undici can emit an internal Client "error" while terminating a mid-stream
 // fetch body. The body stream still rejects through reader.read(); this listener
-// only prevents EventEmitter's unhandled "error" special case from crashing pi.
+// only prevents EventEmitter's unhandled "error" special case from crashing bcg.
 function withUndiciErrorListener<T extends undici.Dispatcher>(dispatcher: T): T {
 	if (dispatcher instanceof EventEmitter) {
 		EventEmitter.prototype.on.call(dispatcher, "error", ignoreUndiciDispatcherError);

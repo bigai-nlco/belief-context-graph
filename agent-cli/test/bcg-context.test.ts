@@ -1,5 +1,5 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, ToolResultMessage, Usage } from "@earendil-works/pi-ai/compat";
+import type { AgentMessage } from "@bigai-nlco/bcg-agent-core";
+import type { AssistantMessage, ToolResultMessage, Usage } from "@bigai-nlco/bcg-ai/compat";
 import { describe, expect, it, vi } from "vitest";
 import { BcgContextManager, formatBcgMarkdown, splitBcgTurns } from "../src/core/context/bcg-context.ts";
 import {

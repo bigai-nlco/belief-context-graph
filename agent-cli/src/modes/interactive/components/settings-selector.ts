@@ -1,5 +1,5 @@
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Transport } from "@earendil-works/pi-ai";
+import type { ThinkingLevel } from "@bigai-nlco/bcg-agent-core";
+import type { Transport } from "@bigai-nlco/bcg-ai";
 import {
 	type Component,
 	Container,
@@ -11,7 +11,7 @@ import {
 	SettingsList,
 	Spacer,
 	Text,
-} from "@earendil-works/pi-tui";
+} from "@bigai-nlco/bcg-tui";
 import { formatHttpIdleTimeoutMs, HTTP_IDLE_TIMEOUT_CHOICES } from "../../../core/http-dispatcher.ts";
 import type { DefaultProjectTrust, WarningSettings } from "../../../core/settings-manager.ts";
 import {

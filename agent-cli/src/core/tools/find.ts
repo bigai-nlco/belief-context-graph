@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { Text } from "@earendil-works/pi-tui";
+import type { AgentTool } from "@bigai-nlco/bcg-agent-core";
+import { Text } from "@bigai-nlco/bcg-tui";
 import { spawn } from "child_process";
 import path from "path";
 import { type Static, Type } from "typebox";
@@ -226,7 +226,6 @@ export function createFindToolDefinition(
 						// fd normally ignores .gitignore outside git repos, so keep --no-require-git
 						// there. Inside repos, use fd's default git-aware behavior so parent
 						// .gitignore rules stop at nested repo boundaries:
-						// https://github.com/earendil-works/pi/issues/5960
 						let insideGitRepo = false;
 						for (let current = searchPath; ; ) {
 							if (await pathExists(path.join(current, ".git"))) {

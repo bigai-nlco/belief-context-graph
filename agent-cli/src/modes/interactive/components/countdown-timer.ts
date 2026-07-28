@@ -2,7 +2,7 @@
  * Reusable countdown timer for dialog components.
  */
 
-import type { TUI } from "@earendil-works/pi-tui";
+import type { TUI } from "@bigai-nlco/bcg-tui";
 
 export class CountdownTimer {
 	private intervalId: ReturnType<typeof setInterval> | undefined;

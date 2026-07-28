@@ -2,11 +2,11 @@
  * Print mode (single-shot): Send prompts, output result, exit.
  *
  * Used for:
- * - `pi -p "prompt"` - text output
- * - `pi --mode json "prompt"` - JSON event stream
+ * - `bcg -p "prompt"` - text output
+ * - `bcg --mode json "prompt"` - JSON event stream
  */
 
-import type { AssistantMessage, ImageContent } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ImageContent } from "@bigai-nlco/bcg-ai";
 import type { AgentSessionRuntime } from "../core/agent-session-runtime.ts";
 import { flushRawStdout, writeRawStdout } from "../core/output-guard.ts";
 import { killTrackedDetachedChildren } from "../utils/shell.ts";

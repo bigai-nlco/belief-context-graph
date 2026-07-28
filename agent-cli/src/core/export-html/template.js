@@ -20,7 +20,7 @@
 
       // Parse URL parameters for deep linking: leafId and targetId
       // Check for injected params (when loaded in iframe via srcdoc) or use window.location
-      const injectedParams = document.querySelector('meta[name="pi-url-params"]');
+      const injectedParams = document.querySelector('meta[name="bcg-url-params"]');
       const searchString = injectedParams ? injectedParams.content : window.location.search.substring(1);
       const urlParams = new URLSearchParams(searchString);
       const urlLeafId = urlParams.get('leafId');
@@ -1095,7 +1095,7 @@
        */
       function buildShareUrl(entryId) {
         // Check for injected base URL (used when loaded in iframe via srcdoc)
-        const baseUrlMeta = document.querySelector('meta[name="pi-share-base-url"]');
+        const baseUrlMeta = document.querySelector('meta[name="bcg-share-base-url"]');
         const baseUrl = baseUrlMeta ? baseUrlMeta.content : window.location.href.split('?')[0];
 
         const url = new URL(window.location.href);
@@ -1663,7 +1663,7 @@
       const overlay = document.getElementById('sidebar-overlay');
       const hamburger = document.getElementById('hamburger');
       const sidebarResizer = document.getElementById('sidebar-resizer');
-      const SIDEBAR_WIDTH_STORAGE_KEY = 'pi-share:v1:sidebar-width';
+      const SIDEBAR_WIDTH_STORAGE_KEY = 'bcg-share:v1:sidebar-width';
       const MIN_CONTENT_WIDTH = 320;
 
       function isMobileLayout() {

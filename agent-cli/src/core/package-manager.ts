@@ -40,7 +40,7 @@ const UPDATE_CHECK_CONCURRENCY = 4;
 const GIT_UPDATE_CONCURRENCY = 4;
 
 function isOfflineModeEnabled(): boolean {
-	const value = process.env.PI_OFFLINE;
+	const value = process.env.BCG_OFFLINE;
 	if (!value) return false;
 	return value === "1" || value.toLowerCase() === "true" || value.toLowerCase() === "yes";
 }
@@ -155,7 +155,7 @@ interface GitUpdateTarget extends ConfiguredUpdateSource {
 	parsed: GitSource;
 }
 
-interface PiManifest {
+interface BCGManifest {
 	extensions?: string[];
 	skills?: string[];
 	prompts?: string[];
@@ -344,7 +344,7 @@ function collectFiles(
 	return files;
 }
 
-type SkillDiscoveryMode = "pi" | "agents";
+type SkillDiscoveryMode = "bcg" | "agents";
 
 function collectSkillEntries(
 	dir: string,
@@ -403,7 +403,7 @@ function collectSkillEntries(
 			}
 
 			const relPath = toPosixPath(relative(root, fullPath));
-			if (mode === "pi" && dir === root && isFile && entry.name.endsWith(".md") && !ig.ignores(relPath)) {
+			if (mode === "bcg" && dir === root && isFile && entry.name.endsWith(".md") && !ig.ignores(relPath)) {
 				entries.push(fullPath);
 				continue;
 			}
@@ -533,11 +533,11 @@ function collectAutoThemeEntries(dir: string): string[] {
 	return entries;
 }
 
-function readPiManifestFile(packageJsonPath: string): PiManifest | null {
+function readBCGManifestFile(packageJsonPath: string): BCGManifest | null {
 	try {
 		const content = readFileSync(packageJsonPath, "utf-8");
-		const pkg = JSON.parse(content) as { pi?: PiManifest };
-		return pkg.pi ?? null;
+		const pkg = JSON.parse(content) as { bcg?: BCGManifest };
+		return pkg.bcg ?? null;
 	} catch {
 		return null;
 	}
@@ -546,7 +546,7 @@ function readPiManifestFile(packageJsonPath: string): PiManifest | null {
 function resolveExtensionEntries(dir: string): string[] | null {
 	const packageJsonPath = join(dir, "package.json");
 	if (existsSync(packageJsonPath)) {
-		const manifest = readPiManifestFile(packageJsonPath);
+		const manifest = readBCGManifestFile(packageJsonPath);
 		if (manifest?.extensions?.length) {
 			const entries: string[] = [];
 			for (const extPath of manifest.extensions) {
@@ -633,7 +633,7 @@ function collectAutoExtensionEntries(dir: string): string[] {
  */
 function collectResourceFiles(dir: string, resourceType: ResourceType): string[] {
 	if (resourceType === "skills") {
-		return collectSkillEntries(dir, "pi");
+		return collectSkillEntries(dir, "bcg");
 	}
 	if (resourceType === "extensions") {
 		return collectAutoExtensionEntries(dir);
@@ -1773,10 +1773,10 @@ export class DefaultPackageManager implements PackageManager {
 
 	private getNpmInstallArgs(specs: string[], installRoot: string): string[] {
 		const packageManagerName = this.getPackageManagerName();
-		// Extension packages run inside pi and resolve pi APIs through loader aliases/virtual modules.
+		// Extension packages run inside bcg and resolve bcg APIs through loader aliases/virtual modules.
 		// Disable peer dependency resolution for managed installs (npm's --legacy-peer-deps, and
 		// equivalent bun/pnpm settings) so package managers do not install or solve host-provided
-		// @earendil-works/pi-* peers. Stale auto-installed pi peers can otherwise block updates.
+		// Stale auto-installed agent peers can otherwise block updates.
 		if (packageManagerName === "bun") {
 			return ["install", ...specs, "--cwd", installRoot, "--omit=peer"];
 		}
@@ -1938,7 +1938,7 @@ export class DefaultPackageManager implements PackageManager {
 		this.ensureGitIgnore(installRoot);
 		const packageJsonPath = join(installRoot, "package.json");
 		if (!existsSync(packageJsonPath)) {
-			const pkgJson = { name: "pi-extensions", private: true };
+			const pkgJson = { name: "bcg-extensions", private: true };
 			writeFileSync(packageJsonPath, JSON.stringify(pkgJson, null, 2), "utf-8");
 		}
 	}
@@ -2102,10 +2102,10 @@ export class DefaultPackageManager implements PackageManager {
 			return true;
 		}
 
-		const manifest = this.readPiManifest(packageRoot);
+		const manifest = this.readBCGManifest(packageRoot);
 		if (manifest) {
 			for (const resourceType of RESOURCE_TYPES) {
-				const entries = manifest[resourceType as keyof PiManifest];
+				const entries = manifest[resourceType as keyof BCGManifest];
 				this.addManifestEntries(
 					entries,
 					packageRoot,
@@ -2138,8 +2138,8 @@ export class DefaultPackageManager implements PackageManager {
 		target: Map<string, { metadata: PathMetadata; enabled: boolean }>,
 		metadata: PathMetadata,
 	): void {
-		const manifest = this.readPiManifest(packageRoot);
-		const entries = manifest?.[resourceType as keyof PiManifest];
+		const manifest = this.readBCGManifest(packageRoot);
+		const entries = manifest?.[resourceType as keyof BCGManifest];
 		if (entries) {
 			this.addManifestEntries(entries, packageRoot, resourceType, target, metadata);
 			return;
@@ -2207,8 +2207,8 @@ export class DefaultPackageManager implements PackageManager {
 		packageRoot: string,
 		resourceType: ResourceType,
 	): { allFiles: string[]; enabledByManifest: Set<string> } {
-		const manifest = this.readPiManifest(packageRoot);
-		const entries = manifest?.[resourceType as keyof PiManifest];
+		const manifest = this.readBCGManifest(packageRoot);
+		const entries = manifest?.[resourceType as keyof BCGManifest];
 		if (entries && entries.length > 0) {
 			const allFiles = this.collectFilesFromManifestEntries(entries, packageRoot, resourceType);
 			const manifestPatterns = entries.filter(isOverridePattern);
@@ -2225,7 +2225,7 @@ export class DefaultPackageManager implements PackageManager {
 		return { allFiles, enabledByManifest: new Set(allFiles) };
 	}
 
-	private readPiManifest(packageRoot: string): PiManifest | null {
+	private readBCGManifest(packageRoot: string): BCGManifest | null {
 		const packageJsonPath = join(packageRoot, "package.json");
 		if (!existsSync(packageJsonPath)) {
 			return null;
@@ -2233,8 +2233,8 @@ export class DefaultPackageManager implements PackageManager {
 
 		try {
 			const content = readFileSync(packageJsonPath, "utf-8");
-			const pkg = JSON.parse(content) as { pi?: PiManifest };
-			return pkg.pi ?? null;
+			const pkg = JSON.parse(content) as { bcg?: BCGManifest };
+			return pkg.bcg ?? null;
 		} catch {
 			return null;
 		}
@@ -2366,7 +2366,7 @@ export class DefaultPackageManager implements PackageManager {
 		};
 
 		if (projectTrusted) {
-			// Project extensions from .pi/
+			// Project extensions from .bcg/
 			addResources(
 				"extensions",
 				collectAutoExtensionEntries(projectDirs.extensions),
@@ -2375,10 +2375,10 @@ export class DefaultPackageManager implements PackageManager {
 				projectBaseDir,
 			);
 
-			// Project skills from .pi/
+			// Project skills from .bcg/
 			addResources(
 				"skills",
-				collectAutoSkillEntries(projectDirs.skills, "pi"),
+				collectAutoSkillEntries(projectDirs.skills, "bcg"),
 				projectMetadata,
 				projectOverrides.skills,
 				projectBaseDir,
@@ -2418,7 +2418,7 @@ export class DefaultPackageManager implements PackageManager {
 			);
 		}
 
-		// User extensions from ~/.pi/agent/
+		// User extensions from ~/.bcg/agent/
 		addResources(
 			"extensions",
 			collectAutoExtensionEntries(userDirs.extensions),
@@ -2427,10 +2427,10 @@ export class DefaultPackageManager implements PackageManager {
 			globalBaseDir,
 		);
 
-		// User skills from ~/.pi/agent/
+		// User skills from ~/.bcg/agent/
 		addResources(
 			"skills",
-			collectAutoSkillEntries(userDirs.skills, "pi"),
+			collectAutoSkillEntries(userDirs.skills, "bcg"),
 			userMetadata,
 			userOverrides.skills,
 			globalBaseDir,

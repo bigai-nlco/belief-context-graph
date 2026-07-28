@@ -1,5 +1,5 @@
-import type { AuthInfoLink, OAuthDeviceCodeInfo } from "@earendil-works/pi-ai";
-import { Container, type Focusable, getKeybindings, Input, Spacer, Text, type TUI } from "@earendil-works/pi-tui";
+import type { AuthInfoLink, OAuthDeviceCodeInfo } from "@bigai-nlco/bcg-ai";
+import { Container, type Focusable, getKeybindings, Input, Spacer, Text, type TUI } from "@bigai-nlco/bcg-tui";
 import { openBrowser } from "../../../utils/open-browser.ts";
 import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";

@@ -8,9 +8,9 @@ export interface ChangelogEntry {
 	content: string;
 }
 
-const GITHUB_REPO = "earendil-works/pi";
-const CHANGELOG_LINK_BASE_PATH = "packages/coding-agent";
-const LEGACY_REPO_RE = /^https:\/\/github\.com\/(?:badlogic|earendil-works)\/pi-mono(?=\/|$)/;
+const GITHUB_REPO = "bigai-nlco/belief-context-graph";
+const CHANGELOG_LINK_BASE_PATH = "agent-cli";
+const LEGACY_REPO_RE = /^https:\/\/github\.com\/bigai-nlco\/belief-context-graph(?=\/|$)/;
 const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
 const INLINE_MARKDOWN_LINK_RE = /(!?\[[^\]\n]+\]\()([^\s)]+)((?:\s+[^)]*)?\))/g;
 

@@ -3,10 +3,13 @@
 	"version": "0.1.0",
 	"description": "Interactive Belief Context Graph agent with graph-backed context management",
 	"type": "module",
-	"piConfig": {
+	"bcgConfig": {
 		"name": "bcg",
 		"configDir": ".bcg"
 	},
+	"workspaces": [
+		"packages/*"
+	],
 	"bin": {
 		"bcg-agent": "dist/cli.js"
 	},
@@ -25,21 +28,21 @@
 		"dist",
 		"README.md",
 		"LICENSE",
-		"THIRD_PARTY_NOTICES.md",
 		"npm-shrinkwrap.json"
 	],
 	"scripts": {
 		"clean": "shx rm -rf dist",
-		"build": "tsc -p tsconfig.build.json && shx chmod +x dist/cli.js dist/rpc-entry.js && npm run copy-assets",
-		"copy-assets": "shx mkdir -p dist/modes/interactive/theme && shx cp src/modes/interactive/theme/*.json dist/modes/interactive/theme/ && shx mkdir -p dist/modes/interactive/assets && shx cp src/modes/interactive/assets/*.png dist/modes/interactive/assets/ && shx mkdir -p dist/core/export-html/vendor && shx cp src/core/export-html/template.html src/core/export-html/template.css src/core/export-html/template.js dist/core/export-html/ && shx cp src/core/export-html/vendor/*.js dist/core/export-html/vendor/",
-		"check": "tsc --noEmit -p tsconfig.build.json",
+		"build:packages": "npm run build -w @bigai-nlco/bcg-ai && npm run build -w @bigai-nlco/bcg-agent-core && npm run build -w @bigai-nlco/bcg-tui",
+		"build": "npm run clean && npm run build:packages && tsc -p tsconfig.build.json && shx chmod +x dist/cli.js dist/rpc-entry.js && npm run copy-assets",
+		"copy-assets": "shx mkdir -p dist/modes/interactive/theme && shx cp src/modes/interactive/theme/*.json dist/modes/interactive/theme/ && shx mkdir -p dist/core/export-html/vendor && shx cp src/core/export-html/template.html src/core/export-html/template.css src/core/export-html/template.js dist/core/export-html/ && shx cp src/core/export-html/vendor/*.js dist/core/export-html/vendor/",
+		"check": "npm run build",
 		"test": "vitest --run",
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"dependencies": {
-		"@earendil-works/pi-agent-core": "^0.82.1",
-		"@earendil-works/pi-ai": "^0.82.1",
-		"@earendil-works/pi-tui": "^0.82.1",
+		"@bigai-nlco/bcg-agent-core": "0.1.0",
+		"@bigai-nlco/bcg-ai": "0.1.0",
+		"@bigai-nlco/bcg-tui": "0.1.0",
 		"@silvia-odwyer/photon-node": "0.3.4",
 		"chalk": "5.6.2",
 		"cross-spawn": "7.0.6",
@@ -56,6 +59,7 @@
 		"undici": "8.5.0",
 		"yaml": "2.9.0"
 	},
+	"bundledDependencies": true,
 	"overrides": {
 		"brace-expansion": "5.0.8",
 		"protobufjs": "7.6.5",
@@ -63,9 +67,6 @@
 		"gaxios": {
 			"rimraf": "6.1.2"
 		}
-	},
-	"optionalDependencies": {
-		"@mariozechner/clipboard": "0.3.9"
 	},
 	"devDependencies": {
 		"@types/cross-spawn": "6.0.6",
@@ -90,9 +91,6 @@
 		"agent"
 	],
 	"author": "BIGAI NLCO",
-	"contributors": [
-		"Mario Zechner"
-	],
 	"license": "MIT",
 	"repository": {
 		"type": "git",

@@ -1,9 +1,9 @@
 /**
  * CredentialStore implementation backed by auth.json.
- * Provider auth orchestration belongs to ModelRuntime and pi-ai Models.
+ * Provider auth orchestration belongs to ModelRuntime and bcg-ai Models.
  */
 
-import type { Credential, CredentialInfo, CredentialStore } from "@earendil-works/pi-ai";
+import type { Credential, CredentialInfo, CredentialStore } from "@bigai-nlco/bcg-ai";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";

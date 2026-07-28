@@ -1,5 +1,4 @@
 // UI Components for extensions
-export { ArminComponent } from "./armin.ts";
 export { AssistantMessageComponent } from "./assistant-message.ts";
 export { BashExecutionComponent } from "./bash-execution.ts";
 export { BorderedLoader } from "./bordered-loader.ts";
@@ -8,17 +7,11 @@ export { CompactionSummaryMessageComponent } from "./compaction-summary-message.
 export { ContextModeSelectorComponent } from "./context-mode-selector.ts";
 export { CustomEditor } from "./custom-editor.ts";
 export { CustomMessageComponent } from "./custom-message.ts";
-export { DaxnutsComponent } from "./daxnuts.ts";
 export { type RenderDiffOptions, renderDiff } from "./diff.ts";
 export { DynamicBorder } from "./dynamic-border.ts";
 export { ExtensionEditorComponent } from "./extension-editor.ts";
 export { ExtensionInputComponent } from "./extension-input.ts";
 export { ExtensionSelectorComponent } from "./extension-selector.ts";
-export {
-	FirstTimeSetupComponent,
-	type FirstTimeSetupOptions,
-	type FirstTimeSetupResult,
-} from "./first-time-setup.ts";
 export { FooterComponent } from "./footer.ts";
 export { keyHint, keyText, rawKeyHint } from "./keybinding-hints.ts";
 export { LoginDialogComponent } from "./login-dialog.ts";

@@ -306,14 +306,6 @@ def _resolve_agent_command() -> list[str]:
     source_candidates = [
         PROJECT_ROOT / "agent-cli" / "dist" / "cli.js",
         SOURCE_PROJECT_ROOT / "agent-cli" / "dist" / "cli.js",
-        PROJECT_ROOT.parent / "pi" / "packages" / "coding-agent" / "dist" / "cli.js",
-        SOURCE_PROJECT_ROOT.parent
-        / "pi"
-        / "packages"
-        / "coding-agent"
-        / "dist"
-        / "cli.js",
-        Path.cwd().parent / "pi" / "packages" / "coding-agent" / "dist" / "cli.js",
     ]
     node = shutil.which("node")
     if node:

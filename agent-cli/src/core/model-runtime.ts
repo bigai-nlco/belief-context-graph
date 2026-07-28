@@ -28,8 +28,8 @@ import {
 	type ProviderHeaders,
 	type SimpleStreamOptions,
 	type StreamOptions,
-} from "@earendil-works/pi-ai";
-import * as builtinProviderCatalog from "@earendil-works/pi-ai/providers/all";
+} from "@bigai-nlco/bcg-ai";
+import * as builtinProviderCatalog from "@bigai-nlco/bcg-ai/providers/all";
 import { getAgentDir } from "../config.ts";
 import { AuthStorage as DefaultAuthStorage } from "./auth-storage.ts";
 import { ModelConfig } from "./model-config.ts";
@@ -97,7 +97,7 @@ function mergeHeaders(
 	return merged;
 }
 
-/** Configured pi-ai Models collection used by coding-agent and SDK consumers. */
+/** Configured bcg-ai Models collection used by coding-agent and SDK consumers. */
 export class ModelRuntime implements Models {
 	private readonly models: MutableModels;
 	private readonly credentials: RuntimeCredentials;
@@ -156,10 +156,8 @@ export class ModelRuntime implements Models {
 			modelsPath,
 			modelsStore,
 			providers,
-			process.env.PI_OFFLINE === undefined,
+			process.env.BCG_OFFLINE === undefined,
 		);
-		runtime.configureRadiusProviders();
-		runtime.rebuildProviders();
 		const refreshFromNetwork = runtime.modelNetworkEnabled && options.allowModelNetwork === true;
 		const controller = refreshFromNetwork ? new AbortController() : undefined;
 		const timeout = controller
@@ -171,23 +169,6 @@ export class ModelRuntime implements Models {
 			if (timeout) clearTimeout(timeout);
 		}
 		return runtime;
-	}
-
-	private configureRadiusProviders(): void {
-		this.builtins.clear();
-		for (const [providerId, provider] of this.defaultBuiltins) this.builtins.set(providerId, provider);
-		for (const providerId of this.config.getProviderIds()) {
-			const config = this.config.getProvider(providerId);
-			if (config?.oauth !== "radius" || !config.baseUrl) continue;
-			this.builtins.set(
-				providerId,
-				builtinProviderCatalog.radiusProvider({
-					id: providerId,
-					name: config.name ?? providerId,
-					gateway: config.baseUrl.replace(/\/v1\/?$/u, ""),
-				}),
-			);
-		}
 	}
 
 	private providerIds(): Set<string> {
@@ -517,13 +498,12 @@ export class ModelRuntime implements Models {
 
 	async refresh(options: ModelsRefreshOptions = {}): Promise<ModelsRefreshResult> {
 		this.config = await ModelConfig.load(this.modelsPath);
-		this.configureRadiusProviders();
 		this.rebuildProviders();
 		const refreshOptions = {
 			...options,
 			allowNetwork: options.allowNetwork ?? this.modelNetworkEnabled,
 		};
-		// Published pi-ai builds before ModelsStore returned void and accepted a provider ID.
+		// Published bcg-ai builds before ModelsStore returned void and accepted a provider ID.
 		// The fallback keeps source-mode CLI tests working without rebuilding workspace dependencies.
 		const result = ((await this.models.refresh(refreshOptions)) as ModelsRefreshResult | undefined) ?? {
 			aborted: refreshOptions.signal?.aborted ?? false,

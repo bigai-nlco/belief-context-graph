@@ -1,0 +1,30 @@
+{
+	"name": "@bigai-nlco/bcg-tui",
+	"version": "0.1.0",
+	"description": "BCG terminal user interface and editor runtime",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"clean": "shx rm -rf dist",
+		"build": "npm run clean && tsc -p tsconfig.build.json",
+		"check": "tsc --noEmit -p tsconfig.build.json"
+	},
+	"dependencies": {
+		"get-east-asian-width": "1.6.0",
+		"marked": "18.0.5"
+	},
+	"license": "MIT",
+	"engines": {
+		"node": ">=22.19.0"
+	}
+}

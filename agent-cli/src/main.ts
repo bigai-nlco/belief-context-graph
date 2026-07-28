@@ -6,7 +6,7 @@
  */
 
 import { createInterface } from "node:readline";
-import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
+import { type ImageContent, modelsAreEqual } from "@bigai-nlco/bcg-ai";
 import chalk from "chalk";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
@@ -14,7 +14,7 @@ import { buildInitialMessage } from "./cli/initial-message.ts";
 import { listModels } from "./cli/list-models.ts";
 import { createProjectTrustContext } from "./cli/project-trust.ts";
 import { selectSession } from "./cli/session-picker.ts";
-import { shouldRunFirstTimeSetup, showFirstTimeSetup, showStartupSelector } from "./cli/startup-ui.ts";
+import { showStartupSelector } from "./cli/startup-ui.ts";
 import { ENV_SESSION_DIR, expandTildePath, getAgentDir, getPackageDir, VERSION } from "./config.ts";
 import { type CreateAgentSessionRuntimeFactory, createAgentSessionRuntime } from "./core/agent-session-runtime.ts";
 import {
@@ -473,10 +473,10 @@ export interface MainOptions {
 export async function main(args: string[], options?: MainOptions) {
 	resetTimings();
 	const extensionFactories = [...builtInExtensions, ...(options?.extensionFactories ?? [])];
-	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.PI_OFFLINE);
+	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.BCG_OFFLINE);
 	if (offlineMode) {
-		process.env.PI_OFFLINE = "1";
-		process.env.PI_SKIP_VERSION_CHECK = "1";
+		process.env.BCG_OFFLINE = "1";
+		process.env.BCG_SKIP_VERSION_CHECK = "1";
 	}
 
 	if (process.platform === "win32") {
@@ -494,7 +494,7 @@ export async function main(args: string[], options?: MainOptions) {
 		if (process.platform === "win32" && exitCode === 0 && args[0] === "update") {
 			// We normally prefer process.exit(0) for package commands so bad extensions cannot keep
 			// one-shot commands alive. On Windows, Node can assert after fetch() if process.exit(0)
-			// runs during teardown; let successful `pi update` drain naturally instead.
+			// runs during teardown; let successful `bcg update` drain naturally instead.
 			// https://github.com/nodejs/node/issues/56645
 			return;
 		}
@@ -557,13 +557,6 @@ export async function main(args: string[], options?: MainOptions) {
 
 	const startupSettingsManager = SettingsManager.create(cwd, agentDir);
 	reportDiagnostics(collectSettingsDiagnostics(startupSettingsManager, "startup session lookup"));
-
-	// Experimental first-time setup: theme choice and analytics opt-in.
-	// Runs before any runtime services are created so the chosen settings apply everywhere.
-	if (appMode === "interactive" && !parsed.help && parsed.listModels === undefined && shouldRunFirstTimeSetup()) {
-		await showFirstTimeSetup(startupSettingsManager);
-		time("firstTimeSetup");
-	}
 
 	// Decide the final runtime cwd before creating cwd-bound runtime services.
 	// --session and --resume may select a session from another project, so project-local
@@ -802,9 +795,9 @@ export async function main(args: string[], options?: MainOptions) {
 		process.exit(1);
 	}
 
-	const startupBenchmark = isTruthyEnvFlag(process.env.PI_STARTUP_BENCHMARK);
+	const startupBenchmark = isTruthyEnvFlag(process.env.BCG_STARTUP_BENCHMARK);
 	if (startupBenchmark && appMode !== "interactive") {
-		console.error(chalk.red("Error: PI_STARTUP_BENCHMARK only supports interactive mode"));
+		console.error(chalk.red("Error: BCG_STARTUP_BENCHMARK only supports interactive mode"));
 		process.exit(1);
 	}
 

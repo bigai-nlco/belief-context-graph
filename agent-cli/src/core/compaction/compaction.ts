@@ -5,10 +5,10 @@
  * and after compaction the session is reloaded.
  */
 
-import type { AgentMessage, StreamFn, ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { contentText, type RetryCallbacks, type RetryPolicy, retryAssistantCall, uuidv7 } from "@earendil-works/pi-ai";
-import type { AssistantMessage, Context, Model, SimpleStreamOptions, Usage } from "@earendil-works/pi-ai/compat";
-import { completeSimple } from "@earendil-works/pi-ai/compat";
+import type { AgentMessage, StreamFn, ThinkingLevel } from "@bigai-nlco/bcg-agent-core";
+import { contentText, type RetryCallbacks, type RetryPolicy, retryAssistantCall, uuidv7 } from "@bigai-nlco/bcg-ai";
+import type { AssistantMessage, Context, Model, SimpleStreamOptions, Usage } from "@bigai-nlco/bcg-ai/compat";
+import { completeSimple } from "@bigai-nlco/bcg-ai/compat";
 import { convertToLlm } from "../messages.ts";
 import {
 	buildSessionContext,
@@ -46,7 +46,7 @@ function extractFileOperations(
 ): FileOperations {
 	const fileOps = createFileOps();
 
-	// Collect from previous compaction's details (if pi-generated)
+	// Collect from previous compaction's details (if bcg-generated)
 	if (prevCompactionIndex >= 0) {
 		const prevCompaction = entries[prevCompactionIndex] as CompactionEntry;
 		if (!prevCompaction.fromHook && prevCompaction.details) {

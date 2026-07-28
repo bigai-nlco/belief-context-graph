@@ -1,4 +1,4 @@
-import { Container, type SelectItem, SelectList, type SelectListLayoutOptions } from "@earendil-works/pi-tui";
+import { Container, type SelectItem, SelectList, type SelectListLayoutOptions } from "@bigai-nlco/bcg-tui";
 import type { ContextManagementProvider } from "../../../core/settings-manager.ts";
 import { getSelectListTheme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";

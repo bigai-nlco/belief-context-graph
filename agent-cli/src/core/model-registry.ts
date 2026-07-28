@@ -1,4 +1,4 @@
-import type { Api, AuthResult, Model, Provider } from "@earendil-works/pi-ai";
+import type { Api, AuthResult, Model, Provider } from "@bigai-nlco/bcg-ai";
 import type { ModelRuntime } from "./model-runtime.ts";
 import type { AuthStatus, ProviderConfigInput } from "./provider-composer.ts";
 

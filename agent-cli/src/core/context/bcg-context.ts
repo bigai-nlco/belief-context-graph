@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@bigai-nlco/bcg-agent-core";
 import { bashExecutionToText } from "../messages.ts";
 
 const GRAPH_PREFIX =

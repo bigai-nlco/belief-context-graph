@@ -1,13 +1,11 @@
-import { join } from "node:path";
-import { getDocsPath } from "../config.ts";
+import { getReadmePath } from "../config.ts";
 
 const UNKNOWN_PROVIDER = "unknown";
 
 export function getProviderLoginHelp(): string {
 	return [
-		"Use /login to log into a provider via OAuth or API key. See:",
-		`  ${join(getDocsPath(), "providers.md")}`,
-		`  ${join(getDocsPath(), "models.md")}`,
+		"Use /login to log into a provider via OAuth or API key.",
+		`See ${getReadmePath()} for BCG Agent configuration.`,
 	].join("\n");
 }
 

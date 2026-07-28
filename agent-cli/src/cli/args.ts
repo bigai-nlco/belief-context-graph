@@ -2,7 +2,7 @@
  * CLI argument parsing and help display
  */
 
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { ThinkingLevel } from "@bigai-nlco/bcg-agent-core";
 import chalk from "chalk";
 import { APP_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR } from "../config.ts";
 import type { ExtensionFlag } from "../core/extensions/types.ts";

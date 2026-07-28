@@ -176,7 +176,7 @@ function withTrustFileLock<T>(path: string, fn: () => T): T {
 
 /**
  * Returns true when cwd has project-local resources that must be gated by
- * project trust: trust-requiring entries under cwd/.pi, or .agents/skills in
+ * project trust: trust-requiring entries under cwd/.bcg, or .agents/skills in
  * cwd or one of its ancestors. Returns false when no such project resources
  * exist. The user/global ~/.agents/skills directory is always treated as a
  * trusted user resource and is ignored here, even when cwd is $HOME.

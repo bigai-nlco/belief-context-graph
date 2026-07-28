@@ -5,7 +5,7 @@ import {
 	type KeyId,
 	TUI_KEYBINDINGS,
 	KeybindingsManager as TuiKeybindingsManager,
-} from "@earendil-works/pi-tui";
+} from "@bigai-nlco/bcg-tui";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { getAgentDir } from "../config.ts";
@@ -57,7 +57,7 @@ export interface AppKeybindings {
 
 export type AppKeybinding = keyof AppKeybindings;
 
-declare module "@earendil-works/pi-tui" {
+declare module "@bigai-nlco/bcg-tui" {
 	interface Keybindings extends AppKeybindings {}
 }
 

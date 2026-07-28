@@ -55,7 +55,16 @@ uv tool install --python 3.11 --force --refresh-package bcg "$source_dir"
 printf '%s\n' "Building and installing the terminal Agent..."
 npm --prefix "$source_dir/agent-cli" ci
 npm --prefix "$source_dir/agent-cli" run build
-npm install --global "$source_dir/agent-cli"
+npm --prefix "$source_dir/agent-cli" pack --pack-destination="$temporary_dir" --loglevel=error >/dev/null
+agent_archive=""
+for candidate in "$temporary_dir"/*.tgz; do
+    if [ -f "$candidate" ]; then
+        agent_archive="$candidate"
+        break
+    fi
+done
+[ -n "$agent_archive" ] || fail "Could not package the terminal Agent."
+npm install --global "$agent_archive" --no-audit --no-fund
 
 if command -v bcg >/dev/null 2>&1 && command -v bcg-agent >/dev/null 2>&1; then
     printf '\n%s\n' "BCG is installed. Run:"

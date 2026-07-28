@@ -366,7 +366,7 @@ export function getUpdateInstruction(packageName: string): string {
  */
 export function getPackageDir(): string {
 	// Allow override via environment variable (useful for Nix/Guix where store paths tokenize poorly)
-	const envDir = process.env.PI_PACKAGE_DIR;
+	const envDir = process.env.BCG_PACKAGE_DIR;
 	if (envDir) {
 		return normalizePath(envDir);
 	}
@@ -428,49 +428,19 @@ export function getReadmePath(): string {
 	return resolve(join(getPackageDir(), "README.md"));
 }
 
-/** Get path to docs directory */
-export function getDocsPath(): string {
-	return resolve(join(getPackageDir(), "docs"));
-}
-
-/** Get path to examples directory */
-export function getExamplesPath(): string {
-	return resolve(join(getPackageDir(), "examples"));
-}
-
 /** Get path to CHANGELOG.md */
 export function getChangelogPath(): string {
 	return resolve(join(getPackageDir(), "CHANGELOG.md"));
 }
 
-/**
- * Get path to built-in interactive assets directory.
- * - For Bun binary: assets/ next to executable
- * - For Node.js (dist/): dist/modes/interactive/assets/
- * - For tsx (src/): src/modes/interactive/assets/
- */
-export function getInteractiveAssetsDir(): string {
-	if (isBunBinary) {
-		return join(getPackageDir(), "assets");
-	}
-	const packageDir = getPackageDir();
-	const srcOrDist = existsSync(join(packageDir, "src")) ? "src" : "dist";
-	return join(packageDir, srcOrDist, "modes", "interactive", "assets");
-}
-
-/** Get path to a bundled interactive asset */
-export function getBundledInteractiveAssetPath(name: string): string {
-	return join(getInteractiveAssetsDir(), name);
-}
-
 // =============================================================================
-// App Config (from package.json piConfig)
+// App Config (from package.json bcgConfig)
 // =============================================================================
 
 interface PackageJson {
 	name?: string;
 	version?: string;
-	piConfig?: {
+	bcgConfig?: {
 		name?: string;
 		configDir?: string;
 	};
@@ -484,14 +454,14 @@ try {
 	if (err.code !== "ENOENT") throw e;
 }
 
-const piConfigName: string | undefined = pkg.piConfig?.name;
+const bcgConfigName: string | undefined = pkg.bcgConfig?.name;
 export const PACKAGE_NAME: string = pkg.name || "@bigai-nlco/bcg-agent";
-export const APP_NAME: string = piConfigName || "bcg";
+export const APP_NAME: string = bcgConfigName || "bcg";
 export const APP_TITLE: string = APP_NAME;
-export const CONFIG_DIR_NAME: string = pkg.piConfig?.configDir || ".bcg";
+export const CONFIG_DIR_NAME: string = pkg.bcgConfig?.configDir || ".bcg";
 export const VERSION: string = pkg.version || "0.0.0";
 
-// e.g., PI_CODING_AGENT_DIR or TAU_CODING_AGENT_DIR
+// e.g., BCG_CODING_AGENT_DIR or TAU_CODING_AGENT_DIR
 export const ENV_AGENT_DIR = `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`;
 export const ENV_SESSION_DIR = `${APP_NAME.toUpperCase()}_CODING_AGENT_SESSION_DIR`;
 
@@ -506,10 +476,10 @@ export function getShareViewerUrl(gistId: string): string {
 }
 
 // =============================================================================
-// User Config Paths (~/.pi/agent/*)
+// User Config Paths (~/.bcg/agent/*)
 // =============================================================================
 
-/** Get the agent config directory (e.g., ~/.pi/agent/) */
+/** Get the agent config directory (e.g., ~/.bcg/agent/) */
 export function getAgentDir(): string {
 	const envDir = process.env[ENV_AGENT_DIR];
 	if (envDir) {

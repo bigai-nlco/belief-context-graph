@@ -1,4 +1,4 @@
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentTool } from "@bigai-nlco/bcg-agent-core";
 import { type Static, Type } from "typebox";
 import type { ToolDefinition } from "../extensions/types.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
@@ -268,7 +268,7 @@ export function createWebSearchToolDefinition(
 
 			const apiKey = resolveApiKey(options);
 			if (!apiKey) {
-				throw new Error("SERPER_API_KEY is not configured. Export SERPER_API_KEY before starting Pi.");
+				throw new Error("SERPER_API_KEY is not configured. Export SERPER_API_KEY before starting BCG.");
 			}
 
 			const topK = positiveInteger(top_k, DEFAULT_TOP_K, resolved.maxResults);

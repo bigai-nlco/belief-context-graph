@@ -6,8 +6,6 @@ export { type Args, parseArgs } from "./cli/args.ts";
 export {
 	CONFIG_DIR_NAME,
 	getAgentDir,
-	getDocsPath,
-	getExamplesPath,
 	getPackageDir,
 	getReadmePath,
 	VERSION,
@@ -356,7 +354,6 @@ export {
 } from "./modes/index.ts";
 // UI components for extensions
 export {
-	ArminComponent,
 	AssistantMessageComponent,
 	BashExecutionComponent,
 	BorderedLoader,

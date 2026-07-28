@@ -39,9 +39,9 @@ async function configuredClient(ctx: ExtensionCommandContext): Promise<LlamaClie
 	return new LlamaClient(serverUrl, result.auth.apiKey);
 }
 
-export default function llamaExtension(pi: ExtensionAPI): void {
+export default function llamaExtension(bcg: ExtensionAPI): void {
 	const provider = createLlamaProvider();
-	pi.registerProvider(provider.provider);
+	bcg.registerProvider(provider.provider);
 
 	const syncCatalog = async (
 		ctx: ExtensionCommandContext,
@@ -171,7 +171,7 @@ export default function llamaExtension(pi: ExtensionAPI): void {
 		ctx.ui.notify(`Downloaded ${model}`);
 	};
 
-	pi.registerCommand("llama", {
+	bcg.registerCommand("llama", {
 		description: "Manage llama.cpp router models",
 		handler: async (_args, ctx) => {
 			if (ctx.mode !== "tui") {

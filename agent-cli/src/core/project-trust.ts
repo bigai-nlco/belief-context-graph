@@ -22,7 +22,7 @@ export interface ResolveProjectTrustedOptions {
 }
 
 function formatProjectTrustPrompt(cwd: string): string {
-	return `Trust project folder?\n${cwd}\n\nThis allows pi to load ${CONFIG_DIR_NAME} settings and resources, install missing project packages, and execute project extensions.`;
+	return `Trust project folder?\n${cwd}\n\nThis allows bcg to load ${CONFIG_DIR_NAME} settings and resources, install missing project packages, and execute project extensions.`;
 }
 
 async function selectProjectTrustOption(

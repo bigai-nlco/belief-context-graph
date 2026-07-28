@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { Markdown, type MarkdownTheme } from "@earendil-works/pi-tui";
+import { Markdown, type MarkdownTheme } from "@bigai-nlco/bcg-tui";
 import chalk from "chalk";
 import { selectConfig } from "./cli/config-selector.ts";
 import { createProjectTrustContext } from "./cli/project-trust.ts";
@@ -24,7 +24,7 @@ import { DefaultResourceLoader } from "./core/resource-loader.ts";
 import { SettingsManager } from "./core/settings-manager.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/trust-manager.ts";
 import { spawnProcess } from "./utils/child-process.ts";
-import { getLatestPiRelease, isNewerPackageVersion } from "./utils/version-check.ts";
+import { getLatestBCGRelease, isNewerPackageVersion } from "./utils/version-check.ts";
 import {
 	cleanupWindowsSelfUpdateQuarantine,
 	quarantineWindowsNativeDependencies,
@@ -151,24 +151,24 @@ Examples:
 			console.log(`${chalk.bold("Usage:")}
   ${getPackageCommandUsage("update")}
 
-Update pi, installed packages, or model catalogs.
+Update bcg, installed packages, or model catalogs.
 
 Options:
-  --self                  Update pi only (default when no target is given)
+  --self                  Update bcg only (default when no target is given)
   --extensions            Update installed packages only
   --models                Refresh model catalogs only
-  --all                   Update pi and installed packages
+  --all                   Update bcg and installed packages
   --extension <source>    Update one package only
   -a, --approve           Trust project-local files for this command
   -na, --no-approve       Ignore project-local files for this command
-  --force                 Reinstall pi even if the current version is latest
+  --force                 Reinstall bcg even if the current version is latest
 
 Short forms:
-  ${APP_NAME} update                Update pi only
-  ${APP_NAME} update --all          Update pi and all extensions
+  ${APP_NAME} update                Update bcg only
+  ${APP_NAME} update --all          Update bcg and all extensions
   ${APP_NAME} update --models       Refresh model catalogs only
   ${APP_NAME} update <source>       Update one package
-  ${APP_NAME} update pi             Update pi only (self works as alias to pi)
+  ${APP_NAME} update bcg             Update bcg only (self works as alias to bcg)
 `);
 			return;
 
@@ -473,9 +473,9 @@ interface SelfUpdatePlan {
 }
 
 async function getSelfUpdatePlan(force: boolean): Promise<SelfUpdatePlan> {
-	let latestRelease: Awaited<ReturnType<typeof getLatestPiRelease>>;
+	let latestRelease: Awaited<ReturnType<typeof getLatestBCGRelease>>;
 	try {
-		latestRelease = await getLatestPiRelease(VERSION);
+		latestRelease = await getLatestBCGRelease(VERSION);
 	} catch (error: unknown) {
 		const message = error instanceof Error ? error.message : String(error);
 		throw new Error(`Could not determine latest ${APP_NAME} version: ${message}`);

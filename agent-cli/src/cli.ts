@@ -10,9 +10,9 @@ import { configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import { main } from "./main.ts";
 
 process.title = APP_NAME;
-process.env.PI_CODING_AGENT = "true";
+process.env.BCG_CODING_AGENT = "true";
 if (APP_NAME === "bcg") {
-	process.env.PI_SKIP_VERSION_CHECK = "1";
+	process.env.BCG_SKIP_VERSION_CHECK = "1";
 }
 process.emitWarning = (() => {}) as typeof process.emitWarning;
 
