@@ -48,65 +48,263 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 
 ## Quick Start
 
-### Install
+BCG uses two isolated runtimes: Python/`uv` for the SDK and Graph Construction,
+and Node.js 22.19+ for the interactive terminal Agent. RLLM is not used.
 
-This project uses `uv` for dependency management. Python 3.11+ required.
+### 1. Install BCG
+
+Choose one of the following installation methods.
+
+#### Option A: install globally with curl
+
+Use this method when you want the `bcg` command without keeping a source
+checkout:
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/bigai-nlco/belief-context-graph/main/install.sh | sh
+bcg --version
+```
+
+The installer requires `curl`, `tar`, npm, and Node.js 22.19 or newer. It
+installs `uv` when necessary, downloads the repository into a temporary
+directory, installs the Python and Node runtimes, and then removes the temporary
+source.
+
+#### Option B: clone and run from source
+
+Use this method for development or when you want to inspect and modify the
+code:
 
 ```bash
 git clone https://github.com/bigai-nlco/belief-context-graph.git
 cd belief-context-graph
+
 uv sync
+npm --prefix agent-cli ci
+npm --prefix agent-cli run build
+
+uv run bcg --version
 ```
 
-This creates a repository-local `.venv`. You may alternatively install the
-single `bcg` executable in an isolated user tool environment:
+Run the source checkout with:
 
 ```bash
-uv tool install .
+uv run bcg
+```
+
+Optionally expose the current checkout as the global `bcg` command:
+
+```bash
+uv tool install --editable .
+npm install -g ./agent-cli
 bcg --version
 ```
 
-### Configuration
+The editable Python install follows changes in the checkout. The Node package
+provides the internal `bcg-agent` executable launched by `bcg`; users normally
+do not invoke it directly.
 
-Keep credentials in the ignored root `.env`, and model routing in the
-non-secret JSON config:
+### 2. Start the BCG Agent
 
-```bash
-cp .env.example .env
-cp bcg/model_config.example.json bcg/model_config.json
-```
-
-Every `api_key_env` value in `model_config.json` names a variable from
-`.env`; do not put API keys directly in JSON.
-
-### Construct Commands
-
-The constructor provides two backends: `api_based` uses one large
-OpenAI-compatible model, while `light` uses local embeddings, spaCy, and
-smaller extractor/relation models. Put the backend after `run`, `server`,
-or `replay`. Omitting it remains compatible and defaults to `api_based`.
+For a curl or global installation:
 
 ```bash
-bcg construct run api_based --input data.json --config bcg/model_config.json
-bcg construct server light --config bcg/model_config.json --host 127.0.0.1 --port 8848
-bcg construct replay api_based --input stream.jsonl --config bcg/model_config.json
+bcg
 ```
 
-See [bcg/README.md](bcg/README.md) for backend configuration, input formats,
-HTTP endpoints, and Python APIs.
+From a source checkout:
 
-### Agent Context and Graph Updates
+```bash
+uv run bcg
+```
 
-Agent runs enable the two-layer archive by default and keep the latest two
-completed turns verbatim (`--recent-turns 2`). The initial system message and
-question still create a task-anchor graph. After that, a completed Agent turn
-is added to the graph only when it leaves the raw recent-turn window, so the
-same turn is never present both verbatim and in graph context.
+On the first launch, the setup guide asks for:
 
-`--belief-graph-interval` remains available for legacy `--no-archive` runs; in
-archive mode, graph updates follow context eviction instead of that interval.
-Use `--recent-turns 0` for graph-only context, or `--recent-turns -1` to keep
-raw turn history unbounded so later turns are never evicted into the graph.
+1. Agent authentication: an OpenAI-compatible API key and base URL, or the
+   interactive `/login` flow.
+2. The Agent model.
+3. The default context mode: **BCG** or **Default**.
+4. Whether BCG should manage a local Graph Construction server or connect to an
+   existing one.
+5. For a managed server, the Graph backend: **api_based** or **light**.
+
+The setup is saved under `~/.bcg` and works from every directory:
+
+```text
+~/.bcg/config.json        # Agent, context, and Graph runtime choices
+~/.bcg/.env               # API keys and credentials; mode 0600
+~/.bcg/model_config.json  # Graph model routing; no inline secrets
+~/.bcg/agent/             # Agent settings, authentication, and sessions
+```
+
+Run `bcg setup` at any time to change these settings.
+
+When a managed Graph backend is selected, `bcg` automatically:
+
+1. Checks `http://127.0.0.1:8848/health`.
+2. Reuses a healthy Graph Construction server or starts one with the selected
+   backend and `~/.bcg/model_config.json`.
+3. Writes its log to `~/.bcg/logs/graph-server.log` and graph artifacts to
+   `~/.bcg/graphs/`.
+4. Opens the terminal Agent after the Graph server is ready.
+
+`bcg agent` is an explicit alias for the same terminal interface.
+
+The terminal exposes the following commands:
+
+| Command | Purpose |
+| --- | --- |
+| `/help` | Show commands and essential keyboard controls |
+| `/model` | Select the inference model |
+| `/mode` | Choose Default or BCG context before the session's first message |
+| `/login` / `/logout` | Configure or remove the model API key |
+| `/new` / `/resume` | Start or restore a BCG session |
+| `/graph` | Check Graph connectivity and context policy |
+| `/exit` | Exit BCG |
+
+Context mode is fixed after the first user message. Use `/new` to start a
+session with another mode:
+
+- **BCG** permanently retains the initial user input and keeps the latest two
+  completed turns as raw messages. On the first request, the system prompt and
+  initial user input seed the Graph. Messages leaving the two-turn raw window
+  are then added incrementally. The current Markdown Graph is wrapped in
+  `<belief_graph format="markdown">...</belief_graph>` and appended to the
+  system prompt. Traditional compaction is disabled.
+- **Default** uses the full normal Agent conversation with automatic
+  compaction. Graph context is not injected.
+
+Use `/mode` for the selector, or `/mode bcg` and `/mode default` directly.
+`BCG_RECENT_TURNS` can override the default raw window of `2`.
+
+### 3. Configure and Start Graph Construction
+
+BCG supports two construction backends. In normal Agent use, you choose one
+during `bcg setup` and `bcg` starts or reuses the Graph Construction HTTP server
+automatically. The commands below are also provided for independent deployment
+and debugging.
+
+#### Option A: `api_based`
+
+`api_based` uses one OpenAI-compatible model for graph node and relation
+generation. During setup, it can reuse the Agent model endpoint and API key or
+use a separate endpoint:
+
+```bash
+bcg setup
+# Graph server: Start and manage a local Graph server automatically
+# Graph backend: API based
+
+bcg
+```
+
+No vLLM process is required when the configured API endpoint is already
+available.
+
+The equivalent manual Graph server command is:
+
+```bash
+bcg construct server api_based \
+  --config ~/.bcg/model_config.json \
+  --model-key graph-model \
+  --embedding-key embedding \
+  --host 127.0.0.1 \
+  --port 8848 \
+  --output-dir ~/.bcg/graphs
+```
+
+If that server is already healthy, a later `bcg` invocation reuses it.
+
+#### Option B: `light`
+
+`light` uses:
+
+- a small generative model served through an OpenAI-compatible vLLM endpoint;
+- a local sentence-transformers embedding model;
+- a local/Hugging Face stance classifier;
+- spaCy for local language processing and entity extraction.
+
+The BCG Python installation contains the Graph-side dependencies, but it does
+not install or manage the separate vLLM GPU service.
+
+First create a dedicated vLLM environment:
+
+```bash
+uv venv ~/.bcg/vllm --python 3.11
+uv pip install --python ~/.bcg/vllm/bin/python vllm
+```
+
+Start vLLM in another terminal or a persistent service such as tmux:
+
+```bash
+~/.bcg/vllm/bin/vllm serve <MODEL_OR_LOCAL_PATH> \
+  --served-model-name <MODEL_NAME> \
+  --host 127.0.0.1 \
+  --port 8001 \
+  --max-model-len 10000 \
+  --max-num-seqs 8
+```
+
+Then configure BCG with:
+
+```text
+Graph server: Start and manage a local Graph server automatically
+Graph backend: Light
+vLLM base URL: http://127.0.0.1:8001/v1
+Model served by vLLM: <MODEL_NAME>
+vLLM API key: EMPTY
+```
+
+`<MODEL_NAME>` must match the value passed to `--served-model-name`. After vLLM
+is ready, launch the Agent:
+
+```bash
+bcg
+```
+
+BCG starts the light Graph Construction server at `127.0.0.1:8848`; it does not
+start the vLLM process. To start Graph Construction manually instead:
+
+```bash
+bcg construct server light \
+  --config ~/.bcg/model_config.json \
+  --model-key graph-model \
+  --embedding-key embedding \
+  --host 127.0.0.1 \
+  --port 8848 \
+  --output-dir ~/.bcg/graphs
+```
+
+For source development, `scripts/start_vllm.sh` is also available, but it reads
+`VLLM_*` values from the checkout's root `.env` or explicit command-line
+arguments; it does not read `~/.bcg/model_config.json`.
+
+#### Connect to an existing Graph server
+
+If Graph Construction is already hosted elsewhere, run `bcg setup`, choose
+**Connect to an existing Graph server**, and enter its URL. In this mode BCG
+checks and reuses that endpoint but does not start or manage it.
+
+### 4. Run Graph Construction Without the Agent
+
+The same two backends can process saved trajectories:
+
+```bash
+bcg construct run api_based \
+  --input data.json \
+  --config ~/.bcg/model_config.json \
+  --model-key graph-model
+
+bcg construct replay light \
+  --input stream.jsonl \
+  --config ~/.bcg/model_config.json \
+  --model-key graph-model
+```
+
+See [bcg/README.md](bcg/README.md) for input formats, HTTP endpoints, output
+artifacts, and Python APIs.
+
+## Python SDK
 
 ### Minimal Example
 
@@ -325,7 +523,9 @@ Until the native MCP server ships, BCG can be used with any MCP-compatible agent
 
 ### Environment Variables
 
-Copy `.env.example` when you need local API credentials:
+Normal users configure these values through `bcg setup`; they are persisted in
+`~/.bcg/config.json` and `~/.bcg/.env`. `.env.example` is a development and
+automation reference:
 
 ```bash
 cp .env.example .env

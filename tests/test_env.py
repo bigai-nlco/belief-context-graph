@@ -28,9 +28,25 @@ def test_env_discovery_supports_tool_install_working_directory(
     env_file = tmp_path / ".env"
     env_file.write_text("OPENAI_API_KEY=test\n", encoding="utf-8")
     monkeypatch.delenv("BCG_ENV_FILE", raising=False)
+    monkeypatch.setenv("BCG_HOME", str(tmp_path / "missing-state"))
     monkeypatch.chdir(tmp_path)
 
     assert find_project_env() == env_file
+
+
+def test_env_discovery_prefers_global_bcg_credentials(tmp_path, monkeypatch) -> None:
+    state_root = tmp_path / "state"
+    state_root.mkdir()
+    global_env = state_root / ".env"
+    global_env.write_text("OPENAI_API_KEY=global\n", encoding="utf-8")
+    working_dir = tmp_path / "project"
+    working_dir.mkdir()
+    (working_dir / ".env").write_text("OPENAI_API_KEY=project\n", encoding="utf-8")
+    monkeypatch.delenv("BCG_ENV_FILE", raising=False)
+    monkeypatch.setenv("BCG_HOME", str(state_root))
+    monkeypatch.chdir(working_dir)
+
+    assert find_project_env() == global_env
 
 
 def test_env_discovery_honors_explicit_file(tmp_path, monkeypatch) -> None:
