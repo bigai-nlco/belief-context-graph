@@ -222,9 +222,7 @@ Belief confidence is **deterministic and auditable**. The stored value is the av
 | Dimension | What It Measures |
 |---|---|
 | `source_reliability` | Trustworthiness of the information source |
-| `evidence_directness` | How directly the evidence supports the claim |
-| `claim_specificity` | Granularity and concreteness of the belief |
-| `linguistic_certainty` | Certainty signals in the language used |
+| `stance quality` | Certainty signals in the language used |
 
 LLMs contribute to assessing each dimension, but the final confidence number is computed mathematically — no model-generated confidence scores enter the graph.
 
