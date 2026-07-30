@@ -46,8 +46,6 @@ You can drive either backend two ways:
 - [Usage: online server (`bcg/online_server.py`)](#usage-online-server-bcgonline_serverpy)
 - [Output artifacts](#output-artifacts)
 - [Project layout](#project-layout)
-- [Python API](#python-api)
-- [Legacy CLI](#legacy-cli)
 
 ---
 
