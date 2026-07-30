@@ -1,156 +1,444 @@
-# construct_beliefs
+# bcg — Belief Context Graph construction
 
-A streaming engine that turns a role-tagged conversation or research trajectory into a **belief graph**: a set of typed *belief* and *decision* nodes, connected by typed relations, each node carrying its confidence and exact evidence offsets back into the original text.
+`bcg` turns a role-tagged conversation or research trajectory (`user` /
+`assistant` / `tool` / `function` turns) into a **belief graph**: typed
+*belief* and *decision* nodes, connected by typed relations (`depends_on`,
+`supplements`, `contradicts`), each node carrying a confidence score and
+evidence pointing back into the original text.
 
-The engine is incremental. It reads a conversation **one turn at a time**, and on every turn runs a short three-phase pipeline: extract new nodes, deduplicate them against the graph, then extract the typed relations linking them to what came before. Deduplication ("merge") runs incrementally after each turn, and optionally once more at the end of the trajectory. There are no scenarios and no sessions — any input is normalised into a flat stream of turns tagged `user` / `assistant` / `tool`.
+Construction is **incremental** — turns are processed one at a time: extract
+new nodes, deduplicate them against the graph, then link them to what came
+before. There are no scenarios or sessions; any input is normalised into a
+flat, role-tagged stream of turns.
 
-You can drive it two ways:
+Two independent backends implement this, side by side, under
+`bcg/construct/`:
 
-- **Over HTTP** (recommended) — run a small server and POST turns to it as your agent produces them. This is the primary, maintained path.
-- **On a single machine** — run a whole input file through `bcg/run.py` in one shot.
+- **`light`** — local models only: a small generative model (Qwen) extracts
+  nodes, a local classifier assigns stance, local NER assigns entities, and a
+  second small model draws relations.
+- **`api_based`** — one large API-based chat model does node extraction and
+  relation extraction (as two separate calls), returning stance and entities
+  together with the nodes.
+
+Pick **one backend per run**. They share the same *shape* of entry points
+(`pipeline.run_input` / `pipeline.run_item`, `online.SessionManager`,
+`StreamingBeliefBuilder` / `StreamOptions`) but are **not** interchangeable
+at the class level — their `StreamOptions` fields and node/graph internals
+differ. Always go through the unified `bcg/run.py` / `bcg/online_server.py`
+entry points below, or import the specific backend you want directly.
+
+You can drive either backend two ways:
+
+- **Batch** (`bcg/run.py`) — run a whole input file through the pipeline in
+  one shot.
+- **Online, over HTTP** (`bcg/online_server.py`) — start a small server and
+  push turns to it as your agent produces them.
+
+> This document was written by reading the actual source of both backends
+> (`bcg/construct/light/`, `bcg/construct/api_based/`), the unified entry
+> points (`bcg/run.py`, `bcg/online_server.py`), the shared infra
+> (`bcg/env.py`, `bcg/cli_help.py`, `bcg/construct/dispatch.py`,
+> `bcg/construct/_backend_cli.py`), and `model_config.example.json`. A
+> couple of things referenced elsewhere either don't exist in this code or
+> now do something different than described — no `factor.py` / "factor
+> abstraction" module exists anywhere in this export (see the note under
+> [How the two backends build a graph](#how-the-two-backends-build-a-graph)),
+> and the per-backend `run/server/replay` group ([Legacy CLI](#legacy-cli))
+> has no `visualize` subcommand at all, unlike older docs. The only piece
+> left unread is `bcg/online_driver.py` itself.
 
 ---
 
 ## Table of contents
 
-- [How it works](#how-it-works)
+- [How the two backends build a graph](#how-the-two-backends-build-a-graph)
 - [Installation](#installation)
-- [Configuration](#configuration-env--model_configjson)
-- [Quick start (HTTP server)](#quick-start-http-server)
-- [Single-machine mode (run.py)](#single-machine-mode-runpy)
-- [Replaying a stream offline (online_driver.py)](#replaying-a-stream-offline-online_driverpy)
-- [Input data formats](#input-data-formats)
+- [Configuration](#configuration)
+- [Usage: batch (`bcg/run.py`)](#usage-batch-bcgrunpy)
+- [Usage: online server (`bcg/online_server.py`)](#usage-online-server-bcgonline_serverpy)
 - [Output artifacts](#output-artifacts)
-- [Options reference](#options-reference)
 - [Project layout](#project-layout)
 - [Python API](#python-api)
+- [Legacy CLI](#legacy-cli)
 
 ---
 
-## How it works
+## How the two backends build a graph
 
-Each turn is routed only by its role. `user` and `tool` messages are treated as authoritative; `assistant` messages are the model's own reasoning and answers. `system` turns are recorded but produce no nodes, and `function` is treated as `tool`.
+| | `bcg.construct.light` | `bcg.construct.api_based` |
+|---|---|---|
+| Node extraction | Small generative model (Qwen), one concurrent call **per semantic chunk** | One large API-based chat model, one call **per turn** (returns nodes + stance + entities together) |
+| Chunking | Semantic breakpoint chunking (adjacent-window embedding distance) + `<think>`/`<tool_call>`/`<tool_response>` isolation | Whole-turn sentence splitting (no chunking) |
+| Stance | Local DeBERTa zero-shot 4-class classifier, run on every extracted node's text | Returned directly by the node-extraction call |
+| Entities | Local spaCy NER (or HF token-classification), run **after** that turn's merge is complete | Returned directly by the node-extraction call |
+| Relations | Separate non-thinking Qwen model; backward window is either the immediately-previous turn only (`search_previous_turns: false`) or a full backward walk (`true`, the example config's default) | Same model, always a full backward walk: current turn vs. the immediately-previous turn's surviving nodes, walking further back one turn at a time until a cross-turn edge lands (or no turn remains) |
+| Evidence granularity | Whole semantic chunk (exact offsets) | Whole sentence (exact offsets, default) or model-quoted excerpt (`--evidence-mode excerpt`, located by a 3-stage exact→normalised→fuzzy matcher) |
+| Confidence policy | Fully config-driven (`belief_graph.confidence`: role/stance weights, aggregation method) | Hardcoded `(role, stance)` lookup table in `confidence.py` |
+| Merge | Incremental, embedding-only (**no** LLM verify step) | Incremental embedding merge, **optionally** LLM-verified + rewritten (`--verify-merge`, default on) |
+| Trajectory-end / global merge | None — removed; only the per-turn incremental merge runs | None — also removed; only the per-turn incremental merge runs (there is **no** `--merge-strategy` / `--merge-threshold` flag in this codebase) |
+| Runtime tuning | Almost entirely via `model_config.json`'s `belief_graph` block — `bcg/run.py light` exposes no backend-specific CLI flags | Via CLI flags on `bcg/run.py` / `bcg/online_server.py` (`--evidence-mode`, `--incremental-merge*`, `--verify-merge`, `--context-chars`, `--min-content-len`) |
+| API key | Same mechanism as `api_based` — see [Configuration](#configuration) | `api_key_env` resolved from a project-root `.env` via the shared `bcg/env.py` |
 
-For every non-skipped turn the engine runs a **three-phase pipeline**:
+> **Note on drift between docs and code.** `construct/api_based/__init__.py`'s
+> own docstring still describes "a single LLM call per turn" with "merge/dedup
+> run once at trajectory end" — that's stale relative to what `stream.py`,
+> `extract.py`, and `merge.py` actually do today (three calls: node
+> extraction, incremental merge, then one-or-more relation-extraction calls;
+> no trajectory-end merge at all). This README follows the executable code.
+> Similarly, no `factor.py` / "factor abstraction" module exists anywhere in
+> this export.
 
-1. **Node extraction** (`extract.extract_nodes`) — one LLM call that returns only the new **belief nodes** (self-contained reasoning/memory units) and **decision nodes** (the assistant's final answers, especially anything wrapped in `\boxed{...}`). No relations yet.
-2. **Incremental merge** — the new belief nodes are deduplicated against the graph immediately, *before* any edges are drawn, so relations are always attached to a clean, deduplicated graph. Decision nodes are excluded from this per-turn merge; only the final decision is retained as a decision at trajectory end (see below).
-3. **Relation extraction** (`extract.extract_relations`) — one or more LLM calls that add the typed relations. The call links the surviving new nodes against the immediately-previous turn's nodes (plus new↔new). If that adjacent turn yields no cross-turn edge, the window walks backward one turn at a time until a current-to-prior edge is added or no earlier turn remains — so a turn may issue several relation calls.
+### `api_based`, in more detail
 
-Relations use three types: `depends_on`, `supplements`, and `contradicts`. Every accepted edge must touch at least one *new* node; the engine rejects edges between two pre-existing nodes so old structure is never re-emitted.
+Each non-skipped turn (`extract.py` + `stream.py`) runs:
 
-**Evidence** is tracked precisely. In the default *sentence* mode the turn is split into whole sentences with exact character offsets, and each node points at the sentences that support it. In *excerpt* mode the model quotes spans verbatim and a three-stage matcher (exact → whitespace-normalised → fuzzy) locates them in the original text.
+1. **Node extraction** (`extract.extract_nodes`, one LLM call) — returns new
+   **belief nodes** and **decision nodes**, each already carrying its
+   `stance` (`asserted` / `recalled` / `judged` / `speculated`) and
+   `entities`. Decision nodes are only meaningful for the assistant's final
+   answer (e.g. wrapped in `\boxed{...}`); no relations yet.
+2. **Incremental merge** (`merge.run_merge_pass`, `strategy="embedding"`) —
+   new belief nodes are deduplicated against the graph immediately, before
+   any edges are drawn. Decision nodes are excluded from this merge
+   entirely. Candidates are embedded and flagged above
+   `--incremental-merge-threshold` (default `0.86`); if `--verify-merge` is
+   on (default), the LLM is called once per candidate group to confirm the
+   merge and rewrite the surviving node's text.
+3. **Relation extraction** (`extract.extract_relations`, one or more LLM
+   calls) — links the surviving new nodes to the immediately-previous
+   turn's surviving nodes (plus new↔new). If that adjacent turn yields no
+   cross-turn edge, the window walks backward one turn at a time until a
+   current-to-prior edge lands or no earlier turn remains — one turn can
+   therefore issue several relation calls. Every accepted edge must touch
+   at least one *new* node, so old↔old edges are never re-emitted.
 
-**Confidence** is assigned when a node is created — an initial score from a `(role, stance)` prior — and is recomputed as evidence accumulates (for example when a merge folds another node's evidence into it). Every move is recorded in each node's `confidence_history`.
+**Evidence** (`evidence.py`): in *sentence* mode (default) the turn is split
+into whole sentences with exact offsets; in *excerpt* mode the model quotes
+a span verbatim and it's located by exact → whitespace-normalised → fuzzy
+matching.
 
-**Merge / dedup** removes duplicate nodes and runs in two places:
+**Confidence** (`confidence.py`) is a logistic combination:
+`confidence = sigmoid(logit(initial_confidence) + evidence_confidence)`,
+where `initial_confidence` comes from a fixed `(role, stance)` table and
+`evidence_confidence` accumulates `source_reliability × stance_quality` for
+every piece of *additional* evidence folded in later by a merge (the
+evidence that created the node isn't counted twice). Every change is
+recorded in `confidence_history`.
 
-- a per-turn **incremental** merge, right after each turn's new belief nodes are added. It embeds the candidate statements and flags pairs above the threshold. By default (`--verify-merge`, on) it then calls the LLM once per candidate group to *verify* the merge is reasonable and *rewrite* the surviving node's text to cover all merged meanings; with `--no-verify-merge` it is embedding-only (no LLM call). This is where most deduplication happens. Candidate groups are node-disjoint by construction (each comes from its own connected component), so whenever a turn produces more than one candidate group, their verify calls run **concurrently** on a thread pool (default up to 8 at once — see `run_merge_pass(..., max_verify_workers=...)` in `merge.py`) instead of one at a time; only the cheap, CPU-only parsing of each group's result stays sequential, so grouping and the `logs/merge_*.json` audit trail are unaffected and stay deterministic.
-- an optional **final** merge at the end of the trajectory, controlled by `--merge-strategy` (default **`off`**). When enabled it runs a whole-graph pass (`embedding` = candidates + LLM verify, or `llm` = the model proposes groups directly). The `embedding` strategy's LLM-verify step is parallelized the same way as the incremental merge above. Before it runs, finalize keeps only the latest generated decision as a `decision` and demotes earlier decisions to ordinary beliefs so they can participate in the final belief merge.
+**Merge gating**: nodes may only merge when their source `role` and
+`node_type` are identical. The canonical survivor is always the smallest id
+in the group; absorbed nodes are archived in `graph.merges` and every
+relation endpoint pointing at them is rewired to the canonical id.
 
-Merging is **gated**: two nodes may be merged only when their source **role** is identical **and** their **node_type** is identical. A belief is never absorbed into a decision, and a user claim is never absorbed into an assistant conclusion.
+**Timing**, per built turn: `node_generation`, `merging` (embedding pass),
+`llm_check` (LLM verify; `0` under `--no-verify-merge`), `edge_generation`
+(summed over any backward-walk calls), plus `turn_total`.
 
-**Timing** is measured for each of the four latency-relevant sub-steps of every built turn — `node_generation` (phase 1), `merging` (incremental-merge embedding), `llm_check` (incremental-merge LLM verify; `0` when `--no-verify-merge`), and `edge_generation` (phase 3, summed over any backward-walk calls) — plus the whole-turn wall time and the optional final merge. See [Output artifacts](#output-artifacts).
+### `light`, in more detail
+
+Each non-skipped turn (`stream.py`, four phases):
+
+1. **Chunk + extract.** The turn is split into semantic chunks
+   (`split.py`: sentence-splits, embeds a configurable neighbour window
+   around each sentence, and breaks where adjacent-window cosine distance
+   exceeds `chunking.breakpoint_percentile_threshold`; undersized adjacent
+   groups are merged per `min_chunk_sentences`). `<think>` / `<tool_call>` /
+   `<tool_response>` spans are isolated into their own chunks when
+   `chunking.isolate_tool_calls` is on. Every chunk is then submitted
+   **concurrently** (`extractor_config.max_concurrency`, default `16`) to a
+   small Qwen model behind an OpenAI-compatible endpoint
+   (`extractor.py: QwenChunkExtractor`), which returns zero, one, or several
+   `belief`/`decision` node texts per chunk — nothing else. `decision` is
+   only honoured on assistant turns. Each extracted node's text is then run
+   through a **local DeBERTa zero-shot classifier** (`stance.py`) to assign
+   one of the four stance labels — the generative model is never trusted
+   for stance.
+2. **Incremental merge** (belief-only, embedding-only, no LLM verify —
+   `merge.py` always calls `run_merge_pass(strategy="embedding",
+   verify=False)`). Decision nodes never participate in any merge.
+3. **Entities**, only after that turn's merge has settled and node text is
+   stable — local spaCy NER by default (`named_entities.py`; also supports
+   spaCy `EntityRuler` patterns, a spaCy `Matcher` rules pass, or a
+   Hugging Face token-classification pipeline; `regex`/`llm` are rejected).
+4. **Edge generation** — a second, separate, non-thinking Qwen model
+   (`edge_generation.py: QwenEdgeGenerator`) links the turn's surviving
+   node identities to a prior turn's nodes. `edge_generation.
+   search_previous_turns` controls the window: `true` (the example config's
+   default) walks backward turn-by-turn exactly like `api_based`, stopping
+   at the first cross-turn edge; `false` restricts the attempt to only the
+   immediately-previous turn (the "conservative two-turn window").
+
+**Evidence** (`evidence.py`) is always the whole contiguous chunk that
+produced a node (exact offsets) — there's no sentence/excerpt toggle; the
+`belief_graph.runtime.evidence_mode` config value ("chunk") is recorded but
+not branched on anywhere.
+
+**Confidence** uses the same logit/sigmoid posterior form as `api_based`,
+but every input to it — source reliability per role, stance quality per
+label, the aggregation method (`weighted_average`/`product`, etc.) — comes
+from `belief_graph.confidence` in `model_config.json` rather than a
+hardcoded table.
+
+**Timing**, per built turn: `node_generation`, `merging`,
+`entity_extraction`, `edge_generation`, plus `turn_total` — no `llm_check`
+step exists for this backend (there is no merge-verify LLM call).
+
+**Runtime tuning is config-only.** `bcg/run.py light` /
+`bcg/online_server.py light` expose no chunking/extractor/merge/entity/edge
+flags — every one of those knobs lives in `model_config.json`'s
+`belief_graph` block (see [Configuration](#configuration)) and is applied
+via `StreamOptions.apply_belief_graph_config()`.
 
 ---
 
 ## Installation
 
-The integrated project requires **Python 3.11+**.
+There's no `requirements.txt` in this export yet. From the imports actually
+used:
+
+- **Both backends need:** `openai` (chat + optional OpenAI-compatible
+  embeddings), `sentence-transformers` (local embeddings, used for merge
+  candidate scoring and, for `light`, semantic chunking), `numpy`, and
+  `rich` (used by `bcg/cli_help.py`'s `RichArgumentParser` for the
+  Typer-style `--help` output on `bcg/run.py`, `bcg/online_server.py`, and
+  each backend's `python -m bcg.construct.<backend>` entry).
+- **`light` additionally needs:** `torch`, `transformers`, `spacy` (plus
+  `python -m spacy download en_core_web_sm` for the default NER model,
+  and, if you set `entities.method: "huggingface"`, whatever token-
+  classification checkpoint you point it at — `dslim/bert-base-NER` in the
+  example config).
+
+If you're serving `light`'s small extractor / edge-generation models
+yourself, serve them with vLLM (OpenAI-compatible):
 
 ```bash
-# from the repository root
-python -m venv .venv
-source .venv/bin/activate         # Windows: .venv\Scripts\activate
-
-pip install -e .
+vllm serve /path/to/Qwen3.5-4B \
+  --served-model-name Qwen3.5-4B \
+  --port 8001 --max-model-len 8192 --max-num-seqs 64 \
+  --gpu-memory-utilization 0.92 --dtype auto
 ```
 
-The project metadata installs the core dependencies, including `openai` for
-OpenAI-compatible chat/embedding calls and `numpy` for similarity and
-clustering.
-
-Embeddings can be served two ways. The default configuration calls an
-**OpenAI-compatible `/v1/embeddings` HTTP endpoint** (e.g. vLLM, SGLang, TEI,
-or OpenAI itself), which needs no extra Python packages. To load embedding
-weights in-process (`"provider": "local"`), install `sentence-transformers`
-and the `torch` build matching the target hardware separately.
+`--served-model-name` must match `belief_graph.extractor.model` /
+`belief_graph.edge_generation.model` in `bcg/model_config.json`.
 
 ---
 
-## Configuration (`.env` + `model_config.json`)
+## Configuration
 
-All credentials live in the project-root `.env`. Model names, endpoints,
-pricing, and the environment-variable name for each key remain in JSON:
+`bcg/model_config.json` is **shared by both backends** (copy
+`model_config.example.json` to get started). Top-level keys are chat-model
+entries (e.g. `"gpt-5.5"`), plus two reserved keys:
 
-```bash
-cp .env.example .env
-cp bcg/model_config.example.json bcg/model_config.json
+- **`"embedding"`** (any key starting with `embedding` is reserved and
+  never chosen as the default chat model). Selected by its `"provider"`
+  field:
+  - **`"openai"`** (default if `provider` is omitted) — any
+    OpenAI-compatible `/v1/embeddings` endpoint. Requires `base_url`,
+    `api_key_env`, `model`.
+  - **`"local"`** — load the weights **in-process** via
+    `sentence-transformers`; no server needed. Requires only `model` (an HF
+    repo id or local weights directory) — the example config uses this.
+  Used by both backends for merge-candidate scoring, and by `light` for
+  semantic chunking. If this entry is absent, incremental merge (and, for
+  `light`, chunking) is skipped with a warning rather than an error.
+- **`"belief_graph"`** — **`light`-only.** `extractor` / `stance` /
+  `edge_generation` / `entities` / `confidence` / `chunking` / `runtime` /
+  `incremental_merge` settings, loaded by `load_belief_graph_config()` from
+  (in merge order) the top-level `belief_graph` key, then the selected
+  chat-model entry's own `belief_graph` override if present. `api_based`
+  never reads this section at all.
+
+**API keys**: both backends resolve them identically, through the shared
+`bcg/env.py`. Which `.env` file gets read is resolved in this priority
+order (`find_project_env()`):
+
+1. `$BCG_ENV_FILE`, if set (any path);
+2. `.env` in the **current working directory**;
+3. `.env` at the source checkout's project root (next to `bcg/`).
+
+That file is parsed once at import time (and again defensively inside
+`resolve_config_api_key`) and loaded into `os.environ` — values already
+present in the real environment are **not** overwritten.
+
+For a given config entry, `resolve_config_api_key()` then:
+
+1. reads `api_key_env` off that entry (falling back to a caller-chosen
+   default — `OPENAI_API_KEY` for chat entries, `EMBEDDING_API_KEY` for the
+   embedding entry, `BELIEF_GRAPH_LOCAL_API_KEY` for `light`'s `extractor`
+   / `edge_generation` blocks — if `api_key_env` is missing);
+2. looks up that variable in `os.environ`;
+3. if it's unset or empty, **falls back to a literal `api_key` field already
+   in that same config entry** (a legacy/manual escape hatch — templates
+   and docs should still prefer `api_key_env` + `.env`, never a checked-in
+   secret);
+4. raises `ValueError` if both are empty.
+
+```
+OPENAI_API_KEY=sk-...
+BELIEF_GRAPH_LOCAL_API_KEY=unused-or-your-vllm-key
 ```
 
-The file is **nested by model name**. Each top-level key is a *model-key* you can select on the command line; the key's name is used as the model name unless the entry sets its own `"model"`. Any key beginning with `embedding` is **reserved** — it is never chosen as the default chat model, which lets several embedding entries coexist with chat entries.
-
-A chat entry must provide `base_url` and `api_key_env`; `max_tokens` and
-`pricing` are optional. `api_key_env` is a variable name, not a secret. A
-minimal example:
+`model_config.example.json`, trimmed to the parts most run configurations
+will actually touch:
 
 ```json
 {
   "gpt-5.5": {
     "api_key_env": "OPENAI_API_KEY",
-    "base_url": "https://your-endpoint/v1",
+    "base_url": "https://litellm.mybigai.ac.cn/v1",
     "max_tokens": 100000,
+    "temperature": 1,
+    "top_p": 0.95,
     "pricing": { "input_per_1k": 0.005, "output_per_1k": 0.03 }
   },
   "embedding": {
-    "api_key_env": "EMBEDDING_API_KEY",
-    "base_url": "http://localhost:8000/v1",
-    "model": "Qwen/Qwen3-Embedding-8B",
-    "batch_size": 8
+    "provider": "local",
+    "model": "/path/to/your/all-MiniLM-L6-v2",
+    "device": "auto",
+    "batch_size": 8,
+    "max_length": 8192
+  },
+  "belief_graph": {
+    "extractor": {
+      "enabled": true, "provider": "openai",
+      "base_url": "http://localhost:8001/v1",
+      "api_key_env": "BELIEF_GRAPH_LOCAL_API_KEY",
+      "model": "Qwen3.5-4B", "temperature": 0, "max_tokens": 4096,
+      "max_concurrency": 16, "context_scope": "graph",
+      "enable_thinking": false, "dynamic_node_cap": true,
+      "node_cap_unit": "char", "node_cap_ratio": 0.004
+    },
+    "stance": {
+      "model_path": "/path/to/your/deberta-v3-large-zeroshot-v2.0",
+      "labels": { "asserted": {...}, "recalled": {...}, "judged": {...}, "speculated": {...} }
+    },
+    "edge_generation": {
+      "provider": "openai", "base_url": "http://localhost:8001/v1",
+      "api_key_env": "BELIEF_GRAPH_LOCAL_API_KEY", "model": "Qwen3.5-4B",
+      "enable_thinking": false, "search_previous_turns": true
+    },
+    "runtime": { "evidence_mode": "chunk", "context_chars": 100000, "min_content_len": 0 },
+    "incremental_merge": { "enabled": true, "threshold": 0.76, "keep_newest_text": false },
+    "entities": { "method": "ml", "spacy_model": "en_core_web_sm" },
+    "confidence": { "initial_method": "weighted_average", "evidence_method": "product", ... },
+    "chunking": { "enabled": true, "breakpoint_percentile_threshold": 95.0, "buffer_size": 1, "isolate_tool_calls": true }
   }
 }
 ```
 
-The engine looks for an embedding entry named `embedding` by default (override with `--embedding-key`). Two providers are supported, selected by the entry's `"provider"` field:
-
-- **`openai`** (the default when `provider` is omitted) — any OpenAI-compatible `/v1/embeddings` endpoint. Requires `base_url`, `api_key_env`, `model`.
-- **`local`** — load the weights in-process with sentence-transformers; no server needed. Requires only `model` (a Hugging Face repo id or a local directory of weights), plus the optional `sentence-transformers` / `torch` dependencies.
-
-If no embedding entry is found, clustering is disabled and the merge strategy silently falls back from `embedding` to `llm`.
-
-Real key values belong only in the ignored root `.env`. Do not put them in
-`model_config.json` or command files.
-
-### Construction backends
-
-The commands `run`, `server`, and `replay` accept a backend name:
-
-- `api_based`: one large API model performs extraction and relation building.
-- `light`: local embeddings and spaCy are combined with the smaller extractor
-  and edge-generation services configured under `belief_graph`.
-
-Use `bcg construct <command> <backend> ...`. For compatibility, omitting the
-backend still works and selects `api_based`.
+Every field under `belief_graph`'s sub-sections is **required** — each
+normaliser (`normalize_extractor_config`, `normalize_edge_config`, ...)
+raises `ValueError` listing exactly which key is missing, so copy from
+`model_config.example.json` rather than writing a section from scratch.
+`api_based` ignores the whole `belief_graph` block.
 
 ---
 
-## Quick start (HTTP server)
+## Usage: batch (`bcg/run.py`)
 
-This is the recommended way to use the engine: start the server once, then push turns to it as your agent generates them.
-
-**1. Start the server.**
+Both entry points take the **backend name** (`light` or `api_based`) as the
+first positional argument. If you omit it — either no arguments at all, or
+the first token starts with `-` — `bcg/construct/dispatch.py` silently
+selects the default backend, **`api_based`**, for compatibility with
+command lines written before the two backends were combined. A positional
+token that *isn't* a flag must be an exact backend name, or it errors with
+`unknown backend '...'; choose one of: light, api_based` rather than being
+swallowed as an argument.
 
 ```bash
-bcg construct server api_based \
-    --config model_config.json \
-    --model-key gpt-5.5 \
-    --host 127.0.0.1 --port 8848 \
-    --output-dir outputs_stream
+python bcg/run.py light     --input data.json --model-key gpt-5.5 --embedding-key embedding
+
+python bcg/run.py api_based --input data.json --model-key gpt-5.5 --embedding-key embedding
+
+# api_based: free-span evidence (model quotes excerpts verbatim, no sentence splitting)
+python bcg/run.py api_based --input data.json --evidence-mode excerpt
+
+# api_based: turn off the per-turn incremental merge entirely
+python bcg/run.py api_based --input data.json --no-incremental-merge
+
+# process only one item out of a multi-item file (by id or 0-based index)
+python bcg/run.py light --input data.json --item 3
 ```
 
-It prints the address it is listening on and the available endpoints.
+**Flags common to both backends** (`_add_common_args` in `run.py`):
 
-**2. Push turns.** Each turn is one JSON object carrying a `problem_id` (which trajectory it belongs to), a `role`, and the message `content`. Mark the last turn of a trajectory with `"is_trajectory_end": true` to trigger finalization (writes `result.json`, runs the optional final merge, and writes this trajectory's `logs/timing.csv`).
+| Flag | Default | Meaning |
+|---|---|---|
+| `--input`, `-i` | *(required)* | Input JSON/TXT — a trajectory, or multi-session QA items |
+| `--config`, `-c` | `bcg/model_config.json` | Model config path |
+| `--output-dir`, `-o` | `outputs` | Output root; each item gets its own subdirectory |
+| `--model-key` | `gpt-5.5` | Which chat-model entry of the config to use |
+| `--embedding-key` | `embedding` | Which config entry holds the embedding endpoint |
+| `--item` | all | Process only this item (id or 0-based index) |
+| `--keep-order` | off | For multi-session inputs, keep input array order instead of date-sorting |
+
+**`api_based`-only flags** (`_run_api_based` in `run.py`):
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--evidence-mode` | `sentence` | `sentence` = whole-sentence evidence with offsets; `excerpt` = model quotes spans verbatim |
+| `--incremental-merge` / `--no-incremental-merge` | on | Per-turn embedding merge right after each turn's new nodes |
+| `--incremental-merge-threshold` | `0.86` | Cosine threshold for that merge |
+| `--verify-merge` | on | LLM verify + rewrite on the incremental merge. **`run.py` only exposes the on-switch** — there's no `--no-verify-merge` here (it exists on `online_server.py`, see below) |
+| `--context-chars` | `100000` | Char budget of the existing-nodes context block shown to the model |
+| `--min-content-len` | `0` | Skip turns shorter than this many characters |
+
+`StreamOptions`'s own library defaults differ from these CLI defaults in a
+few places (`incremental_merge_threshold=0.8`, `verify_merge=False`,
+`context_chars=9000`) — the CLI layer sets its own, so drive the class
+directly (see [Python API](#python-api)) if you want the library defaults
+instead.
+
+**`light`-only flags:** none. Everything beyond the common flags above
+comes from `model_config.json`'s `belief_graph` block (see
+[Configuration](#configuration)).
+
+Outputs go to `<output-dir>/<item>/` — see [Output artifacts](#output-artifacts).
+
+---
+
+## Usage: online server (`bcg/online_server.py`)
+
+Same pipelines, exposed over HTTP. Request routing/parsing/concurrency is
+one shared handler; only the config wiring and backend-specific flags
+differ.
+
+```bash
+python bcg/online_server.py light     --config bcg/model_config.json --port 8848
+python bcg/online_server.py api_based --config bcg/model_config.json --port 8848
+```
+
+`--host` defaults to `0.0.0.0` (all interfaces) — pass `--host 127.0.0.1`
+to keep it local. `--output-dir` defaults to `outputs_stream` here (batch's
+default is `outputs`).
+
+`api_based`'s server additionally exposes the same merge/evidence flags as
+`run.py`, **plus a real `--no-verify-merge` off-switch**:
+`--evidence-mode`, `--incremental-merge`/`--no-incremental-merge`,
+`--incremental-merge-threshold`, `--verify-merge`/`--no-verify-merge`,
+`--context-chars`, `--min-content-len`. It also supports a self-rolling
+dated `--output-dir`: a value like `outputs_7_6` or `outputs_{Y}_{m}_{d}`
+is re-resolved to *today's* date each time a new session starts (plain
+values like `outputs_stream` are left as-is). `light`'s server exposes no
+extra flags, same as its batch driver.
+
+### Endpoints (identical for both backends)
+
+| Method & path | Body / query | Returns |
+|---|---|---|
+| `GET /health` | — | `{"status": "ok", "active": [...problem_ids...], "all": [...]}` |
+| `POST /turn` | one turn dict: `{"problem_id", "role", "content", "is_trajectory_end"?}` | current snapshot for that `problem_id` |
+| `POST /turns` | a JSON array of turn dicts, or NDJSON | `{"pushed": n, "finalized": [...], "latest": {problem_id: snapshot}}` |
+| `POST /input` (alias `/run`) | any shape `loaders.py`/`run.py` accepts — `{"trajectory": [...]}`, `{"messages": [...]}`, a bare message list, or multi-session QA data — with query params `?item=`, `?keep_order=1`, `?finalize=0` | `{"items": n, "finalized": [...], "latest": {...}}` |
+| `POST /finalize` | `{"problem_id": "p1"}` | the final snapshot (use if you never sent `is_trajectory_end`) |
+| `GET /graph?problem_id=p1` | — | latest snapshot for that trajectory (404 if unknown) |
+
+Mark the last turn of a trajectory with `"is_trajectory_end": true` to
+trigger finalization. To stream one message in fragments, send them with
+`"is_message_end": false`; they're buffered and concatenated until a
+fragment arrives with `is_message_end` true (implied by
+`is_trajectory_end`) — only then is the assembled turn ingested.
 
 ```bash
 curl -s -X POST localhost:8848/turn -H 'content-type: application/json' \
@@ -160,243 +448,188 @@ curl -s -X POST localhost:8848/turn -H 'content-type: application/json' \
      -d '{"problem_id":"p1","role":"assistant","content":"Titanium grade 2 is the standard choice. \\boxed{Titanium grade 2}","is_trajectory_end":true}'
 ```
 
-Each call returns the current belief-graph snapshot as JSON. When the turn carries `is_trajectory_end=true`, the returned snapshot is the **complete** graph.
-
-### Endpoints
-
-| Method & path | Body | Returns |
-|---|---|---|
-| `GET /health` | — | `{"status":"ok","active":[...],"all":[...]}` |
-| `POST /turn` | one turn object | current snapshot for that `problem_id` |
-| `POST /turns` | a JSON array of turns, **or** NDJSON (one per line) | `{"pushed":n,"finalized":[...],"latest":{...}}` |
-| `POST /finalize` | `{"problem_id":"p1"}` | the final snapshot (use if you never sent `is_trajectory_end`) |
-| `GET /graph?problem_id=p1` | — | latest snapshot for that trajectory (404 if unknown) |
-
-### Streaming one message in fragments
-
-The default contract is **one JSON object = one complete turn**. If you stream a single message token-by-token, send the fragments with `"is_message_end": false`; they are buffered and concatenated until a fragment arrives with `is_message_end` true (which is implied by `is_trajectory_end`). Only then is the assembled turn ingested.
-
-### Concurrency
-
-Each `problem_id` is backed by its own session (`StreamingTrajectorySession`), which owns its own lock, its own token-usage tracker, and its own audit-log paths — bound through context-local state in `llm.py` (Python `contextvars`) rather than the process-global variables earlier versions used. As a result:
-
-- Turns for the **same** `problem_id` are always processed strictly in the order they arrive, even if two requests for it reach the server at almost the same instant (the session's own lock serializes them).
-- Turns for **different** `problem_id`s run **fully concurrently**, each on its own request thread under `ThreadingHTTPServer`, with no shared mutable state between them.
-- `POST /turns` and `POST /input` additionally fan the distinct `problem_id`s / items found in one batch out across a small thread pool (up to 8 at once), so a single batch request doesn't itself serialize otherwise-unrelated trajectories.
-
-One consequence: the server no longer needs a single global lock, and one server process is enough to get real parallelism across `problem_id`s. Running several server processes (each owning a disjoint set of `problem_id`s) is still a reasonable way to scale across CPU cores or machines, but it is no longer required just to get concurrent `problem_id`s handled by one process.
-
-> **Binding note:** `--host` defaults to `0.0.0.0`, which exposes the server on **all** network interfaces. Use `--host 127.0.0.1` to keep it local to your machine.
-
----
-
-## Single-machine mode (`run.py`)
-
-When you already have a whole conversation in a file and just want to process it end-to-end, use `scripts/run.py`. It normalises the input into items, runs each item through the same streaming engine, and writes one output sub-directory per item.
-
-```bash
-# simplest: a trajectory or conversation file, default options
-bcg construct run api_based --input data.json
-
-# pick the chat model and embedding entry from the config
-bcg construct run api_based --input data.json \
-    --model-key gpt-5.5 --embedding-key embedding
-
-# whole-sentence evidence + topic clustering + embedding-verified final merge
-bcg construct run api_based --input data.json \
-    --evidence-mode sentence --use-clustering \
-    --merge-strategy embedding --merge-threshold 0.86
-
-# free-span evidence (model quotes excerpts; no sentence splitting)
-bcg construct run api_based --input data.json --evidence-mode excerpt
-
-# process only one item out of a multi-item file (by id or 0-based index)
-bcg construct run api_based --input data.json --item 3
-```
-
-`run.py`'s defaults for the options it shares with the server (`--model-key`, `--context-chars`, `--incremental-merge-threshold`) are aligned with `online_server.py`, so a file run and an HTTP run behave the same way unless you override them.
-
-> **Maintenance note:** the HTTP server is the primary, actively-used path. `run.py` and the public `BCGRunner` share the same `bcg.construct` engine, so all entry points stay in lock-step.
-
----
-
-## Replaying a stream offline (`online_driver.py`)
-
-`bcg/online_driver.py` is a thin bridge for feeding a **recorded** stream (JSONL, one turn-dict per line) through the online `SessionManager` — useful for replaying a captured run or piping a generator's output straight in.
-
-```bash
-# replay a recorded stream file
-bcg construct replay api_based -i stream.jsonl \
-    --config model_config.json --model-key gpt-5.5 --output-dir outputs_stream
-
-# pipe a live generator straight in
-my_agent --stream | bcg construct replay api_based --config model_config.json
-```
-
-Any trajectory that never sent `is_trajectory_end` is finalized automatically when the input ends.
-
----
-
-## Input data formats
-
-The loader (`bcg/construct/loaders.py`) accepts several shapes and normalises all of them into a flat list of role-tagged turns.
-
-**A trajectory** — a bare list of messages, or an object with a `trajectory` / `messages` key. This becomes one item:
-
-```json
-{
-  "trajectory": [
-    {"role": "user", "content": "..."},
-    {"role": "assistant", "content": "<think>...</think> ..."},
-    {"role": "assistant", "content": "...", "is_trajectory_end": true}
-  ]
-}
-```
-
-**Multi-session QA data** — a list of items, each carrying a `sessions` array (each session a list of `{role, content, has_answer}` turns), plus parallel `session_ids` / `dates` arrays and question metadata. Each item's sessions are flattened — by default sorted chronologically by date — into one turn stream, and every turn keeps its session's date so time attribution still works. Use `--keep-order` to preserve input order instead of date-sorting.
-
-For the **HTTP / streaming** path, each turn dict additionally carries a `problem_id` (the trajectory key) and may set `is_message_end` (default true) and `is_trajectory_end` (default false). See [Quick start](#quick-start-http-server).
+**Concurrency**: each `problem_id` is backed by its own session
+(`StreamingTrajectorySession`), guarding its own belief graph, token-usage
+tracker, and audit-log paths behind its own lock. Turns for the **same**
+`problem_id` are always processed strictly in arrival order; turns for
+**different** `problem_id`s run fully concurrently on
+`ThreadingHTTPServer`'s per-request threads. `POST /turns` and `POST
+/input` additionally fan distinct `problem_id`s / items in one batch out
+across a thread pool (up to 8 at once), so one batch request doesn't
+serialize otherwise-unrelated trajectories.
 
 ---
 
 ## Output artifacts
 
-Each trajectory or item gets its own sub-directory under the output root (`<output-dir>/<problem_id>/` for the server, `<output-dir>/<item_id>/` for `run.py`). You will find:
+Each item/trajectory gets its own sub-directory
+(`<output-dir>/<item_id>/` for `run.py`, `<output-dir>/<problem_id>/` for
+the server):
 
 | File | What it is |
 |---|---|
-| `result.json` | the main result: full trajectory, all nodes, relations, merges, counts, options, timing, token usage |
-| `final_graph.json` | the final belief-graph snapshot |
-| `belief_graph_latest.json` | the latest snapshot, overwritten each turn (streaming path) |
-| `belief_graph.jsonl` | one snapshot per turn, then a final one — the graph's evolution (streaming path) |
-| `trajectory.json` | the reconstructed conversation, in a shape `run.py` can replay |
-| `trajectory_stream.jsonl` | append-only raw log of every received turn dict (streaming path) |
-| `events.jsonl` | per-turn engine events (new node ids, relations added, incremental merges, per-turn sub-step timing) |
-| `token_usage.json` / `.txt` | token accounting, by stage, with an estimated cost if `pricing` was set |
-| `logs/prompts.jsonl` | every prompt sent to the LLM, for auditing |
-| `logs/embedding_calls.jsonl` | every embedding call, with full input texts and cache hits |
-| `logs/merge_final.json` / `.log` | the final merge pass: candidates, similarities, LLM verifications, applied merges, edge rewiring — both machine- and human-readable |
-| `logs/timing.csv` | this trajectory's per-turn + summary timing (wide table, seconds) — see [Timing](#timing) below |
+| `result.json` | Full result: trajectory, all nodes, relations, merges, counts, options, timing, token usage |
+| `final_graph.json` | Final belief-graph snapshot |
+| `belief_graph_latest.json` / `belief_graph.jsonl` | Latest / per-turn snapshots (streaming path only) |
+| `trajectory.json` / `trajectory_stream.jsonl` | Reconstructed conversation / raw received-turn log (streaming path) |
+| `events.jsonl` | Per-turn engine events (new node ids, relations added, merges, sub-step timing) |
+| `token_usage.json` / `.txt` | Token accounting by stage, with estimated cost if `pricing` was set |
+| `logs/prompts.jsonl` | Every LLM prompt sent, for auditing |
+| `logs/embedding_calls.jsonl` | Every embedding call (inputs + cache hits) |
+| `logs/merge_*.json` / `.log` | Merge audit trail: candidates, similarities, LLM verifications (if any), applied merges, edge rewiring |
+| `logs/timing.csv` | Per-turn + summary timing, wide table, seconds |
 
-Timing artifacts (including a per-trajectory `logs/timing.csv`) are described in [Timing](#timing) below.
+**`timing.csv` schema differs by backend.** `api_based` writes a `row_type`
+column (`turn` / `final_merge` — always-zero now that the pass is removed —
+/ `item` summary) with columns `row_type, item_id, turn_index, role,
+node_generation, merging, llm_check, edge_generation, turn_total, n_nodes,
+n_beliefs, n_decisions, n_relations, n_merges, duration_seconds,
+result_path`. `light` writes one plain row per built turn: `item_id,
+turn_index, role, node_generation, merging, entity_extraction,
+edge_generation, turn_total, n_nodes, n_beliefs, n_decisions, n_relations,
+n_merges` (no `row_type`, no final-merge or summary row).
 
-### Timing
-
-Every built turn is timed for the four latency-relevant sub-steps, all in **seconds**:
-
-| Sub-step | What it measures |
-|---|---|
-| `node_generation` | phase 1 — the node-extraction LLM call |
-| `merging` | incremental-merge embedding (candidate generation) |
-| `llm_check` | incremental-merge LLM verify+rewrite (`0` under `--no-verify-merge`) |
-| `edge_generation` | phase 3 — relation LLM call(s), summed over any backward-walk attempts |
-
-When a turn's incremental merge has more than one candidate group, their verify calls run concurrently (see [How it works](#how-it-works)), so `llm_check` reports the **wall-clock time of that parallel batch**, not the sum of each group's call time — the same change applies to the final merge's `llm_check` contribution when `--merge-strategy embedding` is used.
-
-Skipped turns (system / empty / too-short) are not timed. Timing surfaces in three places:
-
-- **`result.json` → `timing`** — keeps `start` / `end` / `duration_seconds`, and adds `per_turn` (one record per built turn with the four sub-steps + `turn_total`), `by_step` (per-trajectory totals and turn counts per sub-step), and `final_merge` (the trajectory-end merge's `merging` / `llm_check` / `total`; all `0` when `--merge-strategy off`).
-- **`events.jsonl`** — each per-turn event carries a `timing` block (the four sub-steps + `turn_total`).
-- **`logs/timing.csv`** — one self-contained **wide** table per trajectory, in that trajectory's own `logs/` folder (rewritten from scratch each finalize), all seconds, one row per `row_type`:
-  - `turn` — one row per built turn: `node_generation`, `merging`, `llm_check`, `edge_generation`, `turn_total`;
-  - `final_merge` — the trajectory-end merge pass (`0` when off);
-  - `item` — one summary row per trajectory: the four sub-step totals, the summed `turn_total`, plus `n_nodes` / `n_beliefs` / `n_decisions` / `n_relations` / `n_merges`, the full-trajectory `duration_seconds`, and `result_path`.
-
-  Columns: `row_type, item_id, turn_index, role, node_generation, merging, llm_check, edge_generation, turn_total, n_nodes, n_beliefs, n_decisions, n_relations, n_merges, duration_seconds, result_path`. The count / duration / path columns are populated only on `item` rows. A viz script can split cleanly on `row_type` (e.g. pandas `df[df.row_type == "turn"]`); to aggregate across trajectories, read each item's `logs/timing.csv` and concatenate.
-
-### Node shape (in `result.json`)
-
-Each node carries an integer `id`, a `node_type` (`belief` or `decision`), the statement text (`belief`, plus `decision` for decision nodes), a `stance` (`asserted` / `recalled` / `speculated` / `judged`), an `entities` list, optional `event_time` / `time_text`, the `source` descriptor (role, turn index, trajectory index), a `confidence` with full `confidence_history`, and an `evidence` list whose entries point back into the original turn by exact character offsets.
-
----
-
-## Options reference
-
-These flags are common to `run.py`, `online_server.py`, and `online_driver.py` (the server adds `--host`/`--port`/`--quiet`; `run.py` adds `--item`/`--keep-order`/`--min-content-len`).
-
-| Flag | Default | Meaning |
-|---|---|---|
-| `--config`, `-c` | `model_config.json` | path to the config file |
-| `--output-dir`, `-o` | `outputs_stream` | output root; one sub-dir per trajectory/item |
-| `--model-key` | `gpt-5.5` | which chat-model entry of the config to use |
-| `--embedding-key` | `embedding` | which config entry holds the embedding endpoint |
-| `--evidence-mode` | `sentence` | `sentence` = evidence is whole sentences (split + offsets); `excerpt` = model quotes spans verbatim |
-| `--use-clustering` | off | group a turn's sentences by topic before extraction (sentence mode; needs an embedder) |
-| `--cluster-threshold` | `0.6` | cosine floor for merging sentence clusters |
-| `--cluster-min-sentences` | `4` | turns with fewer sentences skip clustering |
-| `--cluster-buffer` | `0` | neighbour window used only for sentence embedding |
-| `--merge-strategy` | `off` | final-merge strategy: `off` (no trajectory-end merge), `embedding` (candidates + LLM verify), or `llm` (LLM proposes directly) |
-| `--merge-threshold` | `0.86` | cosine threshold for final-merge candidate pairs |
-| `--incremental-merge` / `--no-incremental-merge` | on | per-turn embedding merge right after each turn's new nodes |
-| `--incremental-merge-threshold` | `0.86` | cosine threshold for the per-turn incremental merge |
-| `--verify-merge` / `--no-verify-merge` | on | add an LLM verify+rewrite step to the per-turn incremental merge (only affects the incremental merge; needs an embedder). Off → embedding-only |
-| `--context-chars` | `100000` | char budget of the existing-nodes context block shown to the model |
-
-> **CLI defaults vs. library defaults.** The table above lists the **command-line** defaults (the same across `run.py` and `online_server.py`). Constructing `StreamOptions()` directly in Python uses several different built-in defaults — `merge_strategy="embedding"` (CLI: `off`), `verify_merge=False` (CLI: on), `incremental_merge_threshold=0.8` (CLI: `0.86`), and `context_chars=9000` (CLI: `100000`) — because the CLI layer sets its own. If you drive the engine via the Python API and want CLI-identical behaviour, pass these explicitly. Note also that `run.py` currently exposes only `--verify-merge` (on); the `--no-verify-merge` off-switch is available on `online_server.py`.
-
-`run.py`-only:
-
-| Flag | Default | Meaning |
-|---|---|---|
-| `--item` | all | process only this item (by id or 0-based index) |
-| `--keep-order` | off | for multi-session inputs, keep input order instead of date-sorting |
-| `--min-content-len` | `0` | skip turns shorter than this many characters |
+`light`'s `result.json` additionally carries a `turn_chunks` array (each
+turn's chunk boundaries and text) that `api_based`'s does not.
 
 ---
 
 ## Project layout
 
+Confirmed from the actual export:
+
 ```
-.
-├── bcg/
-    ├── construct/           # unified construction package and CLI
-    │   ├── api_based/       # large API-model implementation
-    │   ├── light/           # local/small-model implementation
-    │   ├── cli.py           # run/server/replay/visualize command group
-    │   └── dispatch.py      # backend selection and legacy fallback
-    │
-    ├── online_server.py      # the HTTP server (recommended entry point)
-    ├── run.py                # single-machine batch driver
-    │── online_driver.py      # replay a recorded JSONL stream
-    │
-    ├── model_config.example.json # template — copy to model_config.json
-    └── README.md
+bcg/
+  __init__.py
+  env.py                    # find_project_env / load_project_env / resolve_config_api_key
+  utils.py                  # get_random_uuid / utc_now
+  cli_help.py               # RichArgumentParser (Typer-style --help via `rich`)
+  run.py                    # unified batch entry point (light | api_based subcommand)
+  online_server.py          # unified HTTP entry point  (light | api_based subcommand)
+  online_driver.py          # replay driver behind `python -m bcg.construct.<backend> replay` (not read in this pass)
+  model_config.json          # shared config (copy from model_config.example.json)
+  construct/
+    __init__.py
+    dispatch.py             # DEFAULT_BACKEND="api_based", BACKENDS, split_backend_args(argv)
+    _backend_cli.py         # backend_main(name, argv) — the run/server/replay forwarder below each backend's cli.py
+    light/
+      __init__.py  __main__.py  cli.py
+      pipeline.py  stream.py  online.py
+      extractor.py  edge_generation.py  stance.py  named_entities.py
+      merge.py  evidence.py  confidence.py  graph.py  constants.py
+      split.py  loaders.py  llm.py  prompts.py
+    api_based/
+      __init__.py  __main__.py  cli.py
+      pipeline.py  stream.py  online.py
+      extract.py  merge.py  evidence.py  confidence.py  graph.py  constants.py
+      split.py  loaders.py  llm.py  prompts.py  utils.py
 ```
+
+`loaders.py` is byte-identical between the two backends. `bcg/env.py`,
+`bcg/cli_help.py`, `bcg/construct/dispatch.py`, and
+`bcg/construct/_backend_cli.py` have all now been read directly (see
+[Configuration](#configuration) and [Legacy CLI](#legacy-cli) for what they
+do). The one remaining unread piece is `bcg/online_driver.py` itself —
+I've only seen it referenced as the target of the `replay` subcommand, not
+its actual source.
+
+`construct/api_based/pipeline.py` also still carries a legacy
+`BeliefGraphPipeline` / `BeliefGraphOptions` SDK-style wrapper at the bottom
+of the file, targeting an external `bcg.graph` / `bcg.memory` / `bcg.runner`
+module set that isn't part of this repo. Its import is wrapped in a
+try/except so the rest of the package imports fine either way; only
+actually calling `BeliefGraphPipeline.run(...)` would fail.
 
 ---
 
 ## Python API
 
-You can also drive the engine directly, without the CLI or HTTP layer.
+Both backends expose the same *shape* of API (swap `api_based` for `light`
+in the import paths) — but their `StreamOptions` fields and internals are
+**not** interchangeable, and `light`'s `StreamingBeliefBuilder` additionally
+*requires* a config-populated `StreamOptions` (it raises if you pass a bare
+`StreamOptions()` that was never run through
+`apply_belief_graph_config(...)`).
 
-**Multiplex many trajectories** with a `SessionManager` (this is what the server uses):
+**Multiplex many trajectories** with a `SessionManager` (what the server
+uses):
 
 ```python
 from bcg.construct.api_based.online import SessionManager
 
-mgr = SessionManager(config_path="model_config.json", model_key="gpt-5.5")
+mgr = SessionManager(config_path="bcg/model_config.json", model_key="gpt-5.5")
 for turn in incoming_stream:                 # dicts with problem_id / role / content
     snapshot = mgr.push(turn)                # returns the live graph
 # a trajectory finalizes on is_trajectory_end, or call mgr.finalize(problem_id)
 ```
 
-**Build one trajectory** directly with the engine:
+**Build one trajectory** directly (`api_based`):
 
 ```python
 from bcg.construct.api_based.stream import StreamingBeliefBuilder, StreamOptions
 from bcg.construct.api_based.llm import load_config, make_client
 
-cfg = load_config("model_config.json", model_key="gpt-5.5")
+cfg = load_config("bcg/model_config.json", model_key="gpt-5.5")
 builder = StreamingBeliefBuilder(
     client=make_client(cfg),
     model=cfg["model"],
     item_id="p1",
-    out_dir="outputs_stream/p1",
-    options=StreamOptions(),       # all the merge / evidence / clustering knobs
+    out_dir="outputs/p1",
+    options=StreamOptions(),       # evidence_mode / incremental_merge* / verify_merge / context_chars
 )
 builder.ingest_turn("user", "Which alloy resists seawater corrosion best?")
 builder.ingest_turn("assistant", "Titanium grade 2. \\boxed{Titanium grade 2}")
 result = builder.finalize()
 ```
 
-`StreamOptions` exposes the same knobs as the CLI flags (`evidence_mode`, `use_clustering`, `merge_strategy`, `merge_threshold`, `incremental_merge`, `incremental_merge_threshold`, `context_chars`, …).
+**Build one trajectory** directly (`light` — note the config-populated
+options are mandatory):
+
+```python
+from bcg.construct.light.stream import StreamingBeliefBuilder, StreamOptions
+from bcg.construct.light.llm import load_config, load_belief_graph_config, make_client
+
+cfg = load_config("bcg/model_config.json", model_key="gpt-5.5")
+bg_cfg = load_belief_graph_config("bcg/model_config.json", model_key="gpt-5.5")
+options = StreamOptions()
+options.apply_belief_graph_config(bg_cfg)   # required — raises without a real belief_graph config
+
+builder = StreamingBeliefBuilder(
+    client=make_client(cfg), model=cfg["model"],
+    item_id="p1", out_dir="outputs/p1", options=options,
+)
+builder.ingest_turn("user", "Which alloy resists seawater corrosion best?")
+result = builder.finalize()
+```
+
+---
+
+## Legacy CLI
+
+Each backend also ships its own `python -m bcg.construct.light` /
+`python -m bcg.construct.api_based`, whose `cli.py` forwards to a shared
+`bcg.construct._backend_cli.backend_main(<backend_name>, argv)`. This is a
+fully working, backend-scoped alias for the unified entry points — not
+dead code. It supports exactly three subcommands (**no `visualize`** —
+that choice doesn't exist in this dispatcher at all, unlike what earlier
+documentation described):
+
+```bash
+python -m bcg.construct.light run     --input data.json ...       # -> bcg.run.main(["light", "--input", "data.json", ...])
+python -m bcg.construct.light server  --config bcg/model_config.json ...  # -> bcg.online_server.main(["light", ...])
+python -m bcg.construct.light replay  -i stream.jsonl ...          # -> bcg.online_driver.main(["light", "-i", "stream.jsonl", ...])
+```
+
+`backend_main()` just prepends the backend name to whatever args follow the
+subcommand and calls straight into `bcg.run.main`, `bcg.online_server.main`,
+or `bcg.online_driver.main` — so `run`/`server` here are exactly equivalent
+to calling `bcg/run.py`/`bcg/online_server.py` directly with that backend
+as the first argument; there's no behavioural difference, just a different
+invocation spelling. `-h`/`--help` (or no subcommand at all) prints a
+`RichArgumentParser`-rendered list of the three choices.
+
+The one piece I still haven't read directly is `bcg/online_driver.py`
+itself (the module `replay` forwards into) — the mechanics above are
+confirmed from `_backend_cli.py`, but `online_driver.py`'s own argument
+handling isn't, so treat the `replay` example's flags as illustrative
+until you can share that file too.
