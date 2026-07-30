@@ -52,6 +52,16 @@ This repository includes a simple terminal Agent as a reference integration. It 
 ---
 ## Live Demo
 
+<div align="center">
+
+<img
+  src="dashboard/bcg_viewer/live_demo_clear.gif"
+  alt="Belief Context Graph live demo"
+  width="900"
+/>
+
+</div>
+
 ## Quick Start
 
 Core BCG uses Python/`uv` for the SDK and Graph Construction. The optional reference terminal Agent uses an isolated Node.js 22.19+ runtime.
