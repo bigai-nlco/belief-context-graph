@@ -249,3 +249,4 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+dashboard/bcg_viewer/live_demo.gif
