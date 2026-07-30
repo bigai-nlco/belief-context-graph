@@ -411,8 +411,7 @@ def _run_one(
     elif turn_limit_exceeded:
         status = "turn_limit"
         error = (
-            f"Agent exceeded the {config.graph_max_turns}-message BCG Graph "
-            "turn limit."
+            f"Agent exceeded the {config.graph_max_turns}-message BCG Graph turn limit."
         )
     elif return_code != 0:
         status = "agent_error"
@@ -454,11 +453,7 @@ def _run_one(
         else None
     )
     numeric_score = (
-        0.0
-        if status == "turn_limit"
-        else score.score
-        if score is not None
-        else None
+        0.0 if status == "turn_limit" else score.score if score is not None else None
     )
     return {
         "benchmark": task.benchmark,
