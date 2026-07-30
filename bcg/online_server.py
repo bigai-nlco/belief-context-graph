@@ -164,11 +164,17 @@ def make_handler(manager, trajectory_closed_error: type, *, quiet: bool = False)
         # -- helpers --------------------------------------------------------
         def _send(self, code: int, payload: Dict[str, Any]) -> None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            self.send_response(code)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                # The caller may time out while a long graph update is still
+                # completing. The update has already been committed, so a
+                # disconnected response socket is not a server-side 500.
+                return
 
         def _read_body(self) -> bytes:
             length = int(self.headers.get("Content-Length") or 0)
@@ -245,6 +251,14 @@ def make_handler(manager, trajectory_closed_error: type, *, quiet: bool = False)
                     self._send(200, graph)
                     return
 
+                if url.path == "/release":
+                    body = _parse_json_body(raw)
+                    pid = body.get("problem_id") if isinstance(body, dict) else None
+                    if not pid:
+                        raise ValueError("body must be {\"problem_id\": \"...\"}")
+                    self._send(200, manager.release(pid))
+                    return
+
                 self._send(404, {"error": f"unknown path {url.path!r}"})
 
             except json.JSONDecodeError as e:
@@ -273,7 +287,7 @@ def _serve_forever(manager, trajectory_closed_error: type, args) -> None:
     httpd = serve(manager, trajectory_closed_error, args.host, args.port, quiet=args.quiet)
     print(
         f"[online-server] listening on http://{args.host}:{args.port}  "
-        f"(POST /turn, /turns, /input, /finalize ; GET /graph, /health)"
+        f"(POST /turn, /turns, /input, /finalize, /release ; GET /graph, /health)"
     )
     try:
         httpd.serve_forever()

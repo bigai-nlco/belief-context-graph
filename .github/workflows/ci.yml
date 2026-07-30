@@ -25,8 +25,18 @@ jobs:
         with:
           python-version-file: pyproject.toml
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.19"
+          cache: npm
+          cache-dependency-path: agent-cli/npm-shrinkwrap.json
+
       - name: Install dependencies
         run: uv sync --locked --all-groups
+
+      - name: Install Agent dependencies
+        run: npm --prefix agent-cli ci
 
       - name: Ruff lint
         run: uv run ruff check .
@@ -39,3 +49,9 @@ jobs:
 
       - name: Test
         run: uv run pytest
+
+      - name: Build Agent
+        run: npm --prefix agent-cli run build
+
+      - name: Test Agent
+        run: npm --prefix agent-cli test

@@ -599,6 +599,53 @@ def make_client(cfg: Dict[str, Any]) -> OpenAI:
     return OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"])
 
 
+_CONTEXT_OVERFLOW_RE = re.compile(
+    r"maximum context length is\s+(?P<context>\d+)\s+tokens"
+    r".*?requested\s+(?P<output>\d+)\s+output tokens"
+    r".*?prompt contains at least\s+(?P<input>\d+)\s+input tokens",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def is_context_overflow_error(error: BaseException) -> bool:
+    """Whether an exception contains the OpenAI/vLLM context-window diagnostic."""
+    return _CONTEXT_OVERFLOW_RE.search(str(error)) is not None
+
+
+def _fit_max_tokens_after_context_overflow(
+    error: Exception,
+    current_max_tokens: Optional[int],
+    *,
+    safety_margin: int = 32,
+) -> Optional[int]:
+    """Return a smaller completion budget described by a vLLM overflow error.
+
+    vLLM reports the model context window and the tokenized prompt size in its
+    400 response.  Retrying an identical request cannot succeed, so reserve a
+    small margin for chat-template accounting and use the remaining window for
+    the completion.  Unknown error formats are deliberately left unchanged.
+    """
+    if current_max_tokens is None:
+        return None
+    match = _CONTEXT_OVERFLOW_RE.search(str(error))
+    if match is None:
+        return None
+    context_tokens = int(match.group("context"))
+    input_tokens = int(match.group("input"))
+    # vLLM phrases this as "at least N input tokens".  N can be only the
+    # threshold needed to prove overflow rather than the fully tokenized prompt
+    # length, so merely subtracting the reported excess may shrink by one token
+    # per retry.  Halving guarantees meaningful progress for that response
+    # shape while the reported remaining window handles exact token counts.
+    adjusted = min(
+        context_tokens - input_tokens - max(0, safety_margin),
+        current_max_tokens // 2,
+    )
+    if adjusted < 16 or adjusted >= current_max_tokens:
+        return None
+    return adjusted
+
+
 def call_model(
     client: OpenAI,
     model: str,
@@ -610,6 +657,7 @@ def call_model(
     usage_label: Optional[str] = None,
     reasoning_effort: Optional[str] = "medium",
     extra_body: Optional[Dict[str, Any]] = None,
+    response_format: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Call chat completions and return the response text. Retries on errors.
 
@@ -631,6 +679,8 @@ def call_model(
         kwargs["reasoning_effort"] = reasoning_effort
     if extra_body:
         kwargs["extra_body"] = extra_body
+    if response_format:
+        kwargs["response_format"] = response_format
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
 
@@ -644,6 +694,7 @@ def call_model(
             "model": model,
             "label": usage_label,
             "max_tokens": max_tokens,
+            "response_format": response_format,
             "prompt_len": len(prompt) if prompt is not None else 0,
             "prompt": prompt,
         })
@@ -661,6 +712,16 @@ def call_model(
                 f"    [retry {attempt + 1}/{retries}] {type(e).__name__}: {e}",
                 file=sys.stderr,
             )
+            adjusted_max_tokens = _fit_max_tokens_after_context_overflow(
+                e, kwargs.get("max_tokens")
+            )
+            if adjusted_max_tokens is not None:
+                kwargs["max_tokens"] = adjusted_max_tokens
+                print(
+                    "    [context overflow] reducing max_tokens to "
+                    f"{adjusted_max_tokens} for retry",
+                    file=sys.stderr,
+                )
             if attempt < retries - 1:
                 time.sleep(backoff ** attempt)
     raise RuntimeError(f"All retries failed: {last_err}")
@@ -679,15 +740,23 @@ def parse_json_response(text: str) -> Dict[str, Any]:
         return json.loads(s)
     except json.JSONDecodeError:
         pass
-    start = s.find("{")
-    end = s.rfind("}")
-    if 0 <= start < end:
-        candidate = s[start:end + 1]
+
+    decoder = json.JSONDecoder()
+    last_error: Optional[json.JSONDecodeError] = None
+    for match in re.finditer(r"\{", s):
         try:
-            return json.loads(candidate)
-        except json.JSONDecodeError as e:
-            return {"_parse_error": str(e), "_raw": text}
-    return {"_parse_error": "no JSON object found", "_raw": text}
+            value, _end = decoder.raw_decode(s, match.start())
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            continue
+        if isinstance(value, dict):
+            return value
+    return {
+        "_parse_error": (
+            str(last_error) if last_error is not None else "no JSON object found"
+        ),
+        "_raw": text,
+    }
 
 
 # ---------------------------------------------------------------------------

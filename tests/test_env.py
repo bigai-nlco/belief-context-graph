@@ -28,9 +28,25 @@ def test_env_discovery_supports_tool_install_working_directory(
     env_file = tmp_path / ".env"
     env_file.write_text("OPENAI_API_KEY=test\n", encoding="utf-8")
     monkeypatch.delenv("BCG_ENV_FILE", raising=False)
+    monkeypatch.setenv("BCG_HOME", str(tmp_path / "missing-state"))
     monkeypatch.chdir(tmp_path)
 
     assert find_project_env() == env_file
+
+
+def test_env_discovery_prefers_global_bcg_credentials(tmp_path, monkeypatch) -> None:
+    state_root = tmp_path / "state"
+    state_root.mkdir()
+    global_env = state_root / ".env"
+    global_env.write_text("OPENAI_API_KEY=global\n", encoding="utf-8")
+    working_dir = tmp_path / "project"
+    working_dir.mkdir()
+    (working_dir / ".env").write_text("OPENAI_API_KEY=project\n", encoding="utf-8")
+    monkeypatch.delenv("BCG_ENV_FILE", raising=False)
+    monkeypatch.setenv("BCG_HOME", str(state_root))
+    monkeypatch.chdir(working_dir)
+
+    assert find_project_env() == global_env
 
 
 def test_env_discovery_honors_explicit_file(tmp_path, monkeypatch) -> None:
@@ -179,6 +195,31 @@ def test_light_configs_resolve_all_credentials_from_environment(
     assert embedding["api_key"] == "embedding-secret"
     assert extractor["api_key"] == "local-secret"
     assert edge["api_key"] == "local-secret"
+    assert edge["max_previous_windows"] == 4
+
+
+def test_light_edge_config_accepts_bounded_historical_window_override(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("LIGHT_LOCAL_KEY", "local-secret")
+    edge = normalize_edge_config(
+        {
+            "enabled": True,
+            "provider": "openai",
+            "base_url": "http://localhost:8001/v1",
+            "api_key_env": "LIGHT_LOCAL_KEY",
+            "model": "local-model",
+            "temperature": 0,
+            "max_tokens": 64,
+            "retries": 1,
+            "enable_thinking": False,
+            "fail_on_error": True,
+            "search_previous_turns": True,
+            "max_previous_windows": 7,
+        }
+    )
+
+    assert edge["max_previous_windows"] == 7
 
 
 def test_example_model_config_contains_no_inline_api_keys() -> None:

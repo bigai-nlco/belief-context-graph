@@ -1,0 +1,38 @@
+{
+	"name": "@bigai-nlco/bcg-agent-core",
+	"version": "0.1.0",
+	"description": "BCG agent loop, state, transport, compaction, and session runtime",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./node": {
+			"types": "./dist/node.d.ts",
+			"import": "./dist/node.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"clean": "shx rm -rf dist",
+		"build": "npm run clean && tsc -p tsconfig.build.json",
+		"check": "tsc --noEmit -p tsconfig.build.json"
+	},
+	"dependencies": {
+		"@bigai-nlco/bcg-ai": "0.1.0",
+		"diff": "8.0.4",
+		"ignore": "7.0.5",
+		"typebox": "1.1.38",
+		"yaml": "2.9.0"
+	},
+	"license": "MIT",
+	"engines": {
+		"node": ">=22.19.0"
+	}
+}

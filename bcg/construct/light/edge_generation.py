@@ -54,6 +54,7 @@ def normalize_edge_config(config: Optional[Mapping[str, Any]]) -> Dict[str, Any]
         "enable_thinking": bool(raw["enable_thinking"]),
         "fail_on_error": bool(raw["fail_on_error"]),
         "search_previous_turns": bool(raw["search_previous_turns"]),
+        "max_previous_windows": max(1, int(raw.get("max_previous_windows", 4))),
     }
 
 
@@ -102,6 +103,7 @@ class QwenEdgeGenerator:
             usage_label=f"t{turn_index}.edges.prev{previous_turn_index}",
             reasoning_effort=reasoning_effort,
             extra_body=extra_body,
+            response_format={"type": "json_object"},
         )
         parsed = parse_json_response(raw)
         relations = parsed.get("relations", []) if isinstance(parsed, dict) else []
