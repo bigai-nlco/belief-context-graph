@@ -97,6 +97,8 @@ export interface CreateAgentSessionResult {
 	extensionsResult: LoadExtensionsResult;
 	/** Warning if session was restored with a different model than saved */
 	modelFallbackMessage?: string;
+	/** Release resources owned by this concrete session runtime. */
+	dispose?: () => Promise<void>;
 }
 
 // Re-exports
@@ -438,5 +440,8 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		session,
 		extensionsResult,
 		modelFallbackMessage,
+		dispose: async () => {
+			await bcgContextManager?.release();
+		},
 	};
 }

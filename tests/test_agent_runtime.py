@@ -43,6 +43,7 @@ def test_agent_configuration_enables_bcg_and_references_env_key(
         "bcg": {
             "url": "http://127.0.0.1:8848",
             "recentTurns": 2,
+            "maxTurns": 300,
             "timeoutMs": 300000,
             "includeRelations": True,
         },

@@ -782,6 +782,13 @@ class SessionManager:
             raise KeyError(f"no active trajectory for problem_id {problem_id!r}")
         return sess.finalize()
 
+    def release(self, problem_id: str) -> Dict[str, Any]:
+        """Drop one completed producer session while preserving its disk artifacts."""
+        pid = str(problem_id)
+        with self._sessions_lock:
+            released = self._sessions.pop(pid, None) is not None
+        return {"problem_id": pid, "released": released}
+
     def get_graph(self, problem_id: str) -> Optional[Dict[str, Any]]:
         sess = self.get_session(problem_id, create=False)
         return None if sess is None else sess._snapshot(stage="query")

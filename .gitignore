@@ -221,11 +221,16 @@ tempCodeRunnerFile.py
 # Belief graph construction and BeliefTracer runtime artifacts
 outputs*/
 output/
+results/
 artifacts/
 archive/
 belief_graphs/
 prediction/
 tmp/
+
+# Benchmark datasets may be gated, obfuscated, or redistribution-restricted.
+datasets/
+bcg-benchmark-results-*.zip
 
 # Local model/API configuration
 bcg/model_config.json

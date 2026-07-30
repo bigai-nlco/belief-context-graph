@@ -401,6 +401,8 @@ class StreamingBeliefBuilder:
             "edge_attempts": report.get("edge_attempts"),
             "edge_linked_previous_trajectory_index": report.get(
                 "edge_linked_previous_trajectory_index"),
+            "edge_window_limit_reached": report.get(
+                "edge_window_limit_reached", False),
             "edge_skip_reason": report.get("edge_skip_reason"),
             "incremental_merge": report.get("incremental_merge"),
             "edge_new_node_ids": report.get("edge_new_node_ids"),
@@ -703,6 +705,7 @@ class StreamingBeliefBuilder:
         if edge_new_node_ids:
             tried_prior_window = False
             linked_prior_turn = None
+            attempted_windows = 0
 
             candidate_indices = range(flat_idx - 1, -1, -1)
             if not self.options.edge_config["search_previous_turns"]:
@@ -725,6 +728,13 @@ class StreamingBeliefBuilder:
                     })
                     continue
 
+                if (
+                    attempted_windows
+                    >= self.options.edge_config["max_previous_windows"]
+                ):
+                    report["edge_window_limit_reached"] = True
+                    break
+                attempted_windows += 1
                 tried_prior_window = True
                 _t_edge = time.perf_counter()
                 added, added_cross, attempt = self._extract_relations_for_edge_window(

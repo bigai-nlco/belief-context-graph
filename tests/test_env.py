@@ -195,6 +195,31 @@ def test_light_configs_resolve_all_credentials_from_environment(
     assert embedding["api_key"] == "embedding-secret"
     assert extractor["api_key"] == "local-secret"
     assert edge["api_key"] == "local-secret"
+    assert edge["max_previous_windows"] == 4
+
+
+def test_light_edge_config_accepts_bounded_historical_window_override(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("LIGHT_LOCAL_KEY", "local-secret")
+    edge = normalize_edge_config(
+        {
+            "enabled": True,
+            "provider": "openai",
+            "base_url": "http://localhost:8001/v1",
+            "api_key_env": "LIGHT_LOCAL_KEY",
+            "model": "local-model",
+            "temperature": 0,
+            "max_tokens": 64,
+            "retries": 1,
+            "enable_thinking": False,
+            "fail_on_error": True,
+            "search_previous_turns": True,
+            "max_previous_windows": 7,
+        }
+    )
+
+    assert edge["max_previous_windows"] == 7
 
 
 def test_example_model_config_contains_no_inline_api_keys() -> None:

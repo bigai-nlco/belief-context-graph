@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from collections.abc import Awaitable
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, TypeVar
 
 import pytest
@@ -16,7 +18,10 @@ from bcg.construct.api_based.confidence import (
 )
 from bcg.construct.api_based.evidence import evidence_from_excerpt, locate_excerpt
 from bcg.construct.api_based.graph import BeliefGraph
-from bcg.construct.light.extractor import ExtractedNode
+from bcg.construct.api_based.online import SessionManager as ApiSessionManager
+from bcg.construct.light.extractor import ExtractedNode, QwenChunkExtractor
+from bcg.construct.light.llm import call_model, parse_json_response
+from bcg.construct.light.online import SessionManager as LightSessionManager
 from bcg.construct.light.split import semantic_breakpoint_chunks, split_sentences
 from bcg.construct.light.stance import StancePrediction
 from bcg.graph import BCGEdge, BCGNode, BeliefPayload, BeliefSource, RelationPayload
@@ -24,6 +29,164 @@ from bcg.llm import LLMResponse
 from bcg.runner import _bcg_from_construct, _ConstructClientAdapter
 
 T = TypeVar("T")
+
+
+@pytest.mark.parametrize("manager_type", [LightSessionManager, ApiSessionManager])
+def test_online_manager_releases_session_memory(manager_type: type[Any]) -> None:
+    manager = object.__new__(manager_type)
+    manager._sessions = {"problem": object()}
+    manager._sessions_lock = threading.Lock()
+
+    assert manager.release("problem") == {
+        "problem_id": "problem",
+        "released": True,
+    }
+    assert manager.release("problem") == {
+        "problem_id": "problem",
+        "released": False,
+    }
+    assert manager._sessions == {}
+
+
+def test_light_parser_accepts_one_json_object_with_trailing_brace() -> None:
+    response = '{"beliefs": ["A"], "decisions": []}\n}'
+
+    assert parse_json_response(response) == {
+        "beliefs": ["A"],
+        "decisions": [],
+    }
+
+
+def test_light_call_model_forwards_json_response_format() -> None:
+    captured: dict[str, Any] = {}
+
+    class Completions:
+        def create(self, **kwargs: Any) -> Any:
+            captured.update(kwargs)
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(message=SimpleNamespace(content='{"beliefs": []}'))
+                ],
+                usage=None,
+            )
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+
+    response = call_model(
+        client,
+        "Qwen3.5-4B",
+        "Return JSON.",
+        retries=1,
+        response_format={"type": "json_object"},
+    )
+
+    assert response == '{"beliefs": []}'
+    assert captured["response_format"] == {"type": "json_object"}
+
+
+def test_light_call_model_reduces_output_budget_after_context_overflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    max_token_calls: list[int] = []
+
+    class Completions:
+        def create(self, **kwargs: Any) -> Any:
+            max_token_calls.append(kwargs["max_tokens"])
+            if len(max_token_calls) == 1:
+                raise RuntimeError(
+                    "This model's maximum context length is 10000 tokens. "
+                    "However, you requested 2048 output tokens and your prompt "
+                    "contains at least 7953 input tokens, for a total of at "
+                    "least 10001 tokens."
+                )
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(message=SimpleNamespace(content='{"beliefs": []}'))
+                ],
+                usage=None,
+            )
+
+    monkeypatch.setattr("bcg.construct.light.llm.time.sleep", lambda _: None)
+    client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+
+    response = call_model(
+        client,
+        "Qwen3.5-4B",
+        "Long prompt.",
+        max_tokens=2048,
+        retries=2,
+        response_format={"type": "json_object"},
+    )
+
+    assert response == '{"beliefs": []}'
+    assert max_token_calls == [2048, 1024]
+
+
+def test_light_extractor_retries_overflow_without_historical_nodes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompts: list[str] = []
+
+    def fake_call_model(
+        client: Any,
+        model: str,
+        prompt: str,
+        **kwargs: Any,
+    ) -> str:
+        del client, model, kwargs
+        prompts.append(prompt)
+        if "historical fact that fills the context window" in prompt:
+            raise RuntimeError(
+                "All retries failed: This model's maximum context length is "
+                "10000 tokens. However, you requested 512 output tokens and "
+                "your prompt contains at least 9489 input tokens."
+            )
+        return '{"beliefs": [{"belief": "The tool reports a current fact."}]}'
+
+    monkeypatch.setattr("bcg.construct.light.extractor.call_model", fake_call_model)
+    extractor = QwenChunkExtractor(
+        {
+            "enabled": True,
+            "provider": "openai",
+            "base_url": "http://127.0.0.1:8001/v1",
+            "api_key": "EMPTY",
+            "api_key_env": "BELIEF_GRAPH_LOCAL_API_KEY",
+            "model": "Qwen3.5-4B",
+            "temperature": 0,
+            "max_tokens": 2048,
+            "max_concurrency": 1,
+            "request_timeout": 60,
+            "retries": 3,
+            "context_scope": "graph",
+            "enable_thinking": False,
+            "include_turn_content": False,
+            "require_excerpt": False,
+            "dynamic_node_cap": False,
+            "node_cap_unit": "char",
+            "node_cap_ratio": 0.004,
+            "node_cap_min": 1,
+            "node_cap_max": 0,
+        }
+    )
+    extractor._client = object()
+    chunk = SimpleNamespace(text="The tool reports a current fact.", chunk_id=2)
+
+    extracted = extractor.extract_turn(
+        [chunk],
+        "tool",
+        graph_nodes=[
+            {
+                "id": 1,
+                "node_type": "belief",
+                "belief": "historical fact that fills the context window",
+            }
+        ],
+    )
+
+    assert len(prompts) == 2
+    assert "historical fact that fills the context window" in prompts[0]
+    assert "historical fact that fills the context window" not in prompts[1]
+    assert extracted[0][0].text == "The tool reports a current fact."
 
 
 class DummyLLM:

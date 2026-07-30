@@ -20,6 +20,7 @@ from bcg.env import PROJECT_ROOT, SOURCE_PROJECT_ROOT
 DEFAULT_GRAPH_URL = "http://127.0.0.1:8848"
 DEFAULT_GRAPH_BACKEND = "light"
 DEFAULT_RECENT_TURNS = 2
+DEFAULT_GRAPH_MAX_TURNS = 300
 DEFAULT_GRAPH_TIMEOUT_MS = 300_000
 GENERATED_PROVIDER = "bcg"
 LEGACY_GENERATED_PROVIDER = "bcg-openai"
@@ -86,15 +87,23 @@ def ensure_agent_configuration(graph_url: str) -> Path:
                 str(DEFAULT_GRAPH_TIMEOUT_MS),
             )
         )
+        max_turns = int(
+            os.environ.get(
+                "BCG_GRAPH_MAX_TURNS",
+                str(DEFAULT_GRAPH_MAX_TURNS),
+            )
+        )
     except ValueError as exc:
         raise AgentLaunchError(
-            "BCG_RECENT_TURNS and BCG_GRAPH_TIMEOUT_MS must be integers."
+            "BCG_RECENT_TURNS, BCG_GRAPH_MAX_TURNS, and "
+            "BCG_GRAPH_TIMEOUT_MS must be integers."
         ) from exc
 
     bcg_settings.update(
         {
             "url": graph_url,
             "recentTurns": recent_turns,
+            "maxTurns": max(1, max_turns),
             "timeoutMs": timeout_ms,
             "includeRelations": True,
         }

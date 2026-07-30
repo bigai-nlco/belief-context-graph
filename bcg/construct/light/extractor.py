@@ -33,6 +33,7 @@ from .llm import (
     call_model,
     current_prompt_log_path,
     current_usage_tracker,
+    is_context_overflow_error,
     make_client,
     parse_json_response,
     resolve_config_api_key,
@@ -326,17 +327,46 @@ class QwenChunkExtractor:
                     if turn_index is not None
                     else f"extract.c{index}"
                 )
-                raw = call_model(
-                    client,
-                    self.model,
-                    prompt,
-                    temperature=self.config["temperature"],
-                    max_tokens=self.config["max_tokens"],
-                    retries=self.config["retries"],
-                    usage_label=label,
-                    reasoning_effort=reasoning_effort,
-                    extra_body=extra_body,
-                )
+
+                def _call(request_prompt: str, request_label: str) -> str:
+                    return call_model(
+                        client,
+                        self.model,
+                        request_prompt,
+                        temperature=self.config["temperature"],
+                        max_tokens=self.config["max_tokens"],
+                        retries=self.config["retries"],
+                        usage_label=request_label,
+                        reasoning_effort=reasoning_effort,
+                        extra_body=extra_body,
+                        response_format={"type": "json_object"},
+                    )
+
+                try:
+                    raw = _call(prompt, label)
+                except Exception as exc:
+                    if not is_context_overflow_error(exc) or nodes_context == "[]":
+                        raise
+                    # Historical nodes are reference-resolution context only.
+                    # If their rendered block makes the model context overflow,
+                    # retry the same complete evidence chunk without that
+                    # read-only block instead of silently dropping the chunk.
+                    fallback_prompt = build_chunk_extraction_prompt(
+                        role_key,
+                        chunk_text=chunk_texts[index],
+                        graph_nodes="[]",
+                        turn_content=turn_ctx,
+                        require_excerpt=require_excerpt,
+                        max_nodes=chunk_caps[index],
+                    )
+                    if not fallback_prompt:
+                        raise
+                    print(
+                        f"    [extract] {label} exceeded the context window; "
+                        "retrying without historical-node context",
+                        file=sys.stderr,
+                    )
+                    raw = _call(fallback_prompt, f"{label}.without_history")
                 nodes = self._parse_response(
                     raw,
                     chunk_index=int(getattr(chunks[index], "chunk_id", index)),

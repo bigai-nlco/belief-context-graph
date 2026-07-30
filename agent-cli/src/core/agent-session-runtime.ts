@@ -79,6 +79,7 @@ export class AgentSessionRuntime {
 	private readonly createRuntime: CreateAgentSessionRuntimeFactory;
 	private _diagnostics: AgentSessionRuntimeDiagnostic[];
 	private _modelFallbackMessage?: string;
+	private _disposeSession?: () => Promise<void>;
 
 	constructor(
 		_session: AgentSession,
@@ -86,12 +87,14 @@ export class AgentSessionRuntime {
 		createRuntime: CreateAgentSessionRuntimeFactory,
 		_diagnostics: AgentSessionRuntimeDiagnostic[] = [],
 		_modelFallbackMessage?: string,
+		_disposeSession?: () => Promise<void>,
 	) {
 		this._session = _session;
 		this._services = _services;
 		this.createRuntime = createRuntime;
 		this._diagnostics = _diagnostics;
 		this._modelFallbackMessage = _modelFallbackMessage;
+		this._disposeSession = _disposeSession;
 	}
 
 	get services(): AgentSessionServices {
@@ -170,8 +173,15 @@ export class AgentSessionRuntime {
 			reason,
 			targetSessionFile,
 		});
+		await this.disposeSessionResources();
 		this.beforeSessionInvalidate?.();
 		this.session.dispose();
+	}
+
+	private async disposeSessionResources(): Promise<void> {
+		const dispose = this._disposeSession;
+		this._disposeSession = undefined;
+		await dispose?.();
 	}
 
 	private apply(result: CreateAgentSessionRuntimeResult): void {
@@ -179,6 +189,7 @@ export class AgentSessionRuntime {
 		this._services = result.services;
 		this._diagnostics = result.diagnostics;
 		this._modelFallbackMessage = result.modelFallbackMessage;
+		this._disposeSession = result.dispose;
 	}
 
 	private async finishSessionReplacement(withSession?: (ctx: ReplacedSessionContext) => Promise<void>): Promise<void> {
@@ -397,6 +408,7 @@ export class AgentSessionRuntime {
 			type: "session_shutdown",
 			reason: "quit",
 		});
+		await this.disposeSessionResources();
 		this.beforeSessionInvalidate?.();
 		this.session.dispose();
 	}
@@ -425,6 +437,7 @@ export async function createAgentSessionRuntime(
 		createRuntime,
 		result.diagnostics,
 		result.modelFallbackMessage,
+		result.dispose,
 	);
 }
 

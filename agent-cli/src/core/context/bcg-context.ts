@@ -6,6 +6,23 @@ const GRAPH_PREFIX =
 	"These are preliminary beliefs derived from prior turns and may contain errors or incomplete information. " +
 	"Use them to guide the next action, but do not treat them as verified evidence.";
 
+export const BCG_TURN_LIMIT_MARKER = "BCG_TURN_LIMIT_EXCEEDED";
+
+export class BcgTurnLimitError extends Error {
+	readonly submittedTurns: number;
+	readonly maxTurns: number;
+
+	constructor(submittedTurns: number, maxTurns: number) {
+		super(
+			`${BCG_TURN_LIMIT_MARKER}: Graph message limit ${maxTurns} reached ` +
+				`after ${submittedTurns} submitted messages; this task is a failure.`,
+		);
+		this.name = "BcgTurnLimitError";
+		this.submittedTurns = submittedTurns;
+		this.maxTurns = maxTurns;
+	}
+}
+
 interface BcgTurnPayload {
 	problem_id: string;
 	role: "assistant" | "system" | "tool" | "user";
@@ -36,6 +53,7 @@ export interface BcgContextManagerOptions {
 	baseUrl: string;
 	problemId: string;
 	recentTurns: number;
+	maxTurns: number;
 	timeoutMs: number;
 	includeRelations: boolean;
 	getSystemPrompt: () => string;
@@ -252,6 +270,7 @@ export class BcgContextManager {
 	private readonly baseUrl: string;
 	private readonly problemId: string;
 	private readonly recentTurns: number;
+	private readonly maxTurns: number;
 	private readonly timeoutMs: number;
 	private readonly includeRelations: boolean;
 	private readonly getSystemPrompt: () => string;
@@ -260,6 +279,8 @@ export class BcgContextManager {
 	private readonly onWarning: (message: string) => void;
 	private readonly sentMessages = new WeakSet<object>();
 	private seeded = false;
+	private released = false;
+	private submittedTurns = 0;
 	private warned = false;
 	private graphText = "";
 	private requestReady = false;
@@ -269,6 +290,7 @@ export class BcgContextManager {
 		this.baseUrl = options.baseUrl.replace(/\/+$/, "");
 		this.problemId = options.problemId;
 		this.recentTurns = Math.max(-1, Math.trunc(options.recentTurns));
+		this.maxTurns = Math.max(1, Math.trunc(options.maxTurns));
 		this.timeoutMs = Math.max(1, Math.trunc(options.timeoutMs));
 		this.includeRelations = options.includeRelations;
 		this.getSystemPrompt = options.getSystemPrompt;
@@ -321,6 +343,9 @@ export class BcgContextManager {
 			this.requestReady = true;
 			return [initialUser, ...retained.flat()];
 		} catch (error) {
+			if (error instanceof BcgTurnLimitError) {
+				throw error;
+			}
 			if (!this.warned) {
 				const detail = error instanceof Error ? error.message : String(error);
 				this.onWarning(`[BCG context] ${detail}; using the complete raw context for this request.`);
@@ -336,6 +361,27 @@ export class BcgContextManager {
 		}
 		const prefix = systemPrompt ? `${systemPrompt}\n\n` : "";
 		return `${prefix}<belief_graph format="markdown">\n${this.graphText}\n</belief_graph>`;
+	}
+
+	async release(): Promise<void> {
+		if (!this.seeded || this.released) {
+			return;
+		}
+		this.released = true;
+		try {
+			const response = await this.fetch(`${this.baseUrl}/release`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ problem_id: this.problemId }),
+				signal: AbortSignal.timeout(this.timeoutMs),
+			});
+			if (!response.ok && response.status !== 404) {
+				throw new Error(`BCG server returned HTTP ${response.status}`);
+			}
+		} catch (error) {
+			const detail = error instanceof Error ? error.message : String(error);
+			this.onWarning(`[BCG context] failed to release Graph session: ${detail}`);
+		}
 	}
 
 	private resolveInitialUser(messages: AgentMessage[]): AgentMessage | undefined {
@@ -374,6 +420,9 @@ export class BcgContextManager {
 	}
 
 	private async postTurns(payloads: BcgTurnPayload[], signal?: AbortSignal): Promise<BcgSnapshot> {
+		if (this.submittedTurns + payloads.length > this.maxTurns) {
+			throw new BcgTurnLimitError(this.submittedTurns, this.maxTurns);
+		}
 		const signals = [AbortSignal.timeout(this.timeoutMs)];
 		if (signal) {
 			signals.push(signal);
@@ -387,6 +436,7 @@ export class BcgContextManager {
 		if (!response.ok) {
 			throw new Error(`BCG server returned HTTP ${response.status}`);
 		}
+		this.submittedTurns += payloads.length;
 		const snapshot = parseSnapshot(await response.json(), this.problemId);
 		if (!snapshot) {
 			throw new Error("BCG server returned an invalid graph snapshot");

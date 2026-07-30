@@ -22,6 +22,7 @@ def test_root_help_lists_public_command_families(capsys) -> None:
     assert "Usage: bcg [OPTIONS] COMMAND [ARGS]..." in output
     assert "Commands" in output
     assert "agent" in output
+    assert "benchmark" in output
     assert "construct" in output
     assert "setup" in output
     assert "belief_tracer" not in output
@@ -46,6 +47,15 @@ def test_root_routes_construct_arguments(monkeypatch) -> None:
     cli.main(["construct", "run", "--input", "data.json"])
 
     assert received == ["run", "--input", "data.json"]
+
+
+def test_root_routes_benchmark_arguments(monkeypatch) -> None:
+    received: list[str] = []
+    monkeypatch.setattr("bcg.benchmark.cli.main", received.extend)
+
+    cli.main(["benchmark", "run", "gaia", "--max-problems", "2"])
+
+    assert received == ["run", "gaia", "--max-problems", "2"]
 
 
 def test_root_routes_setup(monkeypatch) -> None:

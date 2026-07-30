@@ -87,6 +87,18 @@ def _construct(ctx: typer.Context) -> None:
 
 
 @app.command(
+    "benchmark",
+    help="Evaluate the Agent in Default and BCG context modes.",
+    context_settings=_FORWARD_CONTEXT,
+    add_help_option=False,
+)
+def _benchmark(ctx: typer.Context) -> None:
+    from bcg.benchmark.cli import main as benchmark_main
+
+    benchmark_main(list(ctx.args))
+
+
+@app.command(
     "setup",
     help="Configure global Agent, model, context, and Graph settings.",
 )

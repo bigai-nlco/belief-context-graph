@@ -20,6 +20,12 @@ dependencies = [
 # The interactive Agent is a separate Node runtime. Python dependencies only
 # cover the BCG SDK and Graph Construction service.
 
+[project.optional-dependencies]
+benchmarks = [
+    "pandas>=2.2",
+    "pyarrow>=18",
+]
+
 [project.scripts]
 bcg = "bcg.cli:main"
 

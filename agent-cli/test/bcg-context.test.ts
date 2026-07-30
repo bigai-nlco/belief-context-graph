@@ -1,7 +1,12 @@
 import type { AgentMessage } from "@bigai-nlco/bcg-agent-core";
 import type { AssistantMessage, ToolResultMessage, Usage } from "@bigai-nlco/bcg-ai/compat";
 import { describe, expect, it, vi } from "vitest";
-import { BcgContextManager, formatBcgMarkdown, splitBcgTurns } from "../src/core/context/bcg-context.ts";
+import {
+	BcgContextManager,
+	BcgTurnLimitError,
+	formatBcgMarkdown,
+	splitBcgTurns,
+} from "../src/core/context/bcg-context.ts";
 import {
 	ensureSessionContextMode,
 	getSessionContextMode,
@@ -79,6 +84,7 @@ describe("BCG context management", () => {
 			baseUrl: "http://127.0.0.1:8848",
 			problemId: "problem",
 			recentTurns: 2,
+			maxTurns: 100,
 			timeoutMs: 1000,
 			includeRelations: true,
 			getSystemPrompt: () => "base system",
@@ -110,6 +116,7 @@ describe("BCG context management", () => {
 			baseUrl: "http://127.0.0.1:8848",
 			problemId: "problem",
 			recentTurns: 0,
+			maxTurns: 100,
 			timeoutMs: 1000,
 			includeRelations: true,
 			getSystemPrompt: () => "system",
@@ -151,6 +158,7 @@ describe("BCG context management", () => {
 			baseUrl: "http://127.0.0.1:8848",
 			problemId: "problem",
 			recentTurns: 0,
+			maxTurns: 100,
 			timeoutMs: 1000,
 			includeRelations: true,
 			getSystemPrompt: () => "system",
@@ -163,6 +171,66 @@ describe("BCG context management", () => {
 		expect(await manager.transform(messages)).toBe(messages);
 		expect(manager.augmentSystemPrompt("system")).toBe("system");
 		expect(warning).toHaveBeenCalledOnce();
+	});
+
+	it("terminates instead of falling back when the Graph message limit would be exceeded", async () => {
+		const requests: Array<Record<string, unknown>[]> = [];
+		const warning = vi.fn();
+		const initial = user("initial", 1);
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 0,
+			maxTurns: 3,
+			timeoutMs: 1000,
+			includeRelations: true,
+			getSystemPrompt: () => "system",
+			fetch: createFetch(requests),
+			onWarning: warning,
+		});
+
+		await manager.transform([initial]);
+		await expect(
+			manager.transform([initial, assistant("reasoning", 2), tool("evidence", 3)]),
+		).rejects.toBeInstanceOf(BcgTurnLimitError);
+		expect(requests).toHaveLength(1);
+		expect(warning).not.toHaveBeenCalled();
+	});
+
+	it("releases a seeded Graph session exactly once", async () => {
+		const paths: string[] = [];
+		const initial = user("initial", 1);
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 2,
+			maxTurns: 300,
+			timeoutMs: 1000,
+			includeRelations: true,
+			getSystemPrompt: () => "system",
+			fetch: (async (input) => {
+				const path = new URL(String(input)).pathname;
+				paths.push(path);
+				if (path === "/release") {
+					return new Response(JSON.stringify({ problem_id: "problem", released: true }), { status: 200 });
+				}
+				return new Response(
+					JSON.stringify({
+						latest: {
+							problem: { beliefs: [], relations: [] },
+						},
+					}),
+					{ status: 200 },
+				);
+			}) as typeof globalThis.fetch,
+		});
+
+		await manager.release();
+		await manager.transform([initial]);
+		await manager.release();
+		await manager.release();
+
+		expect(paths).toEqual(["/turns", "/release"]);
 	});
 
 	it("formats relations as Markdown", () => {
@@ -184,6 +252,7 @@ describe("BCG context management", () => {
 				bcg: {
 					url: "http://bcg.example",
 					recentTurns: -1,
+					maxTurns: 100,
 					timeoutMs: 1234,
 					includeRelations: false,
 				},
@@ -195,6 +264,7 @@ describe("BCG context management", () => {
 			bcg: {
 				url: "http://bcg.example",
 				recentTurns: -1,
+				maxTurns: 100,
 				timeoutMs: 1234,
 				includeRelations: false,
 			},
