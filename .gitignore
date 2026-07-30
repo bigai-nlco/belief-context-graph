@@ -165,6 +165,8 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+!agent-cli/packages/agent-core/src/harness/env/
+!agent-cli/packages/agent-core/src/harness/env/nodejs.ts
 
 # Spyder project settings
 .spyderproject
