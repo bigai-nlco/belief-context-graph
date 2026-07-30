@@ -35,19 +35,6 @@ You can drive either backend two ways:
 - **Online, over HTTP** (`bcg/online_server.py`) — start a small server and
   push turns to it as your agent produces them.
 
-> This document was written by reading the actual source of both backends
-> (`bcg/construct/light/`, `bcg/construct/api_based/`), the unified entry
-> points (`bcg/run.py`, `bcg/online_server.py`), the shared infra
-> (`bcg/env.py`, `bcg/cli_help.py`, `bcg/construct/dispatch.py`,
-> `bcg/construct/_backend_cli.py`), and `model_config.example.json`. A
-> couple of things referenced elsewhere either don't exist in this code or
-> now do something different than described — no `factor.py` / "factor
-> abstraction" module exists anywhere in this export (see the note under
-> [How the two backends build a graph](#how-the-two-backends-build-a-graph)),
-> and the per-backend `run/server/replay` group ([Legacy CLI](#legacy-cli))
-> has no `visualize` subcommand at all, unlike older docs. The only piece
-> left unread is `bcg/online_driver.py` itself.
-
 ---
 
 ## Table of contents
@@ -74,20 +61,11 @@ You can drive either backend two ways:
 | Entities | Local spaCy NER (or HF token-classification), run **after** that turn's merge is complete | Returned directly by the node-extraction call |
 | Relations | Separate non-thinking Qwen model; backward window is either the immediately-previous turn only (`search_previous_turns: false`) or a full backward walk (`true`, the example config's default) | Same model, always a full backward walk: current turn vs. the immediately-previous turn's surviving nodes, walking further back one turn at a time until a cross-turn edge lands (or no turn remains) |
 | Evidence granularity | Whole semantic chunk (exact offsets) | Whole sentence (exact offsets, default) or model-quoted excerpt (`--evidence-mode excerpt`, located by a 3-stage exact→normalised→fuzzy matcher) |
-| Confidence policy | Fully config-driven (`belief_graph.confidence`: role/stance weights, aggregation method) | Hardcoded `(role, stance)` lookup table in `confidence.py` |
+| Confidence policy | Hardcoded `(role, stance)` lookup table in `confidence.py` | Hardcoded `(role, stance)` lookup table in `confidence.py` |
 | Merge | Incremental, embedding-only (**no** LLM verify step) | Incremental embedding merge, **optionally** LLM-verified + rewritten (`--verify-merge`, default on) |
-| Trajectory-end / global merge | None — removed; only the per-turn incremental merge runs | None — also removed; only the per-turn incremental merge runs (there is **no** `--merge-strategy` / `--merge-threshold` flag in this codebase) |
 | Runtime tuning | Almost entirely via `model_config.json`'s `belief_graph` block — `bcg/run.py light` exposes no backend-specific CLI flags | Via CLI flags on `bcg/run.py` / `bcg/online_server.py` (`--evidence-mode`, `--incremental-merge*`, `--verify-merge`, `--context-chars`, `--min-content-len`) |
 | API key | Same mechanism as `api_based` — see [Configuration](#configuration) | `api_key_env` resolved from a project-root `.env` via the shared `bcg/env.py` |
 
-> **Note on drift between docs and code.** `construct/api_based/__init__.py`'s
-> own docstring still describes "a single LLM call per turn" with "merge/dedup
-> run once at trajectory end" — that's stale relative to what `stream.py`,
-> `extract.py`, and `merge.py` actually do today (three calls: node
-> extraction, incremental merge, then one-or-more relation-extraction calls;
-> no trajectory-end merge at all). This README follows the executable code.
-> Similarly, no `factor.py` / "factor abstraction" module exists anywhere in
-> this export.
 
 ### `api_based`, in more detail
 
@@ -193,9 +171,6 @@ via `StreamOptions.apply_belief_graph_config()`.
 ---
 
 ## Installation
-
-There's no `requirements.txt` in this export yet. From the imports actually
-used:
 
 - **Both backends need:** `openai` (chat + optional OpenAI-compatible
   embeddings), `sentence-transformers` (local embeddings, used for merge
@@ -479,15 +454,6 @@ the server):
 | `logs/merge_*.json` / `.log` | Merge audit trail: candidates, similarities, LLM verifications (if any), applied merges, edge rewiring |
 | `logs/timing.csv` | Per-turn + summary timing, wide table, seconds |
 
-**`timing.csv` schema differs by backend.** `api_based` writes a `row_type`
-column (`turn` / `final_merge` — always-zero now that the pass is removed —
-/ `item` summary) with columns `row_type, item_id, turn_index, role,
-node_generation, merging, llm_check, edge_generation, turn_total, n_nodes,
-n_beliefs, n_decisions, n_relations, n_merges, duration_seconds,
-result_path`. `light` writes one plain row per built turn: `item_id,
-turn_index, role, node_generation, merging, entity_extraction,
-edge_generation, turn_total, n_nodes, n_beliefs, n_decisions, n_relations,
-n_merges` (no `row_type`, no final-merge or summary row).
 
 `light`'s `result.json` additionally carries a `turn_chunks` array (each
 turn's chunk boundaries and text) that `api_based`'s does not.
@@ -524,112 +490,3 @@ bcg/
       extract.py  merge.py  evidence.py  confidence.py  graph.py  constants.py
       split.py  loaders.py  llm.py  prompts.py  utils.py
 ```
-
-`loaders.py` is byte-identical between the two backends. `bcg/env.py`,
-`bcg/cli_help.py`, `bcg/construct/dispatch.py`, and
-`bcg/construct/_backend_cli.py` have all now been read directly (see
-[Configuration](#configuration) and [Legacy CLI](#legacy-cli) for what they
-do). The one remaining unread piece is `bcg/online_driver.py` itself —
-I've only seen it referenced as the target of the `replay` subcommand, not
-its actual source.
-
-`construct/api_based/pipeline.py` also still carries a legacy
-`BeliefGraphPipeline` / `BeliefGraphOptions` SDK-style wrapper at the bottom
-of the file, targeting an external `bcg.graph` / `bcg.memory` / `bcg.runner`
-module set that isn't part of this repo. Its import is wrapped in a
-try/except so the rest of the package imports fine either way; only
-actually calling `BeliefGraphPipeline.run(...)` would fail.
-
----
-
-## Python API
-
-Both backends expose the same *shape* of API (swap `api_based` for `light`
-in the import paths) — but their `StreamOptions` fields and internals are
-**not** interchangeable, and `light`'s `StreamingBeliefBuilder` additionally
-*requires* a config-populated `StreamOptions` (it raises if you pass a bare
-`StreamOptions()` that was never run through
-`apply_belief_graph_config(...)`).
-
-**Multiplex many trajectories** with a `SessionManager` (what the server
-uses):
-
-```python
-from bcg.construct.api_based.online import SessionManager
-
-mgr = SessionManager(config_path="bcg/model_config.json", model_key="gpt-5.5")
-for turn in incoming_stream:                 # dicts with problem_id / role / content
-    snapshot = mgr.push(turn)                # returns the live graph
-# a trajectory finalizes on is_trajectory_end, or call mgr.finalize(problem_id)
-```
-
-**Build one trajectory** directly (`api_based`):
-
-```python
-from bcg.construct.api_based.stream import StreamingBeliefBuilder, StreamOptions
-from bcg.construct.api_based.llm import load_config, make_client
-
-cfg = load_config("bcg/model_config.json", model_key="gpt-5.5")
-builder = StreamingBeliefBuilder(
-    client=make_client(cfg),
-    model=cfg["model"],
-    item_id="p1",
-    out_dir="outputs/p1",
-    options=StreamOptions(),       # evidence_mode / incremental_merge* / verify_merge / context_chars
-)
-builder.ingest_turn("user", "Which alloy resists seawater corrosion best?")
-builder.ingest_turn("assistant", "Titanium grade 2. \\boxed{Titanium grade 2}")
-result = builder.finalize()
-```
-
-**Build one trajectory** directly (`light` — note the config-populated
-options are mandatory):
-
-```python
-from bcg.construct.light.stream import StreamingBeliefBuilder, StreamOptions
-from bcg.construct.light.llm import load_config, load_belief_graph_config, make_client
-
-cfg = load_config("bcg/model_config.json", model_key="gpt-5.5")
-bg_cfg = load_belief_graph_config("bcg/model_config.json", model_key="gpt-5.5")
-options = StreamOptions()
-options.apply_belief_graph_config(bg_cfg)   # required — raises without a real belief_graph config
-
-builder = StreamingBeliefBuilder(
-    client=make_client(cfg), model=cfg["model"],
-    item_id="p1", out_dir="outputs/p1", options=options,
-)
-builder.ingest_turn("user", "Which alloy resists seawater corrosion best?")
-result = builder.finalize()
-```
-
----
-
-## Legacy CLI
-
-Each backend also ships its own `python -m bcg.construct.light` /
-`python -m bcg.construct.api_based`, whose `cli.py` forwards to a shared
-`bcg.construct._backend_cli.backend_main(<backend_name>, argv)`. This is a
-fully working, backend-scoped alias for the unified entry points — not
-dead code. It supports exactly three subcommands (**no `visualize`** —
-that choice doesn't exist in this dispatcher at all, unlike what earlier
-documentation described):
-
-```bash
-python -m bcg.construct.light run     --input data.json ...       # -> bcg.run.main(["light", "--input", "data.json", ...])
-python -m bcg.construct.light server  --config bcg/model_config.json ...  # -> bcg.online_server.main(["light", ...])
-python -m bcg.construct.light replay  -i stream.jsonl ...          # -> bcg.online_driver.main(["light", "-i", "stream.jsonl", ...])
-```
-
-`backend_main()` just prepends the backend name to whatever args follow the
-subcommand and calls straight into `bcg.run.main`, `bcg.online_server.main`,
-or `bcg.online_driver.main` — so `run`/`server` here are exactly equivalent
-to calling `bcg/run.py`/`bcg/online_server.py` directly with that backend
-as the first argument; there's no behavioural difference, just a different
-invocation spelling. `-h`/`--help` (or no subcommand at all) prints a
-`RichArgumentParser`-rendered list of the three choices.
-
-The one piece I still haven't read directly is `bcg/online_driver.py`
-itself (the module `replay` forwards into) — the mechanics above are
-confirmed from `_backend_cli.py`, but `online_driver.py`'s own argument
-handling isn't, so treat the `replay` example's flags as illustrative
-until you can share that file too.
