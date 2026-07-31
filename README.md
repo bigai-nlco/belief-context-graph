@@ -65,13 +65,12 @@ This repository includes a simple terminal Agent as a reference integration. It 
 ### Token cost across the task horizon
 
 <p align="center">
-  <a href="readme_cumulative_total.png">
-    <img src="readme_cumulative_total.png" width="60%" alt="Cumulative token cost">
+  <a href="readme_token_cost.png">
+    <img src="readme_token_cost.png" width="90%" alt="Cumulative token cost">
   </a>
 </p>
 
-- **Model calls.** The number of model calls (assistant turns) a task has
-  made so far. Moving right means going deeper into a task's horizon.
+- **Model calls.** The number of model calls (assistant turns) a task has made so far. Moving right means progressing deeper into the task horizon. The full-horizon figure shows the overall trend, while the accompanying zoomed-in figure focuses on the first 20 calls to make the early-phase behavior and crossover easier to see.
 - **Mean cumulative tokens per task.** Tokens summed from the first call up
   to and including call *k*, then averaged over all 1,200 trajectories in that mode.
 
