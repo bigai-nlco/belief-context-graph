@@ -70,9 +70,9 @@ This repository includes a simple terminal Agent as a reference integration. It 
   </a>
 </p>
 
-- **X-axis — model calls.** The number of model calls (assistant turns) a task has
+- **Model calls.** The number of model calls (assistant turns) a task has
   made so far. Moving right means going deeper into a task's horizon.
-- **Y-axis — mean cumulative tokens per task.** Tokens summed from the first call up
+- **Mean cumulative tokens per task.** Tokens summed from the first call up
   to and including call *k*, then averaged over all 1,200 trajectories in that mode.
 
 
