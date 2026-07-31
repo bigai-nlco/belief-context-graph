@@ -66,7 +66,7 @@ This repository includes a simple terminal Agent as a reference integration. It 
 
 <p align="center">
   <a href="readme_cumulative_total.png">
-    <img src="readme_cumulative_total.png" width="70%" alt="Cumulative token cost">
+    <img src="readme_cumulative_total.png" width="60%" alt="Cumulative token cost">
   </a>
 </p>
 
