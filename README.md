@@ -62,6 +62,20 @@ This repository includes a simple terminal Agent as a reference integration. It 
 
 </div>
 
+### Token cost across the task horizon
+
+<p align="center">
+  <a href="readme_cumulative_total.png">
+    <img src="readme_cumulative_total.png" width="70%" alt="Cumulative token cost">
+  </a>
+</p>
+
+- **X-axis — model calls.** The number of model calls (assistant turns) a task has
+  made so far. Moving right means going deeper into a task's horizon.
+- **Y-axis — mean cumulative tokens per task.** Tokens summed from the first call up
+  to and including call *k*, then averaged over all 1,200 trajectories in that mode.
+
+
 ## Quick Start
 
 Core BCG uses Python/`uv` for the SDK and Graph Construction. The optional reference terminal Agent uses an isolated Node.js 22.19+ runtime.
