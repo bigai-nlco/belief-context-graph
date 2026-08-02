@@ -12,6 +12,7 @@ Run from the `bcg-construct` directory (or pass --root):
 The manifest is written to <root>/manifest.json so a viewer served from the
 stream folder can fetch it with a relative path.
 """
+
 import argparse
 import datetime as _dt
 import json
@@ -24,7 +25,7 @@ CLAIM_ID_RE = re.compile(r"^\s*Claim ID:\s*(.+?)\s*$", re.MULTILINE)
 
 def _first_lines(path, n=200):
     out = []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for i, line in enumerate(f):
             if i >= n:
                 break
@@ -36,7 +37,7 @@ def _first_lines(path, n=200):
 
 def _read_turns(path):
     turns = []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -52,7 +53,7 @@ def _read_turns(path):
 
 def _last_graph(path):
     last = None
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -89,19 +90,21 @@ def build(root):
         claim, claim_id = _claim_of(turns)
         last = _last_graph(graph)
         n_snap = sum(1 for _ in _first_lines(graph, n=100000))
-        samples.append({
-            "id": name,
-            "claim_id": claim_id,
-            "claim": claim,
-            "n_turns": len(turns),
-            "n_snapshots": n_snap,
-            "n_nodes": int(last.get("n_nodes", 0) or 0),
-            "n_relations": len(last.get("relations", []) or []),
-        })
+        samples.append(
+            {
+                "id": name,
+                "claim_id": claim_id,
+                "claim": claim,
+                "n_turns": len(turns),
+                "n_snapshots": n_snap,
+                "n_nodes": int(last.get("n_nodes", 0) or 0),
+                "n_relations": len(last.get("relations", []) or []),
+            }
+        )
     # non-empty graphs first, then by claim id
     samples.sort(key=lambda s: (0 if s["n_nodes"] else 1, s["claim_id"], s["id"]))
     return {
-        "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "generated_at": _dt.datetime.now(_dt.UTC).isoformat(),
         "count": len(samples),
         "samples": samples,
     }
@@ -109,8 +112,8 @@ def build(root):
 
 def main():
     bcg_construct = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "bcg-construct")
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bcg-construct"
+    )
     latest_root = os.path.join(bcg_construct, "outputs_7_2")
     previous_root = os.path.join(bcg_construct, "outputs_7_1")
     legacy_root = os.path.join(bcg_construct, "outputs_stream")
@@ -119,20 +122,26 @@ def main():
         legacy_root,
     )
     ap = argparse.ArgumentParser()
-    ap.add_argument("--root", default=default_root,
-                    help="directory that holds the per-sample stream folders "
-                         "(default: ../bcg-construct/outputs_7_2 if present, "
-                         "else outputs_7_1/outputs_stream)")
-    ap.add_argument("--out", default=None,
-                    help="output path (default: <root>/manifest.json)")
+    ap.add_argument(
+        "--root",
+        default=default_root,
+        help="directory that holds the per-sample stream folders "
+        "(default: ../bcg-construct/outputs_7_2 if present, "
+        "else outputs_7_1/outputs_stream)",
+    )
+    ap.add_argument(
+        "--out", default=None, help="output path (default: <root>/manifest.json)"
+    )
     args = ap.parse_args()
     root = os.path.abspath(args.root)
     manifest = build(root)
     out = args.out or os.path.join(root, "manifest.json")
     with open(out, "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=1)
-    print(f"wrote {out}: {manifest['count']} samples "
-          f"({sum(1 for s in manifest['samples'] if s['n_nodes'])} with a non-empty graph)")
+    print(
+        f"wrote {out}: {manifest['count']} samples "
+        f"({sum(1 for s in manifest['samples'] if s['n_nodes'])} with a non-empty graph)"
+    )
 
 
 if __name__ == "__main__":

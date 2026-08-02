@@ -437,8 +437,10 @@ Each run produces a structured directory under `.bcg/runs/<run_id>/`:
   events.jsonl              # timestamped event log
   artifacts/
     segments.json           # trajectory segmentation
-    beliefs.json            # extracted beliefs
+    io_beliefs.json          # extracted input/output beliefs
+    reasoning_beliefs.json   # extracted reasoning beliefs
     forward_relations.json  # forward relation edges
+    backward_relations.json # backward relation edges
     merges.json             # duplicate belief merge decisions
 ```
 
@@ -446,28 +448,21 @@ Each run produces a structured directory under `.bcg/runs/<run_id>/`:
 
 ## Architecture
 
-The belief graph construction gpipeline transforms raw conversation trajectories into a structured, queryable belief graph in five stages:
+The belief graph construction pipeline processes each conversation turn incrementally. Merge runs before relation linking so edges are created against the surviving canonical nodes:
 
 ```text
-┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│  Trajectory  │───▶│  Segment     │───▶│  Extract     │───▶│  Extract     │───▶│  Merge &     │
-│  Input       │    │  & Split     │    │  Beliefs     │    │  Relations   │    │  Assemble    │
-└──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
-       │                   │                   │                   │                   │
-       ▼                   ▼                   ▼                   ▼                   ▼
-  Raw messages      Semantic split      Belief extraction      Forward/backward
-  or turns          into segments       & confidence scoring   belief linking    Graph assembly
+Turn input ──▶ Split / chunk ──▶ Extract nodes + initialize confidence ──▶ Merge ──▶ Link relations ──▶ BCG graph
 ```
 
-| Stage | Module | Description |
+| Stage | Actual implementation | Description |
 |---|---|---|
-| **Segmentation** | `BCGMemory.segment` | Splits multi-turn trajectories into coherent segments; optional semantic clustering |
-| **Extraction** | `BCGMemory.belief_extraction` | Extracts structured beliefs for reasoning from each segment |
-| **Confidence** | `BCGMemory.belief_confidence` | Computes deterministic confidence across four dimensions — no LLM-generated confidence numbers |
-| **Linking** | `BCGMemory.link_extraction` | Validates and creates forward/backward relation edges between beliefs |
-| **Merge** | `BCGMemory.graph_merge` | Optional deduplication pass that merges semantically equivalent beliefs |
+| **Segmentation** | `bcg.construct.api_based.split.split_sentences` / `bcg.construct.light.split.semantic_chunks_isolating_tool_calls` | Splits a turn into sentence evidence (`api_based`) or optional semantic chunks with isolated tool calls (`light`) |
+| **Extraction** | `bcg.construct.api_based.extract.extract_nodes` / `bcg.construct.light.extractor.QwenChunkExtractor.extract_turn` | Extracts belief and decision nodes from the current turn |
+| **Confidence** | `bcg.construct.api_based.confidence.init_belief_confidence` / `bcg.construct.light.confidence.init_belief_confidence` | Initializes deterministic confidence from source role and stance; later merged evidence updates it |
+| **Merge** | `bcg.construct.api_based.merge.run_merge_pass` / `bcg.construct.light.merge.run_merge_pass` | Deduplicates belief nodes before relation generation and rewires existing relation endpoints |
+| **Linking** | `bcg.construct.api_based.extract.extract_relations` / `bcg.construct.light.edge_generation.QwenEdgeGenerator.generate_window` | Generates, validates, and adds typed relations between surviving nodes |
 
-The pipeline is orchestrated by `BCGMemory` that are configurable via Python constructor arguments — context budgets, merge strategy, run IDs, and output paths are all explicit, not hidden behind environment variables.
+`BCGRunner` is the public orchestration layer. It delegates each run to the selected backend's `StreamingTrajectorySession`, whose `StreamingBeliefBuilder` executes the stages above. `BCGMemory` is the user-facing memory facade for manually observing already-formed beliefs and reading or searching the resulting graph; it does not implement the construction stages itself. Context budgets, merge strategy, run IDs, and output paths are configured explicitly through `BCGRunner` and backend options.
 
 ---
 

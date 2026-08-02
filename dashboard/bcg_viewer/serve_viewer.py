@@ -47,7 +47,9 @@ API:
     GET  /api/sample/<rollout:id>   -> synthetic no-graph sample from trajectories.jsonl
     POST /api/run/<id>/stop         -> {ok}
 """
+
 import argparse
+import contextlib
 import glob
 import importlib.util
 import json
@@ -59,7 +61,7 @@ import threading
 import time
 import urllib.parse
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -70,8 +72,11 @@ _LEGACY_STREAM_DIR = os.path.join(_BCG_CONSTRUCT, "outputs_stream")
 _BUNDLED_DEMO_DIR = os.path.join(HERE, "demo_output")
 # Prefer a real sibling BCG stream when present; otherwise run standalone with the bundled demo.
 DEFAULT_STREAM_DIR = next(
-    (p for p in (_LATEST_STREAM_DIR, _PREVIOUS_STREAM_DIR, _LEGACY_STREAM_DIR)
-     if os.path.isdir(p)),
+    (
+        p
+        for p in (_LATEST_STREAM_DIR, _PREVIOUS_STREAM_DIR, _LEGACY_STREAM_DIR)
+        if os.path.isdir(p)
+    ),
     _BUNDLED_DEMO_DIR,
 )
 STREAM_URL_PREFIX = "/outputs_stream"
@@ -106,10 +111,14 @@ def _resolve_dated_dir(path, now=None):
     m = _DATED_STREAM_RE.match(name)
     if not m:
         return root
-    month = f"{local_now.month:02d}" if len(m.group("month")) == 2 else str(local_now.month)
+    month = (
+        f"{local_now.month:02d}" if len(m.group("month")) == 2 else str(local_now.month)
+    )
     day = f"{local_now.day:02d}" if len(m.group("day")) == 2 else str(local_now.day)
     year = f"{local_now.year:04d}_" if m.group("year") else ""
-    return os.path.join(os.path.dirname(root), f"{m.group('prefix')}{year}{month}_{day}")
+    return os.path.join(
+        os.path.dirname(root), f"{m.group('prefix')}{year}{month}_{day}"
+    )
 
 
 def _current_stream_dir():
@@ -121,6 +130,7 @@ def _current_stream_dir():
 def _lan_ip():
     """Best-effort primary LAN IPv4 (no traffic actually sent)."""
     import socket
+
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(("10.255.255.255", 1))
@@ -129,6 +139,7 @@ def _lan_ip():
         return None
     finally:
         s.close()
+
 
 # ---- config filled in by main() ------------------------------------------
 CFG = {
@@ -143,10 +154,11 @@ CFG = {
     # rollout output root that holds <alias>/averitec/trajectories.jsonl (agent-side per-step timings)
     "rollout_output_dir": "/home/yofuria/Desktop/GraphMemoryEvaluation/belief-context-graph/output",
 }
-_TIMINGS_CACHE = {}   # graph_problem_id -> result dict
+_TIMINGS_CACHE = {}  # graph_problem_id -> result dict
 RUNS_DIR = os.path.join(HERE, ".viewer_runs")
 ROLLOUT_SAMPLE_PREFIX = "rollout:"
 BELIEF_GRAPH_MODES = {"none", "augment", "only"}
+
 
 # ---- import the manifest builder from the sibling script ------------------
 def _load_manifest_builder():
@@ -158,10 +170,11 @@ def _load_manifest_builder():
     spec.loader.exec_module(mod)
     return mod
 
+
 _MANIFEST = _load_manifest_builder()
 
 # ---- run registry ---------------------------------------------------------
-RUNS = {}           # run_id -> dict
+RUNS = {}  # run_id -> dict
 RUNS_LOCK = threading.Lock()
 
 
@@ -192,7 +205,7 @@ def _new_samples(before):
             except OSError:
                 mtime = 0
             fresh.append((mtime, name))
-    fresh.sort(reverse=True)          # newest first
+    fresh.sort(reverse=True)  # newest first
     return [name for _, name in fresh]
 
 
@@ -211,8 +224,8 @@ def _entry_completed_at(entry):
 
 def _iso_from_ts(ts):
     if isinstance(ts, (int, float)):
-        return datetime.fromtimestamp(float(ts), timezone.utc).isoformat()
-    return datetime.now(timezone.utc).isoformat()
+        return datetime.fromtimestamp(float(ts), UTC).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _rollout_sample_id(path, line_no):
@@ -223,12 +236,12 @@ def _rollout_sample_id(path, line_no):
 def _decode_rollout_sample_id(sample_id):
     if not sample_id.startswith(ROLLOUT_SAMPLE_PREFIX):
         return None
-    rest = sample_id[len(ROLLOUT_SAMPLE_PREFIX):]
+    rest = sample_id[len(ROLLOUT_SAMPLE_PREFIX) :]
     try:
         rel_enc, line_s = rest.rsplit(":", 1)
         line_no = int(line_s)
-    except (ValueError, TypeError):
-        raise ValueError("bad rollout sample id")
+    except (ValueError, TypeError) as exc:
+        raise ValueError("bad rollout sample id") from exc
     rel = urllib.parse.unquote(rel_enc)
     root = os.path.abspath(CFG["rollout_output_dir"])
     path = os.path.abspath(os.path.join(root, rel))
@@ -264,7 +277,7 @@ def _read_rollout_entry(sample_id):
     path, line_no = decoded
     if line_no < 0:
         raise ValueError("bad rollout sample line")
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         for i, line in enumerate(fh):
             if i != line_no:
                 continue
@@ -278,19 +291,31 @@ def _read_rollout_entry(sample_id):
 def _timing_steps_from_entry(entry):
     sample = entry.get("sample") or {}
     steps = []
-    for m in (sample.get("model_io") or []):
+    for m in sample.get("model_io") or []:
         t = m.get("timings") or {}
-        steps.append({"llm": t.get("llm"), "tool": t.get("tool"),
-                      "graph": t.get("graph")})
+        steps.append(
+            {"llm": t.get("llm"), "tool": t.get("tool"), "graph": t.get("graph")}
+        )
     return steps
 
 
 def _rollout_entry_info(path, line_no, entry):
     sample = entry.get("sample") or {}
-    traj = sample.get("trajectory") if isinstance(sample.get("trajectory"), list) else []
-    claim = entry.get("question") or entry.get("problem_id") or sample.get("trajectory_id") or ""
+    traj = (
+        sample.get("trajectory") if isinstance(sample.get("trajectory"), list) else []
+    )
+    claim = (
+        entry.get("question")
+        or entry.get("problem_id")
+        or sample.get("trajectory_id")
+        or ""
+    )
     task_id = entry.get("task_id") or ""
-    label = f"#{task_id} · {claim}" if task_id and claim else (claim or task_id or "rollout sample")
+    label = (
+        f"#{task_id} · {claim}"
+        if task_id and claim
+        else (claim or task_id or "rollout sample")
+    )
     return {
         "id": _rollout_sample_id(path, line_no),
         "claim": claim,
@@ -317,7 +342,7 @@ def _new_rollout_samples(rec):
     found = []
     for path in _rollout_trajectory_files(save_alias):
         try:
-            with open(path, "r", encoding="utf-8") as fh:
+            with open(path, encoding="utf-8") as fh:
                 for line_no, line in enumerate(fh):
                     line = line.strip()
                     if not line:
@@ -348,26 +373,36 @@ def _new_rollout_samples(rec):
 def _rollout_payload(sample_id):
     entry = _read_rollout_entry(sample_id)
     sample = entry.get("sample") or {}
-    trajectory = sample.get("trajectory") if isinstance(sample.get("trajectory"), list) else []
+    trajectory = (
+        sample.get("trajectory") if isinstance(sample.get("trajectory"), list) else []
+    )
     completed_at = _entry_completed_at(entry)
     completed_iso = entry.get("completed_iso") or _iso_from_ts(completed_at)
 
     lines = []
     for i, msg in enumerate(trajectory):
-        turn = dict(msg) if isinstance(msg, dict) else {"role": "unknown", "content": str(msg)}
+        turn = (
+            dict(msg)
+            if isinstance(msg, dict)
+            else {"role": "unknown", "content": str(msg)}
+        )
         turn.setdefault("role", "unknown")
         turn.setdefault("content", "")
-        lines.append({
-            "recv_index": i,
-            "recv_ts": completed_iso,
-            "ingested": True,
-            "is_message_end": True,
-            "is_trajectory_end": False,
-            "turn": turn,
-        })
+        lines.append(
+            {
+                "recv_index": i,
+                "recv_ts": completed_iso,
+                "ingested": True,
+                "is_message_end": True,
+                "is_trajectory_end": False,
+                "turn": turn,
+            }
+        )
 
     final_turn = max(0, len(lines) - 1)
-    graph_problem_id = sample.get("graph_problem_id") or entry.get("problem_id") or sample_id
+    graph_problem_id = (
+        sample.get("graph_problem_id") or entry.get("problem_id") or sample_id
+    )
     graph = {
         "schema_version": 1,
         "problem_id": graph_problem_id,
@@ -409,9 +444,11 @@ def _find_timings(graph_problem_id):
     files = sorted(glob.glob(pat), key=lambda p: os.path.getmtime(p), reverse=True)
     for f in files:
         try:
-            with open(f, "r", encoding="utf-8") as fh:
+            with open(f, encoding="utf-8") as fh:
                 for line in fh:
-                    if graph_problem_id not in line:      # cheap prefilter before json.loads
+                    if (
+                        graph_problem_id not in line
+                    ):  # cheap prefilter before json.loads
                         continue
                     try:
                         o = json.loads(line)
@@ -422,7 +459,8 @@ def _find_timings(graph_problem_id):
                         continue
                     steps = _timing_steps_from_entry(o)
                     result = {
-                        "found": True, "graph_problem_id": graph_problem_id,
+                        "found": True,
+                        "graph_problem_id": graph_problem_id,
                         "alias": os.path.basename(os.path.dirname(os.path.dirname(f))),
                         "elapsed_seconds": o.get("elapsed_seconds"),
                         "steps": steps,
@@ -448,13 +486,18 @@ def _log_tail(path, max_bytes=6000, max_lines=45):
     if len(data) >= max_bytes:
         nl = text.find("\n")
         if nl != -1:
-            text = text[nl + 1:]
+            text = text[nl + 1 :]
     lines = text.splitlines()
     return "\n".join(lines[-max_lines:])
 
 
-def _start_run(max_problems, extra_args, task_ids=None, save_alias=None,
-               belief_graph_mode="augment"):
+def _start_run(
+    max_problems,
+    extra_args,
+    task_ids=None,
+    save_alias=None,
+    belief_graph_mode="augment",
+):
     os.makedirs(RUNS_DIR, exist_ok=True)
     run_id = uuid.uuid4().hex[:12]
     log_path = os.path.join(RUNS_DIR, run_id + ".log")
@@ -476,28 +519,37 @@ def _start_run(max_problems, extra_args, task_ids=None, save_alias=None,
     if CFG["login_shell"]:
         # re-quote into a single -lc string so ~/.bashrc (conda etc.) is sourced
         import shlex
+
         cmd = ["bash", "-lc", " ".join(shlex.quote(a) for a in inner)]
     else:
         cmd = inner
 
     before = _list_sample_dirs()
     started_at = time.time()
-    logf = open(log_path, "w", encoding="utf-8")
+    # The handle stays open while the child runs and _run_status closes it.
+    logf = open(log_path, "w", encoding="utf-8")  # noqa: SIM115
     logf.write(f"$ {' '.join(cmd)}\n(cwd={os.path.dirname(CFG['start_sh'])})\n\n")
     logf.flush()
     proc = subprocess.Popen(
         cmd,
         cwd=os.path.dirname(CFG["start_sh"]) or None,
-        stdout=logf, stderr=subprocess.STDOUT,
-        start_new_session=True,          # own process group so we can stop the tree
+        stdout=logf,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,  # own process group so we can stop the tree
         env=os.environ.copy(),
     )
     with RUNS_LOCK:
         RUNS[run_id] = {
-            "run_id": run_id, "proc": proc, "logf": logf, "log_path": log_path,
-            "before": before, "started_at": started_at,
-            "cmd": cmd, "max_problems": int(max_problems),
-            "task_ids": list(task_ids or []), "save_alias": save_alias or "",
+            "run_id": run_id,
+            "proc": proc,
+            "logf": logf,
+            "log_path": log_path,
+            "before": before,
+            "started_at": started_at,
+            "cmd": cmd,
+            "max_problems": int(max_problems),
+            "task_ids": list(task_ids or []),
+            "save_alias": save_alias or "",
             "belief_graph_mode": belief_graph_mode,
         }
     return run_id
@@ -520,10 +572,8 @@ def _run_status(run_id):
                 try:
                     os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
                 except Exception:
-                    try:
+                    with contextlib.suppress(Exception):
                         proc.kill()
-                    except Exception:
-                        pass
                 rec["kill_sent"] = True
         else:
             status = "running"
@@ -532,10 +582,8 @@ def _run_status(run_id):
     else:
         status = "stopped" if rec.get("stop_requested_at") else "failed"
     if rc is not None and not rec.get("logf_closed"):
-        try:
+        with contextlib.suppress(Exception):
             rec["logf"].close()
-        except Exception:
-            pass
         rec["logf_closed"] = True
     rollout_samples = (
         _new_rollout_samples(rec) if rec.get("belief_graph_mode") == "none" else []
@@ -570,10 +618,8 @@ def _stop_run(run_id):
         try:
             os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
         except Exception:
-            try:
+            with contextlib.suppress(Exception):
                 proc.terminate()
-            except Exception:
-                pass
     return True
 
 
@@ -645,7 +691,7 @@ class Handler(SimpleHTTPRequestHandler):
     def translate_path(self, path):
         clean = path.split("?", 1)[0].split("#", 1)[0]
         if clean == STREAM_URL_PREFIX or clean.startswith(STREAM_URL_PREFIX + "/"):
-            rel = urllib.parse.unquote(clean[len(STREAM_URL_PREFIX):])
+            rel = urllib.parse.unquote(clean[len(STREAM_URL_PREFIX) :])
             parts = [seg for seg in rel.split("/") if seg not in ("", ".", "..")]
             return os.path.join(_current_stream_dir(), *parts)
         return super().translate_path(path)
@@ -664,18 +710,20 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             return
         if p == "/api/ping":
-            return self._json({
-                "ok": True,
-                "run_enabled": os.path.exists(CFG["start_sh"]),
-                "start_sh": CFG["start_sh"],
-                "default_max_problems": CFG["default_max_problems"],
-                "default_save_alias": CFG["default_save_alias"],
-                "data_file": os.path.basename(CFG["data_file"]),
-                "has_problems": os.path.exists(CFG["data_file"]),
-                "stream_dir": _current_stream_dir(),
-            })
+            return self._json(
+                {
+                    "ok": True,
+                    "run_enabled": os.path.exists(CFG["start_sh"]),
+                    "start_sh": CFG["start_sh"],
+                    "default_max_problems": CFG["default_max_problems"],
+                    "default_save_alias": CFG["default_save_alias"],
+                    "data_file": os.path.basename(CFG["data_file"]),
+                    "has_problems": os.path.exists(CFG["data_file"]),
+                    "stream_dir": _current_stream_dir(),
+                }
+            )
         if p.startswith("/api/result/"):
-            sid = urllib.parse.unquote(p[len("/api/result/"):])
+            sid = urllib.parse.unquote(p[len("/api/result/") :])
             result_path = self._sample_result_path(sid)
             if not result_path:
                 return self._json({"error": "unsupported sample id"}, 404)
@@ -686,18 +734,20 @@ class Handler(SimpleHTTPRequestHandler):
             try:
                 stream_dir = _current_stream_dir()
                 if not os.path.isdir(stream_dir):
-                    return self._json({
-                        "generated_at": datetime.now(timezone.utc).isoformat(),
-                        "count": 0,
-                        "samples": [],
-                    })
+                    return self._json(
+                        {
+                            "generated_at": datetime.now(UTC).isoformat(),
+                            "count": 0,
+                            "samples": [],
+                        }
+                    )
                 m = _MANIFEST.build(stream_dir)
                 return self._json(m)
             except Exception as e:
                 return self._json({"error": str(e)}, 500)
         if p == "/api/problems":
             try:
-                with open(CFG["data_file"], "r", encoding="utf-8") as f:
+                with open(CFG["data_file"], encoding="utf-8") as f:
                     rows = json.load(f)
             except Exception as e:
                 return self._json({"error": str(e), "problems": []})
@@ -707,16 +757,25 @@ class Handler(SimpleHTTPRequestHandler):
                     if not isinstance(row, dict) or not row.get("claim"):
                         continue
                     cid = str(row.get("claim_id") or row.get("id") or i)
-                    probs.append({"claim_id": cid, "claim": row.get("claim", ""),
-                                  "label": row.get("label", "")})
-            return self._json({"data_file": os.path.basename(CFG["data_file"]), "problems": probs})
+                    probs.append(
+                        {
+                            "claim_id": cid,
+                            "claim": row.get("claim", ""),
+                            "label": row.get("label", ""),
+                        }
+                    )
+            return self._json(
+                {"data_file": os.path.basename(CFG["data_file"]), "problems": probs}
+            )
         if p.startswith("/api/timings/"):
-            sid = urllib.parse.unquote(p[len("/api/timings/"):])
+            sid = urllib.parse.unquote(p[len("/api/timings/") :])
             # 450_0_abcd -> 450:0:abcd, but do not rewrite synthetic rollout ids.
-            gid = sid if sid.startswith(ROLLOUT_SAMPLE_PREFIX) else sid.replace("_", ":")
+            gid = (
+                sid if sid.startswith(ROLLOUT_SAMPLE_PREFIX) else sid.replace("_", ":")
+            )
             return self._json(_find_timings(gid))
         if p.startswith("/api/sample/"):
-            sid = urllib.parse.unquote(p[len("/api/sample/"):])
+            sid = urllib.parse.unquote(p[len("/api/sample/") :])
             if not sid.startswith(ROLLOUT_SAMPLE_PREFIX):
                 return self._json({"error": "unsupported sample id"}, 404)
             try:
@@ -724,16 +783,20 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception as e:
                 return self._json({"error": str(e)}, 404)
         if p.startswith("/api/run/"):
-            run_id = p[len("/api/run/"):]
+            run_id = p[len("/api/run/") :]
             st = _run_status(run_id)
-            return self._json(st if st else {"error": "unknown run"}, 200 if st else 404)
+            return self._json(
+                st if st else {"error": "unknown run"}, 200 if st else 404
+            )
         return super().do_GET()
 
     def do_POST(self):
         p = self.path.split("?", 1)[0]
         if p == "/api/run":
             if not os.path.exists(CFG["start_sh"]):
-                return self._json({"error": "start.sh not found: " + CFG["start_sh"]}, 400)
+                return self._json(
+                    {"error": "start.sh not found: " + CFG["start_sh"]}, 400
+                )
             body = self._read_body()
             mp = body.get("max_problems") or CFG["default_max_problems"]
             extra = body.get("extra_args") or []
@@ -744,19 +807,31 @@ class Handler(SimpleHTTPRequestHandler):
             )
             if isinstance(task_ids, str):
                 task_ids = [t for t in task_ids.replace(",", " ").split() if t]
-            save_alias = (body.get("save_alias") or "").strip() or CFG["default_save_alias"] or None
+            save_alias = (
+                (body.get("save_alias") or "").strip()
+                or CFG["default_save_alias"]
+                or None
+            )
             belief_graph_mode = str(body.get("belief_graph_mode") or "augment").strip()
             if belief_graph_mode not in BELIEF_GRAPH_MODES:
-                return self._json({"error": "bad belief_graph_mode: " + belief_graph_mode}, 400)
+                return self._json(
+                    {"error": "bad belief_graph_mode: " + belief_graph_mode}, 400
+                )
             try:
                 run_id = _start_run(mp, extra, task_ids, save_alias, belief_graph_mode)
             except Exception as e:
                 return self._json({"error": str(e)}, 500)
-            return self._json({"run_id": run_id, "status": "running",
-                               "task_ids": task_ids, "save_alias": save_alias or "",
-                               "belief_graph_mode": belief_graph_mode})
+            return self._json(
+                {
+                    "run_id": run_id,
+                    "status": "running",
+                    "task_ids": task_ids,
+                    "save_alias": save_alias or "",
+                    "belief_graph_mode": belief_graph_mode,
+                }
+            )
         if p.startswith("/api/run/") and p.endswith("/stop"):
-            run_id = p[len("/api/run/"):-len("/stop")]
+            run_id = p[len("/api/run/") : -len("/stop")]
             ok = _stop_run(run_id)
             return self._json({"ok": ok}, 200 if ok else 404)
         self.send_error(404)
@@ -771,45 +846,65 @@ def main():
         "--stream-dir",
         default=None,
         help="stream output root. Basenames like outputs_2026_7_6 auto-roll to "
-             "today's outputs_Y_M_D; templates such as outputs_{Y}_{m}_{d} "
-             "or outputs_{date} are also supported. Plain outputs_stream stays fixed.",
+        "today's outputs_Y_M_D; templates such as outputs_{Y}_{m}_{d} "
+        "or outputs_{date} are also supported. Plain outputs_stream stays fixed.",
     )
     ap.add_argument("--start-sh", default=CFG["start_sh"])
-    ap.add_argument("--data-file", default=None,
-                    help="AVeriTeC data json used to list selectable cases "
-                         "(default: <repo>/datasets/sub_AVeriTeC/data/dev_subset10.json)")
+    ap.add_argument(
+        "--data-file",
+        default=None,
+        help="AVeriTeC data json used to list selectable cases "
+        "(default: <repo>/datasets/sub_AVeriTeC/data/dev_subset10.json)",
+    )
     ap.add_argument("--default-max-problems", type=int, default=1)
-    ap.add_argument("--default-save-alias", default="demo_test",
-                    help="save-alias prefilled in the UI / used when none is sent")
-    ap.add_argument("--rollout-output", default=None,
-                    help="rollout output root with <alias>/averitec/trajectories.jsonl "
-                         "(agent-side per-step timings; default: <repo>/output)")
+    ap.add_argument(
+        "--default-save-alias",
+        default="demo_test",
+        help="save-alias prefilled in the UI / used when none is sent",
+    )
+    ap.add_argument(
+        "--rollout-output",
+        default=None,
+        help="rollout output root with <alias>/averitec/trajectories.jsonl "
+        "(agent-side per-step timings; default: <repo>/output)",
+    )
     ap.add_argument("--login-shell", action="store_true")
     args = ap.parse_args()
 
     CFG["root"] = os.path.abspath(args.root)
-    CFG["stream_dir_template"] = os.path.abspath(args.stream_dir) if args.stream_dir \
-        else DEFAULT_STREAM_DIR
+    CFG["stream_dir_template"] = (
+        os.path.abspath(args.stream_dir) if args.stream_dir else DEFAULT_STREAM_DIR
+    )
     CFG["stream_dir"] = _current_stream_dir()
     CFG["start_sh"] = os.path.abspath(args.start_sh)
     repo = os.path.dirname(os.path.dirname(CFG["start_sh"]))
-    CFG["data_file"] = os.path.abspath(args.data_file) if args.data_file \
+    CFG["data_file"] = (
+        os.path.abspath(args.data_file)
+        if args.data_file
         else os.path.join(repo, "datasets", "sub_AVeriTeC", "data", "dev_subset10.json")
-    CFG["rollout_output_dir"] = os.path.abspath(args.rollout_output) if args.rollout_output \
+    )
+    CFG["rollout_output_dir"] = (
+        os.path.abspath(args.rollout_output)
+        if args.rollout_output
         else os.path.join(repo, "output")
+    )
     CFG["default_max_problems"] = args.default_max_problems
     CFG["default_save_alias"] = args.default_save_alias
     CFG["login_shell"] = args.login_shell
 
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
-    page = "demo"   # /demo alias -> belief_graph_stream_viewer.html
+    page = "demo"  # /demo alias -> belief_graph_stream_viewer.html
     print(f"[serve_viewer] root       = {CFG['root']}")
     print(f"[serve_viewer] stream-tpl = {CFG['stream_dir_template']}")
     print(f"[serve_viewer] stream-dir = {_current_stream_dir()}")
-    print(f"[serve_viewer] start.sh   = {CFG['start_sh']} "
-          f"({'ok' if os.path.exists(CFG['start_sh']) else 'MISSING'})")
-    print(f"[serve_viewer] data-file  = {CFG['data_file']} "
-          f"({'ok' if os.path.exists(CFG['data_file']) else 'MISSING'})")
+    print(
+        f"[serve_viewer] start.sh   = {CFG['start_sh']} "
+        f"({'ok' if os.path.exists(CFG['start_sh']) else 'MISSING'})"
+    )
+    print(
+        f"[serve_viewer] data-file  = {CFG['data_file']} "
+        f"({'ok' if os.path.exists(CFG['data_file']) else 'MISSING'})"
+    )
     print(f"[serve_viewer] bind       = {args.host}:{args.port}")
     if args.host in ("0.0.0.0", "::"):
         lan = _lan_ip()
@@ -818,7 +913,7 @@ def main():
             print(f"[serve_viewer] LAN        http://{lan}:{args.port}/{page}")
     else:
         print(f"[serve_viewer] open       http://{args.host}:{args.port}/{page}")
-    print(f"[serve_viewer] Ctrl-C to stop  ·  {datetime.now(timezone.utc).isoformat()}")
+    print(f"[serve_viewer] Ctrl-C to stop  ·  {datetime.now(UTC).isoformat()}")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
