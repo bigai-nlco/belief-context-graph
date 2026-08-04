@@ -84,24 +84,44 @@ class EvidenceExcerpt(BaseModel):
 
 
 class ConfidenceHistoryEntry(BaseModel):
-    """Audit record for confidence assignment and updates."""
+    """Audit record for confidence assignment and updates.
+
+    The current construction outputs history entries such as ``initial``,
+    ``merge_evidence``, and relation-confidence propagation steps. Extra keys
+    are intentionally preserved so result.json details like ``confidence_config``,
+    ``factor_details``, and evidence id lists survive SDK validation.
+    """
+
+    model_config = ConfigDict(extra="allow")
 
     step: str
     value: float = Field(..., ge=0.0, le=1.0)
     reason: str = ""
     delta: float | None = None
+    confidence_config: dict[str, Any] | None = None
+    iteration: int | None = None
+    evidence_confidence: float | None = None
+    evidence_delta: float | None = None
+    scored_evidence_ids: list[int] = Field(default_factory=list)
+    added_evidence_ids: list[int] = Field(default_factory=list)
     from_belief_id: int | None = None
+    absorbed_belief_ids: list[int] = Field(default_factory=list)
+    factor_confidence: float | None = None
+    factor_delta: float | None = None
+    factor_details: list[dict[str, Any]] = Field(default_factory=list)
     method: str = "posterior_confidence"
-    dimensions: dict[str, float] = Field(default_factory=dict)
+    confidence_components: dict[str, float] = Field(default_factory=dict)
     formula: str | None = None
     fallback_used: bool = False
     model: str | None = None
 
     @model_validator(mode="after")
-    def _derive_value_from_dimensions(self) -> ConfidenceHistoryEntry:
-        if self.dimensions:
-            self.dimensions = _normalized_confidence_dimensions(self.dimensions)
-            self.value = _confidence_from_dimensions(self.dimensions)
+    def _derive_value_from_components(self) -> ConfidenceHistoryEntry:
+        if self.confidence_components:
+            self.confidence_components = _normalized_confidence_components(
+                self.confidence_components
+            )
+            self.value = _confidence_from_components(self.confidence_components)
             self.formula = (
                 self.formula
                 or "sigmoid(logit(initial_confidence) + evidence_confidence + factor_confidence)"
@@ -119,11 +139,15 @@ class BeliefPayload(BaseModel):
     belief: str = Field(..., min_length=1)
     decision: str | None = None
     stance: BeliefStance = "asserted"
+    stance_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    stance_scores: dict[str, float] = Field(default_factory=dict)
+    stance_model: str | None = None
     layer: BeliefLayer
     role: str | None = None
     entities: list[str] = Field(default_factory=list)
     source: BeliefSource
     evidence_ids: list[int] = Field(default_factory=list)
+    initial_evidence_count: int = Field(default=0, ge=0)
     factor_ids: list[int] = Field(default_factory=list)
     supporting_excerpts: list[str] = Field(default_factory=list)
     evidence: list[EvidenceExcerpt] = Field(default_factory=list)
@@ -132,7 +156,7 @@ class BeliefPayload(BaseModel):
     merged_from: list[int] = Field(default_factory=list)
     belief_original: str | None = None
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
-    confidence_dimensions: dict[str, float] = Field(default_factory=dict)
+    confidence_components: dict[str, float] = Field(default_factory=dict)
     initial_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     evidence_confidence: float = 0.0
     factor_confidence: float = 0.0
@@ -142,11 +166,11 @@ class BeliefPayload(BaseModel):
 
     @model_validator(mode="after")
     def _fill_evidence_and_excerpts(self) -> BeliefPayload:
-        if self.confidence_dimensions:
-            self.confidence_dimensions = _normalized_confidence_dimensions(
-                self.confidence_dimensions
+        if self.confidence_components:
+            self.confidence_components = _normalized_confidence_components(
+                self.confidence_components
             )
-            self.confidence = _confidence_from_dimensions(self.confidence_dimensions)
+            self.confidence = _confidence_from_components(self.confidence_components)
         if not self.evidence and self.supporting_excerpts:
             self.evidence = [
                 EvidenceExcerpt(text=excerpt, source=self.source)
@@ -160,12 +184,12 @@ class BeliefPayload(BaseModel):
         return self
 
 
-def _normalized_confidence_dimensions(
-    dimensions: dict[str, float],
+def _normalized_confidence_components(
+    components: dict[str, float],
 ) -> dict[str, float]:
     normalized: dict[str, float] = {}
     for key in CONFIDENCE_COMPONENT_KEYS:
-        raw = dimensions.get(key, 0.0)
+        raw = components.get(key, 0.0)
         try:
             value = float(raw)
         except (TypeError, ValueError):
@@ -193,14 +217,23 @@ def _sigmoid(x: float) -> float:
     return z / (1.0 + z)
 
 
-def _confidence_from_dimensions(dimensions: dict[str, float]) -> float:
-    normalized = _normalized_confidence_dimensions(dimensions)
+def _confidence_from_components(components: dict[str, float]) -> float:
+    normalized = _normalized_confidence_components(components)
     source_score = normalized.get("source_reliability", 0.0)
     stance_score = normalized.get("stance_quality", 0.0)
     initial = _clamp_confidence((source_score + stance_score) / 2.0)
     evidence_score = float(normalized.get("evidence_confidence", 0.0))
     factor_score = float(normalized.get("factor_confidence", 0.0))
     return round(_sigmoid(_logit(initial) + evidence_score + factor_score), 3)
+
+
+# Compatibility wrappers for older callers of the previous helper names.
+def _normalized_confidence_dimensions(dimensions: dict[str, float]) -> dict[str, float]:
+    return _normalized_confidence_components(dimensions)
+
+
+def _confidence_from_dimensions(dimensions: dict[str, float]) -> float:
+    return _confidence_from_components(dimensions)
 
 
 class RelationActivationCondition(BaseModel):

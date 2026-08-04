@@ -495,7 +495,7 @@ confidence = sigmoid(
 | `evidence_confidence` | Additional evidence contribution accumulated when duplicate evidence is merged into a canonical node |
 | `factor_confidence` | Relation-propagated support or contradiction from active `depends_on` and `contradicts` edges |
 
-`depends_on` relations contribute positive factor confidence, `contradicts` relations contribute negative factor confidence, and `supplements` relations are semantic-only and do not propagate confidence. Confidence propagation is controlled by relation `weight`, `activated_condition.input_conf_threshold`, `min_confidence_delta`, and `max_iterations` in the model config. No model-generated confidence score is accepted directly into the graph.
+`depends_on` relations contribute positive factor confidence, `contradicts` relations contribute negative factor confidence, and `supplements` relations are semantic-only and do not propagate confidence. Confidence propagation is controlled by relation `weight`, `activated_condition.input_conf_threshold`, `propagation_min_confidence_delta`, and `max_propagation_iterations` in the model config. No model-generated confidence score is accepted directly into the graph.
 
 ### Evidence
 

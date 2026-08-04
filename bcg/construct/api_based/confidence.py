@@ -71,12 +71,12 @@ DEFAULT_PROPAGATION_MIN_CONFIDENCE_DELTA = 0.001
 MAX_PROPAGATION_ITERATIONS = 3
 
 DEFAULT_CONFIDENCE_CONFIG: Dict[str, Any] = {
-    "relation_propagation": {
-        "default_relation_weight": DEFAULT_RELATION_WEIGHT,
-        "input_confidence_threshold": DEFAULT_INPUT_CONFIDENCE_THRESHOLD,
-        "min_confidence_delta": DEFAULT_PROPAGATION_MIN_CONFIDENCE_DELTA,
-        "max_iterations": MAX_PROPAGATION_ITERATIONS,
-    }
+    "initial_method": "role_stance_table",
+    "evidence_method": "product",
+    "default_relation_weight": DEFAULT_RELATION_WEIGHT,
+    "input_confidence_threshold": DEFAULT_INPUT_CONFIDENCE_THRESHOLD,
+    "propagation_min_confidence_delta": DEFAULT_PROPAGATION_MIN_CONFIDENCE_DELTA,
+    "max_propagation_iterations": MAX_PROPAGATION_ITERATIONS,
 }
 
 # Evidence aggregation is deliberately simple at this stage.  The source
@@ -103,53 +103,75 @@ def _as_float(value: Any, default: float) -> float:
 
 
 def normalize_confidence_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Return normalized confidence settings used by relation propagation."""
-    rel_defaults = DEFAULT_CONFIDENCE_CONFIG["relation_propagation"]
+    """Return normalized confidence settings used by the api_based backend.
+
+    api_based keeps its original role/stance prior table for initial_confidence,
+    but exposes the same flat result.json propagation fields as light.  A legacy
+    relation_propagation object is accepted as input and flattened here.
+    """
     raw = config or {}
     if not isinstance(raw, dict):
         raw = {}
     rel_raw = raw.get("relation_propagation") or {}
     if not isinstance(rel_raw, dict):
         rel_raw = {}
+
     return {
-        "relation_propagation": {
-            "default_relation_weight": max(
+        "initial_method": str(raw.get("initial_method") or DEFAULT_CONFIDENCE_CONFIG["initial_method"]),
+        "evidence_method": str(raw.get("evidence_method") or DEFAULT_CONFIDENCE_CONFIG["evidence_method"]),
+        "default_relation_weight": max(
+            0.0,
+            _as_float(
+                raw.get("default_relation_weight", rel_raw.get("default_relation_weight")),
+                DEFAULT_RELATION_WEIGHT,
+            ),
+        ),
+        "input_confidence_threshold": min(
+            1.0,
+            max(
                 0.0,
                 _as_float(
-                    rel_raw.get("default_relation_weight"),
-                    rel_defaults["default_relation_weight"],
-                ),
-            ),
-            "input_confidence_threshold": min(
-                1.0,
-                max(
-                    0.0,
-                    _as_float(
+                    raw.get(
+                        "input_confidence_threshold",
                         rel_raw.get("input_confidence_threshold"),
-                        rel_defaults["input_confidence_threshold"],
                     ),
+                    DEFAULT_INPUT_CONFIDENCE_THRESHOLD,
                 ),
             ),
-            "min_confidence_delta": max(
-                0.0,
-                _as_float(
+        ),
+        "propagation_min_confidence_delta": max(
+            0.0,
+            _as_float(
+                raw.get(
+                    "propagation_min_confidence_delta",
                     rel_raw.get("min_confidence_delta"),
-                    rel_defaults["min_confidence_delta"],
                 ),
+                DEFAULT_PROPAGATION_MIN_CONFIDENCE_DELTA,
             ),
-            "max_iterations": max(
-                0,
-                int(_as_float(rel_raw.get("max_iterations"), rel_defaults["max_iterations"])),
+        ),
+        "max_propagation_iterations": max(
+            0,
+            int(
+                _as_float(
+                    raw.get("max_propagation_iterations", rel_raw.get("max_iterations")),
+                    MAX_PROPAGATION_ITERATIONS,
+                )
             ),
-        }
+        ),
     }
 
 
 def relation_propagation_config(
     config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Return normalized relation-propagation settings."""
-    return dict(normalize_confidence_config(config).get("relation_propagation") or {})
+    """Return normalized relation-propagation settings for internal use."""
+    cfg = normalize_confidence_config(config)
+    return {
+        "default_relation_weight": cfg["default_relation_weight"],
+        "input_confidence_threshold": cfg["input_confidence_threshold"],
+        "min_confidence_delta": cfg["propagation_min_confidence_delta"],
+        "max_iterations": cfg["max_propagation_iterations"],
+    }
 
 
 def initial_confidence(role: str, stance: str) -> float:
@@ -440,10 +462,9 @@ def relation_factor_contribution(
         "relation_type": relation.get("type"),
         "input_id": input_id,
         "output_id": output_id,
-        "direction": direction,
-        "weight": weight,
         "input_confidence": round(input_confidence, 6),
-        "input_conf_threshold": threshold,
+        "weight": weight,
+        "activated_condition": {"input_conf_threshold": threshold},
         "contribution": round(contribution, 6),
     }
 
@@ -541,7 +562,7 @@ def propagate_relation_confidences(
                     "factor_confidence": factor_score,
                     "factor_delta": round(factor_delta, 6),
                     "iteration": iteration,
-                    "relation_contributions": contributions,
+                    "factor_details": contributions,
                 })
             if abs(confidence_delta) > min_delta:
                 for relation in relation_list:
