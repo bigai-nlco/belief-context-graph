@@ -1,0 +1,97 @@
+{
+  "engine": "bcg.construct.api_based",
+  "counts": {
+    "backward_relations": 0,
+    "beliefs": 1,
+    "decisions": 1,
+    "edges": 0,
+    "forward_relations": 0,
+    "merges": 0,
+    "nodes": 2,
+    "relations": 0,
+    "sessions": 1
+  },
+  "beliefs": [
+    {
+      "id": 0,
+      "node_type": "belief",
+      "belief": "The user states Alice likes tea.",
+      "decision": null,
+      "role": "user",
+      "stance": "asserted",
+      "layer": "io",
+      "confidence": 0.88,
+      "initial_confidence": 0.88,
+      "evidence_confidence": 0,
+      "factor_confidence": 0,
+      "entities": [
+        "Alice"
+      ],
+      "evidence_ids": [
+        0
+      ],
+      "factor_ids": []
+    }
+  ],
+  "decisions": [
+    {
+      "id": 1,
+      "node_type": "decision",
+      "belief": "The assistant concludes Alice likes green tea.",
+      "decision": "The assistant concludes Alice likes green tea.",
+      "role": "assistant",
+      "stance": "asserted",
+      "layer": "reasoning",
+      "confidence": 0.78,
+      "initial_confidence": 0.78,
+      "evidence_confidence": 0,
+      "factor_confidence": 0,
+      "entities": [
+        "Alice"
+      ],
+      "evidence_ids": [
+        1
+      ],
+      "factor_ids": []
+    }
+  ],
+  "relations": [],
+  "sessions": [
+    {
+      "date": "2024-01-01",
+      "end_turn": 2,
+      "n_turns": 2,
+      "session_id": "chat-1",
+      "session_index": 0,
+      "start_turn": 0
+    }
+  ],
+  "trajectory": [
+    {
+      "content": "Alice likes tea.",
+      "date": "2024-01-01",
+      "has_answer": null,
+      "role": "user",
+      "session_id": "chat-1",
+      "session_index": 0,
+      "turn_index": 0
+    },
+    {
+      "content": "Final answer: Alice likes green tea.",
+      "date": "2024-01-01",
+      "has_answer": null,
+      "role": "assistant",
+      "session_id": "chat-1",
+      "session_index": 0,
+      "turn_index": 1
+    }
+  ],
+  "artifact_names": [
+    "backward_relations.json",
+    "forward_relations.json",
+    "io_beliefs.json",
+    "merges.json",
+    "reasoning_beliefs.json",
+    "segments.json"
+  ]
+}

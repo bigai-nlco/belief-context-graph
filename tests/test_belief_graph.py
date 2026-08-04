@@ -295,7 +295,12 @@ def test_construct_confidence_is_the_only_confidence_policy() -> None:
     assert node["confidence"] == initial_confidence("user", "asserted")
     assert node["initial_confidence"] == node["confidence"]
     assert node["confidence_history"] == [
-        {"step": "initial", "value": node["confidence"]}
+        {
+            "step": "initial",
+            "value": node["confidence"],
+            "evidence_confidence": 0.0,
+            "factor_confidence": 0.0,
+        }
     ]
 
 
@@ -714,6 +719,88 @@ def test_runner_incremental_session_methods_light_backend(
     assert result.graph.metadata["engine"] == "bcg.construct.light"
     belief = result.memory["beliefs"][0]
     assert belief["belief"] == "The user states Alice likes tea."
+
+
+def _normalized_backend_contract(result: Any) -> dict[str, Any]:
+    memory = result.memory
+    stable_node_fields = (
+        "id",
+        "node_type",
+        "belief",
+        "decision",
+        "role",
+        "stance",
+        "layer",
+        "confidence",
+        "initial_confidence",
+        "evidence_confidence",
+        "factor_confidence",
+        "entities",
+        "evidence_ids",
+        "factor_ids",
+    )
+
+    def normalized_nodes(key: str) -> list[dict[str, Any]]:
+        return [
+            {field: node[field] for field in stable_node_fields if field in node}
+            for node in memory.get(key, [])
+        ]
+
+    return {
+        "engine": memory.get("engine"),
+        "counts": result.counts,
+        "beliefs": normalized_nodes("beliefs"),
+        "decisions": normalized_nodes("decisions"),
+        "relations": memory.get("relations"),
+        "sessions": memory.get("sessions"),
+        "trajectory": memory.get("trajectory"),
+        "artifact_names": sorted(
+            path.name for path in result.output_paths.artifacts_dir.iterdir()
+        ),
+    }
+
+
+@pytest.mark.parametrize("backend", ["api_based", "light"])
+def test_backend_normalized_artifact_contract(
+    backend: str,
+    tmp_path: Path,
+    fake_construct_calls: list[str],
+    fake_light_construct: None,
+) -> None:
+    del fake_construct_calls, fake_light_construct
+    runner = BCGRunner(
+        memory=BCGMemory(graph=BCG()),
+        llm=DummyLLM(),
+        output_root=tmp_path / backend,
+        backend=backend,
+    )
+    begin_options: dict[str, Any] = {"run_id": f"contract-{backend}"}
+    if backend == "light":
+        begin_options["belief_graph_config"] = light_belief_graph_config()
+    runner.begin_belief_run(**begin_options)
+    runner.start_session("chat-1", "2024-01-01")
+    run(runner.observe_turn("user", "Alice likes tea."))
+    run(
+        runner.observe_turn(
+            "assistant",
+            "Final answer: Alice likes green tea.",
+        )
+    )
+    run(runner.end_session())
+    result = run(runner.finalize())
+
+    expected_path = (
+        Path(__file__).parent
+        / "fixtures"
+        / "refactor"
+        / f"construct_{backend}.json"
+    )
+    expected = json.loads(expected_path.read_text(encoding="utf-8"))
+
+    assert _normalized_backend_contract(result) == expected
+    for output_path in result.output_paths.to_dict().values():
+        assert Path(output_path).exists()
+
 
 
 def test_semantic_split_clusters_with_fake_embeddings() -> None:
