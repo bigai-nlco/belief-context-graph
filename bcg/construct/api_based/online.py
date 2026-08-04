@@ -66,6 +66,7 @@ from typing import Any, Dict, List, Optional
 
 from . import llm
 from .llm import (
+    load_belief_graph_config,
     load_config,
     load_embedding_config,
     make_client,
@@ -581,6 +582,9 @@ class SessionManager:
     # ---- config wiring (mirrors pipeline.run_input) -----------------------
     def _wire_from_config(self, config_path, model_key, embedding_key) -> None:
         cfg = load_config(config_path, model_key=model_key)
+        bg_cfg = load_belief_graph_config(config_path, model_key=model_key)
+        if bg_cfg:
+            self.options.apply_belief_graph_config(bg_cfg)
         self.client = make_client(cfg)
         self.model = cfg.get("model") or cfg.get("model_name") or "gpt-4o-mini"
         self.max_tokens = cfg.get("max_tokens")

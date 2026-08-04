@@ -25,7 +25,7 @@
     "model_kwargs": {}
   },
   "belief_graph": {
-    "_comment": "Runtime settings for the 'light' backend ONLY (construct.light), used by both run.py and online_server.py. The 'api_based' backend (construct.api_based) does not read this section at all; its equivalent behaviour is configured entirely through its own --evidence-mode/--merge-strategy/--factor-*/etc. CLI flags (see run.py api_based -h).",
+    "_comment": "Shared construct settings. The light backend reads the full section; the api_based backend reads confidence.relation_propagation so run.py and online_server.py use the same relation-confidence propagation parameters.",
     "extractor": {
       "_comment": "Generative node extractor: a small model (Qwen) behind an OpenAI-compatible endpoint (e.g. vLLM). Every semantic chunk of a turn is extracted concurrently into zero or more belief/decision nodes. Replaces the former local DistilBART summarizer. Stance, entities, and event_time are NOT produced here (handled by the stance classifier, post-merge NER, and the graph builder).",
       "enabled": true,
@@ -114,7 +114,7 @@
       "patterns": []
     },
     "confidence": {
-      "_comment": "Configurable confidence policy. Initial confidence combines source reliability with the model-inferred four-class stance; additional merged evidence is scored with its own inferred stance.",
+      "_comment": "Configurable confidence policy. Initial confidence combines source reliability with the model-inferred four-class stance; additional merged evidence is scored with its own inferred stance; relation_propagation controls edge-derived factor_confidence.",
       "initial_method": "weighted_average",
       "evidence_method": "product",
       "source_weight": 0.5,
@@ -140,6 +140,13 @@
         "recalled": 0.72,
         "judged": 0.65,
         "speculated": 0.4
+      },
+      "relation_propagation": {
+        "_comment": "Relation-derived confidence propagation. depends_on propagates positive support from to_id to from_id; contradicts propagates negative support from from_id to to_id; supplements is semantic-only and uses null weight/activated_condition.",
+        "default_relation_weight": 0.5,
+        "input_confidence_threshold": 0.8,
+        "min_confidence_delta": 0.001,
+        "max_iterations": 3
       }
     },
     "chunking": {

@@ -40,7 +40,7 @@ This repository includes a simple terminal Agent as a reference integration. It 
 ## **Core capabilities:**
 
 - **Belief Extraction:** Segment trajectories, extract structured beliefs that counts for agent reasoning and link them into a connected graph
-- **Deterministic Confidence:** Four-dimensional confidence assessment (source reliability, evidence directness, claim specificity, linguistic certainty) — LLMs inform the dimensions, but the final score is deterministic and auditable
+- **Deterministic Confidence:** Auditable posterior confidence computed from `initial_confidence`, `evidence_confidence`, and relation-derived `factor_confidence`; source reliability and stance quality set the prior, while relation weights and activation thresholds propagate support or contradiction deterministically
 - **Evidence Provenance:** Every belief carries exact-offset source references back to the originating conversation turn
 - **Temporal Awareness:** Run-based lifecycle with sessions and timestamps — know when each belief was formed and how it evolved
 - **Relation Linking:** Forward and backward relationship edges between beliefs, forming a casual decision graph/trace.
@@ -451,16 +451,16 @@ Each run produces a structured directory under `.bcg/runs/<run_id>/`:
 The belief graph construction pipeline processes each conversation turn incrementally. Merge runs before relation linking so edges are created against the surviving canonical nodes:
 
 ```text
-Turn input ──▶ Split / chunk ──▶ Extract nodes + initialize confidence ──▶ Merge ──▶ Link relations ──▶ BCG graph
+Turn input ──▶ Split / chunk ──▶ Extract nodes + initialize confidence ──▶ Merge ──▶ Link relations ──▶ Propagate relation confidence ──▶ BCG graph
 ```
 
 | Stage | Actual implementation | Description |
 |---|---|---|
 | **Segmentation** | `bcg.construct.api_based.split.split_sentences` / `bcg.construct.light.split.semantic_chunks_isolating_tool_calls` | Splits a turn into sentence evidence (`api_based`) or optional semantic chunks with isolated tool calls (`light`) |
 | **Extraction** | `bcg.construct.api_based.extract.extract_nodes` / `bcg.construct.light.extractor.QwenChunkExtractor.extract_turn` | Extracts belief and decision nodes from the current turn |
-| **Confidence** | `bcg.construct.api_based.confidence.init_belief_confidence` / `bcg.construct.light.confidence.init_belief_confidence` | Initializes deterministic confidence from source role and stance; later merged evidence updates it |
+| **Confidence** | `bcg.construct.api_based.confidence.init_belief_confidence` / `bcg.construct.light.confidence.init_belief_confidence` | Initializes `initial_confidence` from source role and stance; later merged evidence updates `evidence_confidence`, and active relations update `factor_confidence` |
 | **Merge** | `bcg.construct.api_based.merge.run_merge_pass` / `bcg.construct.light.merge.run_merge_pass` | Deduplicates belief nodes before relation generation and rewires existing relation endpoints |
-| **Linking** | `bcg.construct.api_based.extract.extract_relations` / `bcg.construct.light.edge_generation.QwenEdgeGenerator.generate_window` | Generates, validates, and adds typed relations between surviving nodes |
+| **Linking** | `bcg.construct.api_based.extract.extract_relations` / `bcg.construct.light.edge_generation.QwenEdgeGenerator.generate_window` | Generates, validates, and adds typed relations between surviving nodes; confidence-carrying edges include `weight` and `activated_condition`, while `supplements` keeps both fields as `null` |
 
 `BCGRunner` is the public orchestration layer. It delegates each run to the selected backend's `StreamingTrajectorySession`, whose `StreamingBeliefBuilder` executes the stages above. `BCGMemory` is the user-facing memory facade for manually observing already-formed beliefs and reading or searching the resulting graph; it does not implement the construction stages itself. Context budgets, merge strategy, run IDs, and output paths are configured explicitly through `BCGRunner` and backend options.
 
@@ -473,22 +473,29 @@ Turn input ──▶ Split / chunk ──▶ Extract nodes + initialize confiden
 A belief is the fundamental unit of knowledge in BCG. Each belief carries:
 
 - **Typed payload** — structured data describing what the agent believes (facts, tool call response, reasoning steps, etc.)
-- **Confidence score** — deterministic average of four assessment dimensions
+- **Confidence score** — deterministic posterior computed from the node prior, merged evidence contribution, and relation-propagated factor contribution
 - **Evidence provenance** — exact character-offset references back to the source turn
 - **Temporal metadata** — session ID, turn index, and timestamp of formation
 
 ### Confidence Assessment
 
-Belief confidence is **deterministic and auditable**. The stored value is the average of four independently assessed dimensions:
+Belief confidence is **deterministic and auditable**. The current design recomputes confidence from explicit graph fields:
 
-| Dimension | What It Measures |
+```text
+confidence = sigmoid(
+  logit(initial_confidence)
+  + evidence_confidence
+  + factor_confidence
+)
+```
+
+| Component | What It Measures |
 |---|---|
-| `source_reliability` | Trustworthiness of the information source |
-| `evidence_directness` | How directly the evidence supports the claim |
-| `claim_specificity` | Granularity and concreteness of the belief |
-| `linguistic_certainty` | Certainty signals in the language used |
+| `initial_confidence` | The node prior derived from source reliability and stance quality |
+| `evidence_confidence` | Additional evidence contribution accumulated when duplicate evidence is merged into a canonical node |
+| `factor_confidence` | Relation-propagated support or contradiction from active `depends_on` and `contradicts` edges |
 
-LLMs contribute to assessing each dimension, but the final confidence number is computed mathematically — no model-generated confidence scores enter the graph.
+`depends_on` relations contribute positive factor confidence, `contradicts` relations contribute negative factor confidence, and `supplements` relations are semantic-only and do not propagate confidence. Confidence propagation is controlled by relation `weight`, `activated_condition.input_conf_threshold`, `min_confidence_delta`, and `max_iterations` in the model config. No model-generated confidence score is accepted directly into the graph.
 
 ### Evidence
 

@@ -13,6 +13,7 @@ canonical graph implementation.
 
 from __future__ import annotations
 
+import copy
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +34,7 @@ except ImportError:  # pragma: no cover - see note above
 
 from .llm import (
     USAGE,
+    load_belief_graph_config,
     load_config,
     load_embedding_config,
     make_client,
@@ -85,6 +87,10 @@ def run_input(
     data = load_input_file(input_path)
 
     cfg = load_config(config_path, model_key=model_key)
+    bg_cfg = load_belief_graph_config(config_path, model_key=model_key)
+    if bg_cfg:
+        options = copy.deepcopy(options)
+        options.apply_belief_graph_config(bg_cfg)
     client = make_client(cfg)
     model = cfg.get("model") or cfg.get("model_name") or "gpt-4o-mini"
     max_tokens = cfg.get("max_tokens")

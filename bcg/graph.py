@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import math
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -21,12 +22,17 @@ RelationType = Literal[
     "extends",
 ]
 NodeKind = Literal["belief", "decision", "evidence", "factor", "episode", "entity"]
-CONFIDENCE_DIMENSION_KEYS = (
+CONFIDENCE_COMPONENT_KEYS = (
     "source_reliability",
-    "evidence_directness",
-    "claim_specificity",
-    "linguistic_certainty",
+    "stance_quality",
+    "evidence_confidence",
+    "factor_confidence",
 )
+# Backward-compatible alias for callers that still import the old constant name.
+CONFIDENCE_DIMENSION_KEYS = CONFIDENCE_COMPONENT_KEYS
+
+CONF_FLOOR = 0.001
+CONF_CEIL = 0.999
 
 
 class TrajectorySegment(BaseModel):
@@ -85,7 +91,7 @@ class ConfidenceHistoryEntry(BaseModel):
     reason: str = ""
     delta: float | None = None
     from_belief_id: int | None = None
-    method: str = "dimension_average"
+    method: str = "posterior_confidence"
     dimensions: dict[str, float] = Field(default_factory=dict)
     formula: str | None = None
     fallback_used: bool = False
@@ -98,7 +104,7 @@ class ConfidenceHistoryEntry(BaseModel):
             self.value = _confidence_from_dimensions(self.dimensions)
             self.formula = (
                 self.formula
-                or "average(source_reliability, evidence_directness, claim_specificity, linguistic_certainty)"
+                or "sigmoid(logit(initial_confidence) + evidence_confidence + factor_confidence)"
             )
         return self
 
@@ -158,15 +164,49 @@ def _normalized_confidence_dimensions(
     dimensions: dict[str, float],
 ) -> dict[str, float]:
     normalized: dict[str, float] = {}
-    for key in CONFIDENCE_DIMENSION_KEYS:
+    for key in CONFIDENCE_COMPONENT_KEYS:
         raw = dimensions.get(key, 0.0)
-        normalized[key] = min(1.0, max(0.0, round(float(raw), 3)))
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            value = 0.0
+        if key in {"source_reliability", "stance_quality"}:
+            value = min(1.0, max(0.0, value))
+        normalized[key] = round(value, 6)
     return normalized
+
+
+def _clamp_confidence(value: float) -> float:
+    return max(CONF_FLOOR, min(CONF_CEIL, float(value)))
+
+
+def _logit(p: float) -> float:
+    p = _clamp_confidence(p)
+    return math.log(p / (1.0 - p))
+
+
+def _sigmoid(x: float) -> float:
+    if x >= 0:
+        z = math.exp(-x)
+        return 1.0 / (1.0 + z)
+    z = math.exp(x)
+    return z / (1.0 + z)
 
 
 def _confidence_from_dimensions(dimensions: dict[str, float]) -> float:
     normalized = _normalized_confidence_dimensions(dimensions)
-    return round(sum(normalized.values()) / len(CONFIDENCE_DIMENSION_KEYS), 3)
+    source_score = normalized.get("source_reliability", 0.0)
+    stance_score = normalized.get("stance_quality", 0.0)
+    initial = _clamp_confidence((source_score + stance_score) / 2.0)
+    evidence_score = float(normalized.get("evidence_confidence", 0.0))
+    factor_score = float(normalized.get("factor_confidence", 0.0))
+    return round(_sigmoid(_logit(initial) + evidence_score + factor_score), 3)
+
+
+class RelationActivationCondition(BaseModel):
+    """Activation threshold for a confidence-propagating relation."""
+
+    input_conf_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
 
 
 class RelationPayload(BaseModel):
@@ -178,6 +218,20 @@ class RelationPayload(BaseModel):
     to_id: int = Field(..., ge=0)
     type: RelationType
     note: str = ""
+    weight: float | None = Field(default=None, ge=0.0)
+    activated_condition: RelationActivationCondition | None = None
+
+    @model_validator(mode="after")
+    def _normalize_confidence_fields(self) -> RelationPayload:
+        if self.type == "supplements":
+            self.weight = None
+            self.activated_condition = None
+        elif self.type in {"depends_on", "contradicts"}:
+            if self.weight is None:
+                self.weight = 0.5
+            if self.activated_condition is None:
+                self.activated_condition = RelationActivationCondition()
+        return self
 
 
 class BCGNode(BaseModel):
@@ -225,7 +279,7 @@ class BCGEdge(BaseModel):
     )
     source: str = Field(..., description="UUID of the source node.")
     target: str = Field(..., description="UUID of the target node.")
-    weight: float = Field(default=1.0, description="Edge weight.")
+    weight: float | None = Field(default=None, description="Confidence propagation edge weight.")
     relation: RelationPayload | None = Field(
         default=None, description="Typed relation payload for belief edges."
     )
@@ -245,6 +299,7 @@ class BCGEdge(BaseModel):
         return cls(
             source=source_uuid,
             target=target_uuid,
+            weight=relation.weight,
             relation=relation,
             payload=relation.model_dump(mode="json"),
             metadata={"relation_type": relation.type},

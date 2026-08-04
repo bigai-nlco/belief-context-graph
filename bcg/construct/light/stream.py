@@ -25,7 +25,9 @@ from . import llm
 from .confidence import (
     init_belief_confidence,
     normalize_confidence_config,
+    propagate_relation_confidences,
     recompute_evidence_confidence_from_node,
+    relation_output_node_id,
 )
 from .constants import VALID_STANCES
 from .evidence import evidence_from_chunk, source_descriptor
@@ -302,6 +304,20 @@ class StreamingBeliefBuilder:
         with open(self._events_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         return rec
+
+    def _propagate_relation_confidences(
+        self,
+        *,
+        seed_output_node_ids: Optional[List[int]] = None,
+        step: str = "relation_propagation",
+    ) -> Dict[str, Any]:
+        return propagate_relation_confidences(
+            self.graph.beliefs,
+            self.graph.relations,
+            config=self.options.confidence_config,
+            seed_output_node_ids=seed_output_node_ids,
+            step=step,
+        )
 
     # ------------------------------------------------------------- turn ingest
     def ingest_turn(
@@ -682,6 +698,14 @@ class StreamingBeliefBuilder:
                 current_node_ids.difference_update(absorbed_ids)
                 if touched_current and isinstance(canonical_id, int):
                     current_node_ids.add(canonical_id)
+            if inc.get("applied"):
+                report.setdefault("confidence_propagation", []).append({
+                    "trigger": "incremental_merge",
+                    "report": self._propagate_relation_confidences(
+                        seed_output_node_ids=None,
+                        step="relation_propagation_after_merge",
+                    ),
+                })
 
         relations_added = 0
         active_nodes = self.graph.active()
@@ -842,7 +866,21 @@ class StreamingBeliefBuilder:
                  and r.get("to_id") in cross_turn_anchor_ids)
             )
         )
+        before_relation_count = len(self.graph.relations)
         relations_added = self.graph.add_relations(resolved)
+        added_relations = self.graph.relations[before_relation_count:]
+        seed_output_node_ids = [
+            node_id for node_id in
+            (relation_output_node_id(relation) for relation in added_relations)
+            if node_id is not None
+        ]
+        propagation_report = (
+            self._propagate_relation_confidences(
+                seed_output_node_ids=seed_output_node_ids,
+                step="relation_propagation_after_relation_add",
+            )
+            if seed_output_node_ids else None
+        )
 
         diagnostics = rel_res.get("diagnostics") or {}
         attempt = {
@@ -855,6 +893,8 @@ class StreamingBeliefBuilder:
             "cross_turn_relations_added": cross_turn_relations_added,
             "raw_relation_output": json.dumps(diagnostics, ensure_ascii=False),
         }
+        if propagation_report is not None:
+            attempt["confidence_propagation"] = propagation_report
         if diagnostics.get("skipped"):
             attempt["skip_reason"] = diagnostics.get("skip_reason") or "edge generation skipped"
         return relations_added, cross_turn_relations_added, attempt

@@ -20,11 +20,12 @@ constrained by chronological direction.
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .confidence import normalize_confidence_config
+from .confidence import normalize_confidence_config, relation_propagation_config
 
 
 DEFAULT_RELATION_TYPES = {"depends_on", "supplements", "contradicts"}
@@ -146,6 +147,43 @@ class BeliefGraph:
             relation.get("type"),
         )
 
+    def _relation_propagation_config(self) -> Dict[str, Any]:
+        return relation_propagation_config(self.confidence_config)
+
+    def _clean_relation_weight(
+        self,
+        relation: Dict[str, Any],
+        relation_type: str,
+    ) -> Optional[float]:
+        if relation_type == "supplements":
+            return None
+        default = float(self._relation_propagation_config()["default_relation_weight"])
+        try:
+            weight = float(relation.get("weight"))
+        except (TypeError, ValueError):
+            weight = default
+        if not math.isfinite(weight):
+            weight = default
+        return max(0.0, weight)
+
+    def _clean_relation_condition(
+        self,
+        relation: Dict[str, Any],
+        relation_type: str,
+    ) -> Optional[Dict[str, float]]:
+        if relation_type == "supplements":
+            return None
+        cfg = self._relation_propagation_config()
+        raw_condition = relation.get("activated_condition")
+        if not isinstance(raw_condition, dict):
+            raw_condition = {}
+        try:
+            threshold = float(raw_condition.get("input_conf_threshold"))
+        except (TypeError, ValueError):
+            threshold = float(cfg["input_confidence_threshold"])
+        threshold = min(1.0, max(0.0, threshold))
+        return {"input_conf_threshold": threshold}
+
     def add_relations(self, relations: List[Dict[str, Any]]) -> int:
         seen = {self._rel_key(relation) for relation in self.relations}
         active_ids = set(self.beliefs)
@@ -173,6 +211,10 @@ class BeliefGraph:
                 "to_id": to_id,
                 "type": relation_type,
                 "note": note.strip(),
+                "weight": self._clean_relation_weight(relation, relation_type),
+                "activated_condition": self._clean_relation_condition(
+                    relation, relation_type
+                ),
             }
             key = self._rel_key(clean)
             if key in seen:

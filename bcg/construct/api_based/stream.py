@@ -35,7 +35,10 @@ from typing import Any, Dict, List, Optional
 
 from .confidence import (
     init_belief_confidence,
+    normalize_confidence_config,
+    propagate_relation_confidences,
     recompute_evidence_confidence_from_node,
+    relation_output_node_id,
 )
 from .evidence import (
     evidence_from_excerpt,
@@ -77,6 +80,17 @@ class StreamOptions:
     context_chars: int = 9000             # existing-nodes context budget
     # skip turns whose content is shorter than this (0 = never skip)
     min_content_len: int = 0
+    confidence_config: Dict[str, Any] = field(default_factory=dict)
+
+    def apply_belief_graph_config(self, cfg: Optional[Dict[str, Any]]) -> None:
+        """Apply shared relation-propagation settings from model_config.json."""
+        if not isinstance(cfg, dict):
+            return
+        conf_cfg = cfg.get("confidence") or {}
+        if isinstance(conf_cfg, dict):
+            self.confidence_config = normalize_confidence_config(conf_cfg)
+        else:
+            self.confidence_config = normalize_confidence_config(self.confidence_config)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -86,6 +100,7 @@ class StreamOptions:
             "verify_merge": self.verify_merge,
             "context_chars": self.context_chars,
             "min_content_len": self.min_content_len,
+            "confidence_config": normalize_confidence_config(self.confidence_config),
         }
 
 
@@ -108,9 +123,12 @@ class StreamingBeliefBuilder:
         self.item_meta = item_meta or {}
         self.max_tokens = max_tokens
         self.options = options or StreamOptions()
+        self.options.confidence_config = normalize_confidence_config(
+            self.options.confidence_config
+        )
         self.embedder = embedder
 
-        self.graph = BeliefGraph()
+        self.graph = BeliefGraph(confidence_config=self.options.confidence_config)
         self.out_dir = Path(out_dir)
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir = self.out_dir / "logs"
@@ -144,6 +162,20 @@ class StreamingBeliefBuilder:
         with open(self._events_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         return rec
+
+    def _propagate_relation_confidences(
+        self,
+        *,
+        seed_output_node_ids: Optional[List[int]] = None,
+        step: str = "relation_propagation",
+    ) -> Dict[str, Any]:
+        return propagate_relation_confidences(
+            self.graph.beliefs,
+            self.graph.relations,
+            config=self.options.confidence_config,
+            seed_output_node_ids=seed_output_node_ids,
+            step=step,
+        )
 
     # ------------------------------------------------------------- turn ingest
     def ingest_turn(
@@ -331,6 +363,14 @@ class StreamingBeliefBuilder:
                 for m in inc.get("applied", []):
                     for aid in (m.get("absorbed_ids") or []):
                         new_node_ids.discard(aid)
+                if inc.get("applied"):
+                    report.setdefault("confidence_propagation", []).append({
+                        "trigger": "incremental_merge",
+                        "report": self._propagate_relation_confidences(
+                            seed_output_node_ids=None,
+                            step="relation_propagation_after_merge",
+                        ),
+                    })
 
         # ---- PHASE 3: extract relations inside a local edge window.
         #
@@ -489,7 +529,21 @@ class StreamingBeliefBuilder:
                  and r.get("to_id") in surviving_new_ids)
             )
         )
+        before_relation_count = len(self.graph.relations)
         relations_added = self.graph.add_relations(resolved)
+        added_relations = self.graph.relations[before_relation_count:]
+        seed_output_node_ids = [
+            node_id for node_id in
+            (relation_output_node_id(relation) for relation in added_relations)
+            if node_id is not None
+        ]
+        propagation_report = (
+            self._propagate_relation_confidences(
+                seed_output_node_ids=seed_output_node_ids,
+                step="relation_propagation_after_relation_add",
+            )
+            if seed_output_node_ids else None
+        )
 
         attempt = {
             "previous_trajectory_index": previous_trajectory_index,
@@ -500,6 +554,8 @@ class StreamingBeliefBuilder:
             "cross_turn_relations_added": cross_turn_relations_added,
             "raw_relation_output": rel_res.get("raw_output"),
         }
+        if propagation_report is not None:
+            attempt["confidence_propagation"] = propagation_report
         if rel_res.get("skipped"):
             attempt["skip_reason"] = rel_res.get("skip_reason") or "relation extraction skipped"
         return relations_added, cross_turn_relations_added, attempt

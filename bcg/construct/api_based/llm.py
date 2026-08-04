@@ -46,7 +46,7 @@ except ImportError:
 
 
 # Top-level config keys that are NOT chat-model entries.
-RESERVED_CONFIG_KEYS = {"embedding"}
+RESERVED_CONFIG_KEYS = {"embedding", "belief_graph"}
 
 
 def _is_reserved_key(key: str) -> bool:
@@ -479,6 +479,50 @@ def _resolve_config_api_key(
         default_env=default_env,
         config_path=config_path,
     )
+
+def _deep_merge_dict(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(base or {})
+    for key, value in (override or {}).items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _deep_merge_dict(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def load_belief_graph_config(
+    path: str = "model_config.json",
+    model_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Load optional shared belief-graph settings from model_config.json."""
+    if not os.path.exists(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        raw = json.load(f)
+    if not isinstance(raw, dict):
+        return {}
+
+    top = raw.get("belief_graph")
+    cfg: Dict[str, Any] = dict(top) if isinstance(top, dict) else {}
+
+    chosen = None
+    if model_key and isinstance(raw.get(model_key), dict):
+        chosen = model_key
+    elif not model_key:
+        chosen = next(
+            (
+                key for key in raw.keys()
+                if not _is_reserved_key(key) and isinstance(raw.get(key), dict)
+            ),
+            None,
+        )
+
+    if chosen and isinstance(raw.get(chosen), dict):
+        override = raw[chosen].get("belief_graph")
+        if isinstance(override, dict):
+            cfg = _deep_merge_dict(cfg, override)
+    return cfg
+
 
 def load_config(
     path: str = "model_config.json",
