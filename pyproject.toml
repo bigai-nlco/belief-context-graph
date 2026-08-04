@@ -1,6 +1,6 @@
 [project]
 name = "bcg"
-version = "0.1.0"
+version = "1.0.0"
 description = "Belief Context Graph SDK."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"

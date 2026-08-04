@@ -52,7 +52,7 @@ wheels = [
 
 [[package]]
 name = "bcg"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "en-core-web-sm" },
