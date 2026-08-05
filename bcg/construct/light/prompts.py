@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import json as _json
+from typing import Any
+
+from .._shared.roles import normalize_role
+
 CANDIDATE_GROUP_PLACEHOLDER = "<<<CANDIDATE_GROUP>>>"
 BELIEFS_LIST_PLACEHOLDER = "<<<BELIEFS_LIST>>>"
 
@@ -20,10 +25,6 @@ RELATION_NODES_PLACEHOLDER = "<<<RELATION_NODES>>>"
 # local NER, and event_time is stamped by the graph builder — so stance,
 # entities, and time fields are intentionally NOT requested here.
 
-import json as _json
-from typing import Any, Dict, List, Optional
-
-from .._shared.roles import normalize_role
 
 _BELIEF_DEFINITION = """\
 ## What is a belief
@@ -82,7 +83,7 @@ Rules:
 """
 
 # Each entry: (task_line, guidance_block). Stance hints removed on purpose.
-_GUIDANCE: Dict[str, tuple] = {
+_GUIDANCE: dict[str, tuple] = {
     "user": (
         "Extract every coherent BELIEF expressed by the USER in the chunk below. "
         "Extract comprehensively, but avoid fragmenting one coherent user intent "
@@ -178,14 +179,14 @@ Write each belief in the third person so it is self-contained.""",
     ),
 }
 
-def _resolve_extraction_role(role: str) -> Optional[str]:
+def _resolve_extraction_role(role: str) -> str | None:
     key = (role or "").strip().lower()
     key = normalize_role(key)
     return key if key in _GUIDANCE else None
 
 
 def format_graph_nodes_context(
-    nodes: List[Dict[str, Any]],
+    nodes: list[dict[str, Any]],
     *,
     char_budget: int = 9000,
 ) -> str:
@@ -193,7 +194,7 @@ def format_graph_nodes_context(
     if not nodes:
         return "[]"
     ordered = sorted(nodes, key=lambda node: int(node.get("id", 0)))
-    lines: List[str] = []
+    lines: list[str] = []
     for node in ordered:
         node_type = node.get("node_type") or "belief"
         text = str(
@@ -274,10 +275,10 @@ def build_chunk_extraction_prompt(
     *,
     chunk_text: str,
     graph_nodes: str = "[]",
-    turn_content: Optional[str] = None,
+    turn_content: str | None = None,
     require_excerpt: bool = False,
     max_nodes: int = 0,
-) -> Optional[str]:
+) -> str | None:
     """Assemble the per-chunk extraction prompt. Returns None for unknown roles.
 
     ``graph_nodes`` is a pre-rendered existing-NODES context block (no edges).
@@ -307,7 +308,7 @@ def build_chunk_extraction_prompt(
             "and consolidate the rest.\n"
         )
 
-    parts: List[str] = [
+    parts: list[str] = [
         "# Task",
         task_line,
         "\nYou maintain a belief graph INCREMENTALLY. From the CHUNK below, output "
@@ -414,7 +415,7 @@ If no pair passes the necessity gate, return:
 """
 
 
-def build_relation_prompt(nodes: List[Dict[str, Any]], current_node_ids: set) -> str:
+def build_relation_prompt(nodes: list[dict[str, Any]], current_node_ids: set) -> str:
     """Render one complete two-turn relation window for the edge model."""
     payload = []
     for node in sorted(nodes, key=lambda item: int(item.get("id", 0))):

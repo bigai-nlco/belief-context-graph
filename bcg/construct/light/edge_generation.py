@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import threading
-from typing import Any, Dict, List, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any
 
 from .llm import (
     call_model,
@@ -17,7 +18,7 @@ from .prompts import build_relation_prompt
 VALID_RELATION_TYPES = {"depends_on", "supplements", "contradicts"}
 
 
-def normalize_edge_config(config: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+def normalize_edge_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
     """Validate the complete ``belief_graph.edge_generation`` config block."""
     raw = dict(config or {})
     required = (
@@ -76,12 +77,12 @@ class QwenEdgeGenerator:
 
     def generate_window(
         self,
-        nodes: List[Dict[str, Any]],
+        nodes: list[dict[str, Any]],
         *,
         current_node_ids: set[int],
         turn_index: int,
-        previous_turn_index: Optional[int],
-    ) -> Dict[str, Any]:
+        previous_turn_index: int | None,
+    ) -> dict[str, Any]:
         if not self.config["enabled"]:
             return {
                 "relations": [],
@@ -120,11 +121,11 @@ class QwenEdgeGenerator:
         }
 
 
-_CACHE: Dict[str, QwenEdgeGenerator] = {}
+_CACHE: dict[str, QwenEdgeGenerator] = {}
 _CACHE_LOCK = threading.Lock()
 
 
-def get_edge_generator(config: Mapping[str, Any]) -> Optional[QwenEdgeGenerator]:
+def get_edge_generator(config: Mapping[str, Any]) -> QwenEdgeGenerator | None:
     normalized = normalize_edge_config(config)
     if not normalized["enabled"]:
         return None

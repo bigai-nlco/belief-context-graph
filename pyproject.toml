@@ -59,10 +59,6 @@ line-length = 88
 # legacy trees are migrated incrementally.
 extend-exclude = [
     "annotation",
-    "bcg/construct",
-    "bcg/online_server.py",
-    "bcg/run.py",
-    "bcg/visualize_beliefs_graph.py",
     "datasets",
     "scripts",
 ]

@@ -17,22 +17,22 @@ from __future__ import annotations
 import copy
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
+from .._shared.loaders import iter_items, load_input_file, sanitize_name, select_items
 from .llm import (
     USAGE,
-    load_config,
     load_belief_graph_config,
+    load_config,
     load_embedding_config,
     make_client,
     make_embedder,
 )
-from .._shared.loaders import iter_items, load_input_file, sanitize_name, select_items
 from .stream import StreamingBeliefBuilder, StreamOptions
 
 
 def run_item(
-    item: Dict[str, Any],
+    item: dict[str, Any],
     *,
     client,
     model: str,
@@ -40,10 +40,10 @@ def run_item(
     options: StreamOptions,
     embedder=None,
     edge_generator=None,
-    max_tokens: Optional[int] = None,
-    pricing: Optional[Dict[str, Any]] = None,
-    extra_meta: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    max_tokens: int | None = None,
+    pricing: dict[str, Any] | None = None,
+    extra_meta: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Build the belief graph for ONE normalised item."""
     builder = StreamingBeliefBuilder(
         client=client, model=model, item_id=item["item_id"],
@@ -54,7 +54,7 @@ def run_item(
     for turn in item["turns"]:
         builder.ingest_turn(turn["role"], turn["content"],
                             date=turn.get("date"), has_answer=turn.get("has_answer"))
-    meta: Dict[str, Any] = {"order_sorted": item.get("order_sorted", False)}
+    meta: dict[str, Any] = {"order_sorted": item.get("order_sorted", False)}
     if extra_meta:
         meta.update(extra_meta)
     return builder.finalize(extra_meta=meta, pricing=pricing)
@@ -65,10 +65,10 @@ def run_input(
     config_path: str,
     output_dir: Path,
     *,
-    model_key: Optional[str] = None,
+    model_key: str | None = None,
     embedding_key: str = "embedding",
-    options: Optional[StreamOptions] = None,
-    item_selector: Optional[str] = None,
+    options: StreamOptions | None = None,
+    item_selector: str | None = None,
     keep_order: bool = False,
 ) -> None:
     options = options or StreamOptions()

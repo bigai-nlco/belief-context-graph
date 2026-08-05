@@ -5,7 +5,8 @@ backends, and no environment-variable side effects (load ``bcg.env`` /
 call ``load_project_env`` explicitly when needed).
 """
 
-from importlib.metadata import PackageNotFoundError, version as _pkg_version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 
 from bcg.config import BCGSettings, load_settings
 from bcg.core.graph import BCG

@@ -27,7 +27,8 @@ from __future__ import annotations
 
 import difflib
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
 from .._shared.spans import trim_span
 
 # Fuzzy-match acceptance knobs.
@@ -43,7 +44,7 @@ def clean_stance(stance: Any) -> str:
     return s if s in VALID_STANCES else "asserted"
 
 
-def locate_excerpt(excerpt: str, content: str) -> Tuple[Optional[int], Optional[int], str]:
+def locate_excerpt(excerpt: str, content: str) -> tuple[int | None, int | None, str]:
     """
     Locate `excerpt` inside `content` and return (start, end, match_kind).
     match_kind in {"exact", "normalized", "fuzzy", "not_found"};
@@ -97,16 +98,16 @@ def source_descriptor(
     item_id: str,
     turn_index: int,
     flat_turn_index: int,            # same value as turn_index in this stream pipeline
-    date: Optional[str] = None,
-    has_answer: Optional[bool] = None,
-) -> Dict[str, Any]:
+    date: str | None = None,
+    has_answer: bool | None = None,
+) -> dict[str, Any]:
     """Location descriptor shared by belief.source and evidence.source.
 
     New compact schema keeps role outside source and stores only turn_id for the
     turn coordinate. Legacy turn_index / trajectory_index are intentionally no
     longer emitted because they denote the same stream position here.
     """
-    d: Dict[str, Any] = {
+    d: dict[str, Any] = {
         "turn_id": turn_index,
         "item_id": item_id,
     }
@@ -120,11 +121,11 @@ def source_descriptor(
 def evidence_from_excerpt(
     excerpt: str,
     turn_content: str,
-    source: Dict[str, Any],
+    source: dict[str, Any],
     *,
     stance: str = "asserted",
     role: str = "unknown",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Locate one LLM excerpt inside the turn content and build the record.
     When located, `text` is replaced by the exact slice so
     turn_content[start:end] == text always holds."""
@@ -159,11 +160,11 @@ def evidence_from_sentence(
     sentence_start: int,
     sentence_end: int,
     turn_content: str,
-    source: Dict[str, Any],
+    source: dict[str, Any],
     *,
     stance: str = "asserted",
     role: str = "unknown",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Evidence for a whole sentence (offsets are exact by construction)."""
     return {
         "node_type": "evidence",
@@ -178,7 +179,7 @@ def evidence_from_sentence(
     }
 
 
-def evidence_key(ev: Dict[str, Any]) -> tuple:
+def evidence_key(ev: dict[str, Any]) -> tuple:
     """Dedup key for evidence union during merges."""
     src = ev.get("source") or {}
     return (

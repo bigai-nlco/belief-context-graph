@@ -23,10 +23,12 @@ import json
 import math
 import sys
 import threading
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any
 
+from .._shared.roles import normalize_role
 from .llm import (
     bind_prompt_log_path,
     bind_usage_tracker,
@@ -41,14 +43,13 @@ from .llm import (
     unbind_usage_tracker,
 )
 from .prompts import build_chunk_extraction_prompt, format_graph_nodes_context
-from .._shared.roles import normalize_role
 
 _SUPPORTED_ROLES = {"user", "assistant", "tool"}
 
 
 def normalize_extractor_config(
-    config: Optional[Mapping[str, Any]] = None,
-) -> Dict[str, Any]:
+    config: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Return a validated, JSON-serialisable generative-extractor config."""
     raw = dict(config or {})
     required = (
@@ -116,10 +117,10 @@ class ExtractedNode:
     chunk_index: int
     node_type: str            # "belief" | "decision"
     text: str
-    supporting_excerpts: List[str] = field(default_factory=list)
+    supporting_excerpts: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
-        out: Dict[str, Any] = {
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {
             "chunk_index": self.chunk_index,
             "node_type": self.node_type,
             "text": self.text,
@@ -138,7 +139,7 @@ def _clean_text(value: Any) -> str:
     return " ".join(str(value or "").split()).strip()
 
 
-def _clean_excerpts(raw: Any, chunk_text: str, *, require: bool) -> Optional[List[str]]:
+def _clean_excerpts(raw: Any, chunk_text: str, *, require: bool) -> list[str] | None:
     """Return cleaned excerpts, or None when a required excerpt is missing."""
     excerpts = [
         str(item).strip()
@@ -156,7 +157,7 @@ def _clean_excerpts(raw: Any, chunk_text: str, *, require: bool) -> Optional[Lis
 class QwenChunkExtractor:
     """Concurrent per-chunk generative node extractor over an OpenAI endpoint."""
 
-    def __init__(self, config: Optional[Mapping[str, Any]] = None) -> None:
+    def __init__(self, config: Mapping[str, Any] | None = None) -> None:
         self.config = normalize_extractor_config(config)
         self.model = self.config["model"]
         self._client = None
@@ -178,7 +179,7 @@ class QwenChunkExtractor:
     # -- parsing ------------------------------------------------------------
     def _parse_response(
         self, raw: str, *, chunk_index: int, role: str, chunk_text: str
-    ) -> List[ExtractedNode]:
+    ) -> list[ExtractedNode]:
         parsed = parse_json_response(raw)
         if not isinstance(parsed, dict) or parsed.get("_parse_error"):
             # Make silent failures visible: a truncated/absent JSON (e.g. a
@@ -193,7 +194,7 @@ class QwenChunkExtractor:
             )
             return []
         require = self.config["require_excerpt"]
-        nodes: List[ExtractedNode] = []
+        nodes: list[ExtractedNode] = []
 
         for item in parsed.get("beliefs") or []:
             if not isinstance(item, dict):
@@ -252,14 +253,14 @@ class QwenChunkExtractor:
     # -- extraction ---------------------------------------------------------
     def extract_turn(
         self,
-        chunks: List[Any],
+        chunks: list[Any],
         role: Any,
         *,
         turn_content: str = "",
-        graph_nodes: Optional[List[Dict[str, Any]]] = None,
+        graph_nodes: list[dict[str, Any]] | None = None,
         context_chars: int = 9000,
-        turn_index: Optional[int] = None,
-    ) -> List[List[ExtractedNode]]:
+        turn_index: int | None = None,
+    ) -> list[list[ExtractedNode]]:
         """Extract nodes for every chunk of one turn, all chunks concurrently.
 
         Returns a list aligned with ``chunks``; each element is that chunk's
@@ -283,17 +284,17 @@ class QwenChunkExtractor:
         client = self._ensure_client()
         # Disable Qwen3 thinking for extraction unless explicitly enabled.
         if self.config.get("enable_thinking", False):
-            reasoning_effort: Optional[str] = "medium"
-            extra_body: Optional[Dict[str, Any]] = None
+            reasoning_effort: str | None = "medium"
+            extra_body: dict[str, Any] | None = None
         else:
             reasoning_effort = None
             extra_body = {"chat_template_kwargs": {"enable_thinking": False}}
 
         turn_ctx = turn_content if self.config.get("include_turn_content", False) else None
         require_excerpt = self.config.get("require_excerpt", False)
-        prompts: List[Optional[str]] = []
-        chunk_texts: List[str] = []
-        chunk_caps: List[int] = []
+        prompts: list[str | None] = []
+        chunk_texts: list[str] = []
+        chunk_caps: list[int] = []
         for chunk in chunks:
             chunk_text = str(getattr(chunk, "text", chunk) or "")
             chunk_texts.append(chunk_text)
@@ -315,7 +316,7 @@ class QwenChunkExtractor:
         tracker = current_usage_tracker()
         log_path = current_prompt_log_path()
 
-        def _run_one(index: int) -> List[ExtractedNode]:
+        def _run_one(index: int) -> list[ExtractedNode]:
             prompt = prompts[index]
             if not prompt:
                 return []
@@ -401,7 +402,7 @@ class QwenChunkExtractor:
                     unbind_prompt_log_path(tok_p)
 
         workers = min(len(chunks), self.config["max_concurrency"])
-        results: List[List[ExtractedNode]] = [[] for _ in chunks]
+        results: list[list[ExtractedNode]] = [[] for _ in chunks]
         if workers <= 1:
             for index in range(len(chunks)):
                 results[index] = _run_one(index)
@@ -414,12 +415,12 @@ class QwenChunkExtractor:
         return results
 
 
-_EXTRACTOR_CACHE: Dict[str, QwenChunkExtractor] = {}
+_EXTRACTOR_CACHE: dict[str, QwenChunkExtractor] = {}
 _EXTRACTOR_CACHE_LOCK = threading.Lock()
 
 
 def get_extractor(
-    config: Optional[Mapping[str, Any]] = None,
+    config: Mapping[str, Any] | None = None,
 ) -> QwenChunkExtractor:
     """Return one shared extractor per normalized config (client is lazy)."""
     normalized = normalize_extractor_config(config)
@@ -432,7 +433,7 @@ def get_extractor(
         return extractor
 
 
-def extracted_nodes_as_json(per_chunk_nodes: List[List[ExtractedNode]]) -> str:
+def extracted_nodes_as_json(per_chunk_nodes: list[list[ExtractedNode]]) -> str:
     """Stable audit representation used by stream events/result logs."""
     flat = [node.to_dict() for group in per_chunk_nodes for node in group]
     return json.dumps(flat, ensure_ascii=False)

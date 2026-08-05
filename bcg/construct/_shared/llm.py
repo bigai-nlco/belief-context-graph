@@ -12,14 +12,16 @@ from __future__ import annotations
 
 import contextvars
 import json
-import os
-import re
+import sys
 import threading
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+from openai import OpenAI
+
 
 def _estimate_tokens(text: str) -> int:
     """Rough fallback (~4 chars/token) when the API returns no usage block."""
@@ -28,12 +30,12 @@ def _estimate_tokens(text: str) -> int:
     return max(1, round(len(text) / 4))
 
 
-def _coerce_usage(usage: Any) -> Dict[str, Optional[int]]:
+def _coerce_usage(usage: Any) -> dict[str, int | None]:
     """Pull prompt/completion/total token counts out of an SDK usage object."""
     if usage is None:
         return {"prompt_tokens": None, "completion_tokens": None, "total_tokens": None}
 
-    def _get(name: str) -> Optional[int]:
+    def _get(name: str) -> int | None:
         v = getattr(usage, name, None)
         if v is None and isinstance(usage, dict):
             v = usage.get(name)
@@ -44,7 +46,7 @@ def _coerce_usage(usage: Any) -> Dict[str, Optional[int]]:
     tt = _get("total_tokens")
 
     if pt is None and ct is None and tt is None:
-        dump: Optional[Dict[str, Any]] = None
+        dump: dict[str, Any] | None = None
         if hasattr(usage, "model_dump"):
             try:
                 dump = usage.model_dump()
@@ -72,7 +74,7 @@ class TokenUsageTracker:
     """
 
     def __init__(self) -> None:
-        self.records: List[Dict[str, Any]] = []
+        self.records: list[dict[str, Any]] = []
         self._label: str = "unlabeled"
         self._lock = threading.Lock()
 
@@ -94,12 +96,12 @@ class TokenUsageTracker:
         self,
         *,
         model: str,
-        prompt_tokens: Optional[int],
-        completion_tokens: Optional[int],
-        total_tokens: Optional[int],
-        label: Optional[str] = None,
+        prompt_tokens: int | None,
+        completion_tokens: int | None,
+        total_tokens: int | None,
+        label: str | None = None,
         estimated: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         with self._lock:
             rec = {
                 "index": len(self.records),
@@ -123,7 +125,7 @@ class TokenUsageTracker:
     def n_calls(self) -> int:
         return len(self.records)
 
-    def totals(self) -> Dict[str, int]:
+    def totals(self) -> dict[str, int]:
         def _s(key: str) -> int:
             return sum(int(r.get(key) or 0) for r in self.records)
         return {
@@ -133,8 +135,8 @@ class TokenUsageTracker:
             "total_tokens": _s("total_tokens"),
         }
 
-    def by_label(self) -> Dict[str, Dict[str, int]]:
-        out: Dict[str, Dict[str, int]] = {}
+    def by_label(self) -> dict[str, dict[str, int]]:
+        out: dict[str, dict[str, int]] = {}
         for r in self.records:
             lbl = r.get("label") or "unlabeled"
             agg = out.setdefault(
@@ -147,7 +149,7 @@ class TokenUsageTracker:
             agg["total_tokens"] += int(r.get("total_tokens") or 0)
         return out
 
-    def estimate_cost(self, pricing: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    def estimate_cost(self, pricing: dict[str, Any] | None) -> dict[str, Any] | None:
         """pricing = {"input_per_1k": x, "output_per_1k": y} (USD); None -> no cost."""
         if not pricing:
             return None
@@ -165,26 +167,26 @@ class TokenUsageTracker:
             "total_cost": round(input_cost + output_cost, 6),
         }
 
-    def summary(self, pricing: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        d: Dict[str, Any] = {"totals": self.totals(), "by_label": self.by_label()}
+    def summary(self, pricing: dict[str, Any] | None = None) -> dict[str, Any]:
+        d: dict[str, Any] = {"totals": self.totals(), "by_label": self.by_label()}
         cost = self.estimate_cost(pricing)
         if cost is not None:
             d["estimated_cost"] = cost
         return d
 
-    def to_dict(self, pricing: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def to_dict(self, pricing: dict[str, Any] | None = None) -> dict[str, Any]:
         d = self.summary(pricing)
         d["calls"] = self.records
         return d
 
     # -- output ----------------------------------------------------------
-    def save_json(self, path: Any, pricing: Optional[Dict[str, Any]] = None) -> None:
+    def save_json(self, path: Any, pricing: dict[str, Any] | None = None) -> None:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(pricing), f, ensure_ascii=False, indent=2)
 
-    def render_text(self, pricing: Optional[Dict[str, Any]] = None) -> str:
+    def render_text(self, pricing: dict[str, Any] | None = None) -> str:
         t = self.totals()
         bar = "=" * 74
         sub = "-" * 74
@@ -225,7 +227,7 @@ class TokenUsageTracker:
         lines.append(bar)
         return "\n".join(lines) + "\n"
 
-    def save_text(self, path: Any, pricing: Optional[Dict[str, Any]] = None) -> None:
+    def save_text(self, path: Any, pricing: dict[str, Any] | None = None) -> None:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
@@ -264,10 +266,10 @@ class TokenUsageTracker:
 # again at the top of the worker before doing any LLM/embedding call. See
 # merge.py's parallel incremental-merge verification loop for a worked example.
 
-_usage_var: "contextvars.ContextVar[TokenUsageTracker]" = contextvars.ContextVar("usage_tracker")
-_prompt_log_path_var: "contextvars.ContextVar[Optional[Path]]" = contextvars.ContextVar(
+_usage_var: contextvars.ContextVar[TokenUsageTracker] = contextvars.ContextVar("usage_tracker")
+_prompt_log_path_var: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
     "prompt_log_path", default=None)
-_embedding_log_path_var: "contextvars.ContextVar[Optional[Path]]" = contextvars.ContextVar(
+_embedding_log_path_var: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
     "embedding_log_path", default=None)
 
 # Small locks around the actual file appends. Two threads (e.g. two parallel
@@ -335,7 +337,7 @@ class _UsageProxy:
 USAGE = _UsageProxy()
 
 
-def current_prompt_log_path() -> Optional[Path]:
+def current_prompt_log_path() -> Path | None:
     return _prompt_log_path_var.get()
 
 
@@ -360,20 +362,19 @@ def set_prompt_log_path(path: Any) -> None:
     bind_prompt_log_path(path)
 
 
-def _log_prompt(record: Dict[str, Any]) -> None:
+def _log_prompt(record: dict[str, Any]) -> None:
     path = _prompt_log_path_var.get()
     if path is None:
         return
     try:
-        with _PROMPT_LOG_LOCK:
-            with open(path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        with _PROMPT_LOG_LOCK, open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
     except Exception:
         # Logging must not raise for normal pipeline runs
         return
 
 
-def current_embedding_log_path() -> Optional[Path]:
+def current_embedding_log_path() -> Path | None:
     return _embedding_log_path_var.get()
 
 
@@ -387,7 +388,7 @@ def unbind_embedding_log_path(token: contextvars.Token) -> None:
     _embedding_log_path_var.reset(token)
 
 
-def _record_usage(resp: Any, *, model: str, prompt: str, label: Optional[str]) -> None:
+def _record_usage(resp: Any, *, model: str, prompt: str, label: str | None) -> None:
     """Record token usage from a chat-completions response into USAGE."""
     counts = _coerce_usage(getattr(resp, "usage", None))
     if counts["prompt_tokens"] is not None or counts["completion_tokens"] is not None:
@@ -440,12 +441,12 @@ class EmbeddingClient:
     concurrently.
     """
 
-    def __init__(self, cfg: Dict[str, Any], log_path: Optional[Any] = None) -> None:
+    def __init__(self, cfg: dict[str, Any], log_path: Any | None = None) -> None:
         self.client = OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"])
         self.model: str = cfg["model"]
         self.batch_size: int = int(cfg.get("batch_size", 32) or 32)
-        self.dimensions: Optional[int] = cfg.get("dimensions")
-        self._cache: Dict[str, List[float]] = {}
+        self.dimensions: int | None = cfg.get("dimensions")
+        self._cache: dict[str, list[float]] = {}
         self._cache_lock = threading.Lock()
         if log_path:
             self.set_log_path(log_path)
@@ -464,25 +465,24 @@ class EmbeddingClient:
     def unbind_log_path(self, token: contextvars.Token) -> None:
         unbind_embedding_log_path(token)
 
-    def _log(self, record: Dict[str, Any]) -> None:
+    def _log(self, record: dict[str, Any]) -> None:
         path = current_embedding_log_path()
         if path is None:
             return
-        with _EMBEDDING_LOG_LOCK:
-            with open(path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        with _EMBEDDING_LOG_LOCK, open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def clear_cache(self) -> None:
         with self._cache_lock:
             self._cache.clear()
 
     # -- main entry ---------------------------------------------------------
-    def embed(self, texts: List[str], purpose: str = "") -> List[List[float]]:
+    def embed(self, texts: list[str], purpose: str = "") -> list[list[float]]:
         """Embed a list of texts (order-preserving). Cached texts are reused."""
         t0 = time.time()
-        results: List[Optional[List[float]]] = [None] * len(texts)
-        cached_flags: List[bool] = [False] * len(texts)
-        missing_idx: List[int] = []
+        results: list[list[float] | None] = [None] * len(texts)
+        cached_flags: list[bool] = [False] * len(texts)
+        missing_idx: list[int] = []
         with self._cache_lock:
             for i, t in enumerate(texts):
                 v = self._cache.get(t)
@@ -495,10 +495,10 @@ class EmbeddingClient:
         for batch_start in range(0, len(missing_idx), self.batch_size):
             batch_ids = missing_idx[batch_start:batch_start + self.batch_size]
             batch = [texts[i] for i in batch_ids]
-            kwargs: Dict[str, Any] = {"model": self.model, "input": batch}
+            kwargs: dict[str, Any] = {"model": self.model, "input": batch}
             if self.dimensions:
                 kwargs["dimensions"] = int(self.dimensions)
-            last_err: Optional[Exception] = None
+            last_err: Exception | None = None
             resp = None
             for attempt in range(3):
                 try:
@@ -519,9 +519,9 @@ class EmbeddingClient:
                 raise RuntimeError(
                     f"Embedding API returned {len(vecs)} vectors for {len(batch)} inputs")
             with self._cache_lock:
-                for t, v in zip(batch, vecs):
+                for t, v in zip(batch, vecs, strict=False):
                     self._cache[t] = v
-            for i, v in zip(batch_ids, vecs):
+            for i, v in zip(batch_ids, vecs, strict=False):
                 results[i] = v
 
             counts = _coerce_usage(getattr(resp, "usage", None))
@@ -540,7 +540,7 @@ class EmbeddingClient:
 
         dim = len(results[0]) if results and results[0] is not None else 0
         self._log({
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "purpose": purpose,
             "model": self.model,
             "n_texts": len(texts),
@@ -554,7 +554,7 @@ class EmbeddingClient:
         return [r if r is not None else [] for r in results]
 
 
-def cosine_similarity_matrix(vectors: List[List[float]]):
+def cosine_similarity_matrix(vectors: list[list[float]]):
     """Pairwise cosine similarity (numpy array, shape n x n)."""
     import numpy as np
     arr = np.asarray(vectors, dtype=np.float64)

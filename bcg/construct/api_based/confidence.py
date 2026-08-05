@@ -25,9 +25,10 @@ Important implementation detail:
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Any
 
-from bcg.core.confidence import (
+from bcg.core.confidence import (  # noqa: F401 - compat re-exports for legacy imports
     BASE_CONFIDENCE,
     CONF_CEIL,
     CONF_FLOOR,
@@ -52,7 +53,6 @@ from bcg.core.confidence import (
     stance_quality,
 )
 
-
 # =============================================================
 # Stage A — initial confidence rules
 # =============================================================
@@ -61,12 +61,12 @@ from bcg.core.confidence import (
 # Evidence aggregation is deliberately simple at this stage.  The source
 # component is a role-based reliability; the stance component reuses the same
 # hard rule table so no model-supplied confidence number is accepted.
-SOURCE_RELIABILITY: Dict[str, float] = dict(SOURCE_RELIABILITY)
+SOURCE_RELIABILITY: dict[str, float] = dict(SOURCE_RELIABILITY)
 
 
 
 
-def normalize_confidence_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def normalize_confidence_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
     """Return normalized confidence settings used by relation propagation."""
     rel_defaults = DEFAULT_CONFIDENCE_CONFIG["relation_propagation"]
     raw = config or {}
@@ -110,13 +110,13 @@ def normalize_confidence_config(config: Optional[Dict[str, Any]] = None) -> Dict
 
 
 def relation_propagation_config(
-    config: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Return normalized relation-propagation settings."""
     return dict(normalize_confidence_config(config).get("relation_propagation") or {})
 
 
-def evidence_contribution(evidence: Dict[str, Any]) -> float:
+def evidence_contribution(evidence: dict[str, Any]) -> float:
     """Compute one additional evidence term: w_i * evidence_i."""
     role = _role_from_record(evidence)
     stance = evidence.get("stance") or "asserted"
@@ -128,7 +128,7 @@ def evidence_contribution(evidence: Dict[str, Any]) -> float:
 # =============================================================
 
 
-def recompute_node_confidence(node: Dict[str, Any]) -> Dict[str, Any]:
+def recompute_node_confidence(node: dict[str, Any]) -> dict[str, Any]:
     """Recompute confidence from current scalar components in-place."""
     initial = float(node.get("initial_confidence") or 0.55)
     evidence_score = float(node.get("evidence_confidence") or 0.0)
@@ -139,14 +139,14 @@ def recompute_node_confidence(node: Dict[str, Any]) -> Dict[str, Any]:
 
 
 
-def sum_evidence_contributions(evidence_records: Iterable[Dict[str, Any]]) -> float:
+def sum_evidence_contributions(evidence_records: Iterable[dict[str, Any]]) -> float:
     return sum(evidence_contribution(ev) for ev in evidence_records if isinstance(ev, dict))
 
 
 def additional_evidence_from_node(
-    node: Dict[str, Any],
-    evidence_by_id: Dict[int, Dict[str, Any]],
-) -> tuple[List[int], List[Dict[str, Any]]]:
+    node: dict[str, Any],
+    evidence_by_id: dict[int, dict[str, Any]],
+) -> tuple[list[int], list[dict[str, Any]]]:
     """Return additional evidence for a node, excluding evidence_ids[0].
 
     By design, evidence_ids[0] is the provenance evidence that created the
@@ -158,8 +158,8 @@ def additional_evidence_from_node(
     if len(evidence_ids) <= 1:
         return [], []
 
-    out_ids: List[int] = []
-    out_records: List[Dict[str, Any]] = []
+    out_ids: list[int] = []
+    out_records: list[dict[str, Any]] = []
     for raw_eid in evidence_ids[1:]:
         try:
             eid = int(raw_eid)
@@ -173,12 +173,12 @@ def additional_evidence_from_node(
 
 
 def recompute_evidence_confidence_from_node(
-    node: Dict[str, Any],
-    evidence_by_id: Dict[int, Dict[str, Any]],
+    node: dict[str, Any],
+    evidence_by_id: dict[int, dict[str, Any]],
     *,
     record_history: bool = False,
     step: str = "evidence_recompute",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Synchronise evidence_confidence and confidence from evidence_ids.
 
     This is intentionally a full recomputation, not an incremental addition.
@@ -206,13 +206,13 @@ def recompute_evidence_confidence_from_node(
 
 
 def record_evidence_merge_confidence(
-    canonical: Dict[str, Any],
+    canonical: dict[str, Any],
     *,
-    added_evidence_ids: List[int],
-    added_evidence_records: List[Dict[str, Any]],
-    absorbed_ids: List[int],
+    added_evidence_ids: list[int],
+    added_evidence_records: list[dict[str, Any]],
+    absorbed_ids: list[int],
     newest_id: int,
-    evidence_by_id: Optional[Dict[int, Dict[str, Any]]] = None,
+    evidence_by_id: dict[int, dict[str, Any]] | None = None,
 ) -> None:
     """Record posterior update caused by additional evidence during a merge.
 
@@ -254,7 +254,7 @@ def record_evidence_merge_confidence(
     })
 
 
-def _relation_signal(relation: Dict[str, Any]) -> Optional[tuple[int, int, float]]:
+def _relation_signal(relation: dict[str, Any]) -> tuple[int, int, float] | None:
     """Return ``(output_id, input_id, direction)`` for propagating relations."""
     relation_type = relation.get("type")
     try:
@@ -269,14 +269,14 @@ def _relation_signal(relation: Dict[str, Any]) -> Optional[tuple[int, int, float
     return None
 
 
-def relation_output_node_id(relation: Dict[str, Any]) -> Optional[int]:
+def relation_output_node_id(relation: dict[str, Any]) -> int | None:
     signal = _relation_signal(relation)
     return None if signal is None else signal[0]
 
 
 def _relation_input_threshold(
-    relation: Dict[str, Any],
-    config: Dict[str, Any],
+    relation: dict[str, Any],
+    config: dict[str, Any],
 ) -> float:
     condition = relation.get("activated_condition")
     if not isinstance(condition, dict):
@@ -293,7 +293,7 @@ def _relation_input_threshold(
     )
 
 
-def _relation_weight(relation: Dict[str, Any], config: Dict[str, Any]) -> float:
+def _relation_weight(relation: dict[str, Any], config: dict[str, Any]) -> float:
     weight = relation.get("weight")
     try:
         value = float(weight)
@@ -305,11 +305,11 @@ def _relation_weight(relation: Dict[str, Any], config: Dict[str, Any]) -> float:
 
 
 def relation_factor_contribution(
-    relation: Dict[str, Any],
-    nodes_by_id: Dict[int, Dict[str, Any]],
+    relation: dict[str, Any],
+    nodes_by_id: dict[int, dict[str, Any]],
     *,
-    config: Optional[Dict[str, Any]] = None,
-) -> Optional[Dict[str, Any]]:
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     signal = _relation_signal(relation)
     if signal is None:
         return None
@@ -342,12 +342,12 @@ def relation_factor_contribution(
 
 def compute_factor_confidence(
     output_node_id: int,
-    nodes_by_id: Dict[int, Dict[str, Any]],
-    relations: Iterable[Dict[str, Any]],
+    nodes_by_id: dict[int, dict[str, Any]],
+    relations: Iterable[dict[str, Any]],
     *,
-    config: Optional[Dict[str, Any]] = None,
-) -> tuple[float, List[Dict[str, Any]]]:
-    contributions: List[Dict[str, Any]] = []
+    config: dict[str, Any] | None = None,
+) -> tuple[float, list[dict[str, Any]]]:
+    contributions: list[dict[str, Any]] = []
     total = 0.0
     for relation in relations:
         signal = _relation_signal(relation)
@@ -366,14 +366,14 @@ def compute_factor_confidence(
 
 
 def propagate_relation_confidences(
-    nodes_by_id: Dict[int, Dict[str, Any]],
-    relations: Iterable[Dict[str, Any]],
+    nodes_by_id: dict[int, dict[str, Any]],
+    relations: Iterable[dict[str, Any]],
     *,
-    config: Optional[Dict[str, Any]] = None,
-    seed_output_node_ids: Optional[Iterable[int]] = None,
+    config: dict[str, Any] | None = None,
+    seed_output_node_ids: Iterable[int] | None = None,
     record_history: bool = True,
     step: str = "relation_propagation",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     prop_cfg = relation_propagation_config(config)
     max_iterations = int(prop_cfg["max_iterations"])
     min_delta = float(prop_cfg["min_confidence_delta"])
@@ -388,7 +388,7 @@ def propagate_relation_confidences(
             if isinstance(node_id, (int, float)) or str(node_id).lstrip("-").isdigit()
         } & set(nodes_by_id)
 
-    report: Dict[str, Any] = {
+    report: dict[str, Any] = {
         "iterations": 0,
         "updated_node_ids": [],
         "min_confidence_delta": min_delta,
@@ -403,7 +403,7 @@ def propagate_relation_confidences(
             break
         current = sorted(frontier & set(nodes_by_id))
         frontier = set()
-        changed_this_round: List[int] = []
+        changed_this_round: list[int] = []
         for node_id in current:
             node = nodes_by_id.get(node_id)
             if node is None:

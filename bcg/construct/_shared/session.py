@@ -14,9 +14,9 @@ import re
 import sys
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .._shared.llm import (
     TokenUsageTracker,
@@ -27,12 +27,13 @@ from .._shared.llm import (
 )
 from .._shared.loaders import sanitize_name
 
+
 class TrajectoryClosedError(RuntimeError):
     """Raised when a turn arrives for a trajectory that has already finalized."""
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 _DATED_OUTPUT_RE = re.compile(
@@ -40,7 +41,7 @@ _DATED_OUTPUT_RE = re.compile(
 )
 
 
-def resolve_dated_output_root(output_root: Any, now: Optional[datetime] = None) -> Path:
+def resolve_dated_output_root(output_root: Any, now: datetime | None = None) -> Path:
     """
     Resolve daily output roots at use time.
 
@@ -81,7 +82,7 @@ def resolve_dated_output_root(output_root: Any, now: Optional[datetime] = None) 
     return root.with_name(f"{m.group('prefix')}{year}{month}_{day}")
 
 
-def _optional_bool(value: Any) -> Optional[bool]:
+def _optional_bool(value: Any) -> bool | None:
     """Coerce a present has_answer-like value while preserving missing as None."""
     if value is None:
         return None
@@ -113,15 +114,15 @@ class StreamingTrajectorySession:
         client,
         model: str,
         output_root: Any = "outputs_stream",
-        options: Optional[Any] = None,
+        options: Any | None = None,
         embedder=None,
-        pricing: Optional[Dict[str, Any]] = None,
-        max_tokens: Optional[int] = None,
-        item_meta: Optional[Dict[str, Any]] = None,
-        extra_meta: Optional[Dict[str, Any]] = None,
+        pricing: dict[str, Any] | None = None,
+        max_tokens: int | None = None,
+        item_meta: dict[str, Any] | None = None,
+        extra_meta: dict[str, Any] | None = None,
         edge_generator=None,
-        builder_cls: Optional[type] = None,
-        options_cls: Optional[type] = None,
+        builder_cls: type | None = None,
+        options_cls: type | None = None,
     ) -> None:
         self.problem_id = str(problem_id)
         self.client = client
@@ -152,7 +153,7 @@ class StreamingTrajectorySession:
         self._graph_jsonl_path.write_text("", encoding="utf-8")
 
         # engine + per-session isolated state
-        self._builder: Optional[Any] = None
+        self._builder: Any | None = None
         # A persistent tracker for the WHOLE lifetime of this trajectory
         # (across every push()/finalize() call), bound into llm.py's
         # context-local USAGE for the duration of each engine call (see
@@ -169,17 +170,17 @@ class StreamingTrajectorySession:
         self._lock = threading.RLock()
 
         # assembled, ingested messages for trajectory.json
-        self._messages: List[Dict[str, Any]] = []
+        self._messages: list[dict[str, Any]] = []
         # fragment buffer (only used when is_message_end=False is sent)
-        self._buf_role: Optional[str] = None
-        self._buf_parts: List[str] = []
-        self._buf_date: Optional[str] = None
-        self._buf_has_answer: Optional[bool] = None
+        self._buf_role: str | None = None
+        self._buf_parts: list[str] = []
+        self._buf_date: str | None = None
+        self._buf_has_answer: bool | None = None
 
         self._n_received = 0       # raw dicts seen
         self._n_ingested = 0       # turns actually fed to the engine
         self._finalized = False
-        self._result: Optional[Dict[str, Any]] = None
+        self._result: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------ state
     @property
@@ -191,7 +192,7 @@ class StreamingTrajectorySession:
         return self._n_ingested
 
     @property
-    def result(self) -> Optional[Dict[str, Any]]:
+    def result(self) -> dict[str, Any] | None:
         return self._result
 
     # ----------------------------------------------- engine-global isolation
@@ -257,7 +258,7 @@ class StreamingTrajectorySession:
         return self._builder
 
     # ------------------------------------------------------------- file I/O
-    def _append_stream_log(self, record: Dict[str, Any]) -> None:
+    def _append_stream_log(self, record: dict[str, Any]) -> None:
         with open(self._stream_log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
@@ -276,7 +277,7 @@ class StreamingTrajectorySession:
         with open(self._trajectory_path, "w", encoding="utf-8") as f:
             json.dump(doc, f, ensure_ascii=False, indent=2)
 
-    def _snapshot(self, *, stage: str) -> Dict[str, Any]:
+    def _snapshot(self, *, stage: str) -> dict[str, Any]:
         """Current graph snapshot, tagged with streaming metadata."""
         builder = self._builder
         if builder is None:
@@ -306,7 +307,7 @@ class StreamingTrajectorySession:
             "n_turns_ingested": self._n_ingested,
         })
 
-    def _emit_snapshot(self, *, stage: str) -> Dict[str, Any]:
+    def _emit_snapshot(self, *, stage: str) -> dict[str, Any]:
         """Snapshot, append to belief_graph.jsonl, refresh belief_graph_latest.json."""
         snap = self._snapshot(stage=stage)
         with open(self._graph_jsonl_path, "a", encoding="utf-8") as f:
@@ -321,14 +322,14 @@ class StreamingTrajectorySession:
         role: str,
         content: str,
         *,
-        date: Optional[str] = None,
-        has_answer: Optional[bool] = None,
+        date: str | None = None,
+        has_answer: bool | None = None,
     ) -> None:
         """Feed one assembled turn to the engine and record it for trajectory.json."""
         builder = self._ensure_builder()
         with self._engine():
             builder.ingest_turn(role, content, date=date, has_answer=has_answer)
-        msg: Dict[str, Any] = {"role": role, "content": content}
+        msg: dict[str, Any] = {"role": role, "content": content}
         if date is not None:
             msg["date"] = date
         if has_answer is not None:
@@ -351,7 +352,7 @@ class StreamingTrajectorySession:
         self._buf_has_answer = None
 
     # ------------------------------------------------------------------ push
-    def push(self, turn: Dict[str, Any]) -> Dict[str, Any]:
+    def push(self, turn: dict[str, Any]) -> dict[str, Any]:
         """
         Process one incoming dict. Returns the current belief-graph snapshot.
         On ``is_trajectory_end`` the trajectory is finalized and the returned
@@ -365,7 +366,7 @@ class StreamingTrajectorySession:
         with self._lock:
             return self._push_locked(turn)
 
-    def _push_locked(self, turn: Dict[str, Any]) -> Dict[str, Any]:
+    def _push_locked(self, turn: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(turn, dict):
             raise TypeError(f"push() expects a dict, got {type(turn).__name__}")
         if self._finalized:
@@ -447,7 +448,7 @@ class StreamingTrajectorySession:
         return snap
 
     # -------------------------------------------------------------- finalize
-    def finalize(self) -> Dict[str, Any]:
+    def finalize(self) -> dict[str, Any]:
         """
         Run the same session-end merge pass used by ``pipeline.run_item`` and
         write result.json. Safe to call explicitly if the producer forgot
@@ -460,13 +461,13 @@ class StreamingTrajectorySession:
         with self._lock:
             return self._finalize_locked()
 
-    def _finalize_locked(self) -> Dict[str, Any]:
+    def _finalize_locked(self) -> dict[str, Any]:
         if self._finalized:
             return self._snapshot(stage="final")
         # flush any dangling fragment first
         self._flush_buffer()
         builder = self._ensure_builder()
-        meta: Dict[str, Any] = dict(self.extra_meta)
+        meta: dict[str, Any] = dict(self.extra_meta)
         with self._engine():
             self._result = builder.finalize(extra_meta=meta, pricing=self.pricing)
         self._finalized = True

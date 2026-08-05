@@ -7,7 +7,7 @@ from typing import Any
 
 from bcg.utils import new_run_id, save_json
 
-
+from .._shared.spans import trim_span
 
 
 def count_by(
@@ -22,7 +22,5 @@ def count_by(
         counts[key] = counts.get(key, 0) + 1
     return counts
 
-
-from .._shared.spans import trim_span
 
 __all__ = ["count_by", "new_run_id", "save_json", "trim_span"]

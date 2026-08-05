@@ -8,7 +8,7 @@ the node's ``evidence_ids``; ``chunk_index`` preserves the turn-local order.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from .constants import VALID_STANCES
 
@@ -26,12 +26,12 @@ def source_descriptor(
     item_id: str,
     turn_index: int,
     flat_turn_index: int,
-    date: Optional[str] = None,
-    has_answer: Optional[bool] = None,
-) -> Dict[str, Any]:
+    date: str | None = None,
+    has_answer: bool | None = None,
+) -> dict[str, Any]:
     """Compact location descriptor shared by node.source/evidence.source."""
     del role, flat_turn_index  # role is stored directly on the node/evidence.
-    descriptor: Dict[str, Any] = {
+    descriptor: dict[str, Any] = {
         "turn_id": turn_index,
         "item_id": item_id,
     }
@@ -46,20 +46,20 @@ def evidence_from_chunk(
     chunk_start: int,
     chunk_end: int,
     turn_content: str,
-    source: Dict[str, Any],
+    source: dict[str, Any],
     *,
     chunk_index: int,
     stance: str,
-    sentence_indices: Optional[list[int]] = None,
-    stance_confidence: Optional[float] = None,
-    stance_scores: Optional[Dict[str, float]] = None,
-    stance_model: Optional[str] = None,
+    sentence_indices: list[int] | None = None,
+    stance_confidence: float | None = None,
+    stance_scores: dict[str, float] | None = None,
+    stance_model: str | None = None,
     role: str = "unknown",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build one exact evidence record for a contiguous semantic chunk."""
     start = max(0, int(chunk_start))
     end = max(start, min(len(turn_content), int(chunk_end)))
-    record: Dict[str, Any] = {
+    record: dict[str, Any] = {
         "node_type": "evidence",
         "text": turn_content[start:end],
         "start": start,
@@ -85,7 +85,7 @@ def evidence_from_chunk(
     return record
 
 
-def evidence_key(evidence: Dict[str, Any]) -> tuple:
+def evidence_key(evidence: dict[str, Any]) -> tuple:
     """Stable deduplication key used when evidence is unioned during merges."""
     source = evidence.get("source") or {}
     return (

@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
 from .._shared.spans import trim_span
 
 
@@ -34,8 +35,8 @@ class Sentence:
 @dataclass
 class SemanticChunk:
     chunk_id: int
-    sentence_indices: List[int]
-    sentences: List[Sentence] = field(default_factory=list)
+    sentence_indices: list[int]
+    sentences: list[Sentence] = field(default_factory=list)
     start: int = 0
     end: int = 0
     text: str = ""
@@ -50,8 +51,8 @@ def _is_pure_tag(text: str, s: int, e: int) -> bool:
     return _TAG_RE.sub("", text[s:e]).strip() == ""
 
 
-def _merge_tiny(spans: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
-    merged: List[Tuple[int, int]] = []
+def _merge_tiny(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    merged: list[tuple[int, int]] = []
     i = 0
     while i < len(spans):
         s, e = spans[i]
@@ -66,7 +67,7 @@ def _merge_tiny(spans: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
     return merged
 
 
-def split_sentences(text: str) -> List[Sentence]:
+def split_sentences(text: str) -> list[Sentence]:
     """Split text into exact-offset sentences, dropping pure XML/agent tags."""
     if not text or not text.strip():
         return []
@@ -83,7 +84,7 @@ def split_sentences(text: str) -> List[Sentence]:
         cuts.add(match.end())
     cuts.add(len(text))
 
-    spans: List[Tuple[int, int]] = []
+    spans: list[tuple[int, int]] = []
     previous = 0
     for cut in sorted(cuts):
         if cut <= previous:
@@ -93,8 +94,8 @@ def split_sentences(text: str) -> List[Sentence]:
             spans.append((start, end))
         previous = cut
 
-    merged: List[Tuple[int, int]] = []
-    run: List[Tuple[int, int]] = []
+    merged: list[tuple[int, int]] = []
+    run: list[tuple[int, int]] = []
     for start, end in spans:
         if _is_pure_tag(text, start, end):
             if run:
@@ -105,7 +106,7 @@ def split_sentences(text: str) -> List[Sentence]:
     if run:
         merged.extend(_merge_tiny(run))
 
-    result: List[Sentence] = []
+    result: list[Sentence] = []
     for index, (start, end) in enumerate(merged):
         start, end = trim_span(text, start, end)
         result.append(Sentence(
@@ -118,11 +119,11 @@ def split_sentences(text: str) -> List[Sentence]:
 
 
 def _buffered_sentence_texts(
-    sentences: List[Sentence],
+    sentences: list[Sentence],
     buffer_size: int,
-) -> List[str]:
+) -> list[str]:
     buffer_size = max(0, int(buffer_size or 0))
-    texts: List[str] = []
+    texts: list[str] = []
     for index in range(len(sentences)):
         lower = max(0, index - buffer_size)
         upper = min(len(sentences), index + buffer_size + 1)
@@ -130,8 +131,8 @@ def _buffered_sentence_texts(
     return texts
 
 
-def _groups_from_breakpoints(n_sentences: int, breakpoints: List[int]) -> List[List[int]]:
-    groups: List[List[int]] = []
+def _groups_from_breakpoints(n_sentences: int, breakpoints: list[int]) -> list[list[int]]:
+    groups: list[list[int]] = []
     start = 0
     for breakpoint in sorted(set(breakpoints)):
         end = min(n_sentences, int(breakpoint) + 1)
@@ -144,10 +145,10 @@ def _groups_from_breakpoints(n_sentences: int, breakpoints: List[int]) -> List[L
 
 
 def _merge_small_groups(
-    groups: List[List[int]],
-    adjacent_distances: List[float],
+    groups: list[list[int]],
+    adjacent_distances: list[float],
     min_chunk_sentences: int,
-) -> List[List[int]]:
+) -> list[list[int]]:
     """Merge short groups across the semantically weaker neighbouring boundary."""
     minimum = max(1, int(min_chunk_sentences or 1))
     groups = [list(group) for group in groups if group]
@@ -190,7 +191,7 @@ def _merge_small_groups(
 
 
 def semantic_breakpoint_chunks(
-    sentences: List[Sentence],
+    sentences: list[Sentence],
     content: str,
     embedder,
     *,
@@ -198,7 +199,7 @@ def semantic_breakpoint_chunks(
     buffer_size: int = 1,
     min_chunk_sentences: int = 1,
     purpose: str = "semantic_chunk",
-) -> Tuple[List[SemanticChunk], Dict[str, Any]]:
+) -> tuple[list[SemanticChunk], dict[str, Any]]:
     """Create ordered semantic chunks using adjacent-window cosine distances."""
     if not sentences:
         return [], {
@@ -233,6 +234,7 @@ def semantic_breakpoint_chunks(
         raise RuntimeError("semantic breakpoint chunking requires an embedding client")
 
     import numpy as np
+
     from .llm import cosine_similarity_matrix
 
     window_texts = _buffered_sentence_texts(sentences, buffer_size)
@@ -252,7 +254,7 @@ def semantic_breakpoint_chunks(
     groups = _groups_from_breakpoints(len(sentences), raw_breakpoints)
     groups = _merge_small_groups(groups, adjacent_distances, min_chunk_sentences)
 
-    chunks: List[SemanticChunk] = []
+    chunks: list[SemanticChunk] = []
     for chunk_id, indices in enumerate(groups):
         chunk_sentences = [sentences[index] for index in indices]
         start = chunk_sentences[0].start
@@ -266,7 +268,7 @@ def semantic_breakpoint_chunks(
             text=content[start:end],
         ))
 
-    info: Dict[str, Any] = {
+    info: dict[str, Any] = {
         "algorithm": "semantic_breakpoint",
         "n_sentences": len(sentences),
         "n_chunks": len(chunks),
@@ -294,11 +296,11 @@ def semantic_breakpoint_chunks(
 
 
 def single_fallback_chunk(
-    sentences: List[Sentence],
+    sentences: list[Sentence],
     content: str,
     *,
     reason: str,
-) -> Tuple[List[SemanticChunk], Dict[str, Any]]:
+) -> tuple[list[SemanticChunk], dict[str, Any]]:
     """Deterministic fallback used when the embedding service is unavailable."""
     if sentences:
         start = sentences[0].start
@@ -341,7 +343,7 @@ def single_fallback_chunk(
 TOOL_CALL_RE = re.compile(r"<tool_call>.*?</tool_call>", re.DOTALL | re.IGNORECASE)
 
 
-def find_tool_call_spans(content: str) -> List[Tuple[int, int]]:
+def find_tool_call_spans(content: str) -> list[tuple[int, int]]:
     """Absolute [start, end) spans of every <tool_call>...</tool_call> block."""
     return [(m.start(), m.end()) for m in TOOL_CALL_RE.finditer(content or "")]
 
@@ -358,7 +360,7 @@ def _chunk_text_region(
     min_chunk_sentences: int,
     purpose: str,
     sent_base: int,
-) -> Tuple[List[SemanticChunk], int]:
+) -> tuple[list[SemanticChunk], int]:
     """Chunk one non-tool-call text region; offsets stay absolute in ``content``.
 
     Sentence ``index`` values are shifted by ``sent_base`` so they stay globally
@@ -402,7 +404,7 @@ def semantic_chunks_isolating_tool_calls(
     buffer_size: int = 1,
     min_chunk_sentences: int = 1,
     purpose: str = "semantic_chunk",
-) -> Tuple[List[SemanticChunk], Dict[str, Any]]:
+) -> tuple[list[SemanticChunk], dict[str, Any]]:
     """Chunk a turn while forcing every <tool_call>...</tool_call> block to be its
     own standalone chunk. Text between/around tool calls is chunked normally.
 
@@ -428,7 +430,7 @@ def semantic_chunks_isolating_tool_calls(
             return single_fallback_chunk(sentences, content, reason=str(exc))
 
     # Build ordered regions covering the whole content.
-    regions: List[Tuple[int, int, str]] = []
+    regions: list[tuple[int, int, str]] = []
     cursor = 0
     for s, e in spans:
         if s > cursor:
@@ -438,7 +440,7 @@ def semantic_chunks_isolating_tool_calls(
     if cursor < len(content):
         regions.append((cursor, len(content), "text"))
 
-    all_chunks: List[SemanticChunk] = []
+    all_chunks: list[SemanticChunk] = []
     sent_base = 0
     n_tool_call_chunks = 0
     for rs, re_, kind in regions:

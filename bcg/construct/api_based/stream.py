@@ -26,13 +26,15 @@ Relation schema:
 from __future__ import annotations
 
 import csv
-import json
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
+from .._shared.roles import normalize_role
+from .._shared.writers import ArtifactWriter, EventRecorder
+from . import llm
 from .confidence import (
     init_belief_confidence,
     normalize_confidence_config,
@@ -52,12 +54,9 @@ from .extract import (
     format_graph_nodes,
 )
 from .graph import BeliefGraph
-from . import llm
 from .llm import USAGE
 from .merge import run_merge_pass
 from .split import split_sentences
-from .._shared.roles import normalize_role
-from .._shared.writers import ArtifactWriter, EventRecorder
 
 BELIEF_ROLES = {"user", "assistant", "tool"}
 
@@ -80,9 +79,9 @@ class StreamOptions:
     context_chars: int = 9000             # existing-nodes context budget
     # skip turns whose content is shorter than this (0 = never skip)
     min_content_len: int = 0
-    confidence_config: Dict[str, Any] = field(default_factory=dict)
+    confidence_config: dict[str, Any] = field(default_factory=dict)
 
-    def apply_belief_graph_config(self, cfg: Optional[Dict[str, Any]]) -> None:
+    def apply_belief_graph_config(self, cfg: dict[str, Any] | None) -> None:
         """Apply shared relation-propagation settings from model_config.json."""
         if not isinstance(cfg, dict):
             return
@@ -92,7 +91,7 @@ class StreamOptions:
         else:
             self.confidence_config = normalize_confidence_config(self.confidence_config)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "evidence_mode": self.evidence_mode,
             "incremental_merge": self.incremental_merge,
@@ -112,10 +111,10 @@ class StreamingBeliefBuilder:
         model: str,
         item_id: str,
         out_dir: Path,
-        options: Optional[StreamOptions] = None,
+        options: StreamOptions | None = None,
         embedder=None,
-        item_meta: Optional[Dict[str, Any]] = None,
-        max_tokens: Optional[int] = None,
+        item_meta: dict[str, Any] | None = None,
+        max_tokens: int | None = None,
     ) -> None:
         self.client = client
         self.model = model
@@ -140,28 +139,28 @@ class StreamingBeliefBuilder:
         self._events = EventRecorder(self.out_dir / "events.jsonl")
         self._artifacts = ArtifactWriter(self.out_dir)
 
-        self._trajectory: List[Dict[str, Any]] = []   # flat, ALL turns (incl. system)
+        self._trajectory: list[dict[str, Any]] = []   # flat, ALL turns (incl. system)
         self._flat_turn = 0
         self._finalized = False
-        self._start_time = datetime.now(timezone.utc)
-        self._end_time: Optional[datetime] = None
+        self._start_time = datetime.now(UTC)
+        self._end_time: datetime | None = None
 
         # Per-turn sub-step timing (seconds). One record per NON-skipped turn:
         #   {turn_index, role, node_generation, merging, llm_check,
         #    edge_generation, turn_total}. Populated in ingest_turn.
-        self._turn_timings: List[Dict[str, Any]] = []
+        self._turn_timings: list[dict[str, Any]] = []
         # Final (trajectory-end) merge timing; filled in finalize(). Always
         # zero now that the trajectory-end global merge has been removed.
-        self._final_merge_timing: Dict[str, Any] = {
+        self._final_merge_timing: dict[str, Any] = {
             "merging": 0.0, "llm_check": 0.0, "total": 0.0}
 
     # ------------------------------------------------------------------ events
     def _propagate_relation_confidences(
         self,
         *,
-        seed_output_node_ids: Optional[List[int]] = None,
+        seed_output_node_ids: list[int] | None = None,
         step: str = "relation_propagation",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         return propagate_relation_confidences(
             self.graph.beliefs,
             self.graph.relations,
@@ -175,9 +174,9 @@ class StreamingBeliefBuilder:
         self,
         role: str,
         content: str,
-        date: Optional[str] = None,
-        has_answer: Optional[bool] = None,
-    ) -> Dict[str, Any]:
+        date: str | None = None,
+        has_answer: bool | None = None,
+    ) -> dict[str, Any]:
         """Process one incoming turn: extract nodes, merge, then link local edges."""
         flat_idx = self._flat_turn
         turn_idx = flat_idx                       # no sessions: turn index == flat index
@@ -185,7 +184,7 @@ class StreamingBeliefBuilder:
         raw_role = (role or "user").strip().lower()
         eff_role = normalize_role(raw_role)
 
-        traj_entry: Dict[str, Any] = {
+        traj_entry: dict[str, Any] = {
             "role": raw_role, "content": content, "turn_index": turn_idx,
         }
         if date is not None:
@@ -194,10 +193,10 @@ class StreamingBeliefBuilder:
             traj_entry["has_answer"] = bool(has_answer)
         self._trajectory.append(traj_entry)
 
-        new_nodes: List[Dict[str, Any]] = []
+        new_nodes: list[dict[str, Any]] = []
         relations_added = 0
-        skip_reason: Optional[str] = None
-        report: Dict[str, Any] = {"split": None}
+        skip_reason: str | None = None
+        report: dict[str, Any] = {"split": None}
 
         skip = (raw_role == "system" or not content.strip()
                 or eff_role not in BELIEF_ROLES
@@ -257,7 +256,7 @@ class StreamingBeliefBuilder:
     # ------------------------------------------ per-turn three-phase pipeline
     def _update_from_turn(
         self, role: str, content: str, turn_idx: int, flat_idx: int,
-        date: Optional[str], has_answer: Optional[bool],
+        date: str | None, has_answer: bool | None,
     ):
         """Three-phase per-turn update:
         Phase 1 — extract belief/decision nodes (one LLM call)
@@ -266,7 +265,7 @@ class StreamingBeliefBuilder:
         Phase 3 — extract relations on the post-merge graph (one LLM call)
         """
         opt = self.options
-        report: Dict[str, Any] = {"split": None}
+        report: dict[str, Any] = {"split": None}
         # Per-turn sub-step wall clocks (seconds), filled across the three phases.
         # merging/llm_check come from the incremental merge (merge.py); a turn may
         # issue several relation calls, whose times accumulate into edge_generation.
@@ -309,8 +308,8 @@ class StreamingBeliefBuilder:
             report["skip_reason"] = node_res["skip_reason"]
 
         # ---- allocate ids + attach evidence (in output order, so n0<n1<… in id)
-        tmp_to_gid: Dict[str, int] = {}
-        new_nodes: List[Dict[str, Any]] = []
+        tmp_to_gid: dict[str, int] = {}
+        new_nodes: list[dict[str, Any]] = []
         new_node_ids: set = set()
         for cb in node_res.get("nodes", []):
             evid = self._evidence_for(cb, content, src, opt.evidence_mode, role)
@@ -459,12 +458,12 @@ class StreamingBeliefBuilder:
         role: str,
         content: str,
         turn_idx: int,
-        previous_trajectory_index: Optional[int],
-        active_nodes: List[Dict[str, Any]],
+        previous_trajectory_index: int | None,
+        active_nodes: list[dict[str, Any]],
         active_ids: set,
         surviving_new_ids: set,
         previous_node_ids: set,
-        date: Optional[str],
+        date: str | None,
         context_chars: int,
     ):
         """Run one relation-extraction attempt for current nodes + one prior turn.
@@ -555,7 +554,7 @@ class StreamingBeliefBuilder:
 
     @staticmethod
     def _node_ids_from_trajectory_index(
-        nodes: List[Dict[str, Any]], trajectory_index: int
+        nodes: list[dict[str, Any]], trajectory_index: int
     ) -> set:
         """Return active node ids whose source belongs to one trajectory turn."""
         return {
@@ -565,7 +564,7 @@ class StreamingBeliefBuilder:
             and (node.get("source") or {}).get("turn_id") == trajectory_index
         }
 
-    def _evidence_for(self, cb, content, src, mode, role) -> List[Dict[str, Any]]:
+    def _evidence_for(self, cb, content, src, mode, role) -> list[dict[str, Any]]:
         stance = cb.get("stance", "asserted")
         if mode == "sentence":
             sents = getattr(self, "_last_sentences", []) or []
@@ -609,7 +608,7 @@ class StreamingBeliefBuilder:
                 return int(ref)
             return None
 
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         seen = set()
         active_ids = set(existing_ids) | new_gids | previous_gids
         edge_window_ids = new_gids | previous_gids
@@ -640,14 +639,14 @@ class StreamingBeliefBuilder:
         return out
 
     @staticmethod
-    def _primary_text(node: Dict[str, Any]) -> str:
+    def _primary_text(node: dict[str, Any]) -> str:
         if node.get("node_type") == "decision":
             return str(node.get("decision") or node.get("belief") or "")
         return str(node.get("belief") or node.get("decision") or "")
 
     @staticmethod
     def _set_primary_text_field(
-        node: Dict[str, Any],
+        node: dict[str, Any],
         *,
         text_key: str,
         text: str,
@@ -675,14 +674,14 @@ class StreamingBeliefBuilder:
         if not inserted:
             node[text_key] = text
 
-    def _make_node(self, cleaned, src, evid, role) -> Dict[str, Any]:
+    def _make_node(self, cleaned, src, evid, role) -> dict[str, Any]:
         node_type = cleaned.get("node_type", "belief")
         evidence_ids = [self.graph.add_evidence(ev) for ev in evid]
         primary_text_key = "decision" if node_type == "decision" else "belief"
         primary_text = cleaned.get(primary_text_key)
         if not primary_text:
             primary_text = cleaned.get("belief") or cleaned.get("decision") or ""
-        node: Dict[str, Any] = {
+        node: dict[str, Any] = {
             "id": self.graph.allocate_id(),
             "node_type": node_type,
             primary_text_key: primary_text,
@@ -713,7 +712,7 @@ class StreamingBeliefBuilder:
         except (TypeError, ValueError):
             return default
 
-    def _decision_generation_key(self, node: Dict[str, Any]) -> tuple:
+    def _decision_generation_key(self, node: dict[str, Any]) -> tuple:
         """Sort key for finding the latest generated decision after merging.
 
         Node ids are allocated monotonically as turns are processed. A final merge
@@ -735,7 +734,7 @@ class StreamingBeliefBuilder:
             self._as_int(node.get("id")),
         )
 
-    def _keep_only_latest_decision(self) -> Dict[str, Any]:
+    def _keep_only_latest_decision(self) -> dict[str, Any]:
         """Demote intermediate decisions to beliefs without changing edges.
 
         This runs after all turns have produced their nodes but before the final
@@ -749,7 +748,7 @@ class StreamingBeliefBuilder:
             node for node in self.graph.active()
             if node.get("node_type") == "decision"
         ]
-        report: Dict[str, Any] = {
+        report: dict[str, Any] = {
             "kept_decision_id": None,
             "kept_latest_generated_id": None,
             "converted_to_belief_ids": [],
@@ -791,9 +790,9 @@ class StreamingBeliefBuilder:
     # ------------------------------------------------------------------ result
     def finalize(
         self,
-        extra_meta: Optional[Dict[str, Any]] = None,
-        pricing: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        extra_meta: dict[str, Any] | None = None,
+        pricing: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if self._finalized:
             raise RuntimeError("finalize() called twice")
         self._finalized = True
@@ -851,24 +850,24 @@ class StreamingBeliefBuilder:
         }
         self.graph.sessions.append(summary)
 
-        self._end_time = datetime.now(timezone.utc)
+        self._end_time = datetime.now(UTC)
         duration = (self._end_time - self._start_time).total_seconds()
         nodes = self.graph.active()
 
         # Aggregate the per-turn sub-step timings across the whole trajectory.
         _steps = ("node_generation", "merging", "llm_check",
                   "edge_generation", "turn_total")
-        by_step: Dict[str, Any] = {}
+        by_step: dict[str, Any] = {}
         for _s in _steps:
             _vals = [float(t.get(_s, 0.0) or 0.0) for t in self._turn_timings]
             by_step[_s] = {"total_seconds": round(sum(_vals), 6),
                            "n_turns": len(_vals)}
 
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "prompt_name": "construct_beliefs",
             "model": self.model,
             "item_id": self.item_id,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "mode": "stream",
             "options": self.options.to_dict(),
             "embedding_model": getattr(self.embedder, "model", None),
@@ -978,8 +977,8 @@ class StreamingBeliefBuilder:
         return result
 
 
-def _count_by(items: List[Dict[str, Any]], key_fn) -> Dict[str, int]:
-    out: Dict[str, int] = {}
+def _count_by(items: list[dict[str, Any]], key_fn) -> dict[str, int]:
+    out: dict[str, int] = {}
     for it in items:
         k = key_fn(it) or "unknown"
         out[k] = out.get(k, 0) + 1

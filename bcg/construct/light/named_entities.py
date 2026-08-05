@@ -20,11 +20,11 @@ finished and the surviving node text is stable.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any
 
-
-SUPPORTED_NER_METHODS: Tuple[str, ...] = (
+SUPPORTED_NER_METHODS: tuple[str, ...] = (
     "pattern",
     "rules",
     "ml",
@@ -44,10 +44,10 @@ class Entity:
     start_char: int
     end_char: int
     confidence: float = 1.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
-def normalize_entity_config(config: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+def normalize_entity_config(config: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Return a validated, JSON-serialisable NER configuration."""
 
     raw = dict(config or {})
@@ -66,7 +66,7 @@ def normalize_entity_config(config: Optional[Mapping[str, Any]] = None) -> Dict[
 
     fallback_value = raw.get("fallback_methods", ["rules", "pattern"])
     if fallback_value is None:
-        fallback_methods: List[str] = []
+        fallback_methods: list[str] = []
     elif isinstance(fallback_value, str):
         fallback_methods = [fallback_value]
     else:
@@ -131,15 +131,15 @@ class NamedEntityRecognizer:
 
     def __init__(
         self,
-        methods: Optional[Sequence[str]] = None,
+        methods: Sequence[str] | None = None,
         confidence_threshold: float = 0.5,
         merge_overlapping: bool = True,
         include_standard_types: bool = True,
         method: Any = None,
-        config: Optional[Mapping[str, Any]] = None,
+        config: Mapping[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
-        merged: Dict[str, Any] = dict(config or {})
+        merged: dict[str, Any] = dict(config or {})
         merged.update(kwargs)
         if method is not None:
             merged["method"] = method
@@ -165,9 +165,9 @@ class NamedEntityRecognizer:
         self._spacy_model_nlp = None
         self._spacy_blank_nlp = None
         self._hf_pipeline = None
-        self._load_errors: Dict[str, str] = {}
+        self._load_errors: dict[str, str] = {}
 
-    def extract_entities(self, text: str, **options: Any) -> List[Entity]:
+    def extract_entities(self, text: str, **options: Any) -> list[Entity]:
         """Extract entities from one English text string."""
 
         if not isinstance(text, str) or not text.strip():
@@ -181,8 +181,8 @@ class NamedEntityRecognizer:
         selected = [value for value in selected if value]
         _validate_methods(selected)
 
-        candidates: List[Entity] = []
-        attempted: List[str] = []
+        candidates: list[Entity] = []
+        attempted: list[str] = []
         primary_succeeded = False
 
         for extractor_method in selected:
@@ -219,35 +219,35 @@ class NamedEntityRecognizer:
             filtered = self._merge_overlaps(filtered)
         return self._dedupe_in_text_order(filtered)
 
-    def extract_entity_texts(self, text: str, **options: Any) -> List[str]:
+    def extract_entity_texts(self, text: str, **options: Any) -> list[str]:
         """Return unique entity surface strings in first-appearance order."""
 
         return [entity.text for entity in self.extract_entities(text, **options)]
 
     def classify_entities(
         self, entities: Sequence[Entity], **context: Any
-    ) -> Dict[str, List[Entity]]:
+    ) -> dict[str, list[Entity]]:
         """Group entities by their normalized label."""
 
         return EntityClassifier().classify_entities(list(entities), **context)
 
     def score_confidence(
         self, entities: Sequence[Entity], **options: Any
-    ) -> List[Entity]:
+    ) -> list[Entity]:
         """Return entities with bounded confidence values."""
 
         return EntityConfidenceScorer().score_entities(list(entities), **options)
 
-    def process_batch(self, texts: Sequence[str], **options: Any) -> List[List[Entity]]:
+    def process_batch(self, texts: Sequence[str], **options: Any) -> list[list[Entity]]:
         return [self.extract_entities(text, **options) for text in texts]
 
     def extract_entities_batch(
         self, texts: Sequence[str], **options: Any
-    ) -> List[List[Entity]]:
+    ) -> list[list[Entity]]:
         return self.process_batch(texts, **options)
 
     @property
-    def load_errors(self) -> Dict[str, str]:
+    def load_errors(self) -> dict[str, str]:
         """Model/package failures encountered during lazy extraction."""
 
         return dict(self._load_errors)
@@ -307,7 +307,7 @@ class NamedEntityRecognizer:
         from spacy.pipeline import EntityRuler
 
         ruler = EntityRuler(nlp, overwrite_ents=True, validate=True)
-        patterns: List[Dict[str, Any]] = []
+        patterns: list[dict[str, Any]] = []
         if self.include_standard_types:
             patterns.extend([
                 {
@@ -449,7 +449,7 @@ class NamedEntityRecognizer:
         }
 
     @staticmethod
-    def _merge_overlaps(entities: Sequence[Entity]) -> List[Entity]:
+    def _merge_overlaps(entities: Sequence[Entity]) -> list[Entity]:
         ordered = sorted(
             entities,
             key=lambda entity: (
@@ -458,7 +458,7 @@ class NamedEntityRecognizer:
                 -entity.confidence,
             ),
         )
-        kept: List[Entity] = []
+        kept: list[Entity] = []
         for entity in ordered:
             overlapping = [
                 other
@@ -484,8 +484,8 @@ class NamedEntityRecognizer:
         return sorted(kept, key=lambda value: (value.start_char, value.end_char))
 
     @staticmethod
-    def _dedupe_in_text_order(entities: Sequence[Entity]) -> List[Entity]:
-        output: List[Entity] = []
+    def _dedupe_in_text_order(entities: Sequence[Entity]) -> list[Entity]:
+        output: list[Entity] = []
         seen = set()
         for entity in sorted(entities, key=lambda value: (value.start_char, value.end_char)):
             key = (entity.text.casefold(), entity.label.upper())
@@ -517,8 +517,8 @@ class EntityClassifier:
 
     def classify_entities(
         self, entities: Sequence[Entity], **context: Any
-    ) -> Dict[str, List[Entity]]:
-        grouped: Dict[str, List[Entity]] = {}
+    ) -> dict[str, list[Entity]]:
+        grouped: dict[str, list[Entity]] = {}
         for entity in entities:
             grouped.setdefault(self.classify_entity_type(entity, **context), []).append(entity)
         return grouped
@@ -529,8 +529,8 @@ class EntityConfidenceScorer:
 
     def score_entities(
         self, entities: Sequence[Entity], **options: Any
-    ) -> List[Entity]:
-        output: List[Entity] = []
+    ) -> list[Entity]:
+        output: list[Entity] = []
         for entity in entities:
             confidence = min(1.0, max(0.0, float(entity.confidence)))
             output.append(

@@ -42,25 +42,21 @@ logs/embedding_calls.jsonl via the shared EmbeddingClient.
 
 from __future__ import annotations
 
-import concurrent.futures
 import copy
 import json
 import time
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from . import llm
 from .confidence import record_evidence_merge_confidence
 from .evidence import evidence_key
 from .graph import BeliefGraph
-from .prompts import (
-    BELIEFS_LIST_PLACEHOLDER,
-    CANDIDATE_GROUP_PLACEHOLDER,
-)
 
 
-def _node_text(b: Dict[str, Any]) -> str:
+def _node_text(b: dict[str, Any]) -> str:
     """Primary text for either a belief or a decision node."""
     if b.get("node_type") == "decision":
         return str(b.get("decision") or b.get("belief") or "")
@@ -68,7 +64,7 @@ def _node_text(b: Dict[str, Any]) -> str:
 
 
 def _set_primary_text_field(
-    node: Dict[str, Any],
+    node: dict[str, Any],
     *,
     text_key: str,
     text: str,
@@ -92,7 +88,7 @@ def _set_primary_text_field(
         node[text_key] = text
 
 
-def _compact_for_merge(b: Dict[str, Any]) -> Dict[str, Any]:
+def _compact_for_merge(b: dict[str, Any]) -> dict[str, Any]:
     src = b.get("source") or {}
     c = {
         "id":        b.get("id"),
@@ -107,12 +103,12 @@ def _compact_for_merge(b: Dict[str, Any]) -> Dict[str, Any]:
     return c
 
 
-def _blob(beliefs: List[Dict[str, Any]]) -> str:
+def _blob(beliefs: list[dict[str, Any]]) -> str:
     return json.dumps([_compact_for_merge(b) for b in beliefs],
                       ensure_ascii=False, indent=2)
 
 
-def _merge_role(b: Dict[str, Any]) -> str:
+def _merge_role(b: dict[str, Any]) -> str:
     """Role key used to constrain deduplication.
 
     Nodes may be merged ONLY when this key is identical. This prevents, for
@@ -124,12 +120,12 @@ def _merge_role(b: Dict[str, Any]) -> str:
     return str(role).strip().lower() or "unknown"
 
 
-def _same_merge_role(ids: List[int], by_id: Dict[int, Dict[str, Any]]) -> bool:
+def _same_merge_role(ids: list[int], by_id: dict[int, dict[str, Any]]) -> bool:
     roles = {_merge_role(by_id[i]) for i in ids if i in by_id}
     return len(roles) == 1
 
 
-def _merge_node_type(b: Dict[str, Any]) -> str:
+def _merge_node_type(b: dict[str, Any]) -> str:
     """Node-type key used to constrain deduplication.
 
     Nodes may be merged ONLY when this key is identical. This prevents a belief
@@ -140,18 +136,18 @@ def _merge_node_type(b: Dict[str, Any]) -> str:
     return str(b.get("node_type", "belief")).strip().lower() or "belief"
 
 
-def _same_node_type(ids: List[int], by_id: Dict[int, Dict[str, Any]]) -> bool:
+def _same_node_type(ids: list[int], by_id: dict[int, dict[str, Any]]) -> bool:
     types = {_merge_node_type(by_id[i]) for i in ids if i in by_id}
     return len(types) == 1
 
 
-def _split_ids_by_role(ids: List[int], by_id: Dict[int, Dict[str, Any]]) -> List[List[int]]:
+def _split_ids_by_role(ids: list[int], by_id: dict[int, dict[str, Any]]) -> list[list[int]]:
     """Split ids into subgroups sharing BOTH role and node_type.
 
     The bucket key is (role, node_type), so a mixed-role or mixed-type group is
     broken into homogeneous subgroups; only subgroups with >= 2 ids survive.
     """
-    buckets: Dict[Tuple[str, str], List[int]] = {}
+    buckets: dict[tuple[str, str], list[int]] = {}
     for i in ids:
         if i in by_id:
             key = (_merge_role(by_id[i]), _merge_node_type(by_id[i]))
@@ -180,12 +176,12 @@ class _UnionFind:
 
 
 def _embedding_candidates(
-    beliefs: List[Dict[str, Any]],
+    beliefs: list[dict[str, Any]],
     embedder,
     threshold: float,
     pass_label: str,
-    incremental_new_ids: Optional[Set[int]] = None,
-) -> Tuple[List[List[int]], List[Dict[str, Any]]]:
+    incremental_new_ids: set[int] | None = None,
+) -> tuple[list[list[int]], list[dict[str, Any]]]:
     """Return embedding candidate groups and accepted pair records.
 
     Full/final passes compare every pair. Incremental passes compare only
@@ -233,10 +229,10 @@ def _embedding_candidates(
         ]
 
     uf = _UnionFind(n)
-    pairs: List[Dict[str, Any]] = []
-    skipped_cross_role: List[Dict[str, Any]] = []
-    skipped_cross_type: List[Dict[str, Any]] = []
-    old_links: List[Tuple[int, int, float]] = []
+    pairs: list[dict[str, Any]] = []
+    skipped_cross_role: list[dict[str, Any]] = []
+    skipped_cross_type: list[dict[str, Any]] = []
+    old_links: list[tuple[int, int, float]] = []
 
     for i, j in pair_indices:
         s = float(np.clip(np.dot(unit[i], unit[j]), -1.0, 1.0))
@@ -271,9 +267,9 @@ def _embedding_candidates(
             new_idx, old_idx = (i, j) if i_new else (j, i)
             old_links.append((new_idx, old_idx, s))
 
-    anchor_choices: List[Dict[str, Any]] = []
+    anchor_choices: list[dict[str, Any]] = []
     if not incremental:
-        groups_by_root: Dict[int, List[int]] = {}
+        groups_by_root: dict[int, list[int]] = {}
         for i in range(n):
             groups_by_root.setdefault(uf.find(i), []).append(i)
         groups = [sorted(beliefs[i]["id"] for i in idxs)
@@ -282,18 +278,18 @@ def _embedding_candidates(
         # First build connected components among new nodes only. Then attach each
         # component to at most one old anchor: the old node with the strongest
         # qualifying cosine link to any member (ties -> smaller node id).
-        components: Dict[int, List[int]] = {}
+        components: dict[int, list[int]] = {}
         for i in new_indices:
             components.setdefault(uf.find(i), []).append(i)
 
-        links_by_root: Dict[int, Dict[int, float]] = {}
+        links_by_root: dict[int, dict[int, float]] = {}
         for new_idx, old_idx, score in old_links:
             root = uf.find(new_idx)
             previous = links_by_root.setdefault(root, {}).get(old_idx, -1.0)
             links_by_root[root][old_idx] = max(previous, score)
 
-        anchored_groups: Dict[int, Set[int]] = {}
-        standalone_groups: List[List[int]] = []
+        anchored_groups: dict[int, set[int]] = {}
+        standalone_groups: list[list[int]] = []
         for root, component in sorted(components.items(), key=lambda x: min(x[1])):
             component_ids = sorted(int(beliefs[i]["id"]) for i in component)
             candidates = links_by_root.get(root, {})
@@ -353,10 +349,10 @@ def _embedding_candidates(
 
 def _parse_merge_groups(
     raw: str,
-    allowed_ids: Set[int],
-    used_ids: Set[int],
-    by_id: Dict[int, Dict[str, Any]],
-) -> List[Dict[str, Any]]:
+    allowed_ids: set[int],
+    used_ids: set[int],
+    by_id: dict[int, dict[str, Any]],
+) -> list[dict[str, Any]]:
     """Validate {"merge_groups":[...]} and enforce same-role groups.
 
     LLM proposals are not trusted: cross-role groups are rejected/split before
@@ -365,7 +361,7 @@ def _parse_merge_groups(
     """
     parsed = llm.parse_json_response(raw)
     groups_in = parsed.get("merge_groups", []) if isinstance(parsed, dict) else []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for g in groups_in or []:
         if not isinstance(g, dict):
             continue
@@ -410,11 +406,11 @@ def _parse_merge_groups(
 
 def _apply_merge_group(
     graph: BeliefGraph,
-    ids: List[int],
+    ids: list[int],
     reason: str,
     pass_label: str,
     keep_newest_text: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Merge one exact-duplicate group into its smallest-id node.
 
     The smallest id always SURVIVES as the canonical node (every earlier edge and
@@ -439,11 +435,11 @@ def _apply_merge_group(
 
     # Evidence union in deterministic member/id order. Duplicate records are
     # suppressed by both id and semantic evidence_key; the first id wins.
-    merged_eids: List[int] = []
-    seen_ids: Set[int] = set()
-    seen_keys: Set[tuple] = set()
-    added_eids: List[int] = []
-    added_records: List[Dict[str, Any]] = []
+    merged_eids: list[int] = []
+    seen_ids: set[int] = set()
+    seen_keys: set[tuple] = set()
+    added_eids: list[int] = []
+    added_records: list[dict[str, Any]] = []
 
     def _append_evidence_id(raw_eid: Any, *, is_additional: bool) -> None:
         try:
@@ -485,7 +481,7 @@ def _apply_merge_group(
     ))
 
     merged_from = list(canon.get("merged_from") or [])
-    for absorbed_id, snapshot in zip(absorbed_ids, absorbed_snapshots):
+    for absorbed_id, snapshot in zip(absorbed_ids, absorbed_snapshots, strict=False):
         merged_from.append(absorbed_id)
         merged_from.extend(snapshot.get("merged_from") or [])
     canon["merged_from"] = sorted(set(merged_from))
@@ -496,7 +492,7 @@ def _apply_merge_group(
     # field is consistent across members.
     if keep_newest_text and newest_id != canon_id:
         newest_snapshot = next(
-            (snap for aid, snap in zip(absorbed_ids, absorbed_snapshots)
+            (snap for aid, snap in zip(absorbed_ids, absorbed_snapshots, strict=False)
              if aid == newest_id),
             None,
         )
@@ -527,7 +523,7 @@ def _apply_merge_group(
 
     record = {
         "pass": pass_label,
-        "applied_at": datetime.now(timezone.utc).isoformat(),
+        "applied_at": datetime.now(UTC).isoformat(),
         "canonical_id": canon_id,
         "absorbed_ids": absorbed_ids,
         "newest_id": newest_id,
@@ -548,8 +544,8 @@ def _apply_merge_group(
 
 
 def _infer_incremental_new_ids(
-    beliefs: List[Dict[str, Any]], pass_label: str
-) -> Optional[Set[int]]:
+    beliefs: list[dict[str, Any]], pass_label: str
+) -> set[int] | None:
     """Infer current-turn node ids for ``turn_<index>`` merge passes.
 
     ``stream.py`` already labels per-turn passes as ``turn_<turn_id>`` and
@@ -566,7 +562,7 @@ def _infer_incremental_new_ids(
     except ValueError:
         return set()
 
-    out: Set[int] = set()
+    out: set[int] = set()
     for belief in beliefs:
         src = belief.get("source") or {}
         try:
@@ -590,18 +586,16 @@ def run_merge_pass(
     model: str,
     embedder=None,
     threshold: float = 0.8,
-    max_tokens: Optional[int] = None,
+    max_tokens: int | None = None,
     pass_label: str = "merge",
-    log_dir: Optional[Path] = None,
+    log_dir: Path | None = None,
     verify: bool = True,
-    incremental_new_ids: Optional[Set[int]] = None,
-    exclude_node_ids: Optional[Set[int]] = None,
+    incremental_new_ids: set[int] | None = None,
+    exclude_node_ids: set[int] | None = None,
     max_verify_workers: int = 8,
-    summary_regenerator: Optional[
-        Callable[[Dict[str, Any], List[Dict[str, Any]]], str]
-    ] = None,
+    summary_regenerator: Callable[[dict[str, Any], list[dict[str, Any]]], str] | None = None,
     keep_newest_text: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run one merge pass over the active graph. Returns a report dict.
 
     verify — only meaningful for strategy="embedding". When True (default) each
@@ -644,7 +638,7 @@ def run_merge_pass(
         if node.get("node_type") == "decision"
         and isinstance(node.get("id"), int)
     }
-    requested_excluded_ids: Set[int] = set(decision_ids)
+    requested_excluded_ids: set[int] = set(decision_ids)
     for raw_id in (exclude_node_ids or set()):
         try:
             requested_excluded_ids.add(int(raw_id))
@@ -698,9 +692,9 @@ def run_merge_pass(
         print(f"  [merge:{pass_label}] no embedding client — falling back to strategy=llm")
         strategy = "llm"
 
-    log: Dict[str, Any] = {
+    log: dict[str, Any] = {
         "pass": pass_label,
-        "started_at": datetime.now(timezone.utc).isoformat(),
+        "started_at": datetime.now(UTC).isoformat(),
         "strategy": strategy,
         "threshold": threshold if strategy == "embedding" else None,
         "n_beliefs": len(active),
@@ -709,8 +703,8 @@ def run_merge_pass(
         "excluded_decision_ids": excluded_decision_ids,
     }
     allowed_ids = {b["id"] for b in active}
-    used_ids: Set[int] = set()
-    confirmed: List[Dict[str, Any]] = []
+    used_ids: set[int] = set()
+    confirmed: list[dict[str, Any]] = []
     by_id = {b["id"]: b for b in active}
 
     # Sub-step wall clocks (seconds). "embedding_seconds" covers candidate
@@ -769,10 +763,10 @@ def run_merge_pass(
         #     log["llm_full"] = {"error": str(e)}
         # llm_verify_seconds += time.perf_counter() - _t_verify
 
-    applied_records: List[Dict[str, Any]] = []
-    mapping: Dict[int, int] = {}
-    skipped_role_mismatch: List[Dict[str, Any]] = []
-    skipped_type_mismatch: List[Dict[str, Any]] = []
+    applied_records: list[dict[str, Any]] = []
+    mapping: dict[int, int] = {}
+    skipped_role_mismatch: list[dict[str, Any]] = []
+    skipped_type_mismatch: list[dict[str, Any]] = []
     for g in sorted(confirmed, key=lambda g: g["ids"][0]):
         if not _same_merge_role(g["ids"], by_id):
             skipped_role_mismatch.append({"ids": g["ids"], "reason": "cross_role_group"})
@@ -796,7 +790,7 @@ def run_merge_pass(
     # regeneration so both the graph output and summary input are deduplicated.
     evidence_prune = graph.prune_unreferenced_evidence()
 
-    summary_regeneration: List[Dict[str, Any]] = []
+    summary_regeneration: list[dict[str, Any]] = []
     summary_regeneration_seconds = 0.0
     if summary_regenerator is not None and applied_records:
         _t_summary = time.perf_counter()
@@ -807,7 +801,7 @@ def run_merge_pass(
                 continue
             evidence_records = graph.evidence_records(node.get("evidence_ids") or [])
             before = _node_text(node)
-            entry: Dict[str, Any] = {
+            entry: dict[str, Any] = {
                 "canonical_id": canonical_id,
                 "evidence_ids": list(node.get("evidence_ids") or []),
                 "before": before,
@@ -832,7 +826,7 @@ def run_merge_pass(
             summary_regeneration.append(entry)
         summary_regeneration_seconds += time.perf_counter() - _t_summary
 
-    applied: List[Dict[str, Any]] = [
+    applied: list[dict[str, Any]] = [
         {
             key: rec.get(key)
             for key in (
@@ -864,7 +858,7 @@ def run_merge_pass(
         "llm_verify_seconds": round(llm_verify_seconds, 6),
         "summary_regeneration_seconds": round(summary_regeneration_seconds, 6),
     }
-    log["finished_at"] = datetime.now(timezone.utc).isoformat()
+    log["finished_at"] = datetime.now(UTC).isoformat()
 
     if log_dir is not None:
         log_dir = Path(log_dir)
@@ -890,7 +884,7 @@ def run_merge_pass(
             "log_path": log.get("log_path")}
 
 
-def _render_text_log(log: Dict[str, Any]) -> str:
+def _render_text_log(log: dict[str, Any]) -> str:
     lines = [
         "=" * 74,
         f" merge pass: {log['pass']}   strategy={log['strategy']}"

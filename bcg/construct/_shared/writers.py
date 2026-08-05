@@ -7,12 +7,13 @@ formats stay in each backend.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 
 class EventRecorder:
@@ -22,9 +23,9 @@ class EventRecorder:
         self._path = Path(events_path)
         self._path.write_text("", encoding="utf-8")
 
-    def record(self, kind: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def record(self, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Write one timestamped event and return the record."""
-        rec = {"ts": datetime.now(timezone.utc).isoformat(), "event": kind}
+        rec = {"ts": datetime.now(UTC).isoformat(), "event": kind}
         rec.update(payload)
         with open(self._path, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -49,10 +50,8 @@ class ArtifactWriter:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
             os.replace(tmp, path)
         except BaseException:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp)
-            except OSError:
-                pass
             raise
         return path
 

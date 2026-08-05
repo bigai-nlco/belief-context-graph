@@ -26,12 +26,12 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any
 
 from .constants import VALID_STANCES
-
 
 DEFAULT_STANCE_MODEL_PATH = (
     "/data/user/wenxinyi/experiments/models/"
@@ -40,7 +40,7 @@ DEFAULT_STANCE_MODEL_PATH = (
 
 STANCE_ORDER = ("asserted", "recalled", "judged", "speculated")
 
-DEFAULT_STANCE_LABELS: Dict[str, Dict[str, str]] = {
+DEFAULT_STANCE_LABELS: dict[str, dict[str, str]] = {
     "asserted": {
         "description": (
             "The speaker presents this as a direct and definite assertion, "
@@ -71,8 +71,8 @@ _DEFAULT_HYPOTHESIS_TEMPLATE = "{description}"
 
 
 def normalize_stance_config(
-    config: Optional[Mapping[str, Any]] = None,
-) -> Dict[str, Any]:
+    config: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Return a validated, JSON-serialisable stance classifier config."""
     raw = dict(config or {})
     labels_raw = raw.get("labels")
@@ -81,7 +81,7 @@ def normalize_stance_config(
     if not isinstance(labels_raw, Mapping):
         raise ValueError("belief_graph.stance.labels must be an object")
 
-    labels: Dict[str, Dict[str, str]] = {}
+    labels: dict[str, dict[str, str]] = {}
     for stance in STANCE_ORDER:
         default = DEFAULT_STANCE_LABELS[stance]
         value = labels_raw.get(stance, default)
@@ -129,10 +129,10 @@ def normalize_stance_config(
 class StancePrediction:
     stance: str
     confidence: float
-    scores: Dict[str, float]
+    scores: dict[str, float]
     model_path: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "stance": self.stance,
             "confidence": self.confidence,
@@ -144,14 +144,14 @@ class StancePrediction:
 class LocalZeroShotStanceClassifier:
     """Lazy, thread-safe four-class English statement-stance classifier."""
 
-    def __init__(self, config: Optional[Mapping[str, Any]] = None) -> None:
+    def __init__(self, config: Mapping[str, Any] | None = None) -> None:
         self.config = normalize_stance_config(config)
         self.model_path = self.config["model_path"]
         self._tokenizer = None
         self._model = None
         self._torch = None
-        self._resolved_device: Optional[str] = None
-        self._entailment_index: Optional[int] = None
+        self._resolved_device: str | None = None
+        self._entailment_index: int | None = None
         self._load_lock = threading.Lock()
         self._infer_lock = threading.Lock()
 
@@ -219,7 +219,10 @@ class LocalZeroShotStanceClassifier:
                 return
             try:
                 import torch
-                from transformers import AutoModelForSequenceClassification, AutoTokenizer
+                from transformers import (
+                    AutoModelForSequenceClassification,
+                    AutoTokenizer,
+                )
             except ImportError as exc:
                 raise RuntimeError(
                     "Local stance classification requires transformers, torch, and "
@@ -238,7 +241,7 @@ class LocalZeroShotStanceClassifier:
                 self.model_path,
                 local_files_only=self.config["local_files_only"],
             )
-            model_kwargs: Dict[str, Any] = {
+            model_kwargs: dict[str, Any] = {
                 "local_files_only": self.config["local_files_only"],
             }
             dtype = self._resolve_dtype()
@@ -263,7 +266,7 @@ class LocalZeroShotStanceClassifier:
             description=self.config["labels"][stance]["description"],
         )
 
-    def classify_texts(self, texts: Sequence[str]) -> List[StancePrediction]:
+    def classify_texts(self, texts: Sequence[str]) -> list[StancePrediction]:
         """Classify source texts in order and retain all four candidate scores."""
         clean_texts = [str(text or "").strip() for text in texts]
         if not clean_texts:
@@ -283,14 +286,14 @@ class LocalZeroShotStanceClassifier:
         assert self._tokenizer is not None
         assert self._entailment_index is not None
 
-        premises: List[str] = []
-        hypotheses: List[str] = []
+        premises: list[str] = []
+        hypotheses: list[str] = []
         for text in clean_texts:
             for stance in STANCE_ORDER:
                 premises.append(text)
                 hypotheses.append(self._hypothesis(stance))
 
-        entailment_logits: List[float] = []
+        entailment_logits: list[float] = []
         batch_size = self.config["batch_size"]
         with self._infer_lock:
             for start in range(0, len(premises), batch_size):
@@ -315,7 +318,7 @@ class LocalZeroShotStanceClassifier:
                 )
 
         n_labels = len(STANCE_ORDER)
-        predictions: List[StancePrediction] = []
+        predictions: list[StancePrediction] = []
         for text_index in range(len(clean_texts)):
             start = text_index * n_labels
             row = torch.tensor(entailment_logits[start:start + n_labels], dtype=torch.float32)
@@ -338,12 +341,12 @@ class LocalZeroShotStanceClassifier:
         return predictions
 
 
-_CLASSIFIER_CACHE: Dict[str, LocalZeroShotStanceClassifier] = {}
+_CLASSIFIER_CACHE: dict[str, LocalZeroShotStanceClassifier] = {}
 _CLASSIFIER_CACHE_LOCK = threading.Lock()
 
 
 def get_stance_classifier(
-    config: Optional[Mapping[str, Any]] = None,
+    config: Mapping[str, Any] | None = None,
 ) -> LocalZeroShotStanceClassifier:
     """Return one shared classifier per normalized config (weights load lazily)."""
     normalized = normalize_stance_config(config)

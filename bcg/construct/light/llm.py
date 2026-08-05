@@ -24,6 +24,7 @@ model.
 
 from __future__ import annotations
 
+import contextlib
 import contextvars
 import json
 import os
@@ -31,15 +32,16 @@ import re
 import sys
 import threading
 import time
-from contextlib import contextmanager
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from bcg.env import resolve_config_api_key as resolve_project_api_key
-from .._shared.llm import (
-    EmbeddingClient,
+
+from .._shared.llm import (  # noqa: F401 - compat re-exports for legacy imports
+    _EMBEDDING_LOG_LOCK,
+    _PROMPT_LOG_LOCK,
     USAGE,
+    EmbeddingClient,
     TokenUsageTracker,
     _coerce_usage,
     _estimate_tokens,
@@ -89,8 +91,8 @@ def _is_reserved_key(key: str) -> bool:
 
 def load_config(
     path: str = "model_config.json",
-    model_key: Optional[str] = None,
-) -> Dict[str, Any]:
+    model_key: str | None = None,
+) -> dict[str, Any]:
     """
     Load the chat-model config. Supports two schemas:
 
@@ -115,7 +117,7 @@ def load_config(
             f"Missing {path}. Create it with base_url / api_key_env / model "
             f"(flat) or nested by model name."
         )
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         raw = json.load(f)
     if not isinstance(raw, dict):
         raise ValueError(f"{path} must contain a JSON object")
@@ -128,10 +130,10 @@ def load_config(
         if model_key and model_key in raw:
             chosen = model_key
         elif model_key:
-            available = ", ".join(repr(k) for k in raw.keys() if not _is_reserved_key(k))
+            available = ", ".join(repr(k) for k in raw if not _is_reserved_key(k))
             raise KeyError(f"Model key {model_key!r} not found in {path}. Available: {available}")
         else:
-            chosen = next((k for k in raw.keys() if not _is_reserved_key(k)), None)
+            chosen = next((k for k in raw if not _is_reserved_key(k)), None)
             if chosen is None:
                 raise ValueError(f"{path} contains no chat-model entries (only reserved keys)")
         inner = raw[chosen]
@@ -157,7 +159,7 @@ def load_config(
 
 
 def resolve_config_api_key(
-    cfg: Dict[str, Any],
+    cfg: dict[str, Any],
     *,
     default_env: str,
     config_path: str,
@@ -171,7 +173,7 @@ def resolve_config_api_key(
     )
 
 
-def _deep_merge_dict(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+def _deep_merge_dict(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     out = dict(base or {})
     for key, value in (override or {}).items():
         if isinstance(value, dict) and isinstance(out.get(key), dict):
@@ -183,8 +185,8 @@ def _deep_merge_dict(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str
 
 def load_belief_graph_config(
     path: str = "model_config.json",
-    model_key: Optional[str] = None,
-) -> Dict[str, Any]:
+    model_key: str | None = None,
+) -> dict[str, Any]:
     """Load optional belief-graph runtime settings from model_config.json.
 
     Supported locations, merged in this order:
@@ -196,19 +198,19 @@ def load_belief_graph_config(
     """
     if not os.path.exists(path):
         return {}
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         raw = json.load(f)
     if not isinstance(raw, dict):
         return {}
 
     top = raw.get("belief_graph")
-    cfg: Dict[str, Any] = dict(top) if isinstance(top, dict) else {}
+    cfg: dict[str, Any] = dict(top) if isinstance(top, dict) else {}
 
     chosen = None
     if model_key and isinstance(raw.get(model_key), dict):
         chosen = model_key
     elif not model_key:
-        chosen = next((k for k in raw.keys() if not _is_reserved_key(k) and isinstance(raw.get(k), dict)), None)
+        chosen = next((k for k in raw if not _is_reserved_key(k) and isinstance(raw.get(k), dict)), None)
 
     if chosen and isinstance(raw.get(chosen), dict):
         override = raw[chosen].get("belief_graph")
@@ -217,7 +219,7 @@ def load_belief_graph_config(
     return cfg
 
 
-def make_client(cfg: Dict[str, Any]) -> OpenAI:
+def make_client(cfg: dict[str, Any]) -> OpenAI:
     return OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"])
 
 
@@ -236,10 +238,10 @@ def is_context_overflow_error(error: BaseException) -> bool:
 
 def _fit_max_tokens_after_context_overflow(
     error: Exception,
-    current_max_tokens: Optional[int],
+    current_max_tokens: int | None,
     *,
     safety_margin: int = 32,
-) -> Optional[int]:
+) -> int | None:
     """Return a smaller completion budget described by a vLLM overflow error.
 
     vLLM reports the model context window and the tokenized prompt size in its
@@ -273,13 +275,13 @@ def call_model(
     model: str,
     prompt: str,
     temperature: float = 0.0,
-    max_tokens: Optional[int] = None,
+    max_tokens: int | None = None,
     retries: int = 3,
     backoff: float = 2.0,
-    usage_label: Optional[str] = None,
-    reasoning_effort: Optional[str] = "medium",
-    extra_body: Optional[Dict[str, Any]] = None,
-    response_format: Optional[Dict[str, Any]] = None,
+    usage_label: str | None = None,
+    reasoning_effort: str | None = "medium",
+    extra_body: dict[str, Any] | None = None,
+    response_format: dict[str, Any] | None = None,
 ) -> str:
     """Call chat completions and return the response text. Retries on errors.
 
@@ -292,7 +294,7 @@ def call_model(
     ``extra_body`` is forwarded verbatim (e.g. {"chat_template_kwargs":
     {"enable_thinking": False}} to turn off Qwen3 thinking).
     """
-    kwargs: Dict[str, Any] = {
+    kwargs: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": temperature,
@@ -306,13 +308,14 @@ def call_model(
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
 
-    last_err: Optional[Exception] = None
+    last_err: Exception | None = None
     # Audit the prompt once (do not duplicate for retries). This is intentionally
     # done before making the network call so we retain the exact input text
     # that was sent to the LLM.
-    try:
+    with contextlib.suppress(Exception):
+        # Never fail the call due to logging issues
         _log_prompt({
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "model": model,
             "label": usage_label,
             "max_tokens": max_tokens,
@@ -320,9 +323,6 @@ def call_model(
             "prompt_len": len(prompt) if prompt is not None else 0,
             "prompt": prompt,
         })
-    except Exception:
-        # Never fail the call due to logging issues
-        pass
     for attempt in range(retries):
         try:
             resp = client.chat.completions.create(**kwargs)
@@ -349,7 +349,7 @@ def call_model(
     raise RuntimeError(f"All retries failed: {last_err}")
 
 
-def parse_json_response(text: str) -> Dict[str, Any]:
+def parse_json_response(text: str) -> dict[str, Any]:
     """Tolerantly parse a JSON object out of an LLM response."""
     if not text:
         return {"_parse_error": "empty response", "_raw": ""}
@@ -364,7 +364,7 @@ def parse_json_response(text: str) -> Dict[str, Any]:
         pass
 
     decoder = json.JSONDecoder()
-    last_error: Optional[json.JSONDecodeError] = None
+    last_error: json.JSONDecodeError | None = None
     for match in re.finditer(r"\{", s):
         try:
             value, _end = decoder.raw_decode(s, match.start())
@@ -388,7 +388,7 @@ def parse_json_response(text: str) -> Dict[str, Any]:
 def load_embedding_config(
     path: str = "model_config.json",
     embedding_key: str = "embedding",
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """
     Load an embedding entry from model_config.json. Returns None when the
     entry is absent (callers decide whether that's an error).
@@ -423,7 +423,7 @@ def load_embedding_config(
     """
     if not os.path.exists(path):
         return None
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         raw = json.load(f)
     if not isinstance(raw, dict):
         return None
@@ -490,16 +490,16 @@ class LocalEmbeddingClient:
     embedding_calls.jsonl schema with "provider": "local".
     """
 
-    def __init__(self, cfg: Dict[str, Any], log_path: Optional[Any] = None) -> None:
+    def __init__(self, cfg: dict[str, Any], log_path: Any | None = None) -> None:
         self.model: str = cfg["model"]
         self.batch_size: int = int(cfg.get("batch_size", 8) or 8)
-        self.device: Optional[str] = cfg.get("device")
-        self.dtype: Optional[str] = cfg.get("dtype")
-        self.max_length: Optional[int] = cfg.get("max_length")
-        self.extra_model_kwargs: Dict[str, Any] = dict(cfg.get("model_kwargs") or {})
+        self.device: str | None = cfg.get("device")
+        self.dtype: str | None = cfg.get("dtype")
+        self.max_length: int | None = cfg.get("max_length")
+        self.extra_model_kwargs: dict[str, Any] = dict(cfg.get("model_kwargs") or {})
         self._model = None                       # lazy-loaded
         self._model_lock = threading.Lock()       # guards lazy load under concurrency
-        self._cache: Dict[str, List[float]] = {}
+        self._cache: dict[str, list[float]] = {}
         self._cache_lock = threading.Lock()
         if log_path:
             self.set_log_path(log_path)
@@ -511,13 +511,12 @@ class LocalEmbeddingClient:
     def unbind_log_path(self, token: contextvars.Token) -> None:
         unbind_embedding_log_path(token)
 
-    def _log(self, record: Dict[str, Any]) -> None:
+    def _log(self, record: dict[str, Any]) -> None:
         path = current_embedding_log_path()
         if path is None:
             return
-        with _EMBEDDING_LOG_LOCK:
-            with open(path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        with _EMBEDDING_LOG_LOCK, open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def clear_cache(self) -> None:
         with self._cache_lock:
@@ -550,22 +549,20 @@ class LocalEmbeddingClient:
                 self.model, device=device,
                 model_kwargs=model_kwargs or None)
             if self.max_length:
-                try:
+                with contextlib.suppress(Exception):
                     model.max_seq_length = int(self.max_length)
-                except Exception:
-                    pass
             print(f"[info] local embedding model ready ({time.time() - t0:.1f}s)",
                   file=sys.stderr)
             self._model = model
         return self._model
 
     # -- main entry ----------------------------------------------------------
-    def embed(self, texts: List[str], purpose: str = "") -> List[List[float]]:
+    def embed(self, texts: list[str], purpose: str = "") -> list[list[float]]:
         """Embed a list of texts (order-preserving). Cached texts are reused."""
         t0 = time.time()
-        results: List[Optional[List[float]]] = [None] * len(texts)
-        cached_flags: List[bool] = [False] * len(texts)
-        missing_idx: List[int] = []
+        results: list[list[float] | None] = [None] * len(texts)
+        cached_flags: list[bool] = [False] * len(texts)
+        missing_idx: list[int] = []
         with self._cache_lock:
             for i, t in enumerate(texts):
                 v = self._cache.get(t)
@@ -591,9 +588,9 @@ class LocalEmbeddingClient:
                     f"local embedding returned {len(vec_lists)} vectors "
                     f"for {len(batch)} inputs")
             with self._cache_lock:
-                for t, v in zip(batch, vec_lists):
+                for t, v in zip(batch, vec_lists, strict=False):
                     self._cache[t] = v
-            for i, v in zip(missing_idx, vec_lists):
+            for i, v in zip(missing_idx, vec_lists, strict=False):
                 results[i] = v
             pt = sum(_estimate_tokens(t) for t in batch)
             USAGE.record(
@@ -607,7 +604,7 @@ class LocalEmbeddingClient:
 
         dim = len(results[0]) if results and results[0] is not None else 0
         self._log({
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "provider": "local",
             "purpose": purpose,
             "model": self.model,
@@ -623,7 +620,7 @@ class LocalEmbeddingClient:
 
 
 
-def make_embedder(cfg: Dict[str, Any], log_path: Optional[Any] = None):
+def make_embedder(cfg: dict[str, Any], log_path: Any | None = None):
     """Build the right embedding client for a load_embedding_config() entry."""
     provider = (cfg.get("provider") or "openai").strip().lower()
     if provider == "openai":

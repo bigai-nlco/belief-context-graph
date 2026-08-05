@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import import_module
 from types import ModuleType
-from typing import Any, Callable
+from typing import Any
 
 from bcg.core.client_adapter import ConstructClientAdapter
 from bcg.core.contracts import (
@@ -87,7 +88,7 @@ def resolve_backend(name: str) -> ConstructBackend:
         raise ValueError(
             f"unknown backend {name!r}; choose one of: {', '.join(_BACKEND_MODULES)}"
         ) from exc
-    backend = getattr(import_module(module_name), "BACKEND")
+    backend = import_module(module_name).BACKEND
     if not isinstance(backend, ConstructBackend) or backend.name != name:
         raise TypeError(f"{module_name}.BACKEND does not implement ConstructBackend")
     _BACKENDS[name] = backend

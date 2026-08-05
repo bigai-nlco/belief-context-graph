@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import List, Tuple
+
 from .._shared.spans import trim_span
 
 
@@ -47,9 +47,9 @@ def _is_pure_tag(text: str, s: int, e: int) -> bool:
     return _TAG_RE.sub("", text[s:e]).strip() == ""
 
 
-def _merge_tiny(spans: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+def _merge_tiny(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
     """Merge tiny fragments forward within a contiguous run (offset-exact)."""
-    merged: List[Tuple[int, int]] = []
+    merged: list[tuple[int, int]] = []
     i = 0
     while i < len(spans):
         s, e = spans[i]
@@ -64,7 +64,7 @@ def _merge_tiny(spans: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
     return merged
 
 
-def split_sentences(text: str) -> List[Sentence]:
+def split_sentences(text: str) -> list[Sentence]:
     """
     Split `text` into sentences with EXACT character offsets:
         text[s.start:s.end] == s.text  for every returned Sentence.
@@ -91,7 +91,7 @@ def split_sentences(text: str) -> List[Sentence]:
         cuts.add(m.end())
     cuts.add(len(text))
 
-    spans: List[Tuple[int, int]] = []
+    spans: list[tuple[int, int]] = []
     prev = 0
     for c in sorted(cuts):
         if c <= prev:
@@ -103,8 +103,8 @@ def split_sentences(text: str) -> List[Sentence]:
 
     # Split into runs separated by pure-tag spans (which are dropped); run the
     # tiny-fragment merge inside each run so tags are never re-absorbed.
-    merged: List[Tuple[int, int]] = []
-    run: List[Tuple[int, int]] = []
+    merged: list[tuple[int, int]] = []
+    run: list[tuple[int, int]] = []
     for (s, e) in spans:
         if _is_pure_tag(text, s, e):
             if run:
@@ -115,7 +115,7 @@ def split_sentences(text: str) -> List[Sentence]:
     if run:
         merged.extend(_merge_tiny(run))
 
-    out: List[Sentence] = []
+    out: list[Sentence] = []
     for idx, (s, e) in enumerate(merged):
         s, e = trim_span(text, s, e)
         out.append(Sentence(index=idx, text=text[s:e], start=s, end=e))

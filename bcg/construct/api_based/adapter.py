@@ -9,7 +9,7 @@ from bcg.core.contracts import RunOptions
 
 from . import llm
 from .online import StreamingTrajectorySession
-from .stream import StreamOptions, StreamingBeliefBuilder
+from .stream import StreamingBeliefBuilder, StreamOptions
 
 
 def _build_options(

@@ -56,31 +56,26 @@ from __future__ import annotations
 
 import concurrent.futures
 import copy
-import json
 import sys
 import threading
-from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from . import llm
-from .llm import (
-    load_config,
-    load_belief_graph_config,
-    load_embedding_config,
-    make_client,
-    make_embedder,
-)
-from .._shared.loaders import iter_items, sanitize_name, select_items
-from .._shared.session import (
+from .._shared.loaders import iter_items, select_items
+from .._shared.session import (  # noqa: F401 - compat re-exports for legacy imports
     StreamingTrajectorySession,
     TrajectoryClosedError,
     _now,
     _optional_bool,
 )
-from .stream import StreamOptions, StreamingBeliefBuilder
-
+from .llm import (
+    load_belief_graph_config,
+    load_config,
+    load_embedding_config,
+    make_client,
+    make_embedder,
+)
+from .stream import StreamingBeliefBuilder, StreamOptions
 
 
 class SessionManager:
@@ -95,25 +90,25 @@ class SessionManager:
         self,
         *,
         config_path: str = "model_config.json",
-        model_key: Optional[str] = None,
+        model_key: str | None = None,
         embedding_key: str = "embedding",
         output_root: Any = "outputs_stream",
-        options: Optional[StreamOptions] = None,
+        options: StreamOptions | None = None,
         # pre-built injection (e.g. offline tests / custom wiring); when given,
         # config_path is NOT read.
         client: Any = "__from_config__",
-        model: Optional[str] = None,
+        model: str | None = None,
         embedder: Any = "__from_config__",
         edge_generator=None,
-        pricing: Optional[Dict[str, Any]] = None,
+        pricing: dict[str, Any] | None = None,
     ) -> None:
         self.output_root = Path(output_root)
         self.output_root.mkdir(parents=True, exist_ok=True)
         self.options = options or StreamOptions()
         self.pricing = pricing
         self.edge_generator = edge_generator
-        self.max_tokens: Optional[int] = None
-        self._sessions: Dict[str, StreamingTrajectorySession] = {}
+        self.max_tokens: int | None = None
+        self._sessions: dict[str, StreamingTrajectorySession] = {}
         # Guards ONLY the check-and-create step in get_session(): without it,
         # two threads racing to push the FIRST turn of a brand-new problem_id
         # could each construct their own StreamingTrajectorySession (each
@@ -218,9 +213,9 @@ class SessionManager:
         problem_id: str,
         *,
         create: bool = True,
-        item_meta: Optional[Dict[str, Any]] = None,
-        extra_meta: Optional[Dict[str, Any]] = None,
-    ) -> Optional[StreamingTrajectorySession]:
+        item_meta: dict[str, Any] | None = None,
+        extra_meta: dict[str, Any] | None = None,
+    ) -> StreamingTrajectorySession | None:
         pid = str(problem_id)
         with self._sessions_lock:
             sess = self._sessions.get(pid)
@@ -243,7 +238,7 @@ class SessionManager:
                 self._sessions[pid] = sess
         return sess
 
-    def push(self, turn: Dict[str, Any]) -> Dict[str, Any]:
+    def push(self, turn: dict[str, Any]) -> dict[str, Any]:
         """Route one incoming dict to its trajectory and return the live graph."""
         pid = turn.get("problem_id")
         if pid is None:
@@ -252,7 +247,7 @@ class SessionManager:
         assert sess is not None
         return sess.push(turn)
 
-    def push_many(self, turns: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def push_many(self, turns: list[dict[str, Any]]) -> dict[str, Any]:
         """
         Push several turns (as used by the /turns HTTP endpoint), keeping each
         problem_id's own turns strictly in arrival order and atomic relative
@@ -260,8 +255,8 @@ class SessionManager:
         session.exclusive()), while turns for DIFFERENT problem_ids are
         pushed concurrently on a small thread pool.
         """
-        groups: Dict[str, List[Dict[str, Any]]] = {}
-        order: List[str] = []
+        groups: dict[str, list[dict[str, Any]]] = {}
+        order: list[str] = []
         for t in turns:
             pid = t.get("problem_id")
             if pid is None:
@@ -272,8 +267,8 @@ class SessionManager:
                 order.append(pid)
             groups[pid].append(t)
 
-        latest: Dict[str, Any] = {}
-        finalized: List[str] = []
+        latest: dict[str, Any] = {}
+        finalized: list[str] = []
         result_lock = threading.Lock()
 
         def _run_group(pid: str) -> None:
@@ -302,7 +297,7 @@ class SessionManager:
 
         return {"pushed": len(turns), "finalized": finalized, "latest": latest}
 
-    def push_item(self, item: Dict[str, Any], *, finalize: bool = True) -> Dict[str, Any]:
+    def push_item(self, item: dict[str, Any], *, finalize: bool = True) -> dict[str, Any]:
         """
         Process one normalised loader item exactly like ``pipeline.run_item``:
         ingest its turns in order, then finalize at the end.
@@ -320,7 +315,7 @@ class SessionManager:
         assert sess is not None
         turns = item.get("turns") or []
         with sess.exclusive():
-            latest: Optional[Dict[str, Any]] = None
+            latest: dict[str, Any] | None = None
             for idx, raw_turn in enumerate(turns):
                 if not isinstance(raw_turn, dict):
                     continue
@@ -341,9 +336,9 @@ class SessionManager:
         data: Any,
         *,
         keep_order: bool = False,
-        item_selector: Optional[str] = None,
+        item_selector: str | None = None,
         finalize: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Accept the same data shapes as run.py/loaders.py, normalise them into
         items, and process them through the online sessions.
@@ -357,11 +352,11 @@ class SessionManager:
         but may interleave across the two concurrent push_item() calls.
         """
         items = select_items(iter_items(data, keep_order=keep_order), item_selector)
-        latest: Dict[str, Any] = {}
-        finalized: List[str] = []
+        latest: dict[str, Any] = {}
+        finalized: list[str] = []
         result_lock = threading.Lock()
 
-        def _run(item: Dict[str, Any]) -> None:
+        def _run(item: dict[str, Any]) -> None:
             snap = self.push_item(item, finalize=finalize)
             item_id = str(item.get("item_id") or item.get("problem_id") or "trajectory")
             with result_lock:
@@ -379,25 +374,25 @@ class SessionManager:
 
         return {"items": len(items), "finalized": finalized, "latest": latest}
 
-    def finalize(self, problem_id: str) -> Dict[str, Any]:
+    def finalize(self, problem_id: str) -> dict[str, Any]:
         sess = self.get_session(problem_id, create=False)
         if sess is None:
             raise KeyError(f"no active trajectory for problem_id {problem_id!r}")
         return sess.finalize()
 
-    def release(self, problem_id: str) -> Dict[str, Any]:
+    def release(self, problem_id: str) -> dict[str, Any]:
         """Drop one completed producer session while preserving its disk artifacts."""
         pid = str(problem_id)
         with self._sessions_lock:
             released = self._sessions.pop(pid, None) is not None
         return {"problem_id": pid, "released": released}
 
-    def get_graph(self, problem_id: str) -> Optional[Dict[str, Any]]:
+    def get_graph(self, problem_id: str) -> dict[str, Any] | None:
         sess = self.get_session(problem_id, create=False)
         return None if sess is None else sess._snapshot(stage="query")
 
-    def active_problem_ids(self) -> List[str]:
+    def active_problem_ids(self) -> list[str]:
         return [pid for pid, s in self._sessions.items() if s.active]
 
-    def all_problem_ids(self) -> List[str]:
+    def all_problem_ids(self) -> list[str]:
         return list(self._sessions.keys())

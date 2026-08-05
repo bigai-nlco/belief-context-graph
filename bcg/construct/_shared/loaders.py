@@ -30,12 +30,11 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 def load_input_file(path: str) -> Any:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -53,7 +52,7 @@ _DATE_FORMATS = (
 _PAREN_DAY_RE = re.compile(r"\s*\([A-Za-z]{3,}\)\s*")
 
 
-def parse_date(s: Optional[str]) -> Optional[datetime]:
+def parse_date(s: str | None) -> datetime | None:
     if not s or not isinstance(s, str):
         return None
     for cand in (s.strip(), _PAREN_DAY_RE.sub(" ", s).strip()):
@@ -70,7 +69,7 @@ def parse_date(s: Optional[str]) -> Optional[datetime]:
 # ---------------------------------------------------------------------------
 
 def _is_sessioned(data: Any) -> bool:
-    probe: Optional[Dict[str, Any]] = None
+    probe: dict[str, Any] | None = None
     if isinstance(data, list) and data and isinstance(data[0], dict):
         probe = data[0]
     elif isinstance(data, dict):
@@ -82,8 +81,8 @@ def _is_sessioned(data: Any) -> bool:
 # Normalisers
 # ---------------------------------------------------------------------------
 
-def _turns_from_messages(messages: Any) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+def _turns_from_messages(messages: Any) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     for m in messages or []:
         if isinstance(m, dict):
             out.append({"role": m.get("role") or "user",
@@ -93,12 +92,12 @@ def _turns_from_messages(messages: Any) -> List[Dict[str, Any]]:
     return out
 
 
-def _flatten_sessions(raw: Dict[str, Any], keep_order: bool) -> Tuple[List[Dict[str, Any]], bool]:
+def _flatten_sessions(raw: dict[str, Any], keep_order: bool) -> tuple[list[dict[str, Any]], bool]:
     sessions_raw = raw.get("sessions") or []
-    session_ids = raw.get("session_ids") or []
+    raw.get("session_ids") or []
     dates = raw.get("dates") or []
 
-    sess: List[Dict[str, Any]] = []
+    sess: list[dict[str, Any]] = []
     for i, turns_raw in enumerate(sessions_raw):
         date = dates[i] if i < len(dates) else None
         sess.append({
@@ -118,17 +117,17 @@ def _flatten_sessions(raw: Dict[str, Any], keep_order: bool) -> Tuple[List[Dict[
         sess = sorted(sess, key=lambda s: s["date_parsed"])
         order_sorted = True
 
-    flat: List[Dict[str, Any]] = []
+    flat: list[dict[str, Any]] = []
     for s in sess:
         flat.extend(s["turns"])
     return flat, order_sorted
 
 
-def iter_items(data: Any, keep_order: bool = False) -> List[Dict[str, Any]]:
+def iter_items(data: Any, keep_order: bool = False) -> list[dict[str, Any]]:
     """Normalise ANY accepted input into a list of items (see module docstring)."""
     if _is_sessioned(data):
         raw_items = data if isinstance(data, list) else [data]
-        items: List[Dict[str, Any]] = []
+        items: list[dict[str, Any]] = []
         for idx, raw in enumerate(raw_items):
             if not isinstance(raw, dict):
                 continue
@@ -155,7 +154,7 @@ def iter_items(data: Any, keep_order: bool = False) -> List[Dict[str, Any]]:
              "order_sorted": False}]
 
 
-def select_items(items: List[Dict[str, Any]], selector: Optional[str]) -> List[Dict[str, Any]]:
+def select_items(items: list[dict[str, Any]], selector: str | None) -> list[dict[str, Any]]:
     """Filter items by id or by 0-based index. None selects all."""
     if selector is None or selector == "":
         return items

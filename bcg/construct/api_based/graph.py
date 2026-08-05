@@ -22,12 +22,11 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from .confidence import normalize_confidence_config, relation_propagation_config
-
 
 VALID_RELATION_TYPES = {"depends_on", "supplements", "contradicts"}
 
@@ -35,15 +34,15 @@ VALID_RELATION_TYPES = {"depends_on", "supplements", "contradicts"}
 class BeliefGraph:
     def __init__(
         self,
-        confidence_config: Optional[Dict[str, Any]] = None,
+        confidence_config: dict[str, Any] | None = None,
     ) -> None:
         # Keep the historical attribute name so merge.py and callers that expect
         # graph.beliefs continue to work. Values can now be belief or decision nodes.
-        self.beliefs: Dict[int, Dict[str, Any]] = {}
-        self.evidence: Dict[int, Dict[str, Any]] = {}
-        self.relations: List[Dict[str, Any]] = []
-        self.merges: List[Dict[str, Any]] = []
-        self.sessions: List[Dict[str, Any]] = []
+        self.beliefs: dict[int, dict[str, Any]] = {}
+        self.evidence: dict[int, dict[str, Any]] = {}
+        self.relations: list[dict[str, Any]] = []
+        self.merges: list[dict[str, Any]] = []
+        self.sessions: list[dict[str, Any]] = []
         self._next_id = 0
         self._next_evidence_id = 0
         self._next_relation_id = 0
@@ -59,7 +58,7 @@ class BeliefGraph:
         self._next_id += 1
         return i
 
-    def add_belief(self, belief: Dict[str, Any]) -> None:
+    def add_belief(self, belief: dict[str, Any]) -> None:
         bid = belief.get("id")
         if not isinstance(bid, int):
             raise ValueError("node must carry an int 'id' (use allocate_id())")
@@ -69,7 +68,7 @@ class BeliefGraph:
         belief.pop("evidence", None)
         self.beliefs[bid] = belief
 
-    def remove_belief(self, bid: int) -> Optional[Dict[str, Any]]:
+    def remove_belief(self, bid: int) -> dict[str, Any] | None:
         return self.beliefs.pop(bid, None)
 
     # -- evidence ------------------------------------------------------
@@ -78,7 +77,7 @@ class BeliefGraph:
         self._next_evidence_id += 1
         return i
 
-    def add_evidence(self, evidence: Dict[str, Any]) -> int:
+    def add_evidence(self, evidence: dict[str, Any]) -> int:
         eid = evidence.get("id")
         if not isinstance(eid, int):
             eid = self.allocate_evidence_id()
@@ -93,11 +92,11 @@ class BeliefGraph:
             self._next_evidence_id = eid + 1
         return eid
 
-    def get_evidence(self, eid: int) -> Optional[Dict[str, Any]]:
+    def get_evidence(self, eid: int) -> dict[str, Any] | None:
         return self.evidence.get(eid)
 
-    def evidence_records(self, evidence_ids: List[int]) -> List[Dict[str, Any]]:
-        out: List[Dict[str, Any]] = []
+    def evidence_records(self, evidence_ids: list[int]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
         for raw in evidence_ids or []:
             try:
                 eid = int(raw)
@@ -108,10 +107,10 @@ class BeliefGraph:
                 out.append(ev)
         return out
 
-    def active(self) -> List[Dict[str, Any]]:
+    def active(self) -> list[dict[str, Any]]:
         return [self.beliefs[i] for i in sorted(self.beliefs.keys())]
 
-    def ids(self) -> List[int]:
+    def ids(self) -> list[int]:
         return sorted(self.beliefs.keys())
 
     # -- relations ---------------------------------------------------------
@@ -121,17 +120,17 @@ class BeliefGraph:
         return i
 
     @staticmethod
-    def _rel_key(r: Dict[str, Any]) -> Tuple[int, int, str]:
+    def _rel_key(r: dict[str, Any]) -> tuple[int, int, str]:
         return (r.get("from_id"), r.get("to_id"), r.get("type"))
 
-    def _relation_propagation_config(self) -> Dict[str, Any]:
+    def _relation_propagation_config(self) -> dict[str, Any]:
         return relation_propagation_config(self.confidence_config)
 
     def _clean_relation_weight(
         self,
-        relation: Dict[str, Any],
+        relation: dict[str, Any],
         relation_type: str,
-    ) -> Optional[float]:
+    ) -> float | None:
         if relation_type == "supplements":
             return None
         default = float(self._relation_propagation_config()["default_relation_weight"])
@@ -145,9 +144,9 @@ class BeliefGraph:
 
     def _clean_relation_condition(
         self,
-        relation: Dict[str, Any],
+        relation: dict[str, Any],
         relation_type: str,
-    ) -> Optional[Dict[str, float]]:
+    ) -> dict[str, float] | None:
         if relation_type == "supplements":
             return None
         cfg = self._relation_propagation_config()
@@ -161,7 +160,7 @@ class BeliefGraph:
         threshold = min(1.0, max(0.0, threshold))
         return {"input_conf_threshold": threshold}
 
-    def add_relations(self, rels: List[Dict[str, Any]]) -> int:
+    def add_relations(self, rels: list[dict[str, Any]]) -> int:
         seen = {self._rel_key(r) for r in self.relations}
         active_ids = set(self.beliefs)
         n = 0
@@ -202,14 +201,14 @@ class BeliefGraph:
             n += 1
         return n
 
-    def remap_relations(self, mapping: Dict[int, int]) -> Dict[str, Any]:
+    def remap_relations(self, mapping: dict[int, int]) -> dict[str, Any]:
         """
         Rewrite relation endpoints after a merge. Every absorbed id is replaced
         by its canonical id. Relations that become self-loops or duplicates are
         dropped. There is no chronological direction constraint anymore.
         """
         report = {"rewritten": 0, "dropped_self": 0, "dropped_duplicate": 0}
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         seen: set = set()
         for r in self.relations:
             fid = mapping.get(r["from_id"], r["from_id"])
@@ -232,10 +231,10 @@ class BeliefGraph:
         return report
 
     # -- snapshots ---------------------------------------------------------
-    def snapshot(self, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def snapshot(self, extra: dict[str, Any] | None = None) -> dict[str, Any]:
         nodes = self.active()
-        d: Dict[str, Any] = {
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+        d: dict[str, Any] = {
+            "generated_at": datetime.now(UTC).isoformat(),
             "n_nodes": len(self.beliefs),
             "n_beliefs": sum(1 for n in nodes if n.get("node_type", "belief") == "belief"),
             "n_decisions": sum(1 for n in nodes if n.get("node_type") == "decision"),
@@ -251,7 +250,7 @@ class BeliefGraph:
             d.update(extra)
         return d
 
-    def save_snapshot(self, path: Any, extra: Optional[Dict[str, Any]] = None) -> None:
+    def save_snapshot(self, path: Any, extra: dict[str, Any] | None = None) -> None:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:

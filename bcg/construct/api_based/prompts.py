@@ -19,10 +19,7 @@ Placeholders are filled via str.replace:
 
 from __future__ import annotations
 
-from typing import List, Optional
-
 from .._shared.roles import normalize_role
-
 
 CONTENT_PLACEHOLDER       = "<<<CONTENT>>>"
 SENTENCES_PLACEHOLDER     = "<<<SENTENCES>>>"
@@ -392,24 +389,24 @@ boilerplate wrappers ("Execution output of […]:", "Your answer has been submit
     ),
 }
 
-def _resolve_role(role: str) -> Optional[str]:
+def _resolve_role(role: str) -> str | None:
     role = (role or "").strip().lower()
     role = normalize_role(role)
     return role if role in _GUIDANCE else None
 
 
-def format_sentences_for_prompt(sentences: List[str]) -> str:
+def format_sentences_for_prompt(sentences: list[str]) -> str:
     return "\n".join(f"[{i}] {s}" for i, s in enumerate(sentences))
 
 
 def format_clustered_sentences_for_prompt(
-    sentences: List[str], clusters: List[List[int]]
+    sentences: list[str], clusters: list[list[int]]
 ) -> str:
     """Render the SAME indexed sentence list, but grouped by topic cluster.
     Indices [k] are GLOBAL across the whole list (unchanged), so the model still
     returns global supporting_sentence_indices. Grouping is presentation only —
     it remains ONE call for the whole content."""
-    lines: List[str] = []
+    lines: list[str] = []
     for ci, idxs in enumerate(clusters):
         lines.append(f"--- topic group {ci} ---")
         for i in idxs:
@@ -422,19 +419,19 @@ def build_update_prompt(
     role: str,
     *,
     mode: str = "sentences",                 # "sentences" | "excerpt"
-    content: Optional[str] = None,
-    sentences_block: Optional[str] = None,   # pre-rendered indexed sentence list
+    content: str | None = None,
+    sentences_block: str | None = None,   # pre-rendered indexed sentence list
     graph_nodes: str = "[]",
     graph_edges: str = "[]",
-    current_date: Optional[str] = None,
-) -> Optional[str]:
+    current_date: str | None = None,
+) -> str | None:
     """Assemble the single-call update prompt. Returns None for an unknown role."""
     key = _resolve_role(role)
     if key is None:
         return None
     task_line, guidance, stance_hint = _GUIDANCE[key]
 
-    parts: List[str] = [
+    parts: list[str] = [
         "# Task",
         task_line,
         "\nYou maintain a belief graph INCREMENTALLY. From the CURRENT turn, output only the NEW "
@@ -560,12 +557,12 @@ def build_node_extraction_prompt(
     role: str,
     *,
     mode: str = "sentences",
-    content: Optional[str] = None,
-    sentences_block: Optional[str] = None,
+    content: str | None = None,
+    sentences_block: str | None = None,
     graph_nodes: str = "[]",
     graph_edges: str = "[]",
-    current_date: Optional[str] = None,
-) -> Optional[str]:
+    current_date: str | None = None,
+) -> str | None:
     """Phase 1 prompt: extract beliefs + decisions only (no relations).
     Returns None for an unknown role."""
     key = _resolve_role(role)
@@ -573,7 +570,7 @@ def build_node_extraction_prompt(
         return None
     task_line, guidance, stance_hint = _GUIDANCE[key]
 
-    parts: List[str] = [
+    parts: list[str] = [
         "# Task",
         task_line,
         "\nYou maintain a belief graph INCREMENTALLY. From the CURRENT turn, output only the NEW "
@@ -700,10 +697,10 @@ def build_relation_extraction_prompt(
     graph_nodes: str = "[]",
     graph_edges: str = "[]",
     new_node_ids: str = "[]",
-    current_date: Optional[str] = None,
+    current_date: str | None = None,
 ) -> str:
     """Phase 2 prompt: extract relations only (on post-merge graph)."""
-    parts: List[str] = [
+    parts: list[str] = [
         "# Task",
         "Extract typed relations for the belief graph based on the current turn.",
         "\nBelief and decision nodes have already been extracted from the current turn and merged "
