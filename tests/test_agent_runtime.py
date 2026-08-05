@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from bcg import agent_runtime
+from bcg.apps import agent_runtime
 
 
 @pytest.fixture(autouse=True)
@@ -144,7 +144,7 @@ def test_launch_passes_bcg_environment_to_agent(monkeypatch, tmp_path: Path) -> 
     monkeypatch.delenv("MODEL", raising=False)
     monkeypatch.setattr(agent_runtime, "ensure_graph_server", lambda _url: None)
     monkeypatch.setattr(
-        "bcg.setup.ensure_user_setup",
+        "bcg.apps.setup.ensure_user_setup",
         lambda: ({}, False),
     )
     monkeypatch.setattr(
@@ -162,7 +162,7 @@ def test_launch_passes_bcg_environment_to_agent(monkeypatch, tmp_path: Path) -> 
         calls.append((command, env))
         return Result()
 
-    monkeypatch.setattr(agent_runtime.subprocess, "run", fake_run)
+    monkeypatch.setattr("subprocess.run", fake_run)
 
     assert agent_runtime.launch_interactive(["hello"]) == 7
     assert calls[0][0] == ["bcg-agent", "hello"]
@@ -176,7 +176,7 @@ def test_launch_selects_generated_bcg_model(monkeypatch, tmp_path: Path) -> None
     monkeypatch.setenv("OPENAI_MODEL", "test-model")
     monkeypatch.setattr(agent_runtime, "ensure_graph_server", lambda _url: None)
     monkeypatch.setattr(
-        "bcg.setup.ensure_user_setup",
+        "bcg.apps.setup.ensure_user_setup",
         lambda: ({}, False),
     )
     monkeypatch.setattr(
@@ -193,7 +193,7 @@ def test_launch_selects_generated_bcg_model(monkeypatch, tmp_path: Path) -> None
         commands.append(command)
         return Result()
 
-    monkeypatch.setattr(agent_runtime.subprocess, "run", fake_run)
+    monkeypatch.setattr("subprocess.run", fake_run)
 
     assert agent_runtime.launch_interactive([]) == 0
     assert commands == [

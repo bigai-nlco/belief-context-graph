@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 from pathlib import Path
 
@@ -186,8 +187,8 @@ def test_apply_user_configuration_uses_global_values(
 
     setup.apply_user_configuration(config, override=True)
 
-    assert setup.os.environ["OPENAI_API_KEY"] == "global-secret"
-    assert setup.os.environ["OPENAI_MODEL"] == "agent-model"
-    assert setup.os.environ["BCG_CONTEXT_MODE"] == "default"
-    assert setup.os.environ["BCG_GRAPH_BACKEND"] == "api_based"
-    assert setup.os.environ["BCG_GRAPH_AUTOSTART"] == "false"
+    assert os.environ["OPENAI_API_KEY"] == "global-secret"
+    assert os.environ["OPENAI_MODEL"] == "agent-model"
+    assert os.environ["BCG_CONTEXT_MODE"] == "default"
+    assert os.environ["BCG_GRAPH_BACKEND"] == "api_based"
+    assert os.environ["BCG_GRAPH_AUTOSTART"] == "false"

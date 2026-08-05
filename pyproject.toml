@@ -28,7 +28,7 @@ benchmarks = [
 ]
 
 [project.scripts]
-bcg = "bcg.cli:main"
+bcg = "bcg.apps.cli:main"
 
 [dependency-groups]
 dev = ["pre-commit>=4.0.1", "pytest>=8.0.0", "ruff>=0.8.0"]

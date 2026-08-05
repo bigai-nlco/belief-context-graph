@@ -9,7 +9,7 @@ from bcg.construct import cli as construct_cli
 
 def test_root_without_arguments_launches_interactive_agent(monkeypatch) -> None:
     calls: list[list[str]] = []
-    monkeypatch.setattr("bcg.agent_runtime.main", lambda args: calls.append(args) or 0)
+    monkeypatch.setattr("bcg.apps.agent_runtime.main", lambda args: calls.append(args) or 0)
 
     cli.main([])
 
@@ -31,7 +31,7 @@ def test_root_help_lists_public_command_families(capsys) -> None:
 def test_root_routes_interactive_agent_arguments(monkeypatch) -> None:
     received: list[list[str]] = []
     monkeypatch.setattr(
-        "bcg.agent_runtime.main",
+        "bcg.apps.agent_runtime.main",
         lambda args: received.append(args) or 0,
     )
 
@@ -51,7 +51,7 @@ def test_root_routes_construct_arguments(monkeypatch) -> None:
 
 def test_root_routes_benchmark_arguments(monkeypatch) -> None:
     received: list[str] = []
-    monkeypatch.setattr("bcg.benchmark.cli.main", received.extend)
+    monkeypatch.setattr("bcg.apps.benchmark.cli.main", received.extend)
 
     cli.main(["benchmark", "run", "gaia", "--max-problems", "2"])
 
@@ -60,7 +60,7 @@ def test_root_routes_benchmark_arguments(monkeypatch) -> None:
 
 def test_root_routes_setup(monkeypatch) -> None:
     calls: list[bool] = []
-    monkeypatch.setattr("bcg.setup.run_setup", lambda: calls.append(True))
+    monkeypatch.setattr("bcg.apps.setup.run_setup", lambda: calls.append(True))
 
     cli.main(["setup"])
 
@@ -89,7 +89,7 @@ def test_construct_commands_expose_rich_help(command, capsys) -> None:
 def test_construct_legacy_flag_only_invocations_default_to_api_based(
     module_name, monkeypatch
 ) -> None:
-    module = __import__(module_name, fromlist=["main"])
+    module = __import__(f"bcg.apps.{module_name.rsplit('.', 1)[-1]}", fromlist=["main"])
     received: list[str] = []
     monkeypatch.setitem(module._BACKENDS, "api_based", received.extend)
 
@@ -109,7 +109,7 @@ def test_construct_legacy_flag_only_invocations_default_to_api_based(
 def test_construct_explicit_light_backend_is_preserved(
     module_name, monkeypatch
 ) -> None:
-    module = __import__(module_name, fromlist=["main"])
+    module = __import__(f"bcg.apps.{module_name.rsplit('.', 1)[-1]}", fromlist=["main"])
     received: list[str] = []
     monkeypatch.setitem(module._BACKENDS, "light", received.extend)
 

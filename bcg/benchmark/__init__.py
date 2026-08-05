@@ -1,12 +1,3 @@
-"""Benchmark adapters for the reference BCG terminal Agent."""
+"""(compatibility re-export; implementation moved to ``bcg.apps.benchmark.__init__`` in step 6)."""
 
-from bcg.benchmark.loaders import BENCHMARKS, load_benchmark
-from bcg.benchmark.models import BenchmarkTask, ScoreResult, TokenUsage
-
-__all__ = [
-    "BENCHMARKS",
-    "BenchmarkTask",
-    "ScoreResult",
-    "TokenUsage",
-    "load_benchmark",
-]
+from bcg.apps.benchmark.__init__ import *  # noqa: F403,F401

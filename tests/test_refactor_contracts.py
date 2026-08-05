@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 
 import bcg
-from bcg import online_driver, online_server, run
+from bcg.apps import online_driver, online_server, run
 from bcg.construct.api_based import online as api_online
 from bcg.construct.api_based import pipeline as api_pipeline
 from bcg.construct.api_based.stream import StreamOptions as ApiStreamOptions
