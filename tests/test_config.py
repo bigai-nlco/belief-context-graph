@@ -30,7 +30,6 @@ def test_defaults_load_and_validate() -> None:
     assert settings.backend in {"api_based", "light"}
     assert settings.server.port == 8848
     assert settings.runner.incremental_merge_threshold == 0.8
-    assert settings.cli_defaults.incremental_merge_threshold == 0.86
     assert settings.pipeline.runtime.context_chars == 12000
     assert sources["runner.incremental_merge_threshold"] == "packaged defaults"
 

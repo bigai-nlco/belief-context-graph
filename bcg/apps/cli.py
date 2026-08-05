@@ -9,6 +9,15 @@ from typing import Annotated
 import typer
 
 
+def _bootstrap_env() -> None:
+    """Load the project root .env explicitly (import no longer does this)."""
+    from bcg.core.env import load_project_env
+
+    load_project_env()
+
+
+
+
 def _package_version() -> str:
     try:
         return version("bcg")
@@ -129,6 +138,7 @@ def _config(ctx: typer.Context) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    _bootstrap_env()
     """Launch the Agent TUI or dispatch an explicit command family."""
 
     standalone = argv is None

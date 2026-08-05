@@ -40,6 +40,16 @@ from typing import Any
 
 from bcg.apps.cli_help import RichArgumentParser
 
+
+def _bootstrap_env() -> None:
+    """Load the project root .env explicitly (import no longer does this)."""
+    from bcg.core.env import load_project_env
+
+    load_project_env()
+
+
+
+
 ROLE_LABEL = {
     "system": "system",
     "user": "user",
@@ -1061,6 +1071,7 @@ def render_html(data: dict[str, Any], src_path: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> None:
+    _bootstrap_env()
     parser = RichArgumentParser(
         prog="bcg construct visualize",
         description="Graph visualizer for construct_beliefs result.json / final_graph.json / belief_graph.jsonl"

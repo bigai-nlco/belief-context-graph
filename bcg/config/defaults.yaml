@@ -46,7 +46,9 @@ pipeline:
       min_confidence_delta: 0.001
       max_iterations: 3
 
-# SDK-side run defaults (bcg.core.contracts.RunOptions).
+# SDK-side run defaults (bcg.core.contracts.RunOptions). These are also the
+# source of the CLI entry-point defaults (apps/cli_options) after the
+# step-7 unification: one value per knob, no legacy profiles.
 runner:
   evidence_mode: sentence
   incremental_merge: true
@@ -55,11 +57,3 @@ runner:
   context_chars: 9000
   io_context_chars: 6000
   min_content_len: 0
-
-# CLI entry-point defaults before the step-7 unification (0.8/0.86,
-# 9000/100000, False/True conflicts). Kept separate on purpose; removed
-# once the team approves a single value per knob.
-cli_defaults:
-  incremental_merge_threshold: 0.86
-  verify_merge: true
-  context_chars: 100000

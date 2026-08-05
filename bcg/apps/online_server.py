@@ -90,7 +90,17 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from bcg.apps.cli_help import RichArgumentParser
-from bcg.apps.cli_options import add_run_options  # noqa: E402
+from bcg.apps.cli_options import add_run_options
+
+
+def _bootstrap_env() -> None:
+    """Load the project root .env explicitly (import no longer does this)."""
+    from bcg.core.env import load_project_env
+
+    load_project_env()
+
+
+  # noqa: E402
 from bcg.construct.dispatch import (  # noqa: E402
     DEFAULT_BACKEND,
     split_backend_args,
@@ -383,6 +393,7 @@ _BACKENDS = {"light": _run_light, "api_based": _run_api_based}
 
 
 def main(argv: list[str] | None = None) -> None:
+    _bootstrap_env()
     argv = list(sys.argv[1:] if argv is None else argv)
 
     if not argv or argv[0] in ("-h", "--help"):

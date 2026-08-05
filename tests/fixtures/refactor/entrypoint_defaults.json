@@ -1,99 +1,99 @@
 {
-  "run_api_based": {
-    "input": "input.json",
-    "config": "bcg/model_config.json",
-    "output_dir": "outputs",
-    "model_key": "gpt-5.5",
-    "embedding_key": "embedding",
-    "item": null,
-    "keep_order": false,
-    "evidence_mode": "sentence",
-    "incremental_merge": true,
-    "incremental_merge_threshold": 0.86,
-    "verify_merge": true,
-    "context_chars": 100000,
-    "min_content_len": 0
-  },
-  "run_light": {
-    "input": "input.json",
-    "config": "bcg/model_config.json",
-    "output_dir": "outputs",
-    "model_key": "gpt-5.5",
-    "embedding_key": "embedding",
-    "item": null,
-    "keep_order": false
-  },
-  "server_api_based": {
-    "host": "0.0.0.0",
-    "port": 8848,
-    "config": "bcg/model_config.json",
-    "output_dir": "outputs_stream",
-    "model_key": "gpt-5.5",
-    "embedding_key": "embedding",
-    "evidence_mode": "sentence",
-    "incremental_merge": true,
-    "incremental_merge_threshold": 0.86,
-    "verify_merge": true,
-    "context_chars": 100000,
-    "min_content_len": 0,
-    "quiet": false
-  },
-  "server_light": {
-    "host": "0.0.0.0",
-    "port": 8848,
-    "config": "bcg/model_config.json",
-    "output_dir": "outputs_stream",
-    "model_key": "gpt-5.5",
-    "embedding_key": "embedding",
-    "quiet": false
-  },
-  "replay_api_based": {
-    "input": null,
-    "config": "bcg/model_config.json",
-    "output_dir": "outputs_stream",
-    "model_key": "gpt-5.5",
-    "embedding_key": "embedding",
-    "quiet": false,
-    "evidence_mode": "sentence",
-    "incremental_merge": true,
-    "incremental_merge_threshold": 0.86,
-    "verify_merge": true,
-    "context_chars": 100000,
-    "min_content_len": 0
-  },
-  "replay_light": {
-    "input": null,
-    "config": "bcg/model_config.json",
-    "output_dir": "outputs_stream",
-    "model_key": "gpt-5.5",
-    "embedding_key": "embedding",
-    "quiet": false
-  },
-  "sdk_runner": {
-    "instance_backend": "api_based",
-    "observe_backend_override": null,
-    "evidence_mode": "sentence",
-    "incremental_merge": true,
-    "incremental_merge_threshold": 0.8,
-    "verify_merge": false,
-    "context_chars": 9000,
-    "io_context_chars": 6000,
-    "min_content_len": 0
-  },
-  "api_stream_options": {
-    "evidence_mode": "sentence",
-    "incremental_merge": true,
-    "incremental_merge_threshold": 0.8,
-    "verify_merge": false,
-    "context_chars": 9000,
-    "min_content_len": 0
-  },
-  "light_stream_options": {
-    "evidence_mode": null,
-    "incremental_merge": null,
-    "incremental_merge_threshold": null,
-    "context_chars": null,
-    "min_content_len": null
-  },
-  "construct_default_backend": "api_based"
+ "run_api_based": {
+  "input": "input.json",
+  "config": "bcg/model_config.json",
+  "output_dir": "outputs",
+  "model_key": "gpt-5.5",
+  "embedding_key": "embedding",
+  "item": null,
+  "keep_order": false,
+  "evidence_mode": "sentence",
+  "incremental_merge": true,
+  "incremental_merge_threshold": 0.8,
+  "verify_merge": false,
+  "context_chars": 9000,
+  "min_content_len": 0
+ },
+ "run_light": {
+  "input": "input.json",
+  "config": "bcg/model_config.json",
+  "output_dir": "outputs",
+  "model_key": "gpt-5.5",
+  "embedding_key": "embedding",
+  "item": null,
+  "keep_order": false
+ },
+ "server_api_based": {
+  "host": "0.0.0.0",
+  "port": 8848,
+  "config": "bcg/model_config.json",
+  "output_dir": "outputs_stream",
+  "model_key": "gpt-5.5",
+  "embedding_key": "embedding",
+  "evidence_mode": "sentence",
+  "incremental_merge": true,
+  "incremental_merge_threshold": 0.8,
+  "verify_merge": false,
+  "context_chars": 9000,
+  "min_content_len": 0,
+  "quiet": false
+ },
+ "server_light": {
+  "host": "0.0.0.0",
+  "port": 8848,
+  "config": "bcg/model_config.json",
+  "output_dir": "outputs_stream",
+  "model_key": "gpt-5.5",
+  "embedding_key": "embedding",
+  "quiet": false
+ },
+ "replay_api_based": {
+  "input": null,
+  "config": "bcg/model_config.json",
+  "output_dir": "outputs_stream",
+  "model_key": "gpt-5.5",
+  "embedding_key": "embedding",
+  "quiet": false,
+  "evidence_mode": "sentence",
+  "incremental_merge": true,
+  "incremental_merge_threshold": 0.8,
+  "verify_merge": false,
+  "context_chars": 9000,
+  "min_content_len": 0
+ },
+ "replay_light": {
+  "input": null,
+  "config": "bcg/model_config.json",
+  "output_dir": "outputs_stream",
+  "model_key": "gpt-5.5",
+  "embedding_key": "embedding",
+  "quiet": false
+ },
+ "sdk_runner": {
+  "instance_backend": "api_based",
+  "observe_backend_override": null,
+  "evidence_mode": "sentence",
+  "incremental_merge": true,
+  "incremental_merge_threshold": 0.8,
+  "verify_merge": false,
+  "context_chars": 9000,
+  "io_context_chars": 6000,
+  "min_content_len": 0
+ },
+ "api_stream_options": {
+  "evidence_mode": "sentence",
+  "incremental_merge": true,
+  "incremental_merge_threshold": 0.8,
+  "verify_merge": false,
+  "context_chars": 9000,
+  "min_content_len": 0
+ },
+ "light_stream_options": {
+  "evidence_mode": null,
+  "incremental_merge": null,
+  "incremental_merge_threshold": null,
+  "context_chars": null,
+  "min_content_len": null
+ },
+ "construct_default_backend": "api_based"
 }

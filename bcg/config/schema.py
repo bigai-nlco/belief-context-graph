@@ -182,14 +182,6 @@ class RunnerSettings(_ForbidExtra):
     min_content_len: int = Field(ge=0)
 
 
-class LegacyCliProfile(_ForbidExtra):
-    """Pre-unification CLI entry-point defaults (step 4A keeps them apart)."""
-
-    incremental_merge_threshold: float = Field(ge=0.0, le=1.0)
-    verify_merge: bool
-    context_chars: int = Field(ge=0)
-
-
 class BCGSettings(_ForbidExtra):
     """Top-level unified configuration."""
 
@@ -199,7 +191,6 @@ class BCGSettings(_ForbidExtra):
     models: dict[str, ModelEntry]
     pipeline: PipelineSettings
     runner: RunnerSettings
-    cli_defaults: LegacyCliProfile
 
     @model_validator(mode="after")
     def _check_version(self) -> BCGSettings:

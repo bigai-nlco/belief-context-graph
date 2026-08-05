@@ -30,6 +30,14 @@ class AgentLaunchError(RuntimeError):
     """Raised when the interactive BCG runtime cannot be started."""
 
 
+def _bootstrap_env() -> None:
+    """Load the project root .env explicitly (import no longer does this)."""
+    from bcg.core.env import load_project_env
+
+    load_project_env()
+
+
+
 def _state_root() -> Path:
     configured = os.environ.get("BCG_HOME")
     return Path(configured).expanduser() if configured else Path.home() / ".bcg"
@@ -395,6 +403,7 @@ def launch_interactive(arguments: list[str] | None = None) -> int:
 
 
 def main(arguments: list[str] | None = None) -> int:
+    _bootstrap_env()
     from bcg.apps.setup import SetupError
 
     try:

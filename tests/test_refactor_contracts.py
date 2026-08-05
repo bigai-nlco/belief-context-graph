@@ -237,13 +237,13 @@ def test_import_bcg_does_not_load_project_env(tmp_path: Path) -> None:
     assert completed.stdout.strip() == "missing"
 
 
-def test_import_bcg_env_compat_shim_still_loads_env(tmp_path: Path) -> None:
-    """The legacy ``bcg.env`` path still performs its import-time load."""
+def test_import_bcg_env_shim_no_longer_loads_env(tmp_path: Path) -> None:
+    """Step-7 contract: importing ``bcg.env`` must not touch os.environ."""
     env_file = tmp_path / ".env"
-    env_file.write_text("BCG_STEP5_ENV_MARKER=loaded-by-bcg-env\n", encoding="utf-8")
+    env_file.write_text("BCG_STEP7_ENV_MARKER=loaded-by-import\n", encoding="utf-8")
     child_env = os.environ.copy()
     child_env["BCG_ENV_FILE"] = str(env_file)
-    child_env.pop("BCG_STEP5_ENV_MARKER", None)
+    child_env.pop("BCG_STEP7_ENV_MARKER", None)
     project_root = Path(__file__).parents[1]
 
     completed = subprocess.run(
@@ -252,7 +252,7 @@ def test_import_bcg_env_compat_shim_still_loads_env(tmp_path: Path) -> None:
             "-c",
             (
                 "import os; import bcg.env; "
-                "print(os.environ.get('BCG_STEP5_ENV_MARKER', 'missing'))"
+                "print(os.environ.get('BCG_STEP7_ENV_MARKER', 'missing'))"
             ),
         ],
         cwd=project_root,
@@ -262,7 +262,36 @@ def test_import_bcg_env_compat_shim_still_loads_env(tmp_path: Path) -> None:
         text=True,
     )
 
-    assert completed.stdout.strip() == "loaded-by-bcg-env"
+    assert completed.stdout.strip() == "missing"
+
+
+def test_explicit_load_project_env_still_loads(tmp_path: Path) -> None:
+    """The explicit ``load_project_env()`` API keeps working after the change."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("BCG_STEP7_EXPLICIT=loaded-explicitly\n", encoding="utf-8")
+    child_env = os.environ.copy()
+    child_env["BCG_ENV_FILE"] = str(env_file)
+    child_env.pop("BCG_STEP7_EXPLICIT", None)
+    project_root = Path(__file__).parents[1]
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import os; from bcg.core.env import load_project_env; "
+                "load_project_env(); "
+                "print(os.environ.get('BCG_STEP7_EXPLICIT', 'missing'))"
+            ),
+        ],
+        cwd=project_root,
+        env=child_env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.stdout.strip() == "loaded-explicitly"
 
 
 def _imported_modules(path: Path) -> set[str]:

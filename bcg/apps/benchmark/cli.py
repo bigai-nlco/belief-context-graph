@@ -23,6 +23,13 @@ from bcg.apps.benchmark.loaders import (
 from bcg.apps.benchmark.runner import RunConfig, run_benchmarks
 from bcg.apps.benchmark.scoring import JudgeConfig, LLMJudge
 
+
+def _bootstrap_env() -> None:
+    """Load the project root .env explicitly (import no longer does this)."""
+    from bcg.core.env import load_project_env
+
+    load_project_env()
+
 app = typer.Typer(
     name="bcg benchmark",
     help="Evaluate the reference Agent in Default and BCG context modes.",
@@ -322,6 +329,7 @@ def _print_summary(summary: dict[str, object], output_dir: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    _bootstrap_env()
     standalone = argv is None
     args = list(sys.argv[1:] if argv is None else argv)
     app(args=args, prog_name="bcg benchmark", standalone_mode=standalone)

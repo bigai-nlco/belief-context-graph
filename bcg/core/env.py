@@ -117,11 +117,6 @@ def resolve_config_api_key(
     config["api_key"] = api_key
 
 
-# Importing any ``bcg`` module initializes this submodule before the rest of
-# the package, so credential-backed dataclass defaults see the root .env.
-load_project_env()
-
-
 __all__ = [
     "PROJECT_ENV_FILE",
     "PROJECT_ROOT",

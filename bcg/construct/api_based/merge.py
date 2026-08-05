@@ -598,7 +598,7 @@ def run_merge_pass(
     client,
     model: str,
     embedder=None,
-    threshold: float = 0.86,
+    threshold: float = 0.8,
     max_tokens: Optional[int] = None,
     pass_label: str = "merge",
     log_dir: Optional[Path] = None,
