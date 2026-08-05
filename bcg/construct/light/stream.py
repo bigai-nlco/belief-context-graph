@@ -58,6 +58,7 @@ from .extractor import (
     get_extractor,
     normalize_extractor_config,
 )
+from .._shared.writers import ArtifactWriter, EventRecorder
 
 BELIEF_ROLES = {"user", "assistant", "tool"}
 
@@ -282,8 +283,8 @@ class StreamingBeliefBuilder:
             self.embedder.set_log_path(self.logs_dir / "embedding_calls.jsonl")
         llm.set_prompt_log_path(self.logs_dir / "prompts.jsonl")
 
-        self._events_path = self.out_dir / "events.jsonl"
-        self._events_path.write_text("", encoding="utf-8")
+        self._events = EventRecorder(self.out_dir / "events.jsonl")
+        self._artifacts = ArtifactWriter(self.out_dir)
 
         self._trajectory: List[Dict[str, Any]] = []   # flat, ALL turns (incl. system)
         self._flat_turn = 0
@@ -298,13 +299,6 @@ class StreamingBeliefBuilder:
         self._turn_chunks: List[Dict[str, Any]] = []
 
     # ------------------------------------------------------------------ events
-    def _event(self, kind: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        rec = {"ts": datetime.now(timezone.utc).isoformat(), "event": kind}
-        rec.update(payload)
-        with open(self._events_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-        return rec
-
     def _propagate_relation_confidences(
         self,
         *,
@@ -398,7 +392,7 @@ class StreamingBeliefBuilder:
               f"{relations_added} relation(s)"
               + (f", {n_merged} merge(s)" if n_merged else "")
               + (f"  [skip: {skip_reason}]" if skip_reason else ""))
-        return self._event("turn", {
+        return self._events.record("turn", {
             "turn_index": turn_idx,
             "trajectory_index": flat_idx,
             "role": raw_role,
@@ -1173,9 +1167,8 @@ class StreamingBeliefBuilder:
             "token_usage": USAGE.summary(pricing),
         })
 
-        with open(self.out_dir / "result.json", "w", encoding="utf-8") as f:
-            json.dump(result, f, ensure_ascii=False, indent=2)
-        self._event("finalize", summary)
+        self._artifacts.write_json("result.json", result)
+        self._events.record("finalize", summary)
         # timing.csv mirrors result.json's timing rows exactly.
         try:
             timing_path = self.logs_dir / "timing.csv"
@@ -1190,7 +1183,7 @@ class StreamingBeliefBuilder:
                 for t in self._turn_timings:
                     writer.writerow(t)
         except Exception:
-            self._event("timing_csv_error", {"error": "failed to write timing.csv"})
+            self._events.record("timing_csv_error", {"error": "failed to write timing.csv"})
 
         USAGE.save_json(self.out_dir / "token_usage.json", pricing=pricing)
         USAGE.save_text(self.out_dir / "token_usage.txt", pricing=pricing)

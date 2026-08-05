@@ -272,3 +272,55 @@ def test_step1_registry_backends_implement_protocol() -> None:
 
     assert isinstance(resolve_backend("api_based"), ConstructBackend)
     assert isinstance(resolve_backend("light"), ConstructBackend)
+
+
+# ---------------------------------------------------------------------------
+# Step 3: shared session state machine and writer components
+# ---------------------------------------------------------------------------
+
+
+def test_step3_backends_share_one_session_class() -> None:
+    from bcg.construct._shared.session import (
+        StreamingTrajectorySession as SharedSession,
+    )
+    from bcg.construct.api_based.online import StreamingTrajectorySession as ApiSession
+    from bcg.construct.light.online import StreamingTrajectorySession as LightSession
+
+    assert ApiSession is SharedSession
+    assert LightSession is SharedSession
+
+
+def test_step3_resolve_dated_output_root_keeps_plain_paths(tmp_path: Path) -> None:
+    from bcg.construct._shared.session import resolve_dated_output_root
+
+    plain = tmp_path / "outputs_stream"
+    assert resolve_dated_output_root(plain) == plain
+    assert resolve_dated_output_root("outputs_7_6") != "outputs_7_6"
+
+
+def test_step3_event_recorder_appends_jsonl(tmp_path: Path) -> None:
+    from bcg.construct._shared.writers import EventRecorder
+
+    path = tmp_path / "events.jsonl"
+    recorder = EventRecorder(path)
+    first = recorder.record("turn", {"index": 1})
+    second = recorder.record("finalize", {"n_nodes": 3})
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+    assert json.loads(lines[0])["event"] == "turn"
+    assert json.loads(lines[0])["index"] == 1
+    assert json.loads(lines[1])["event"] == "finalize"
+    assert first["ts"] and second["ts"]
+
+
+def test_step3_artifact_writer_writes_json_atomically(tmp_path: Path) -> None:
+    from bcg.construct._shared.writers import ArtifactWriter
+
+    writer = ArtifactWriter(tmp_path)
+    path = writer.write_json("result.json", {"a": [1, 2], "b": "text"})
+
+    assert path == tmp_path / "result.json"
+    assert json.loads(path.read_text(encoding="utf-8")) == {"a": [1, 2], "b": "text"}
+    leftovers = [p for p in tmp_path.iterdir() if p.name.startswith(".result.json.")]
+    assert leftovers == []
