@@ -6,53 +6,25 @@ import asyncio
 import inspect
 from dataclasses import dataclass, field
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
 from typing import Any
 
-from bcg.construct.api_based import llm as api_based_llm
-from bcg.construct.api_based.online import (
-    StreamingTrajectorySession as ApiBasedSession,
-)
-from bcg.construct.api_based.pipeline import (
-    BeliefGraphOptions,
+from bcg.construct.backends import resolve_backend
+from bcg.core.client_adapter import ConstructClientAdapter
+from bcg.core.contracts import (
     BeliefGraphRunPaths,
     BeliefGraphRunResult,
+    ConstructBackend,
+    ConstructSession,
+    RunOptions,
+    SessionSpec,
 )
-from bcg.construct.api_based.utils import new_run_id, save_json
-from bcg.construct.light import llm as light_llm
-from bcg.construct.light.online import StreamingTrajectorySession as LightSession
-from bcg.construct.light.stream import StreamOptions as LightStreamOptions
 from bcg.graph import BCG, BeliefPayload, BeliefSource, EvidenceExcerpt
 from bcg.memory import BCGMemory
-from bcg.utils import utc_now
+from bcg.utils import new_run_id, save_json, utc_now
 
-
-@dataclass(frozen=True, slots=True)
-class _Backend:
-    """Everything BCGRunner needs to drive one construct backend."""
-
-    name: str
-    session_cls: type
-    llm_module: ModuleType
-
-
-# The two backends' StreamingTrajectorySession classes share an identical
-# push()/finalize()/.result contract (see bcg/construct/{light,api_based}/online.py),
-# so BCGRunner's session bookkeeping (start_session/observe_turn/end_session)
-# never needs to know which one is underneath — only construction differs.
-_BACKENDS: dict[str, _Backend] = {
-    "api_based": _Backend("api_based", ApiBasedSession, api_based_llm),
-    "light": _Backend("light", LightSession, light_llm),
-}
-
-
-def _resolve_backend(name: str) -> _Backend:
-    try:
-        return _BACKENDS[name]
-    except KeyError as exc:
-        raise ValueError(
-            f"unknown backend {name!r}; choose one of: {', '.join(_BACKENDS)}"
-        ) from exc
+# Private compatibility aliases retained for callers that imported test helpers.
+_ConstructClientAdapter = ConstructClientAdapter
+_resolve_backend = resolve_backend
 
 
 @dataclass(slots=True)
@@ -63,6 +35,7 @@ class BCGRunner:
     llm: Any
     output_root: str | Path = ".bcg/runs"
     backend: str = "api_based"
+    backend_adapter: ConstructBackend | None = field(default=None, repr=False)
     graph: BCG | None = field(default=None, init=False, repr=False)
     run_id: str | None = field(default=None, init=False)
     model: str | None = field(default=None, init=False, repr=False)
@@ -76,15 +49,16 @@ class BCGRunner:
     metadata: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
     paths: BeliefGraphRunPaths | None = field(default=None, init=False, repr=False)
     trajectory: list[dict[str, Any]] = field(default_factory=list, init=False)
-    _backend: _Backend = field(init=False, repr=False)
-    _engine: Any | None = field(default=None, init=False, repr=False)
+    _backend: ConstructBackend = field(init=False, repr=False)
+    _engine: ConstructSession | None = field(default=None, init=False, repr=False)
     _session: dict[str, Any] | None = field(default=None, init=False, repr=False)
     _sessions: list[dict[str, Any]] = field(default_factory=list, init=False)
     _active: bool = field(default=False, init=False, repr=False)
     _finalized: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        self._backend = _resolve_backend(self.backend)
+        self._backend = self.backend_adapter or resolve_backend(self.backend)
+        self.backend = self._backend.name
 
     async def observe_trajectory(
         self,
@@ -178,25 +152,18 @@ class BCGRunner:
 
         if options is not None:
             self.options = options
-        elif self._backend.name == "light":
-            light_options = LightStreamOptions()
-            if belief_graph_config:
-                # Skip the call entirely when no config is supplied: an empty
-                # dict makes apply_belief_graph_config() raise (it requires a
-                # "runtime" object), whereas leaving the dataclass defaults in
-                # place lets StreamingBeliefBuilder's own normalizers fill in
-                # sane extractor/stance/entity/edge/confidence defaults.
-                light_options.apply_belief_graph_config(belief_graph_config)
-            self.options = light_options
         else:
-            self.options = BeliefGraphOptions(
-                evidence_mode=evidence_mode,
-                incremental_merge=incremental_merge,
-                incremental_merge_threshold=incremental_merge_threshold,
-                verify_merge=verify_merge,
-                context_chars=context_chars,
-                io_context_chars=io_context_chars,
-                min_content_len=min_content_len,
+            self.options = self._backend.build_options(
+                RunOptions(
+                    evidence_mode=evidence_mode,
+                    incremental_merge=incremental_merge,
+                    incremental_merge_threshold=incremental_merge_threshold,
+                    verify_merge=verify_merge,
+                    context_chars=context_chars,
+                    io_context_chars=io_context_chars,
+                    min_content_len=min_content_len,
+                ),
+                belief_graph_config=belief_graph_config,
             )
 
         self.embedder = embedder
@@ -215,21 +182,18 @@ class BCGRunner:
         self._sessions = []
         self._session = None
 
-        engine_options = (
-            self.options.to_stream_options()
-            if isinstance(self.options, BeliefGraphOptions)
-            else self.options
-        )
-        self._engine = self._backend.session_cls(
-            self.run_id,
-            client=_ConstructClientAdapter(self.llm, self._backend.llm_module),
-            model=self.model,
-            output_root=Path(self.output_root),
-            options=engine_options,
-            embedder=self.embedder,
-            max_tokens=self.max_tokens,
-            item_meta={"scenario": self.scenario, "item_id": self.item_id},
-            extra_meta={"metadata": self.metadata},
+        self._engine = self._backend.create_session(
+            SessionSpec(
+                run_id=self.run_id,
+                llm=self.llm,
+                model=self.model,
+                output_root=Path(self.output_root),
+                options=self._backend.session_options(self.options),
+                embedder=self.embedder,
+                max_tokens=self.max_tokens,
+                item_meta={"scenario": self.scenario, "item_id": self.item_id},
+                extra_meta={"metadata": self.metadata},
+            )
         )
         self._active = True
         self._finalized = False
@@ -307,8 +271,8 @@ class BCGRunner:
             raise RuntimeError("finalize() called twice")
         if self._session is not None:
             await self.end_session()
-        snapshot = await _invoke_engine(self.llm, self._engine.finalize)
-        native = dict(self._engine.result or {})
+        snapshot = await _invoke_engine(self.llm, self._backend.finalize, self._engine)
+        native = self._backend.result(self._engine)
         self._sync_graph(snapshot)
         assert self.graph is not None
         self.graph.sessions = list(self._sessions)
@@ -319,9 +283,7 @@ class BCGRunner:
                 "generated_at": native.get("generated_at"),
             }
         )
-        options_dict = (
-            self.options.to_dict() if hasattr(self.options, "to_dict") else {}
-        )
+        options_dict = self._backend.serialize_options(self.options)
         memory = _memory_document(
             self.graph,
             native=native,
@@ -369,95 +331,12 @@ class BCGRunner:
             raise RuntimeError("No active belief run. Call begin_belief_run() first.")
 
 
-class _ConstructClientAdapter:
-    """Expose an OpenAI chat-completions shape over the public SDK LLM client."""
-
-    def __init__(
-        self,
-        llm: Any,
-        backend_llm_module: ModuleType = api_based_llm,
-    ) -> None:
-        self.llm = llm
-        self._backend_llm_module = backend_llm_module
-        self.chat = SimpleNamespace(
-            completions=SimpleNamespace(create=self._create),
-        )
-
-    def _create(self, **kwargs: Any) -> Any:
-        messages = list(kwargs.get("messages") or [])
-        prompt = str(messages[-1].get("content") or "") if messages else ""
-        model = kwargs.get("model")
-        temperature = kwargs.get("temperature")
-        max_tokens = kwargs.get("max_tokens")
-        if hasattr(self.llm, "generate"):
-            call_kwargs = {
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            }
-            if model and _accepts_keyword(self.llm.generate, "model"):
-                call_kwargs["model"] = model
-            response = _resolve_sync(self.llm.generate(messages, **call_kwargs))
-            content = _response_content(response)
-            usage = getattr(response, "usage", {})
-        elif hasattr(self.llm, "generate_text"):
-            call_kwargs = {
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            }
-            if _accepts_keyword(self.llm.generate_text, "label"):
-                tracker = self._backend_llm_module.current_usage_tracker()
-                call_kwargs["label"] = getattr(tracker, "_label", "unlabeled")
-            if model and _accepts_keyword(self.llm.generate_text, "model"):
-                call_kwargs["model"] = model
-            content = str(_resolve_sync(self.llm.generate_text(prompt, **call_kwargs)))
-            usage = {}
-        else:
-            raise TypeError("BCGRunner requires an LLM with generate or generate_text")
-        return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content=content))],
-            usage=_chat_usage(usage),
-        )
-
-
-def _resolve_sync(value: Any) -> Any:
-    if inspect.isawaitable(value):
-        return asyncio.run(value)
-    return value
-
-
 async def _invoke_engine(llm: Any, func: Any, *args: Any) -> Any:
     """Keep sync test/custom clients inline; isolate async SDK clients in a worker."""
     generate = getattr(llm, "generate", None) or getattr(llm, "generate_text", None)
     if generate is not None and inspect.iscoroutinefunction(generate):
         return await asyncio.to_thread(func, *args)
     return func(*args)
-
-
-def _response_content(response: Any) -> str:
-    if isinstance(response, str):
-        return response
-    content = getattr(response, "content", None)
-    if content is not None:
-        return str(content)
-    if isinstance(response, dict):
-        return str(response.get("content") or response.get("text") or "")
-    return str(response)
-
-
-def _chat_usage(usage: Any) -> Any:
-    if hasattr(usage, "model_dump"):
-        usage = usage.model_dump()
-    usage = usage if isinstance(usage, dict) else {}
-    prompt = usage.get("prompt_tokens", usage.get("input_tokens"))
-    completion = usage.get("completion_tokens", usage.get("output_tokens"))
-    total = usage.get("total_tokens")
-    if total is None and prompt is not None and completion is not None:
-        total = int(prompt) + int(completion)
-    return SimpleNamespace(
-        prompt_tokens=prompt,
-        completion_tokens=completion,
-        total_tokens=total,
-    )
 
 
 def _source(raw: dict[str, Any], role: str) -> BeliefSource:
@@ -634,17 +513,6 @@ def _model_name(llm: Any) -> str:
     config = getattr(llm, "config", None)
     model = getattr(config, "model", None)
     return model if isinstance(model, str) and model else "unknown"
-
-
-def _accepts_keyword(func: Any, keyword: str) -> bool:
-    try:
-        signature = inspect.signature(func)
-    except (TypeError, ValueError):
-        return True
-    return keyword in signature.parameters or any(
-        parameter.kind == inspect.Parameter.VAR_KEYWORD
-        for parameter in signature.parameters.values()
-    )
 
 
 def _run_paths(output_root: Path, run_id: str) -> BeliefGraphRunPaths:

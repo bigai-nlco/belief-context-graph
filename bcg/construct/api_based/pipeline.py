@@ -15,22 +15,15 @@ from __future__ import annotations
 
 import copy
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-try:
-    # NOTE: BeliefGraphPipeline/BeliefGraphRunResult below are a legacy SDK-style
-    # wrapper kept from the original project for reference; they target an
-    # external ``bcg.graph`` / ``bcg.memory`` / ``bcg.runner`` module set that is
-    # not part of this repo and is not wired into run_input/run_item (the
-    # actual entry points used by run.py / online_server.py). Rather than
-    # delete this code, the import is made optional so the rest of this
-    # subpackage keeps working even without those external modules; only
-    # calling BeliefGraphPipeline.run(...) requires them to be importable.
-    from bcg.graph import BCG
-except ImportError:  # pragma: no cover - see note above
-    BCG = Any  # type: ignore[assignment]
+from bcg.core.contracts import (
+    BeliefGraphRunPaths,
+    BeliefGraphRunResult,
+    RunOptions,
+)
+from bcg.core.pipeline import BeliefGraphPipelineBase
 
 from .llm import (
     USAGE,
@@ -132,53 +125,8 @@ def run_input(
     print("\n[done]")
 
 
-@dataclass(frozen=True, slots=True)
-class BeliefGraphRunPaths:
-    """SDK paths alongside the construct engine's native artifacts."""
-
-    run_dir: Path
-    artifacts_dir: Path
-    graph: Path
-    memory: Path
-    token_usage: Path
-    events: Path
-    segments: Path
-    io_beliefs: Path
-    reasoning_beliefs: Path
-    forward_relations: Path
-    backward_relations: Path
-    merges: Path
-    result: Path
-    final_graph: Path
-    trajectory: Path
-    graph_stream: Path
-
-    def to_dict(self) -> dict[str, str]:
-        return {name: str(getattr(self, name)) for name in self.__dataclass_fields__}
-
-
-@dataclass(frozen=True, slots=True)
-class BeliefGraphRunResult:
-    run_id: str
-    graph: BCG
-    memory: dict[str, Any]
-    output_paths: BeliefGraphRunPaths
-    token_usage: dict[str, Any]
-    counts: dict[str, Any]
-    construct_result: dict[str, Any]
-
-
-@dataclass(frozen=True, slots=True)
-class BeliefGraphOptions:
+class BeliefGraphOptions(RunOptions):
     """Public SDK options mapped onto :class:`StreamOptions`."""
-
-    evidence_mode: str = "sentence"
-    incremental_merge: bool = True
-    incremental_merge_threshold: float = 0.8
-    verify_merge: bool = False
-    context_chars: int = 9000
-    io_context_chars: int = 6000
-    min_content_len: int = 0
 
     def to_stream_options(self) -> StreamOptions:
         return StreamOptions(
@@ -197,74 +145,10 @@ class BeliefGraphOptions:
         }
 
 
-class BeliefGraphPipeline:
+class BeliefGraphPipeline(BeliefGraphPipelineBase):
     """Async SDK entry point for the canonical streaming engine."""
 
-    def __init__(
-        self,
-        llm: Any,
-        *,
-        output_root: str | Path = ".bcg/runs",
-        run_id: str | None = None,
-        model: str | None = None,
-        max_tokens: int | None = None,
-        scenario: str = "research",
-        item_id: str = "trajectory",
-        evidence_mode: str = "sentence",
-        incremental_merge: bool = True,
-        incremental_merge_threshold: float = 0.8,
-        verify_merge: bool = False,
-        context_chars: int = 9000,
-        io_context_chars: int = 6000,
-        min_content_len: int = 0,
-        min_segment_len: dict[str, int] | None = None,
-        embedder: Any | None = None,
-        confidence_config: Any | None = None,
-    ) -> None:
-        del min_segment_len, confidence_config
-        self.llm = llm
-        self.output_root = Path(output_root)
-        self.run_id = run_id or new_run_id()
-        self.model = model
-        self.max_tokens = max_tokens
-        self.scenario = scenario
-        self.item_id = item_id
-        self.options = BeliefGraphOptions(
-            evidence_mode=evidence_mode,
-            incremental_merge=incremental_merge,
-            incremental_merge_threshold=incremental_merge_threshold,
-            verify_merge=verify_merge,
-            context_chars=context_chars,
-            io_context_chars=io_context_chars,
-            min_content_len=min_content_len,
-        )
-        self.embedder = embedder
-
-    async def run(
-        self,
-        trajectory: list[dict[str, Any]],
-        *,
-        metadata: dict[str, Any] | None = None,
-    ) -> BeliefGraphRunResult:
-        from bcg.memory import BCGMemory
-        from bcg.runner import BCGRunner
-
-        runner = BCGRunner(
-            memory=BCGMemory(graph=BCG(metadata={"run_id": self.run_id})),
-            llm=self.llm,
-            output_root=self.output_root,
-        )
-        return await runner.observe_trajectory(
-            trajectory,
-            run_id=self.run_id,
-            model=self.model,
-            max_tokens=self.max_tokens,
-            scenario=self.scenario,
-            item_id=self.item_id,
-            embedder=self.embedder,
-            metadata=metadata,
-            options=self.options,
-        )
+    options_type = BeliefGraphOptions
 
 
 __all__ = [
