@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from bcg.graph import BCG
+    from bcg.core.graph import BCG
 
 
 @dataclass(frozen=True, slots=True)

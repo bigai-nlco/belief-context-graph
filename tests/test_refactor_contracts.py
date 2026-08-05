@@ -295,6 +295,49 @@ def test_explicit_load_project_env_still_loads(tmp_path: Path) -> None:
     assert completed.stdout.strip() == "loaded-explicitly"
 
 
+
+def test_core_env_source_root_tracks_repository_after_move() -> None:
+    from bcg.core.env import SOURCE_PROJECT_ROOT
+
+    assert Path(__file__).parents[1] == SOURCE_PROJECT_ROOT
+
+
+def test_apps_do_not_mutate_sys_path() -> None:
+    project_root = Path(__file__).parents[1]
+    for relative in (
+        "bcg/apps/run.py",
+        "bcg/apps/online_server.py",
+        "bcg/apps/online_driver.py",
+    ):
+        source = (project_root / relative).read_text(encoding="utf-8")
+        assert "sys.path.insert" not in source
+
+
+def test_cli_help_describes_effective_boolean_defaults(capsys: Any) -> None:
+    with pytest.raises(SystemExit):
+        run._run_api_based(["--help"])
+
+    output = capsys.readouterr().out
+    assert "Default: ON." in output
+    assert "Default: OFF." in output
+
+
+def test_unified_errors_keep_standard_exception_compatibility() -> None:
+    from bcg.construct.backends import resolve_backend
+    from bcg.core.errors import BCGConfigError, BCGUsageError
+    from bcg.core.graph import BCG
+    from bcg.core.memory import BCGMemory
+
+    with pytest.raises(BCGConfigError):
+        resolve_backend("missing")
+
+    runner = BCGRunner(memory=BCGMemory(graph=BCG()), llm=object())
+    with pytest.raises(BCGUsageError):
+        runner.start_session("not-started")
+
+    assert issubclass(BCGConfigError, ValueError)
+    assert issubclass(BCGUsageError, RuntimeError)
+
 def _imported_modules(path: Path) -> set[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     modules: set[str] = set()

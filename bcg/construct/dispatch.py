@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Collection, Sequence
 
-DEFAULT_BACKEND = "api_based"
+from bcg.config.loader import defaults_dict
+
+DEFAULT_BACKEND = str(defaults_dict()["backend"])
 BACKENDS = ("light", "api_based")
 
 

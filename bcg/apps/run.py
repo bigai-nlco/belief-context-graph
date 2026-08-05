@@ -28,12 +28,10 @@ import argparse
 import sys
 from pathlib import Path
 
-# Allow running as `python bcg/apps/run.py ...` from the project root (the parent
-# directory of this `bcg` package), matching both original projects' scripts.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 from bcg.apps.cli_help import RichArgumentParser
 from bcg.apps.cli_options import add_run_options
+from bcg.config.runtime import RuntimeConfig, resolve_runtime_config
+from bcg.construct.dispatch import DEFAULT_BACKEND, split_backend_args
 
 
 def _bootstrap_env() -> None:
@@ -43,25 +41,19 @@ def _bootstrap_env() -> None:
     load_project_env()
 
 
-  # noqa: E402
-from bcg.construct.dispatch import (  # noqa: E402
-    DEFAULT_BACKEND,
-    split_backend_args,
-)
-
-
-def _add_common_args(p: argparse.ArgumentParser) -> None:
+def _add_common_args(p: argparse.ArgumentParser, runtime: RuntimeConfig) -> None:
+    settings = runtime.settings
     p.add_argument("--input", "-i", required=True,
                    help="Input JSON/TXT (a trajectory, or multi-session QA items).")
-    p.add_argument("--config", "-c", default="bcg/model_config.json",
+    p.add_argument("--config", "-c", default=runtime.config_path,
                    help="Model config path (nested by model name; reserved key "
                         "'embedding' holds the embedding endpoint).")
     p.add_argument("--output-dir", "-o", default="outputs",
                    help="Output root; each item gets its own subdirectory.")
-    p.add_argument("--model-key", default="gpt-5.5",
+    p.add_argument("--model-key", default=settings.model_key,
                    help="Which chat-model entry of the config to use "
-                        "(default: gpt-5.5, matching the online server).")
-    p.add_argument("--embedding-key", default="embedding",
+                        f"(default: {settings.model_key}).")
+    p.add_argument("--embedding-key", default=settings.embedding_key,
                    help="Which config entry holds the embedding endpoint.")
     p.add_argument("--item", default=None,
                    help="Process only this item (id or 0-based index).")
@@ -73,12 +65,13 @@ def _add_common_args(p: argparse.ArgumentParser) -> None:
 def _run_light(argv: list[str]) -> None:
     from bcg.construct.light.pipeline import run_input
 
+    runtime = resolve_runtime_config(argv)
     p = argparse.ArgumentParser(
         prog="bcg/apps/run.py light",
         description="construct_beliefs v3 streaming pipeline driver (light backend: "
                     "local embeddings + small generative model).",
     )
-    _add_common_args(p)
+    _add_common_args(p, runtime)
     args = p.parse_args(argv)
 
     run_input(
@@ -92,14 +85,15 @@ def _run_api_based(argv: list[str]) -> None:
     from bcg.construct.api_based.pipeline import run_input
     from bcg.construct.api_based.stream import StreamOptions
 
+    runtime = resolve_runtime_config(argv)
     p = argparse.ArgumentParser(
         prog="bcg/apps/run.py api_based",
         description="construct_beliefs v3 streaming pipeline driver (api_based backend: "
                     "one large API-based chat model).",
     )
-    _add_common_args(p)
+    _add_common_args(p, runtime)
 
-    add_run_options(p)
+    add_run_options(p, runtime.settings.runner)
 
     args = p.parse_args(argv)
 
@@ -146,7 +140,13 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(0)
 
     try:
-        backend, rest = split_backend_args(argv, backends=_BACKENDS)
+        runtime_argv = argv[1:] if argv and argv[0] in _BACKENDS else argv
+        runtime = resolve_runtime_config(runtime_argv)
+        backend, rest = split_backend_args(
+            argv,
+            backends=_BACKENDS,
+            default=runtime.settings.backend,
+        )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from None

@@ -15,6 +15,7 @@ from bcg.core.contracts import (
     RunOptions,
     SessionSpec,
 )
+from bcg.core.errors import BCGBackendError, BCGConfigError
 
 OptionsBuilder = Callable[[RunOptions, dict[str, Any] | None], Any]
 SessionOptionsBuilder = Callable[[Any], Any]
@@ -85,12 +86,14 @@ def resolve_backend(name: str) -> ConstructBackend:
     try:
         module_name = _BACKEND_MODULES[name]
     except KeyError as exc:
-        raise ValueError(
+        raise BCGConfigError(
             f"unknown backend {name!r}; choose one of: {', '.join(_BACKEND_MODULES)}"
         ) from exc
     backend = import_module(module_name).BACKEND
     if not isinstance(backend, ConstructBackend) or backend.name != name:
-        raise TypeError(f"{module_name}.BACKEND does not implement ConstructBackend")
+        raise BCGBackendError(
+            f"{module_name}.BACKEND does not implement ConstructBackend"
+        )
     _BACKENDS[name] = backend
     return backend
 

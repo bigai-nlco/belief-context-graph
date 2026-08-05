@@ -5,7 +5,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-SOURCE_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+from bcg.core.errors import BCGConfigError
+
+SOURCE_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def find_project_env() -> Path:
@@ -99,7 +101,7 @@ def resolve_config_api_key(
     load_project_env()
     env_name = config.get("api_key_env") or default_env
     if not isinstance(env_name, str) or not env_name.strip():
-        raise ValueError(
+        raise BCGConfigError(
             f"Config field 'api_key_env' must be a non-empty environment "
             f"variable name in {config_path}."
         )
@@ -109,7 +111,7 @@ def resolve_config_api_key(
         legacy_key if isinstance(legacy_key, str) else ""
     )
     if not api_key.strip():
-        raise ValueError(
+        raise BCGConfigError(
             f"API key environment variable {env_name!r} is empty. Add it to "
             f"the project root {PROJECT_ENV_FILE.name} file."
         )

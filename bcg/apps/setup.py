@@ -77,7 +77,7 @@ def _write_json(path: Path, value: dict[str, Any]) -> None:
 
 
 def _read_credentials() -> dict[str, str]:
-    from bcg.env import read_env_file
+    from bcg.core.env import read_env_file
 
     return read_env_file(credentials_path())
 

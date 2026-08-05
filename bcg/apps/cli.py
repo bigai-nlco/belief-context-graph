@@ -22,7 +22,7 @@ def _package_version() -> str:
     try:
         return version("bcg")
     except PackageNotFoundError:
-        return "0.1.0"
+        return "unknown"
 
 
 _FORWARD_CONTEXT = {
@@ -138,9 +138,9 @@ def _config(ctx: typer.Context) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    _bootstrap_env()
     """Launch the Agent TUI or dispatch an explicit command family."""
 
+    _bootstrap_env()
     standalone = argv is None
     args = list(sys.argv[1:] if argv is None else argv)
     app(args=args, prog_name="bcg", standalone_mode=standalone)

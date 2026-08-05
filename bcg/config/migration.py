@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from bcg.config.loader import defaults_dict
+from bcg.core.errors import BCGConfigError
 
 _LEGACY_WARNING = (
     "legacy configuration detected ({paths}); the unified YAML format "
@@ -49,37 +50,73 @@ def _strip_comments(value: Any) -> Any:
     return value
 
 
-def _drop_inline_secrets(value: dict[str, Any], *, path: str) -> dict[str, Any]:
-    """Remove inline ``api_key`` values; keep ``api_key_env`` references."""
+def _drop_inline_secrets(value: Any, *, path: str) -> Any:
+    """Recursively remove inline ``api_key`` values from mappings and lists."""
+    if isinstance(value, list):
+        return [
+            _drop_inline_secrets(item, path=f"{path}[{index}]")
+            for index, item in enumerate(value)
+        ]
+    if not isinstance(value, dict):
+        return value
     out = dict(value)
-    inline = out.get("api_key")
-    if isinstance(inline, str) and inline.strip():
+    if "api_key" in out:
         warnings.warn(
             f"dropped inline api_key in {path} (secrets belong in .env; "
             "use api_key_env instead)",
             stacklevel=3,
         )
-        out.pop("api_key", None)
-    for key, item in out.items():
-        if isinstance(item, dict):
-            out[key] = _drop_inline_secrets(item, path=f"{path}.{key}")
+        out.pop("api_key")
+    return {
+        key: _drop_inline_secrets(item, path=f"{path}.{key}")
+        for key, item in out.items()
+    }
+
+
+def _merge_settings(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Deep-merge settings; mappings merge and null keeps the lower value."""
+    out = dict(base)
+    for key, value in override.items():
+        if value is None:
+            continue
+        current = out.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            out[key] = _merge_settings(current, value)
+        else:
+            out[key] = value
     return out
 
 
 def migrate_model_config(path: Path) -> dict[str, Any] | None:
     """Map one legacy ``model_config.json`` onto the new settings dict."""
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise BCGConfigError(f"invalid JSON configuration {path}: {exc}") from exc
     if not isinstance(raw, dict):
-        raise ValueError(f"{path} must contain a JSON object")
+        raise BCGConfigError(f"{path} must contain a JSON object")
     out: dict[str, Any] = {}
     models: dict[str, Any] = {}
+    model_key: str | None = None
+    embedding_key: str | None = None
     for key, value in raw.items():
         if key == "belief_graph":
-            out["pipeline"] = _strip_comments(value)
-        elif isinstance(value, dict):
+            out["pipeline"] = _drop_inline_secrets(
+                _strip_comments(value), path=f"{path}.belief_graph"
+            )
+        elif not key.startswith("_") and isinstance(value, dict):
             models[key] = _drop_inline_secrets(_strip_comments(value), path=str(path))
+            if key.startswith("embedding"):
+                if embedding_key is None:
+                    embedding_key = key
+            elif model_key is None:
+                model_key = key
     if models:
         out["models"] = models
+    if model_key is not None:
+        out["model_key"] = model_key
+    if embedding_key is not None:
+        out["embedding_key"] = embedding_key
     return out or None
 
 
@@ -89,26 +126,34 @@ def migrate_user_config(
     model_config_path: Path | None = None,
 ) -> dict[str, Any] | None:
     """Map the setup wizard's ``~/.bcg/config.json`` onto the settings dict."""
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise BCGConfigError(f"invalid JSON configuration {path}: {exc}") from exc
     if not isinstance(raw, dict):
-        raise ValueError(f"{path} must contain a JSON object")
+        raise BCGConfigError(f"{path} must contain a JSON object")
     out: dict[str, Any] = {}
     graph = raw.get("graph")
     if isinstance(graph, dict):
+        model_key = graph.get("modelKey")
+        embedding_key = graph.get("embeddingKey")
         backend = graph.get("backend")
         if backend in {"api_based", "light"}:
             out["backend"] = backend
+        if isinstance(model_key, str) and model_key.strip():
+            out["model_key"] = model_key.strip()
+        if isinstance(embedding_key, str) and embedding_key.strip():
+            out["embedding_key"] = embedding_key.strip()
         base_url = graph.get("modelBaseUrl")
         if isinstance(base_url, str) and base_url:
             out.setdefault("models", {})
-            out["models"].setdefault("graph-model", {})
-            out["models"]["graph-model"].setdefault("base_url", base_url)
+            selected_model = out.get("model_key", "graph-model")
+            out["models"].setdefault(selected_model, {})
+            out["models"][selected_model].setdefault("base_url", base_url)
     if model_config_path is not None and model_config_path.is_file():
         migrated = migrate_model_config(model_config_path)
         if migrated:
-            out.setdefault("models", {}).update(migrated.pop("models", {}))
-            if "pipeline" in migrated:
-                out["pipeline"] = migrated["pipeline"]
+            out = _merge_settings(migrated, out)
     return out or None
 
 
@@ -160,7 +205,7 @@ def legacy_settings(
     if user_config.is_file():
         part = migrate_user_config(user_config, model_config_path=model_config)
         if part:
-            merged = {**merged, **part}
+            merged = _merge_settings(merged, part)
         handled.add(user_config)
         if model_config.is_file():
             handled.add(model_config)
@@ -170,7 +215,7 @@ def legacy_settings(
             continue
         part = migrate_model_config(resolved)
         if part:
-            merged = {**merged, **part}
+            merged = _merge_settings(merged, part)
     if not merged:
         return None
     warnings.warn(
@@ -201,12 +246,10 @@ def migrate_to_yaml(
         )
     dest = Path(dest).expanduser().resolve()
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if dest.exists():
-        shutil.copy2(dest, dest.with_suffix(dest.suffix + ".bak"))
-    body = defaults_dict()
-    for key, value in settings.items():
-        if value:
-            body[key] = value
+    backup = dest.with_suffix(dest.suffix + ".bak")
+    if dest.exists() and not backup.exists():
+        shutil.copy2(dest, backup)
+    body = _merge_settings(defaults_dict(), settings)
     body["schema_version"] = 1
     fd, tmp = tempfile.mkstemp(
         prefix=f".{dest.name}.", suffix=".tmp", dir=dest.parent

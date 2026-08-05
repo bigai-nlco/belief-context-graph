@@ -28,8 +28,9 @@ from bcg.core.errors import BCGConfigError
 
 DEFAULTS_PATH = Path(__file__).parent / "defaults.yaml"
 
-# File-name candidates searched in the working directory, in order.
-PROJECT_CONFIG_NAMES = ("bcg.yaml", "config.yaml")
+# Deliberately avoid the generic ``config.yaml`` name: repositories commonly
+# use it for unrelated tools, and silently consuming one is unsafe.
+PROJECT_CONFIG_NAMES = ("bcg.yaml",)
 
 
 def _load_yaml_file(path: Path) -> dict[str, Any]:
@@ -90,18 +91,24 @@ def locate_config_files(
 ) -> list[Path]:
     """Resolve the config file chain from highest to lowest precedence.
 
-    Missing files are skipped; the returned list contains only files that
-    exist, ordered from highest to lowest precedence.
+    Automatically discovered files are skipped when absent. Explicit CLI and
+    environment paths fail fast because silently falling back would run with
+    settings other than the ones the user selected.
     """
     found: list[Path] = []
     if explicit:
         path = Path(explicit).expanduser().resolve()
-        if path.is_file():
-            found.append(path)
+        if not path.is_file():
+            raise BCGConfigError(f"explicit config file does not exist: {path}")
+        found.append(path)
     configured = os.environ.get(env_name)
     if configured:
         path = Path(configured).expanduser().resolve()
-        if path.is_file() and path not in found:
+        if not path.is_file():
+            raise BCGConfigError(
+                f"config file from {env_name} does not exist: {path}"
+            )
+        if path not in found:
             found.append(path)
     for name in project_names:
         path = (Path.cwd() / name).resolve()

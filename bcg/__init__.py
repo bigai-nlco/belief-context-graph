@@ -20,7 +20,7 @@ def _package_version() -> str:
     try:
         return _pkg_version("bcg")
     except PackageNotFoundError:
-        return "0.1.0"
+        return "unknown"
 
 
 __version__ = _package_version()

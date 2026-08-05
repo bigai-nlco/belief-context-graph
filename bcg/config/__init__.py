@@ -14,19 +14,31 @@ from bcg.config.migration import (
     migrate_to_yaml,
     migrate_user_config,
 )
+from bcg.config.runtime import (
+    LEGACY_CONFIG_PATH,
+    RuntimeConfig,
+    load_construct_config,
+    resolve_runtime_config,
+    settings_to_construct_config,
+)
 from bcg.config.schema import SCHEMA_VERSION, BCGSettings
 
 __all__ = [
     "BCGSettings",
     "DEFAULTS_PATH",
+    "LEGACY_CONFIG_PATH",
     "PROJECT_CONFIG_NAMES",
+    "RuntimeConfig",
     "SCHEMA_VERSION",
     "defaults_dict",
     "find_legacy_configs",
+    "load_construct_config",
     "legacy_settings",
     "load_settings",
     "locate_config_files",
     "migrate_model_config",
     "migrate_to_yaml",
     "migrate_user_config",
+    "resolve_runtime_config",
+    "settings_to_construct_config",
 ]

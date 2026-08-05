@@ -15,7 +15,7 @@ from urllib.error import URLError
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
-from bcg.env import PROJECT_ROOT, SOURCE_PROJECT_ROOT
+from bcg.core.env import PROJECT_ROOT, SOURCE_PROJECT_ROOT
 
 DEFAULT_GRAPH_URL = "http://127.0.0.1:8848"
 DEFAULT_GRAPH_BACKEND = "light"

@@ -85,12 +85,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-# Allow running as `python bcg/apps/online_server.py ...` from the project root
-# (the parent directory of this `bcg` package).
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 from bcg.apps.cli_help import RichArgumentParser
-from bcg.apps.cli_options import add_run_options
+from bcg.apps.cli_options import add_run_options, add_server_options
+from bcg.config.runtime import resolve_runtime_config
+from bcg.construct.dispatch import DEFAULT_BACKEND, split_backend_args
 
 
 def _bootstrap_env() -> None:
@@ -100,11 +98,6 @@ def _bootstrap_env() -> None:
     load_project_env()
 
 
-  # noqa: E402
-from bcg.construct.dispatch import (  # noqa: E402
-    DEFAULT_BACKEND,
-    split_backend_args,
-)
 
 # ---------------------------------------------------------------------------
 # Shared HTTP plumbing (backend-agnostic: works against any SessionManager
@@ -314,16 +307,16 @@ def _serve_forever(manager, trajectory_closed_error: type, args) -> None:
 def _run_light(argv: list[str]) -> None:
     from bcg.construct.light.online import SessionManager, TrajectoryClosedError
 
+    runtime = resolve_runtime_config(argv)
     p = argparse.ArgumentParser(
         prog="bcg/apps/online_server.py light",
         description="construct_beliefs v3 streaming HTTP server (light backend).",
     )
-    p.add_argument("--host", default="0.0.0.0", help="interface to bind to (default: 0.0.0.0)")
-    p.add_argument("--port", type=int, default=8848)
-    p.add_argument("--config", "-c", default="bcg/model_config.json")
+    add_server_options(p, runtime.settings.server)
+    p.add_argument("--config", "-c", default=runtime.config_path)
     p.add_argument("--output-dir", "-o", default="outputs_stream")
-    p.add_argument("--model-key", default="gpt-5.5")
-    p.add_argument("--embedding-key", default="embedding")
+    p.add_argument("--model-key", default=runtime.settings.model_key)
+    p.add_argument("--embedding-key", default=runtime.settings.embedding_key)
     p.add_argument("--quiet", "-q", default=False, action="store_true")
     args = p.parse_args(argv)
 
@@ -348,13 +341,13 @@ def _run_api_based(argv: list[str]) -> None:
     )
     from bcg.construct.api_based.stream import StreamOptions
 
+    runtime = resolve_runtime_config(argv)
     p = argparse.ArgumentParser(
         prog="bcg/apps/online_server.py api_based",
         description="construct_beliefs v3 streaming HTTP server (api_based backend).",
     )
-    p.add_argument("--host", default="0.0.0.0", help="interface to bind to (default: 0.0.0.0)")
-    p.add_argument("--port", type=int, default=8848)
-    p.add_argument("--config", "-c", default="bcg/model_config.json")
+    add_server_options(p, runtime.settings.server)
+    p.add_argument("--config", "-c", default=runtime.config_path)
     p.add_argument(
         "--output-dir", "-o", default="outputs_stream",
         help="output root. Basenames like outputs_2026_7_6 auto-roll to "
@@ -362,10 +355,10 @@ def _run_api_based(argv: list[str]) -> None:
              "outputs_{Y}_{m}_{d} or outputs_{date} are also supported. "
              "Plain outputs_stream stays fixed.",
     )
-    p.add_argument("--model-key", default="gpt-5.5")
-    p.add_argument("--embedding-key", default="embedding")
+    p.add_argument("--model-key", default=runtime.settings.model_key)
+    p.add_argument("--embedding-key", default=runtime.settings.embedding_key)
 
-    add_run_options(p)
+    add_run_options(p, runtime.settings.runner)
     p.add_argument("--quiet", "-q", default=False, action="store_true")
     args = p.parse_args(argv)
 
@@ -415,7 +408,13 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(0)
 
     try:
-        backend, rest = split_backend_args(argv, backends=_BACKENDS)
+        runtime_argv = argv[1:] if argv and argv[0] in _BACKENDS else argv
+        runtime = resolve_runtime_config(runtime_argv)
+        backend, rest = split_backend_args(
+            argv,
+            backends=_BACKENDS,
+            default=runtime.settings.backend,
+        )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from None

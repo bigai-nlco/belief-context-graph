@@ -61,8 +61,7 @@ class BeliefGraphPipelineBase:
         *,
         metadata: dict[str, Any] | None = None,
     ) -> RunResult:
-        # Delayed imports avoid package-initialization cycles while memory still
-        # has its legacy confidence import. That dependency moves in step 5.
+        # Delayed imports avoid package-initialization cycles.
         from bcg.core.graph import BCG
         from bcg.core.memory import BCGMemory
         from bcg.core.runner import BCGRunner

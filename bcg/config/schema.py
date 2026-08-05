@@ -187,6 +187,8 @@ class BCGSettings(_ForbidExtra):
 
     schema_version: int
     backend: Literal["api_based", "light"]
+    model_key: str = Field(min_length=1)
+    embedding_key: str = Field(min_length=1)
     server: ServerSettings
     models: dict[str, ModelEntry]
     pipeline: PipelineSettings

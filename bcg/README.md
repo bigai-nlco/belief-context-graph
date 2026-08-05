@@ -60,9 +60,9 @@ You can drive either backend two ways:
 | Relations | Separate non-thinking Qwen model; backward window is either the immediately-previous turn only (`search_previous_turns: false`) or a full backward walk (`true`, the example config's default) | Same model, always a full backward walk: current turn vs. the immediately-previous turn's surviving nodes, walking further back one turn at a time until a cross-turn edge lands (or no turn remains) |
 | Evidence granularity | Whole semantic chunk (exact offsets) | Whole sentence (exact offsets, default) or model-quoted excerpt (`--evidence-mode excerpt`, located by a 3-stage exact→normalised→fuzzy matcher) |
 | Confidence policy | Hardcoded `(role, stance)` lookup table in `confidence.py` | Hardcoded `(role, stance)` lookup table in `confidence.py` |
-| Merge | Incremental, embedding-only (**no** LLM verify step) | Incremental embedding merge, **optionally** LLM-verified + rewritten (`--verify-merge`, default on) |
+| Merge | Incremental, embedding-only (**no** LLM verify step) | Incremental embedding merge, **optionally** LLM-verified + rewritten (`--verify-merge`, default off) |
 | Runtime tuning | Almost entirely via `model_config.json`'s `belief_graph` block — `bcg/run.py light` exposes no backend-specific CLI flags | Via CLI flags on `bcg/run.py` / `bcg/online_server.py` (`--evidence-mode`, `--incremental-merge*`, `--verify-merge`, `--context-chars`, `--min-content-len`) |
-| API key | Same mechanism as `api_based` — see [Configuration](#configuration) | `api_key_env` resolved from a project-root `.env` via the shared `bcg/env.py` |
+| API key | Same mechanism as `api_based` — see [Configuration](#configuration) | `api_key_env` resolved from a project-root `.env` via `bcg.core.env` |
 
 
 ### `api_based`, in more detail
@@ -78,9 +78,9 @@ Each non-skipped turn (`extract.py` + `stream.py`) runs:
    new belief nodes are deduplicated against the graph immediately, before
    any edges are drawn. Decision nodes are excluded from this merge
    entirely. Candidates are embedded and flagged above
-   `--incremental-merge-threshold` (default `0.86`); if `--verify-merge` is
-   on (default), the LLM is called once per candidate group to confirm the
-   merge and rewrite the surviving node's text.
+   `--incremental-merge-threshold` (default `0.8`); if `--verify-merge` is
+   enabled, the LLM is called once per candidate group to confirm the merge
+   and rewrite the surviving node's text.
 3. **Relation extraction** (`extract.extract_relations`, one or more LLM
    calls) — links the surviving new nodes to the immediately-previous
    turn's surviving nodes (plus new↔new). If that adjacent turn yields no
@@ -352,16 +352,13 @@ python bcg/run.py light --input data.json --item 3
 |---|---|---|
 | `--evidence-mode` | `sentence` | `sentence` = whole-sentence evidence with offsets; `excerpt` = model quotes spans verbatim |
 | `--incremental-merge` / `--no-incremental-merge` | on | Per-turn embedding merge right after each turn's new nodes |
-| `--incremental-merge-threshold` | `0.86` | Cosine threshold for that merge |
-| `--verify-merge` | on | LLM verify + rewrite on the incremental merge. **`run.py` only exposes the on-switch** — there's no `--no-verify-merge` here (it exists on `online_server.py`, see below) |
-| `--context-chars` | `100000` | Char budget of the existing-nodes context block shown to the model |
+| `--incremental-merge-threshold` | `0.8` | Cosine threshold for that merge |
+| `--verify-merge` / `--no-verify-merge` | off | Enable or disable LLM verification and rewriting for merge groups |
+| `--context-chars` | `9000` | Char budget of the existing-nodes context block shown to the model |
 | `--min-content-len` | `0` | Skip turns shorter than this many characters |
 
-`StreamOptions`'s own library defaults differ from these CLI defaults in a
-few places (`incremental_merge_threshold=0.8`, `verify_merge=False`,
-`context_chars=9000`) — the CLI layer sets its own, so drive the class
-directly (see [Python API](#python-api)) if you want the library defaults
-instead.
+These CLI defaults and the SDK defaults share the same values. Layered YAML
+settings can override them; an explicit CLI flag takes precedence.
 
 **`light`-only flags:** none. Everything beyond the common flags above
 comes from `model_config.json`'s `belief_graph` block (see
@@ -382,12 +379,12 @@ python bcg/online_server.py light     --config bcg/model_config.json --port 8848
 python bcg/online_server.py api_based --config bcg/model_config.json --port 8848
 ```
 
-`--host` defaults to `0.0.0.0` (all interfaces) — pass `--host 127.0.0.1`
-to keep it local. `--output-dir` defaults to `outputs_stream` here (batch's
+`--host` defaults to `127.0.0.1` (local access only); pass `--host 0.0.0.0`
+to listen on all interfaces. `--output-dir` defaults to `outputs_stream` here (batch's
 default is `outputs`).
 
-`api_based`'s server additionally exposes the same merge/evidence flags as
-`run.py`, **plus a real `--no-verify-merge` off-switch**:
+`api_based`'s server exposes the same merge/evidence flags as
+`run.py`:
 `--evidence-mode`, `--incremental-merge`/`--no-incremental-merge`,
 `--incremental-merge-threshold`, `--verify-merge`/`--no-verify-merge`,
 `--context-chars`, `--min-content-len`. It also supports a self-rolling

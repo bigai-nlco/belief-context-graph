@@ -18,6 +18,7 @@ from bcg.core.contracts import (
     RunOptions,
     SessionSpec,
 )
+from bcg.core.errors import BCGUsageError
 from bcg.core.graph import BCG, BeliefPayload, BeliefSource, EvidenceExcerpt
 from bcg.core.memory import BCGMemory
 from bcg.core.utils import new_run_id, save_json, utc_now
@@ -139,7 +140,7 @@ class BCGRunner:
         options: Any | None = None,
     ) -> str:
         if self._active:
-            raise RuntimeError("A belief run is already active")
+            raise BCGUsageError("A belief run is already active")
         if backend is not None:
             self._backend = _resolve_backend(backend)
             self.backend = self._backend.name
@@ -202,7 +203,7 @@ class BCGRunner:
     def start_session(self, session_id: str, date: str | None = None) -> None:
         self._require_active()
         if self._session is not None:
-            raise RuntimeError("A session is already active")
+            raise BCGUsageError("A session is already active")
         self._session = {
             "session_id": str(session_id),
             "session_index": len(self._sessions),
@@ -268,7 +269,7 @@ class BCGRunner:
         assert self.run_id is not None
         assert self.options is not None
         if self._finalized:
-            raise RuntimeError("finalize() called twice")
+            raise BCGUsageError("finalize() called twice")
         if self._session is not None:
             await self.end_session()
         snapshot = await _invoke_engine(self.llm, self._backend.finalize, self._engine)
@@ -328,7 +329,9 @@ class BCGRunner:
 
     def _require_active(self) -> None:
         if not self._active:
-            raise RuntimeError("No active belief run. Call begin_belief_run() first.")
+            raise BCGUsageError(
+                "No active belief run. Call begin_belief_run() first."
+            )
 
 
 async def _invoke_engine(llm: Any, func: Any, *args: Any) -> Any:

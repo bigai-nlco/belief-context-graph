@@ -27,7 +27,6 @@ from __future__ import annotations
 import contextlib
 import contextvars
 import json
-import os
 import re
 import sys
 import threading
@@ -35,7 +34,8 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
-from bcg.env import resolve_config_api_key
+from bcg.config.runtime import load_construct_config
+from bcg.core.env import resolve_config_api_key
 
 from .._shared.llm import (  # noqa: F401 - compat re-exports for legacy imports
     _EMBEDDING_LOG_LOCK,
@@ -118,12 +118,9 @@ def load_belief_graph_config(
     path: str = "model_config.json",
     model_key: str | None = None,
 ) -> dict[str, Any]:
-    """Load optional shared belief-graph settings from model_config.json."""
-    if not os.path.exists(path):
-        return {}
-    with open(path, encoding="utf-8") as f:
-        raw = json.load(f)
-    if not isinstance(raw, dict):
+    """Load optional shared belief-graph settings from YAML or legacy JSON."""
+    raw, _ = load_construct_config(path, required=False)
+    if raw is None:
         return {}
 
     top = raw.get("belief_graph")
@@ -171,15 +168,8 @@ def load_config(
     For the nested form, `model_key` picks which entry to use; if omitted,
     the first NON-RESERVED key is used and its name is the model name.
     """
-    if not os.path.exists(path):
-        raise FileNotFoundError(
-            f"Missing {path}. Create it with base_url / api_key_env / model "
-            f"(flat) or nested by model name."
-        )
-    with open(path, encoding="utf-8") as f:
-        raw = json.load(f)
-    if not isinstance(raw, dict):
-        raise ValueError(f"{path} must contain a JSON object")
+    raw, display_path = load_construct_config(path, required=True)
+    assert raw is not None
 
     is_flat = any(k in raw for k in ("api_key", "base_url"))
 
@@ -190,7 +180,7 @@ def load_config(
             chosen = model_key
         elif model_key:
             available = ", ".join(repr(k) for k in raw if not _is_reserved_key(k))
-            raise KeyError(f"Model key {model_key!r} not found in {path}. Available: {available}")
+            raise KeyError(f"Model key {model_key!r} not found in {display_path}. Available: {available}")
         else:
             chosen = next((k for k in raw if not _is_reserved_key(k)), None)
             if chosen is None:
@@ -212,7 +202,7 @@ def load_config(
     _resolve_config_api_key(
         cfg,
         default_env="OPENAI_API_KEY",
-        config_path=path,
+        config_path=display_path,
     )
     return cfg
 
@@ -355,11 +345,8 @@ def load_embedding_config(
           "model_kwargs": {}
         }
     """
-    if not os.path.exists(path):
-        return None
-    with open(path, encoding="utf-8") as f:
-        raw = json.load(f)
-    if not isinstance(raw, dict):
+    raw, display_path = load_construct_config(path, required=False)
+    if raw is None:
         return None
     entry = raw.get(embedding_key)
     if not isinstance(entry, dict):
@@ -388,7 +375,7 @@ def load_embedding_config(
         _resolve_config_api_key(
             cfg,
             default_env="EMBEDDING_API_KEY",
-            config_path=path,
+            config_path=display_path,
         )
         cfg.setdefault("batch_size", 32)
     else:

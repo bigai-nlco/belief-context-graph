@@ -9,11 +9,14 @@ source after the step-7 unification.
 from __future__ import annotations
 
 import argparse
+from typing import Any
 
 from bcg.config import defaults_dict
 
 
-def _runner_defaults() -> dict:
+def _runner_defaults(settings: Any | None = None) -> dict:
+    if settings is not None:
+        return settings.model_dump()
     runner = defaults_dict().get("runner") or {}
     return {
         "evidence_mode": runner.get("evidence_mode", "sentence"),
@@ -25,16 +28,29 @@ def _runner_defaults() -> dict:
     }
 
 
-def add_run_options(parser: argparse.ArgumentParser) -> None:
+def _server_defaults() -> dict:
+    server = defaults_dict().get("server") or {}
+    return {
+        "host": server.get("host", "127.0.0.1"),
+        "port": server.get("port", 8848),
+    }
+
+
+def _on_off(value: bool) -> str:
+    return "ON" if value else "OFF"
+
+
+def add_run_options(parser: argparse.ArgumentParser, settings: Any | None = None) -> None:
     """Add the shared api_based run knobs (evidence mode / merge / context)."""
-    defaults = _runner_defaults()
+    defaults = _runner_defaults(settings)
 
     parser.add_argument(
         "--evidence-mode",
         choices=["sentence", "excerpt"],
         default=defaults["evidence_mode"],
         help="'sentence' = evidence is always a complete sentence; "
-        "'excerpt' = model quotes verbatim spans. Default: sentence.",
+        "'excerpt' = model quotes verbatim spans. "
+        f"Default: {defaults['evidence_mode']}.",
     )
     parser.add_argument(
         "--incremental-merge",
@@ -42,7 +58,7 @@ def add_run_options(parser: argparse.ArgumentParser) -> None:
         default=defaults["incremental_merge"],
         action="store_true",
         help="Run an embedding-only per-turn merge (needs the embedding entry). "
-        "Default: ON.",
+        f"Default: {_on_off(defaults['incremental_merge'])}.",
     )
     parser.add_argument(
         "--no-incremental-merge",
@@ -63,7 +79,7 @@ def add_run_options(parser: argparse.ArgumentParser) -> None:
         default=defaults["verify_merge"],
         action="store_true",
         help="LLM-verify and rewrite per-turn embedding merge groups. "
-        "Default: ON.",
+        f"Default: {_on_off(defaults['verify_merge'])}.",
     )
     parser.add_argument(
         "--no-verify-merge",
@@ -82,8 +98,29 @@ def add_run_options(parser: argparse.ArgumentParser) -> None:
         "--min-content-len",
         type=int,
         default=defaults["min_content_len"],
-        help="Skip turns whose content is shorter than this. Default: 0.",
+        help="Skip turns whose content is shorter than this. "
+        f"Default: {defaults['min_content_len']}.",
     )
 
 
-__all__ = ["add_run_options"]
+def add_server_options(
+    parser: argparse.ArgumentParser,
+    settings: Any | None = None,
+) -> None:
+    """Add server bind options sourced from the unified defaults."""
+
+    defaults = settings.model_dump() if settings is not None else _server_defaults()
+    parser.add_argument(
+        "--host",
+        default=defaults["host"],
+        help=f"Interface to bind to (default: {defaults['host']}).",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=defaults["port"],
+        help=f"TCP port to bind to (default: {defaults['port']}).",
+    )
+
+
+__all__ = ["add_run_options", "add_server_options"]

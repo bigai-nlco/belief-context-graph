@@ -6,6 +6,7 @@ import json
 import subprocess
 import zipfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -29,6 +30,7 @@ def test_defaults_load_and_validate() -> None:
     assert settings.schema_version == 1
     assert settings.backend in {"api_based", "light"}
     assert settings.server.port == 8848
+    assert settings.model_key == "gpt-5.5"
     assert settings.runner.incremental_merge_threshold == 0.8
     assert settings.pipeline.runtime.context_chars == 12000
     assert sources["runner.incremental_merge_threshold"] == "packaged defaults"
@@ -177,10 +179,26 @@ def test_list_replace_wholesale(tmp_path: Path) -> None:
     assert settings.pipeline.entities.fallback_methods == ["rules"]
 
 
-def test_missing_user_home_and_empty_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("BCG_CONFIG", str(tmp_path / "does-not-exist.yaml"))
+def test_missing_explicit_or_env_config_fails_fast(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    missing = tmp_path / "does-not-exist.yaml"
+    with pytest.raises(Exception, match="explicit config file does not exist"):
+        load_settings(explicit=str(missing), home=tmp_path / "missing-home")
+
+    monkeypatch.setenv("BCG_CONFIG", str(missing))
+    with pytest.raises(Exception, match="config file from BCG_CONFIG does not exist"):
+        load_settings(home=tmp_path / "missing-home")
+
+
+def test_generic_config_yaml_is_not_auto_discovered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write(tmp_path, "config.yaml", "backend: light\n")
+    monkeypatch.chdir(tmp_path)
     settings, _ = load_settings(home=tmp_path / "missing-home")
     assert settings.backend == "api_based"
+
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +233,91 @@ def test_example_config_parses_and_validates() -> None:
     settings, _ = load_settings(explicit=str(example), home=Path("/nonexistent-home"))
     assert settings.models["graph-model"].base_url == "https://api.openai.com/v1"
     assert settings.pipeline.entities.method == "ml"
+
+
+def test_yaml_settings_are_consumed_by_both_backend_loaders(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _write(
+        tmp_path,
+        "runtime.yaml",
+        (
+            "model_key: graph-model\n"
+            "embedding_key: vectors\n"
+            "models:\n"
+            "  graph-model:\n"
+            "    api_key_env: TEST_GRAPH_KEY\n"
+            "    base_url: https://models.example/v1\n"
+            "    model: graph-runtime\n"
+            "  vectors:\n"
+            "    provider: local\n"
+            "    model: /models/vectors\n"
+            "pipeline:\n"
+            "  runtime:\n"
+            "    context_chars: 4321\n"
+        ),
+    )
+    monkeypatch.setenv("TEST_GRAPH_KEY", "secret-from-env")
+
+    from bcg.construct.api_based import llm as api_llm
+    from bcg.construct.light import llm as light_llm
+
+    for module in (api_llm, light_llm):
+        model = module.load_config(str(config), model_key="graph-model")
+        embedding = module.load_embedding_config(
+            str(config), embedding_key="vectors"
+        )
+        pipeline = module.load_belief_graph_config(str(config))
+
+        assert model["base_url"] == "https://models.example/v1"
+        assert model["api_key"] == "secret-from-env"
+        assert embedding["provider"] == "local"
+        assert embedding["model"] == "/models/vectors"
+        assert pipeline["runtime"]["context_chars"] == 4321
+
+
+def test_project_yaml_drives_construct_cli_defaults(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write(
+        tmp_path,
+        "bcg.yaml",
+        (
+            "model_key: custom-model\n"
+            "embedding_key: custom-embedding\n"
+            "models:\n"
+            "  custom-model:\n"
+            "    api_key_env: OPENAI_API_KEY\n"
+            "    model: custom-model\n"
+            "  custom-embedding:\n"
+            "    provider: local\n"
+            "    model: /models/embedding\n"
+            "runner:\n"
+            "  incremental_merge_threshold: 0.41\n"
+            "  verify_merge: true\n"
+        ),
+    )
+    monkeypatch.chdir(tmp_path)
+
+    from bcg.apps import run
+    from bcg.construct.api_based import pipeline as api_pipeline
+
+    captured: dict[str, Any] = {}
+
+    def capture(*args: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+        captured["config_path"] = args[1]
+
+    monkeypatch.setattr(api_pipeline, "run_input", capture)
+    run._run_api_based(["--input", "input.json"])
+
+    assert captured["config_path"] is None
+    assert captured["model_key"] == "custom-model"
+    assert captured["embedding_key"] == "custom-embedding"
+    assert captured["options"].incremental_merge_threshold == 0.41
+    assert captured["options"].verify_merge is True
 
 
 # ---------------------------------------------------------------------------
@@ -269,8 +372,30 @@ def test_migrate_model_config_maps_sections(tmp_path: Path) -> None:
     assert "_comment" not in out
     assert out["models"]["gpt-5.5"]["base_url"] == "https://example.test/v1"
     assert out["models"]["embedding"]["model"] == "/models/all-MiniLM-L6-v2"
+    assert out["model_key"] == "gpt-5.5"
+    assert out["embedding_key"] == "embedding"
     assert out["pipeline"]["runtime"]["context_chars"] == 12000
     assert "_comment" not in out["pipeline"]
+
+
+def test_migrate_model_config_handles_custom_embedding_and_invalid_json(
+    tmp_path: Path,
+) -> None:
+    from bcg.config import migrate_model_config
+    from bcg.core.errors import BCGConfigError
+
+    path = tmp_path / "model_config.json"
+    path.write_text(
+        json.dumps({"embedding_local": {"provider": "local"}, "chat": {}}),
+        encoding="utf-8",
+    )
+    out = migrate_model_config(path)
+    assert out["model_key"] == "chat"
+    assert out["embedding_key"] == "embedding_local"
+
+    path.write_text("{broken", encoding="utf-8")
+    with pytest.raises(BCGConfigError, match="invalid JSON configuration"):
+        migrate_model_config(path)
 
 
 def test_migrate_model_config_drops_inline_secrets(tmp_path: Path) -> None:
@@ -281,14 +406,28 @@ def test_migrate_model_config_drops_inline_secrets(tmp_path: Path) -> None:
             "api_key": "sk-super-secret",
             "api_key_env": "OPENAI_API_KEY",
             "base_url": "https://example.test/v1",
-        }
+            "model_kwargs": {
+                "providers": [{"api_key": "nested-secret", "name": "fallback"}]
+            },
+        },
+        "belief_graph": {
+            "extractor": {
+                "api_key": "pipeline-secret",
+                "api_key_env": "EXTRACTOR_KEY",
+            }
+        },
     }
     path = tmp_path / "model_config.json"
     path.write_text(json.dumps(cfg), encoding="utf-8")
-    with pytest.warns(UserWarning, match="dropped inline api_key"):
+    with pytest.warns(UserWarning, match="dropped inline api_key") as caught:
         out = migrate_model_config(path)
     assert "api_key" not in out["models"]["gpt-5.5"]
     assert out["models"]["gpt-5.5"]["api_key_env"] == "OPENAI_API_KEY"
+    assert len(caught) == 3
+    nested = out["models"]["gpt-5.5"]["model_kwargs"]["providers"][0]
+    assert nested == {"name": "fallback"}
+    assert "api_key" not in out["pipeline"]["extractor"]
+    assert out["pipeline"]["extractor"]["api_key_env"] == "EXTRACTOR_KEY"
 
 
 def test_migrate_user_config_maps_backend_and_merges_models(tmp_path: Path) -> None:
@@ -302,6 +441,8 @@ def test_migrate_user_config_maps_backend_and_merges_models(tmp_path: Path) -> N
     out = migrate_user_config(user_path, model_config_path=model_path)
     assert out["backend"] == "light"
     assert out["models"]["graph-model"]["base_url"] == "http://localhost:8001/v1"
+    assert out["model_key"] == "graph-model"
+    assert out["embedding_key"] == "embedding"
     assert out["models"]["gpt-5.5"]["base_url"] == "https://example.test/v1"
     assert out["pipeline"]["runtime"]["evidence_mode"] == "chunk"
 
@@ -341,6 +482,10 @@ def test_migrate_to_yaml_is_atomic_idempotent_and_validates(tmp_path: Path) -> N
 
     # migrated YAML validates against the schema
     settings, sources = load_settings(explicit=str(dest), home=tmp_path / "no-home")
+    original_backup = dest.with_suffix(dest.suffix + ".bak").read_bytes()
+
+    migrate_to_yaml(dest, project_root=tmp_path, home=tmp_path / "no-home")
+    assert dest.with_suffix(dest.suffix + ".bak").read_bytes() == original_backup
     assert settings.pipeline.incremental_merge.threshold == 0.76
     assert sources["pipeline.incremental_merge.threshold"] == str(dest)
 
