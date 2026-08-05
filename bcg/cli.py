@@ -112,6 +112,22 @@ def _setup() -> None:
         raise typer.Exit(1) from exc
 
 
+@app.command(
+    "config",
+    help="Inspect the unified configuration or migrate legacy JSON files.",
+    context_settings=_FORWARD_CONTEXT,
+    add_help_option=False,
+)
+def _config(ctx: typer.Context) -> None:
+    from bcg.config.cli import app as config_app
+
+    arguments = list(ctx.args)
+    if not arguments:
+        typer.echo(config_app.get_help())
+        raise typer.Exit(0)
+    config_app(args=arguments, prog_name="bcg config", standalone_mode=False)
+
+
 def main(argv: list[str] | None = None) -> None:
     """Launch the Agent TUI or dispatch an explicit command family."""
 

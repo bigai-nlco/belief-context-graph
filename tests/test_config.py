@@ -1,7 +1,8 @@
-"""Step 4A: unified YAML configuration infrastructure tests."""
+"""Step 4A/4B: unified YAML configuration and legacy migration tests."""
 
 from __future__ import annotations
 
+import json
 import subprocess
 import zipfile
 from pathlib import Path
@@ -215,3 +216,138 @@ def test_example_config_parses_and_validates() -> None:
     settings, _ = load_settings(explicit=str(example), home=Path("/nonexistent-home"))
     assert settings.models["graph-model"].base_url == "https://api.openai.com/v1"
     assert settings.pipeline.entities.method == "ml"
+
+
+# ---------------------------------------------------------------------------
+# Step 4B: legacy JSON migration
+# ---------------------------------------------------------------------------
+
+_LEGACY_MODEL_CONFIG = {
+    "_comment": "legacy top-level comment",
+    "gpt-5.5": {
+        "api_key_env": "OPENAI_API_KEY",
+        "base_url": "https://example.test/v1",
+        "max_tokens": 100000,
+        "temperature": 1,
+        "pricing": {"input_per_1k": 0.005, "output_per_1k": 0.03},
+    },
+    "embedding": {
+        "provider": "local",
+        "model": "/models/all-MiniLM-L6-v2",
+    },
+    "belief_graph": {
+        "_comment": "pipeline comment",
+        "runtime": {"evidence_mode": "chunk", "context_chars": 12000, "min_content_len": 0},
+        "incremental_merge": {"enabled": True, "threshold": 0.76, "keep_newest_text": False},
+    },
+}
+
+_LEGACY_USER_CONFIG = {
+    "version": 1,
+    "setupComplete": True,
+    "agent": {"authMethod": "api_key", "baseUrl": "https://agent.test/v1", "model": "gpt-5.5"},
+    "context": {"mode": "bcg", "recentTurns": 2},
+    "graph": {
+        "serverMode": "managed",
+        "backend": "light",
+        "url": "",
+        "modelConfig": "",
+        "modelKey": "graph-model",
+        "embeddingKey": "embedding",
+        "modelBaseUrl": "http://localhost:8001/v1",
+        "model": "Qwen3.5-4B",
+    },
+}
+
+
+def test_migrate_model_config_maps_sections(tmp_path: Path) -> None:
+    from bcg.config import migrate_model_config
+
+    path = tmp_path / "model_config.json"
+    path.write_text(json.dumps(_LEGACY_MODEL_CONFIG), encoding="utf-8")
+    out = migrate_model_config(path)
+
+    assert "_comment" not in out
+    assert out["models"]["gpt-5.5"]["base_url"] == "https://example.test/v1"
+    assert out["models"]["embedding"]["model"] == "/models/all-MiniLM-L6-v2"
+    assert out["pipeline"]["runtime"]["context_chars"] == 12000
+    assert "_comment" not in out["pipeline"]
+
+
+def test_migrate_model_config_drops_inline_secrets(tmp_path: Path) -> None:
+    from bcg.config import migrate_model_config
+
+    cfg = {
+        "gpt-5.5": {
+            "api_key": "sk-super-secret",
+            "api_key_env": "OPENAI_API_KEY",
+            "base_url": "https://example.test/v1",
+        }
+    }
+    path = tmp_path / "model_config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    with pytest.warns(UserWarning, match="dropped inline api_key"):
+        out = migrate_model_config(path)
+    assert "api_key" not in out["models"]["gpt-5.5"]
+    assert out["models"]["gpt-5.5"]["api_key_env"] == "OPENAI_API_KEY"
+
+
+def test_migrate_user_config_maps_backend_and_merges_models(tmp_path: Path) -> None:
+    from bcg.config import migrate_user_config
+
+    user_path = tmp_path / "config.json"
+    user_path.write_text(json.dumps(_LEGACY_USER_CONFIG), encoding="utf-8")
+    model_path = tmp_path / "model_config.json"
+    model_path.write_text(json.dumps(_LEGACY_MODEL_CONFIG), encoding="utf-8")
+
+    out = migrate_user_config(user_path, model_config_path=model_path)
+    assert out["backend"] == "light"
+    assert out["models"]["graph-model"]["base_url"] == "http://localhost:8001/v1"
+    assert out["models"]["gpt-5.5"]["base_url"] == "https://example.test/v1"
+    assert out["pipeline"]["runtime"]["evidence_mode"] == "chunk"
+
+
+def test_legacy_settings_warns_and_builds_settings(tmp_path: Path) -> None:
+    from bcg.config import legacy_settings
+
+    (tmp_path / "model_config.json").write_text(
+        json.dumps(_LEGACY_MODEL_CONFIG), encoding="utf-8"
+    )
+    with pytest.warns(DeprecationWarning, match="legacy configuration"):
+        out = legacy_settings(project_root=tmp_path, home=tmp_path / "no-home")
+    assert out["models"]["gpt-5.5"]["base_url"] == "https://example.test/v1"
+    assert out["pipeline"]["incremental_merge"]["threshold"] == 0.76
+
+
+def test_migrate_to_yaml_is_atomic_idempotent_and_validates(tmp_path: Path) -> None:
+    from bcg.config import migrate_to_yaml
+
+    (tmp_path / "model_config.json").write_text(
+        json.dumps(_LEGACY_MODEL_CONFIG), encoding="utf-8"
+    )
+    dest = tmp_path / "out" / "config.yaml"
+    written = migrate_to_yaml(
+        dest, project_root=tmp_path, home=tmp_path / "no-home"
+    )
+    assert written == dest
+    assert dest.is_file()
+    assert not list(dest.parent.glob(f".{dest.name}.*.tmp"))
+
+    # idempotent: second run succeeds and backs up the first output
+    written_again = migrate_to_yaml(
+        dest, project_root=tmp_path, home=tmp_path / "no-home"
+    )
+    assert written_again == dest
+    assert dest.with_suffix(dest.suffix + ".bak").is_file()
+
+    # migrated YAML validates against the schema
+    settings, sources = load_settings(explicit=str(dest), home=tmp_path / "no-home")
+    assert settings.pipeline.incremental_merge.threshold == 0.76
+    assert sources["pipeline.incremental_merge.threshold"] == str(dest)
+
+
+def test_migrate_to_yaml_fails_without_legacy_files(tmp_path: Path) -> None:
+    from bcg.config import migrate_to_yaml
+
+    with pytest.raises(FileNotFoundError, match="no legacy configuration"):
+        migrate_to_yaml(tmp_path / "x.yaml", project_root=tmp_path, home=tmp_path / "no")
