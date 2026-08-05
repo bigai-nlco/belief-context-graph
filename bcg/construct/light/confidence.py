@@ -73,12 +73,14 @@ DEFAULT_INPUT_CONFIDENCE_THRESHOLD = 0.8
 DEFAULT_PROPAGATION_MIN_CONFIDENCE_DELTA = 0.001
 MAX_PROPAGATION_ITERATIONS = 3
 
-CONF_FLOOR = 0.001
-CONF_CEIL = 0.999
-
-
-def _clamp_probability(value: float) -> float:
-    return max(CONF_FLOOR, min(CONF_CEIL, float(value)))
+from bcg.core.confidence import (  # noqa: E402
+    CONF_CEIL,
+    CONF_FLOOR,
+    clamp_confidence as _clamp_probability,
+    logit,
+    posterior_confidence,
+    sigmoid,
+)
 
 
 def _as_float(value: Any, default: float) -> float:
@@ -264,27 +266,6 @@ def evidence_contribution(
     if method == "max":
         return max(source_score, stance_score)
     return source_score * stance_score
-
-
-def logit(p: float) -> float:
-    p = _clamp_probability(p)
-    return math.log(p / (1.0 - p))
-
-
-def sigmoid(x: float) -> float:
-    if x >= 0:
-        z = math.exp(-x)
-        return 1.0 / (1.0 + z)
-    z = math.exp(x)
-    return z / (1.0 + z)
-
-
-def posterior_confidence(
-    initial: float,
-    evidence_score: float = 0.0,
-    factor_score: float = 0.0,
-) -> float:
-    return round(sigmoid(logit(initial) + evidence_score + factor_score), 3)
 
 
 def recompute_node_confidence(node: Dict[str, Any]) -> Dict[str, Any]:

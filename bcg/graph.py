@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
-import math
 from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from bcg.core.confidence import (
+    clamp_confidence as _clamp_confidence,
+)
+from bcg.core.confidence import (
+    logit as _logit,
+)
+from bcg.core.confidence import (
+    sigmoid as _sigmoid,
+)
 from bcg.utils import get_random_uuid, utc_now
 
 BeliefLayer = Literal["io", "reasoning"]
@@ -30,9 +38,6 @@ CONFIDENCE_COMPONENT_KEYS = (
 )
 # Backward-compatible alias for callers that still import the old constant name.
 CONFIDENCE_DIMENSION_KEYS = CONFIDENCE_COMPONENT_KEYS
-
-CONF_FLOOR = 0.001
-CONF_CEIL = 0.999
 
 
 class TrajectorySegment(BaseModel):
@@ -174,23 +179,6 @@ def _normalized_confidence_dimensions(
             value = min(1.0, max(0.0, value))
         normalized[key] = round(value, 6)
     return normalized
-
-
-def _clamp_confidence(value: float) -> float:
-    return max(CONF_FLOOR, min(CONF_CEIL, float(value)))
-
-
-def _logit(p: float) -> float:
-    p = _clamp_confidence(p)
-    return math.log(p / (1.0 - p))
-
-
-def _sigmoid(x: float) -> float:
-    if x >= 0:
-        z = math.exp(-x)
-        return 1.0 / (1.0 + z)
-    z = math.exp(x)
-    return z / (1.0 + z)
 
 
 def _confidence_from_dimensions(dimensions: dict[str, float]) -> float:
