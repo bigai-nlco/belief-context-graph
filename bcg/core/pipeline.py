@@ -34,7 +34,7 @@ class BeliefGraphPipelineBase:
         embedder: Any | None = None,
         confidence_config: Any | None = None,
     ) -> None:
-        from bcg.utils import new_run_id
+        from bcg.core.utils import new_run_id
 
         del min_segment_len, confidence_config
         self.llm = llm
@@ -63,9 +63,9 @@ class BeliefGraphPipelineBase:
     ) -> RunResult:
         # Delayed imports avoid package-initialization cycles while memory still
         # has its legacy confidence import. That dependency moves in step 5.
-        from bcg.graph import BCG
-        from bcg.memory import BCGMemory
-        from bcg.runner import BCGRunner
+        from bcg.core.graph import BCG
+        from bcg.core.memory import BCGMemory
+        from bcg.core.runner import BCGRunner
 
         runner = BCGRunner(
             memory=BCGMemory(graph=BCG(metadata={"run_id": self.run_id})),

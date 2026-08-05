@@ -127,13 +127,36 @@ def test_current_entrypoint_defaults_match_step0_contract(
     assert _capture_current_defaults(monkeypatch, capsys) == expected
 
 
-def test_public_exports_match_step0_contract() -> None:
+def test_public_exports_match_step5_contract() -> None:
     assert sorted(bcg.__all__) == [
         "BCG",
         "BCGMemory",
         "BCGRunner",
-        "PROJECT_ENV_FILE",
+        "BCGSettings",
+        "LLMClient",
+        "load_settings",
     ]
+
+
+def test_import_bcg_does_not_load_apps_or_concrete_backends() -> None:
+    project_root = Path(__file__).parents[1]
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import bcg, sys; "
+                "print(any(m.startswith('bcg.apps') for m in sys.modules)); "
+                "print(any(m.startswith('bcg.construct.api_based') for m in sys.modules)); "
+                "print(any(m.startswith('bcg.construct.light') for m in sys.modules))"
+            ),
+        ],
+        cwd=project_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.stdout.split() == ["False", "False", "False"]
 
 
 @pytest.mark.parametrize(
@@ -186,12 +209,13 @@ def test_legacy_module_help_contract(
     assert expected_option in capsys.readouterr().out
 
 
-def test_import_bcg_currently_loads_explicit_project_env(tmp_path: Path) -> None:
+def test_import_bcg_does_not_load_project_env(tmp_path: Path) -> None:
+    """Step-5 contract: plain ``import bcg`` must not touch os.environ."""
     env_file = tmp_path / ".env"
-    env_file.write_text("BCG_STEP0_IMPORT_MARKER=loaded-by-import\n", encoding="utf-8")
+    env_file.write_text("BCG_STEP5_IMPORT_MARKER=loaded-by-import\n", encoding="utf-8")
     child_env = os.environ.copy()
     child_env["BCG_ENV_FILE"] = str(env_file)
-    child_env.pop("BCG_STEP0_IMPORT_MARKER", None)
+    child_env.pop("BCG_STEP5_IMPORT_MARKER", None)
     project_root = Path(__file__).parents[1]
 
     completed = subprocess.run(
@@ -200,7 +224,7 @@ def test_import_bcg_currently_loads_explicit_project_env(tmp_path: Path) -> None
             "-c",
             (
                 "import os; import bcg; "
-                "print(os.environ.get('BCG_STEP0_IMPORT_MARKER', 'missing'))"
+                "print(os.environ.get('BCG_STEP5_IMPORT_MARKER', 'missing'))"
             ),
         ],
         cwd=project_root,
@@ -210,7 +234,35 @@ def test_import_bcg_currently_loads_explicit_project_env(tmp_path: Path) -> None
         text=True,
     )
 
-    assert completed.stdout.strip() == "loaded-by-import"
+    assert completed.stdout.strip() == "missing"
+
+
+def test_import_bcg_env_compat_shim_still_loads_env(tmp_path: Path) -> None:
+    """The legacy ``bcg.env`` path still performs its import-time load."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("BCG_STEP5_ENV_MARKER=loaded-by-bcg-env\n", encoding="utf-8")
+    child_env = os.environ.copy()
+    child_env["BCG_ENV_FILE"] = str(env_file)
+    child_env.pop("BCG_STEP5_ENV_MARKER", None)
+    project_root = Path(__file__).parents[1]
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import os; import bcg.env; "
+                "print(os.environ.get('BCG_STEP5_ENV_MARKER', 'missing'))"
+            ),
+        ],
+        cwd=project_root,
+        env=child_env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.stdout.strip() == "loaded-by-bcg-env"
 
 
 def _imported_modules(path: Path) -> set[str]:
