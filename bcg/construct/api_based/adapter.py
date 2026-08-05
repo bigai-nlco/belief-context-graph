@@ -9,7 +9,7 @@ from bcg.core.contracts import RunOptions
 
 from . import llm
 from .online import StreamingTrajectorySession
-from .stream import StreamOptions
+from .stream import StreamOptions, StreamingBeliefBuilder
 
 
 def _build_options(
@@ -49,6 +49,8 @@ BACKEND = SessionBackendAdapter(
     options_builder=_build_options,
     session_options_builder=_session_options,
     options_serializer=_serialize_options,
+    builder_cls=StreamingBeliefBuilder,
+    options_cls=StreamOptions,
 )
 
 __all__ = ["BACKEND"]

@@ -30,6 +30,8 @@ class SessionBackendAdapter:
     options_builder: OptionsBuilder
     session_options_builder: SessionOptionsBuilder
     options_serializer: OptionsSerializer
+    builder_cls: type | None = None
+    options_cls: type | None = None
 
     def build_options(
         self,
@@ -53,6 +55,8 @@ class SessionBackendAdapter:
             max_tokens=spec.max_tokens,
             item_meta=spec.item_meta,
             extra_meta=spec.extra_meta,
+            builder_cls=self.builder_cls,
+            options_cls=self.options_cls,
         )
 
     def finalize(self, session: ConstructSession) -> dict[str, Any]:
