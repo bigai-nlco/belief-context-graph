@@ -246,6 +246,9 @@ rllm/
 # Local nested external checkouts
 TongGraph/
 
+# Temporary local docs (not for version control)
+REFACTOR_PLAN_*.md
+
 # PyPI configuration file
 .pypirc
 
