@@ -24,6 +24,7 @@ from typing import Any
 import yaml
 
 from bcg.config.schema import BCGSettings
+from bcg.core.errors import BCGConfigError
 
 DEFAULTS_PATH = Path(__file__).parent / "defaults.yaml"
 
@@ -41,7 +42,7 @@ def _load_yaml_file(path: Path) -> dict[str, Any]:
     if data is None:
         return {}
     if not isinstance(data, dict):
-        raise ValueError(f"config file {path} must contain a YAML mapping")
+        raise BCGConfigError(f"config file {path} must contain a YAML mapping")
     return data
 
 
