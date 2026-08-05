@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import importlib
 import inspect
 import json
@@ -210,3 +211,64 @@ def test_import_bcg_currently_loads_explicit_project_env(tmp_path: Path) -> None
     )
 
     assert completed.stdout.strip() == "loaded-by-import"
+
+
+def _imported_modules(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            modules.add(node.module)
+    return modules
+
+
+def test_step1_dependency_direction_has_no_concrete_backend_imports() -> None:
+    project_root = Path(__file__).parents[1]
+    runner_imports = _imported_modules(project_root / "bcg" / "runner.py")
+    registry_imports = _imported_modules(project_root / "bcg" / "construct" / "backends.py")
+    pipeline_imports = _imported_modules(
+        project_root / "bcg" / "construct" / "api_based" / "pipeline.py"
+    )
+    core_imports: set[str] = set()
+    for module_path in (project_root / "bcg" / "core").glob("*.py"):
+        core_imports.update(_imported_modules(module_path))
+
+    concrete_prefixes = (
+        "bcg.construct.api_based",
+        "bcg.construct.light",
+    )
+    assert not any(
+        module.startswith(concrete_prefixes) for module in runner_imports
+    )
+    assert not any(
+        module.startswith(concrete_prefixes) for module in registry_imports
+    )
+    assert not any(
+        module.startswith(concrete_prefixes)
+        or module.startswith("bcg.apps")
+        for module in core_imports
+    )
+    assert "bcg.runner" not in pipeline_imports
+
+
+def test_step1_legacy_dtos_are_core_contracts() -> None:
+    from bcg.construct.api_based.pipeline import (
+        BeliefGraphOptions,
+        BeliefGraphRunPaths,
+        BeliefGraphRunResult,
+    )
+    from bcg.core.contracts import RunOptions, RunPaths, RunResult
+
+    assert issubclass(BeliefGraphOptions, RunOptions)
+    assert BeliefGraphRunPaths is RunPaths
+    assert BeliefGraphRunResult is RunResult
+
+
+def test_step1_registry_backends_implement_protocol() -> None:
+    from bcg.construct.backends import resolve_backend
+    from bcg.core.contracts import ConstructBackend
+
+    assert isinstance(resolve_backend("api_based"), ConstructBackend)
+    assert isinstance(resolve_backend("light"), ConstructBackend)
