@@ -10,9 +10,14 @@ Streaming belief-graph construction from role-tagged turns (user / assistant /
 tool). No scenarios, no sessions: every turn is processed by role in one
 LLM call that emits new belief nodes + new forward edges incrementally; the
 backward (evaluation) pass and merge/dedup run once at trajectory end.
+
+``__version__`` is the package version (pyproject metadata is the single
+source); the historical "3.0.0" backend lineage is kept in this docstring.
 """
 
-__version__ = "3.0.0"
+from bcg import _package_version as _bcg_version
+
+__version__ = _bcg_version()
 
 from .graph import BeliefGraph
 from .pipeline import (

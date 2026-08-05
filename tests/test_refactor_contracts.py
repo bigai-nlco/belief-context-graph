@@ -134,6 +134,7 @@ def test_public_exports_match_step5_contract() -> None:
         "BCGRunner",
         "BCGSettings",
         "LLMClient",
+        "__version__",
         "load_settings",
     ]
 
