@@ -1,0 +1,65 @@
+# Unified BCG configuration defaults. This file is the SINGLE source of
+# behavioral defaults; code must not re-declare these values. Copy
+# config.example.yaml for user configuration; secrets stay in .env and are
+# referenced via api_key_env names only.
+schema_version: 1
+
+# Default construct backend (bcg.construct.dispatch.DEFAULT_BACKEND).
+backend: api_based
+
+server:
+  host: 127.0.0.1
+  port: 8848
+
+# Model routing entries, keyed by model name. The `embedding` key is
+# reserved; any other key is a chat model. Secrets never live here.
+models: {}
+
+# Graph construction pipeline settings (the former model_config.json
+# "belief_graph" section). The light backend consumes the full section;
+# api_based reads only relation-confidence propagation.
+pipeline:
+  runtime:
+    evidence_mode: chunk
+    context_chars: 12000
+    min_content_len: 0
+  incremental_merge:
+    enabled: true
+    threshold: 0.76
+    keep_newest_text: false
+  chunking:
+    enabled: true
+    breakpoint_percentile_threshold: 95.0
+    buffer_size: 1
+    min_chunk_sentences: 1
+    isolate_tool_calls: true
+  confidence:
+    initial_method: weighted_average
+    evidence_method: product
+    source_weight: 0.5
+    stance_weight: 0.5
+    default_source_reliability: 0.55
+    default_stance_quality: 0.65
+    relation_propagation:
+      default_relation_weight: 0.5
+      input_confidence_threshold: 0.8
+      min_confidence_delta: 0.001
+      max_iterations: 3
+
+# SDK-side run defaults (bcg.core.contracts.RunOptions).
+runner:
+  evidence_mode: sentence
+  incremental_merge: true
+  incremental_merge_threshold: 0.8
+  verify_merge: false
+  context_chars: 9000
+  io_context_chars: 6000
+  min_content_len: 0
+
+# CLI entry-point defaults before the step-7 unification (0.8/0.86,
+# 9000/100000, False/True conflicts). Kept separate on purpose; removed
+# once the team approves a single value per knob.
+cli_defaults:
+  incremental_merge_threshold: 0.86
+  verify_merge: true
+  context_chars: 100000

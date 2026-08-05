@@ -1,0 +1,151 @@
+# Example user configuration. Copy to ~/.bcg/config.yaml (user level) or
+# <project>/bcg.yaml (project level) and adjust. Every field shown here is
+# optional: unset keys fall back to the packaged defaults.yaml values.
+# Secrets are NEVER written here; reference them via api_key_env names
+# that exist in your .env file.
+schema_version: 1
+
+# Default construct backend: api_based | light
+backend: api_based
+
+server:
+  host: 127.0.0.1
+  port: 8848
+
+# Model routing. `embedding` is reserved for the embedding backend; other
+# keys are chat models used by graph construction.
+models:
+  graph-model:
+    api_key_env: OPENAI_API_KEY
+    base_url: https://api.openai.com/v1
+    max_tokens: 100000
+    temperature: 1
+    top_p: 0.95
+    pricing:
+      input_per_1k: 0.005
+      output_per_1k: 0.03
+  embedding:
+    provider: local
+    model: /path/to/your/all-MiniLM-L6-v2
+    device: cpu
+    batch_size: 8
+    max_length: 8192
+    trust_remote_code: true
+    input_prefix: "Document: "
+
+# Graph construction pipeline settings (light backend consumes the full
+# section; api_based reads only confidence.relation_propagation).
+pipeline:
+  extractor:
+    enabled: true
+    provider: openai
+    base_url: http://localhost:8001/v1
+    api_key_env: BELIEF_GRAPH_LOCAL_API_KEY
+    model: Qwen3.5-4B
+    temperature: 0
+    max_tokens: 2048
+    max_concurrency: 4
+    request_timeout: 60
+    retries: 5
+    context_scope: graph
+    enable_thinking: false
+    include_turn_content: false
+    require_excerpt: false
+    dynamic_node_cap: true
+    node_cap_unit: char
+    node_cap_ratio: 0.004
+    node_cap_min: 1
+    node_cap_max: 0
+  stance:
+    enabled: true
+    model_path: /path/to/your/deberta-v3-large-zeroshot-v2.0
+    device: cpu
+    batch_size: 16
+    max_length: 512
+    local_files_only: true
+    hypothesis_template: "{description}"
+    labels:
+      asserted:
+        description: "The speaker presents this as a direct and definite assertion."
+      recalled:
+        description: "The speaker presents this as something remembered."
+      judged:
+        description: "The speaker presents this as a judgment or inference."
+      speculated:
+        description: "The speaker presents this as a guess or possibility."
+  edge_generation:
+    enabled: true
+    provider: openai
+    base_url: http://localhost:8001/v1
+    api_key_env: BELIEF_GRAPH_LOCAL_API_KEY
+    model: Qwen3.5-4B
+    temperature: 0
+    max_tokens: 2048
+    retries: 5
+    enable_thinking: false
+    fail_on_error: true
+    search_previous_turns: true
+    max_previous_windows: 4
+  runtime:
+    evidence_mode: chunk
+    context_chars: 12000
+    min_content_len: 0
+  incremental_merge:
+    enabled: true
+    threshold: 0.76
+    keep_newest_text: false
+  entities:
+    method: ml
+    spacy_model: en_core_web_sm
+    huggingface_model: dslim/bert-base-NER
+    device: auto
+    confidence_threshold: 0.5
+    merge_overlapping: true
+    include_standard_types: true
+    fallback_methods: [rules, pattern]
+    patterns: []
+  confidence:
+    initial_method: weighted_average
+    evidence_method: product
+    source_weight: 0.5
+    stance_weight: 0.5
+    default_source_reliability: 0.55
+    default_stance_quality: 0.65
+    source_reliability:
+      user: 0.85
+      assistant: 0.65
+      tool: 0.8
+      user_input: 0.85
+      assistant_other: 0.65
+      tool_call: 0.72
+      tool_result: 0.9
+      llm_reasoning: 0.58
+      historical_retrieval: 0.7
+      manual: 0.86
+      unknown: 0.55
+    stance_quality:
+      asserted: 0.9
+      recalled: 0.72
+      judged: 0.65
+      speculated: 0.4
+    relation_propagation:
+      default_relation_weight: 0.5
+      input_confidence_threshold: 0.8
+      min_confidence_delta: 0.001
+      max_iterations: 3
+  chunking:
+    enabled: true
+    breakpoint_percentile_threshold: 95.0
+    buffer_size: 1
+    min_chunk_sentences: 1
+    isolate_tool_calls: true
+
+# SDK-side run defaults; these override the packaged defaults when set.
+runner:
+  evidence_mode: sentence
+  incremental_merge: true
+  incremental_merge_threshold: 0.8
+  verify_merge: false
+  context_chars: 9000
+  io_context_chars: 6000
+  min_content_len: 0

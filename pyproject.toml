@@ -11,6 +11,7 @@ dependencies = [
     "numpy>=1.21",
     "openai>=2.40.0",
     "pydantic>=2.13.4",
+    "pyyaml>=6.0",
     "rich",
     "sentence-transformers",
     "spacy",
@@ -44,6 +45,8 @@ packages = ["bcg"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "bcg/model_config.example.json" = "bcg/model_config.example.json"
+"bcg/config/defaults.yaml" = "bcg/config/defaults.yaml"
+"bcg/config/config.example.yaml" = "bcg/config/config.example.yaml"
 
 [tool.hatch.metadata]
 allow-direct-references = true
