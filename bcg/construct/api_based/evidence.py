@@ -28,6 +28,7 @@ from __future__ import annotations
 import difflib
 import re
 from typing import Any, Dict, Optional, Tuple
+from .._shared.spans import trim_span
 
 # Fuzzy-match acceptance knobs.
 FUZZY_MIN_RATIO = 0.6          # matched chars must cover >= 60% of the excerpt
@@ -40,14 +41,6 @@ VALID_STANCES = {"asserted", "recalled", "speculated", "judged"}
 def clean_stance(stance: Any) -> str:
     s = str(stance or "asserted").strip().lower()
     return s if s in VALID_STANCES else "asserted"
-
-
-def _trim_span(text: str, s: int, e: int) -> Tuple[int, int]:
-    while s < e and text[s].isspace():
-        s += 1
-    while e > s and text[e - 1].isspace():
-        e -= 1
-    return s, e
 
 
 def locate_excerpt(excerpt: str, content: str) -> Tuple[Optional[int], Optional[int], str]:
@@ -76,7 +69,7 @@ def locate_excerpt(excerpt: str, content: str) -> Tuple[Optional[int], Optional[
         except re.error:
             m = None
         if m:
-            s, e = _trim_span(content, m.start(), m.end())
+            s, e = trim_span(content, m.start(), m.end())
             if e > s:
                 return s, e, "normalized"
 
@@ -91,7 +84,7 @@ def locate_excerpt(excerpt: str, content: str) -> Tuple[Optional[int], Optional[
         max_span = max(len(excerpt) * FUZZY_MAX_SPAN_FACTOR,
                        len(excerpt) + FUZZY_MAX_SPAN_SLACK)
         if matched >= FUZZY_MIN_RATIO * len(excerpt) and span <= max_span:
-            s, e = _trim_span(content, s, e)
+            s, e = trim_span(content, s, e)
             if e > s:
                 return s, e, "fuzzy"
 

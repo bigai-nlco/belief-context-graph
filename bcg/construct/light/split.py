@@ -20,6 +20,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Tuple
+from .._shared.spans import trim_span
 
 
 @dataclass
@@ -43,14 +44,6 @@ class SemanticChunk:
 _SENT_END_RE = re.compile(r'[.!?。！？；;…]+[\'"”’\)\]）】」』]*')
 _MIN_FRAGMENT_LEN = 4
 _TAG_RE = re.compile(r'</?[A-Za-z][A-Za-z0-9_]*(?:\s+[^<>]*?)?\s*/?>')
-
-
-def _trim_span(text: str, s: int, e: int) -> Tuple[int, int]:
-    while s < e and text[s].isspace():
-        s += 1
-    while e > s and text[e - 1].isspace():
-        e -= 1
-    return s, e
 
 
 def _is_pure_tag(text: str, s: int, e: int) -> bool:
@@ -95,7 +88,7 @@ def split_sentences(text: str) -> List[Sentence]:
     for cut in sorted(cuts):
         if cut <= previous:
             continue
-        start, end = _trim_span(text, previous, cut)
+        start, end = trim_span(text, previous, cut)
         if end > start:
             spans.append((start, end))
         previous = cut
@@ -114,7 +107,7 @@ def split_sentences(text: str) -> List[Sentence]:
 
     result: List[Sentence] = []
     for index, (start, end) in enumerate(merged):
-        start, end = _trim_span(text, start, end)
+        start, end = trim_span(text, start, end)
         result.append(Sentence(
             index=index,
             text=text[start:end],
@@ -313,7 +306,7 @@ def single_fallback_chunk(
         indices = [sentence.index for sentence in sentences]
         text = content[start:end]
     else:
-        start, end = _trim_span(content, 0, len(content))
+        start, end = trim_span(content, 0, len(content))
         indices = []
         text = content[start:end]
     chunks = [SemanticChunk(
@@ -450,7 +443,7 @@ def semantic_chunks_isolating_tool_calls(
     n_tool_call_chunks = 0
     for rs, re_, kind in regions:
         if kind == "tool_call":
-            ts, te = _trim_span(content, rs, re_)
+            ts, te = trim_span(content, rs, re_)
             if te <= ts:
                 continue
             all_chunks.append(SemanticChunk(

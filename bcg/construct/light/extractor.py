@@ -41,8 +41,8 @@ from .llm import (
     unbind_usage_tracker,
 )
 from .prompts import build_chunk_extraction_prompt, format_graph_nodes_context
+from .._shared.roles import normalize_role
 
-_ROLE_ALIASES = {"function": "tool"}
 _SUPPORTED_ROLES = {"user", "assistant", "tool"}
 
 
@@ -131,7 +131,7 @@ class ExtractedNode:
 
 def _normalise_role(role: Any) -> str:
     value = str(role or "user").strip().lower()
-    return _ROLE_ALIASES.get(value, value)
+    return normalize_role(value)
 
 
 def _clean_text(value: Any) -> str:

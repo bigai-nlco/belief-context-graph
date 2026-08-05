@@ -23,6 +23,8 @@ RELATION_NODES_PLACEHOLDER = "<<<RELATION_NODES>>>"
 import json as _json
 from typing import Any, Dict, List, Optional
 
+from .._shared.roles import normalize_role
+
 _BELIEF_DEFINITION = """\
 ## What is a belief
 A belief is a self-contained memory / reasoning unit, usually shaped like:
@@ -176,12 +178,9 @@ Write each belief in the third person so it is self-contained.""",
     ),
 }
 
-_ROLE_ALIASES = {"function": "tool"}
-
-
 def _resolve_extraction_role(role: str) -> Optional[str]:
     key = (role or "").strip().lower()
-    key = _ROLE_ALIASES.get(key, key)
+    key = normalize_role(key)
     return key if key in _GUIDANCE else None
 
 

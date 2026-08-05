@@ -45,6 +45,7 @@ from .stance import (
     get_stance_classifier,
     normalize_stance_config,
 )
+from .._shared.roles import normalize_role
 from .split import (
     semantic_breakpoint_chunks,
     semantic_chunks_isolating_tool_calls,
@@ -58,7 +59,6 @@ from .extractor import (
     normalize_extractor_config,
 )
 
-_ROLE_ALIASES = {"function": "tool"}
 BELIEF_ROLES = {"user", "assistant", "tool"}
 
 
@@ -332,7 +332,7 @@ class StreamingBeliefBuilder:
         turn_idx = flat_idx                       # no sessions: turn index == flat index
         content = content or ""
         raw_role = (role or "user").strip().lower()
-        eff_role = _ROLE_ALIASES.get(raw_role, raw_role)
+        eff_role = normalize_role(raw_role)
 
         traj_entry: Dict[str, Any] = {
             "role": raw_role, "content": content, "turn_index": turn_idx,

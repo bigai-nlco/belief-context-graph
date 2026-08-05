@@ -27,7 +27,7 @@ from .llm import (
     make_client,
     make_embedder,
 )
-from .loaders import iter_items, load_input_file, sanitize_name, select_items
+from .._shared.loaders import iter_items, load_input_file, sanitize_name, select_items
 from .stream import StreamingBeliefBuilder, StreamOptions
 
 

@@ -2,40 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
-from bcg.utils import get_random_uuid, utc_now
+from bcg.utils import new_run_id, save_json
 
 
-def save_json(payload: Any, path: str | Path) -> None:
-    """Write a JSON file with stable formatting."""
-
-    output_path = Path(path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-
-
-def new_run_id() -> str:
-    """Create a compact timestamped run id."""
-
-    stamp = utc_now().strftime("%Y%m%dT%H%M%SZ")
-    return f"{stamp}-{get_random_uuid()[:8]}"
-
-
-def trim_span(text: str, start: int, end: int) -> tuple[int, int]:
-    """Trim whitespace around a span while preserving source offsets."""
-
-    while start < end and text[start].isspace():
-        start += 1
-    while end > start and text[end - 1].isspace():
-        end -= 1
-    return start, end
 
 
 def count_by(
@@ -49,3 +21,8 @@ def count_by(
         key = str(key_fn(item) or "unknown")
         counts[key] = counts.get(key, 0) + 1
     return counts
+
+
+from .._shared.spans import trim_span
+
+__all__ = ["count_by", "new_run_id", "save_json", "trim_span"]

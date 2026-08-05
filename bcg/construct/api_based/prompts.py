@@ -21,6 +21,8 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from .._shared.roles import normalize_role
+
 
 CONTENT_PLACEHOLDER       = "<<<CONTENT>>>"
 SENTENCES_PLACEHOLDER     = "<<<SENTENCES>>>"
@@ -390,13 +392,9 @@ boilerplate wrappers ("Execution output of […]:", "Your answer has been submit
     ),
 }
 
-# function-role turns are tool outputs.
-_ROLE_ALIASES = {"function": "tool"}
-
-
 def _resolve_role(role: str) -> Optional[str]:
     role = (role or "").strip().lower()
-    role = _ROLE_ALIASES.get(role, role)
+    role = normalize_role(role)
     return role if role in _GUIDANCE else None
 
 

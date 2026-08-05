@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import List, Tuple
+from .._shared.spans import trim_span
 
 
 @dataclass
@@ -39,14 +40,6 @@ _MIN_FRAGMENT_LEN = 4   # fragments shorter than this merge into a neighbour
 # "<tool_response>…</tool_response>" wrapper. A "<" not introducing a tag (e.g.
 # "a < b") is left untouched.
 _TAG_RE = re.compile(r'</?[A-Za-z][A-Za-z0-9_]*(?:\s+[^<>]*?)?\s*/?>')
-
-
-def _trim_span(text: str, s: int, e: int) -> Tuple[int, int]:
-    while s < e and text[s].isspace():
-        s += 1
-    while e > s and text[e - 1].isspace():
-        e -= 1
-    return s, e
 
 
 def _is_pure_tag(text: str, s: int, e: int) -> bool:
@@ -103,7 +96,7 @@ def split_sentences(text: str) -> List[Sentence]:
     for c in sorted(cuts):
         if c <= prev:
             continue
-        s, e = _trim_span(text, prev, c)
+        s, e = trim_span(text, prev, c)
         if e > s:
             spans.append((s, e))
         prev = c
@@ -124,6 +117,6 @@ def split_sentences(text: str) -> List[Sentence]:
 
     out: List[Sentence] = []
     for idx, (s, e) in enumerate(merged):
-        s, e = _trim_span(text, s, e)
+        s, e = trim_span(text, s, e)
         out.append(Sentence(index=idx, text=text[s:e], start=s, end=e))
     return out

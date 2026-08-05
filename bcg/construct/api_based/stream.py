@@ -56,9 +56,8 @@ from . import llm
 from .llm import USAGE
 from .merge import run_merge_pass
 from .split import split_sentences
+from .._shared.roles import normalize_role
 
-# roles that produce beliefs; "function" is treated as "tool".
-_ROLE_ALIASES = {"function": "tool"}
 BELIEF_ROLES = {"user", "assistant", "tool"}
 
 
@@ -190,7 +189,7 @@ class StreamingBeliefBuilder:
         turn_idx = flat_idx                       # no sessions: turn index == flat index
         content = content or ""
         raw_role = (role or "user").strip().lower()
-        eff_role = _ROLE_ALIASES.get(raw_role, raw_role)
+        eff_role = normalize_role(raw_role)
 
         traj_entry: Dict[str, Any] = {
             "role": raw_role, "content": content, "turn_index": turn_idx,
