@@ -158,6 +158,7 @@ import {
 import { showTrustSelector, showUserMessageSelector } from "./trust-selectors.ts";
 import { showTreeSelector, type TreeSelectorDeps } from "./tree-selector.ts";
 import { buildSessionInfoText } from "./session-info.ts";
+import { getCommandNameArgument, getPathCommandArgument } from "./command-args.ts";
 import { buildResourceSections } from "./resources-sections.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -4278,7 +4279,7 @@ ${block.body}`, 0, 0),
 	}
 
 	private async handleExportCommand(text: string): Promise<void> {
-		const outputPath = this.getPathCommandArgument(text, "/export");
+		const outputPath = getPathCommandArgument(text, "/export");
 
 		try {
 			if (outputPath?.endsWith(".jsonl")) {
@@ -4293,37 +4294,8 @@ ${block.body}`, 0, 0),
 		}
 	}
 
-	private getPathCommandArgument(text: string, command: "/export" | "/import"): string | undefined {
-		if (text === command) {
-			return undefined;
-		}
-		if (!text.startsWith(`${command} `)) {
-			return undefined;
-		}
-
-		const argsString = text.slice(command.length + 1).trimStart();
-		if (!argsString) {
-			return undefined;
-		}
-
-		const firstChar = argsString[0];
-		if (firstChar === '"' || firstChar === "'") {
-			const closingQuoteIndex = argsString.indexOf(firstChar, 1);
-			if (closingQuoteIndex < 0) {
-				return undefined;
-			}
-			return argsString.slice(1, closingQuoteIndex);
-		}
-
-		const firstWhitespaceIndex = argsString.search(/\s/);
-		if (firstWhitespaceIndex < 0) {
-			return argsString;
-		}
-		return argsString.slice(0, firstWhitespaceIndex);
-	}
-
 	private async handleImportCommand(text: string): Promise<void> {
-		const inputPath = this.getPathCommandArgument(text, "/import");
+		const inputPath = getPathCommandArgument(text, "/import");
 		if (!inputPath) {
 			this.showError("Usage: /import <path.jsonl>");
 			return;
@@ -4476,7 +4448,7 @@ ${block.body}`, 0, 0),
 	}
 
 	private handleNameCommand(text: string): void {
-		const name = text.replace(/^\/name\s*/, "").trim();
+		const name = getCommandNameArgument(text, "/name");
 		if (!name) {
 			const currentName = this.sessionManager.getSessionName();
 			if (currentName) {
