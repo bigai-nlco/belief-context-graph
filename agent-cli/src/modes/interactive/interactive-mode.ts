@@ -146,6 +146,15 @@ import {
 	showModelsSelector,
 	type ModelSelectorDeps,
 } from "./model-selectors.ts";
+import {
+	completeProviderAuthentication,
+	notifyAuthDialog,
+	showAmbientAuthDialog,
+	showApiKeyLoginDialog,
+	showAuthPrompt,
+	showLoginDialog,
+	type AuthDialogDeps,
+} from "./auth-dialogs.ts";
 import { buildResourceSections } from "./resources-sections.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -4218,228 +4227,61 @@ ${block.body}`, 0, 0),
 		authType: "oauth" | "api_key",
 		previousModel: Model<any> | undefined,
 	): Promise<void> {
-		await this.session.modelRuntime.getAvailable();
-
-		const actionLabel = authType === "oauth" ? `Logged in to ${providerName}` : `Saved API key for ${providerName}`;
-
-		let selectedModel: Model<any> | undefined;
-		let selectionError: string | undefined;
-		if (isUnknownModel(previousModel)) {
-			const availableModels = await this.session.modelRuntime.getAvailable();
-			const providerModels = availableModels.filter((model) => model.provider === providerId);
-			if (!hasDefaultModelProvider(providerId)) {
-				selectionError = `${actionLabel}, but no default model is configured for provider "${providerId}". Use /model to select a model.`;
-			} else if (providerModels.length === 0) {
-				selectionError = `${actionLabel}, but no models are available for that provider. Use /model to select a model.`;
-			} else {
-				const defaultModelId = defaultModelPerProvider[providerId];
-				selectedModel = providerModels.find((model) => model.id === defaultModelId);
-				if (!selectedModel) {
-					selectionError = `${actionLabel}, but its default model "${defaultModelId}" is not available. Use /model to select a model.`;
-				} else {
-					try {
-						await this.session.setModel(selectedModel);
-					} catch (error: unknown) {
-						selectedModel = undefined;
-						const errorMessage = error instanceof Error ? error.message : String(error);
-						selectionError = `${actionLabel}, but selecting its default model failed: ${errorMessage}. Use /model to select a model.`;
-					}
-				}
-			}
-		}
-
-		await this.updateAvailableProviderCount();
-		this.footer.invalidate();
-		this.updateEditorBorderColor();
-		if (selectedModel) {
-			this.showStatus(`${actionLabel}. Selected ${selectedModel.id}. Credentials saved to ${getAuthPath()}`);
-			void this.maybeWarnAboutAnthropicSubscriptionAuth(selectedModel);
-		} else {
-			this.showStatus(`${actionLabel}. Credentials saved to ${getAuthPath()}`);
-			if (selectionError) {
-				this.showError(selectionError);
-			} else {
-				void this.maybeWarnAboutAnthropicSubscriptionAuth();
-			}
-		}
+		await completeProviderAuthentication(this.authDialogDeps, providerId, providerName, authType, previousModel);
 	}
 
 	private showAmbientAuthDialog(providerOption: AuthSelectorProvider): void {
-		const restoreEditor = () => {
-			this.editorContainer.clear();
-			this.editorContainer.addChild(this.editor);
-			this.ui.setFocus(this.editor);
-			this.ui.requestRender();
-		};
-
-		const dialog = new LoginDialogComponent(
-			this.ui,
-			providerOption.id,
-			() => restoreEditor(),
-			providerOption.name,
-			`${providerOption.name} setup`,
-		);
-		dialog.showInfo(`${providerOption.method?.name ?? "Authentication"} is configured outside BCG.`, [], true);
-
-		this.editorContainer.clear();
-		this.editorContainer.addChild(dialog);
-		this.ui.setFocus(dialog);
-		this.ui.requestRender();
+		showAmbientAuthDialog(this.authDialogDeps, providerOption);
 	}
 
 	private async showApiKeyLoginDialog(providerId: string, providerName: string): Promise<void> {
-		const previousModel = this.session.model;
-
-		const dialog = new LoginDialogComponent(
-			this.ui,
-			providerId,
-			(_success, _message) => {
-				// Completion handled below
-			},
-			providerName,
-		);
-
-		if (providerId === "amazon-bedrock") {
-			dialog.showDetails([
-				theme.fg("text", "You can also use an AWS profile, IAM keys, or role-based credentials."),
-				theme.fg("muted", "See:"),
-				theme.fg("accent", `  ${getReadmePath()}`),
-			]);
-		}
-
-		this.editorContainer.clear();
-		this.editorContainer.addChild(dialog);
-		this.ui.setFocus(dialog);
-		this.ui.requestRender();
-
-		const restoreEditor = () => {
-			this.editorContainer.clear();
-			this.editorContainer.addChild(this.editor);
-			this.ui.setFocus(this.editor);
-			this.ui.requestRender();
-		};
-
-		try {
-			await this.loginProvider(dialog, providerId, "api_key");
-			restoreEditor();
-			await this.completeProviderAuthentication(providerId, providerName, "api_key", previousModel);
-		} catch (error: unknown) {
-			restoreEditor();
-			const errorMsg = error instanceof Error ? error.message : String(error);
-			if (errorMsg !== "Login cancelled") {
-				this.showError(`Failed to save API key for ${providerName}: ${errorMsg}`);
-			}
-		}
-	}
-
-	private showAuthSelect(
-		dialog: LoginDialogComponent,
-		prompt: Extract<AuthPrompt, { type: "select" }>,
-	): Promise<string> {
-		return new Promise((resolve, reject) => {
-			const restoreDialog = () => {
-				this.editorContainer.clear();
-				this.editorContainer.addChild(dialog);
-				this.ui.setFocus(dialog);
-				this.ui.requestRender();
-			};
-			const labels = prompt.options.map((option) => option.label);
-			const selector = new ExtensionSelectorComponent(
-				prompt.message,
-				labels,
-				(optionLabel) => {
-					restoreDialog();
-					const id = prompt.options.find((option) => option.label === optionLabel)?.id;
-					if (id) resolve(id);
-					else reject(new Error("Login cancelled"));
-				},
-				() => {
-					restoreDialog();
-					reject(new Error("Login cancelled"));
-				},
-			);
-			this.editorContainer.clear();
-			this.editorContainer.addChild(selector);
-			this.ui.setFocus(selector);
-			this.ui.requestRender();
-		});
+		await showApiKeyLoginDialog(this.authDialogDeps, providerId, providerName);
 	}
 
 	private async showAuthPrompt(dialog: LoginDialogComponent, prompt: AuthPrompt): Promise<string> {
-		let response: Promise<string>;
-		if (prompt.type === "select") {
-			response = this.showAuthSelect(dialog, prompt);
-		} else if (prompt.type === "manual_code") {
-			response = dialog.showManualInput(prompt.message);
-		} else {
-			response = dialog.showPrompt(prompt.message, prompt.placeholder);
-		}
-		if (!prompt.signal) return response;
-		if (prompt.signal.aborted) throw new Error("Login cancelled");
-		const signal = prompt.signal;
-		let onAbort: (() => void) | undefined;
-		const aborted = new Promise<string>((_resolve, reject) => {
-			onAbort = () => reject(new Error("Login cancelled"));
-			signal.addEventListener("abort", onAbort, { once: true });
-		});
-		try {
-			return await Promise.race([response, aborted]);
-		} finally {
-			if (onAbort) signal.removeEventListener("abort", onAbort);
-		}
+		return showAuthPrompt(this.authDialogDeps, dialog, prompt);
+	}
+
+	private get authDialogDeps(): AuthDialogDeps {
+		return {
+			ui: this.ui,
+			modelRuntime: this.session.modelRuntime,
+			getCurrentModel: () => this.session.model,
+			setModel: (model) => this.session.setModel(model),
+			showStatus: (message) => this.showStatus(message),
+			showError: (message) => this.showError(message),
+			requestRender: () => this.ui.requestRender(),
+			swapEditor: (component) => {
+				this.editorContainer.clear();
+				this.editorContainer.addChild(component);
+				this.ui.setFocus(component);
+				this.ui.requestRender();
+			},
+			restoreEditor: () => {
+				this.editorContainer.clear();
+				this.editorContainer.addChild(this.editor);
+				this.ui.setFocus(this.editor);
+				this.ui.requestRender();
+			},
+			refreshProviderCount: async () => {
+				this.updateAvailableProviderCount();
+			},
+			onAuthUiEffects: () => {
+				this.footer.invalidate();
+				this.updateEditorBorderColor();
+			},
+			onAuthWarning: (model) => {
+				void this.maybeWarnAboutAnthropicSubscriptionAuth(model);
+			},
+		};
 	}
 
 	private notifyAuthDialog(dialog: LoginDialogComponent, event: AuthEvent): void {
-		if (event.type === "auth_url") {
-			dialog.showAuth(event.url, event.instructions);
-		} else if (event.type === "device_code") {
-			dialog.showDeviceCode(event);
-			dialog.showWaiting("Waiting for authentication...");
-		} else if (event.type === "info") {
-			dialog.showInfo(event.message, event.links);
-		} else {
-			dialog.showProgress(event.message);
-		}
-	}
-
-	private async loginProvider(
-		dialog: LoginDialogComponent,
-		providerId: string,
-		method: "api_key" | "oauth",
-	): Promise<void> {
-		await this.session.modelRuntime.login(providerId, method, {
-			signal: dialog.signal,
-			prompt: (prompt) => this.showAuthPrompt(dialog, prompt),
-			notify: (event) => this.notifyAuthDialog(dialog, event),
-		});
+		notifyAuthDialog(dialog, event);
 	}
 
 	private async showLoginDialog(providerId: string, providerName: string): Promise<void> {
-		const previousModel = this.session.model;
-		const dialog = new LoginDialogComponent(this.ui, providerId, (_success, _message) => {}, providerName);
-		this.editorContainer.clear();
-		this.editorContainer.addChild(dialog);
-		this.ui.setFocus(dialog);
-		this.ui.requestRender();
-
-		const restoreEditor = () => {
-			this.editorContainer.clear();
-			this.editorContainer.addChild(this.editor);
-			this.ui.setFocus(this.editor);
-			this.ui.requestRender();
-		};
-
-		try {
-			await this.loginProvider(dialog, providerId, "oauth");
-			restoreEditor();
-			await this.completeProviderAuthentication(providerId, providerName, "oauth", previousModel);
-		} catch (error: unknown) {
-			restoreEditor();
-			const errorMsg = error instanceof Error ? error.message : String(error);
-			if (errorMsg !== "Login cancelled") {
-				this.showError(`Failed to login to ${providerName}: ${errorMsg}`);
-			}
-		}
+		await showLoginDialog(this.authDialogDeps, providerId, providerName);
 	}
 
 	// =========================================================================
