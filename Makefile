@@ -66,7 +66,10 @@ build-dashboard:
 	@$(NPM) --prefix dashboard run build
 
 check-shell:
-	@bash -n install.sh scripts/*.sh
+	@bash -n install.sh scripts/*.sh scripts/lib/*.sh
+
+check-scripts:
+	@bash scripts/test_scripts.sh
 
 check-repository:
 	@scripts/check_repository_hygiene.sh
@@ -78,7 +81,7 @@ check-contracts:
 
 test: test-python test-agent
 
-check: lint-python compile-python test build-dashboard check-shell check-repository check-contracts
+check: lint-python compile-python test build-dashboard check-shell check-scripts check-repository check-contracts
 
 .PHONY: vllm-server
 vllm-server:

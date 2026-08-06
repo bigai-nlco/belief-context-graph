@@ -10,12 +10,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-if [[ -f "$REPO_ROOT/.env" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "$REPO_ROOT/.env"
-  set +a
-fi
+# shellcheck source=lib/common.sh
+. "$SCRIPT_DIR/lib/common.sh"
+
+bcg_load_root_env
 
 # Defaults
 MODEL="${VLLM_MODEL:-}"
@@ -35,22 +33,16 @@ while [[ $# -gt 0 ]]; do
     --gpu-mem-util)    GPU_MEM_UTIL="$2"; shift 2 ;;
     --gpu)             GPU="$2"; shift 2 ;;
     --vllm-bin)        VLLM_BIN="$2"; shift 2 ;;
+    --dry-run)         DRY_RUN=1; shift ;;
     -h|--help)
-      echo "Usage: $0 [--model PATH] [--port N] [--max-model-len N] [--gpu N] [--gpu-mem-util F] [--vllm-bin PATH]"
+      echo "Usage: $0 [--model PATH] [--port N] [--max-model-len N] [--gpu N] [--gpu-mem-util F] [--vllm-bin PATH] [--dry-run]"
       exit 0 ;;
     *) echo "Unknown flag: $1"; exit 1 ;;
   esac
 done
 
-[[ -n "$MODEL" ]] || {
-  printf 'Set VLLM_MODEL in the root .env or pass --model PATH.\n' >&2
-  exit 2
-}
-
-[[ -x "$VLLM_BIN" ]] || {
-  printf 'vLLM executable not found at %s. Run `uv sync --all-groups` then `uv pip install --python .venv/bin/python vllm`.\n' "$VLLM_BIN" >&2
-  exit 127
-}
+bcg_validate_port VLLM_PORT "$PORT"
+bcg_require_env VLLM_MODEL
 
 echo "[start_vllm] Model:         $MODEL"
 echo "[start_vllm] Port:          $PORT"
@@ -61,8 +53,17 @@ echo ""
 
 export CUDA_VISIBLE_DEVICES="$GPU"
 
-exec "$VLLM_BIN" serve "$MODEL" \
+CMD=("$VLLM_BIN" serve "$MODEL" \
   --port "$PORT" \
   --host "$HOST" \
   --max-model-len "$MAX_MODEL_LEN" \
-  --gpu-memory-utilization "$GPU_MEM_UTIL"
+  --gpu-memory-utilization "$GPU_MEM_UTIL")
+
+bcg_maybe_dry_run "${CMD[@]}"
+
+[[ -x "$VLLM_BIN" ]] || {
+  printf 'vLLM executable not found at %s. Run `uv sync --all-groups` then `uv pip install --python .venv/bin/python vllm`.\n' "$VLLM_BIN" >&2
+  exit 127
+}
+
+exec "${CMD[@]}"

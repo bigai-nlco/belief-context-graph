@@ -17,12 +17,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-if [[ -f "$REPO_ROOT/.env" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "$REPO_ROOT/.env"
-  set +a
-fi
+# shellcheck source=lib/common.sh
+. "$SCRIPT_DIR/lib/common.sh"
+
+bcg_load_root_env
 
 MODEL="${SGLANG_MODEL:-${VLLM_MODEL:-}}"
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-}"
@@ -128,6 +126,7 @@ while [[ $# -gt 0 ]]; do
                               DISABLE_CUDA_GRAPH="1"; shift ;;
     --background)             BACKGROUND="1"; shift ;;
     --no-restart)             RESTART="0"; shift ;;
+    --dry-run)                DRY_RUN=1; shift ;;
     --log)                    require_val "$1" "${2:-}"; LOG_FILE="$2"; shift 2 ;;
     --status)                 ACTION="status"; shift ;;
     --stop)                   ACTION="stop"; shift ;;
@@ -253,27 +252,9 @@ case "$ACTION" in
     ;;
 esac
 
+bcg_validate_port SGLANG_PORT "$PORT"
+
 [[ -n "$MODEL" ]] || die "Set SGLANG_MODEL (or VLLM_MODEL) in the root .env, or pass --model PATH."
-
-if ! "$PYTHON" -c 'import sglang' >/dev/null 2>&1; then
-  die "SGLang is unavailable at $PYTHON. Run `uv sync --all-groups` then `uv pip install --python .venv/bin/python sglang`."
-fi
-
-mapfile -t existing < <(list_pids)
-if ((${#existing[@]} > 0)); then
-  if [[ "$RESTART" == "1" ]]; then
-    stop_server
-  else
-    die "SGLang server already running on port $PORT: ${existing[*]}"
-  fi
-fi
-
-if [[ -n "$VISIBLE_GPUS" ]]; then
-  export CUDA_VISIBLE_DEVICES="$VISIBLE_GPUS"
-fi
-if [[ "$ALLOW_LONGER_CONTEXT" == "1" ]]; then
-  export SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN=1
-fi
 
 CMD=(
   "$PYTHON" -m sglang.launch_server
@@ -307,6 +288,28 @@ echo "[sglang] CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-<all visible>}"
 echo "[sglang] Parallelism: TP=$TP DP=$DP NNODES=$NNODES NODE_RANK=$NODE_RANK"
 echo "[sglang] Context length: ${CONTEXT_LENGTH:-<SGLang auto>}"
 echo "[sglang] Command: ${CMD[*]}"
+
+bcg_maybe_dry_run "${CMD[@]}"
+
+if ! "$PYTHON" -c 'import sglang' >/dev/null 2>&1; then
+  die "SGLang is unavailable at $PYTHON. Run `uv sync --all-groups` then `uv pip install --python .venv/bin/python sglang`."
+fi
+
+mapfile -t existing < <(list_pids)
+if ((${#existing[@]} > 0)); then
+  if [[ "$RESTART" == "1" ]]; then
+    stop_server
+  else
+    die "SGLang server already running on port $PORT: ${existing[*]}"
+  fi
+fi
+
+if [[ -n "$VISIBLE_GPUS" ]]; then
+  export CUDA_VISIBLE_DEVICES="$VISIBLE_GPUS"
+fi
+if [[ "$ALLOW_LONGER_CONTEXT" == "1" ]]; then
+  export SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN=1
+fi
 
 if [[ "$BACKGROUND" == "1" ]]; then
   echo "[sglang] Starting in background. Log: $LOG_FILE"
