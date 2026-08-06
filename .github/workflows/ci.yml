@@ -6,9 +6,109 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
-  test:
-    name: Test
+  python:
+    name: Python
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: pyproject.toml
+
+      - name: Install Python dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Compile Python
+        run: uv run python -m compileall -q bcg scripts tests
+
+      - name: Test Python
+        run: uv run pytest
+
+  agent:
+    name: Agent
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.19"
+          cache: npm
+          cache-dependency-path: agent-cli/npm-shrinkwrap.json
+
+      - name: Install Agent dependencies
+        run: npm --prefix agent-cli ci
+
+      - name: Build Agent
+        run: npm --prefix agent-cli run build
+
+      - name: Test Agent
+        run: npm --prefix agent-cli test
+
+  dashboard:
+    name: Dashboard
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.19"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install Dashboard dependencies
+        run: npm --prefix dashboard ci
+
+      - name: Build Dashboard
+        run: npm --prefix dashboard run build
+
+  repository:
+    name: Repository
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check shell syntax
+        run: bash -n install.sh scripts/*.sh
+
+      - name: Check repository hygiene
+        run: scripts/check_repository_hygiene.sh
+
+  packaging:
+    name: Packaging
+    needs:
+      - python
+      - agent
+      - dashboard
+      - repository
     runs-on: ubuntu-latest
 
     steps:
@@ -32,26 +132,14 @@ jobs:
           cache: npm
           cache-dependency-path: agent-cli/npm-shrinkwrap.json
 
-      - name: Install dependencies
-        run: uv sync --locked --all-groups
+      - name: Build Python distributions
+        run: uv build
 
       - name: Install Agent dependencies
         run: npm --prefix agent-cli ci
 
-      - name: Ruff lint
-        run: uv run ruff check .
-
-      - name: Ruff format check
-        run: uv run ruff format --check .
-
-      - name: Compile Python
-        run: uv run python -m compileall -q bcg scripts tests
-
-      - name: Test
-        run: uv run pytest
-
-      - name: Build Agent
+      - name: Build Agent package
         run: npm --prefix agent-cli run build
 
-      - name: Test Agent
-        run: npm --prefix agent-cli test
+      - name: Inspect Agent package
+        run: npm pack ./agent-cli --dry-run

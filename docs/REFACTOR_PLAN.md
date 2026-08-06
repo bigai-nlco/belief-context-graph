@@ -1,6 +1,6 @@
 # BCG 全仓代码结构问题分析与重构执行计划
 
-> 状态：第一部分步骤 0-8 已完成；第二部分步骤 9-16 待执行
+> 状态：第一部分步骤 0-8 已完成；第二部分步骤 10-16 待执行
 > 修订：2026-08-06 · 分支：`jun/refactor` · Python 重构基线：`4a1927b`
 >
 > 本文件是受 Git 管理的正式执行计划。根目录的
@@ -666,8 +666,15 @@ bcg/
 - 工作区在依赖安装和构建后仍无受跟踪文件变更；`node_modules/` 和 `dist/` 为生成物。
 
 该基线只证明现有自动化覆盖的路径可用，不等于全仓行为已被充分保护。
+#### 10.3 步骤 9 完成记录（2026-08-06）
 
-#### 10.3 已核实的架构风险
+- 根 Makefile 已提供 `make test-python`、`make build-agent`、`make test-agent`、`make build-dashboard`、`make check-shell`、`make check-repository` 和 `make check`。
+- Agent `npm test` 增加 `pretest`，在 workspace `dist` 缺失时自动构建内部包；干净 workspace 验证为 3 files、20 tests passed。
+- CI 已拆分 Python、Agent、Dashboard、Repository 和 Packaging jobs；Dashboard 构建和 shell/卫生检查进入 required gates。
+- `uv run ruff format .` 补齐既有 format gate，48 个文件只做机械格式化；随后 `make check` 全部通过：Python 167 passed、Agent 20 passed、Dashboard build、shell、卫生检查均通过。
+- `uv build` 和 `npm pack ./agent-cli --dry-run` 均通过；未访问外部模型或真实服务。
+
+#### 10.4 已核实的架构风险
 
 1. **跨语言契约没有规范来源。** Agent 在
    `agent-cli/src/core/context/bcg-context.ts` 中自行声明 `/turns`、`/release` payload、
@@ -734,7 +741,7 @@ bcg/
 
 步骤 11、12、13 在步骤 10 后可由不同 PR 并行，但不得各自发明契约。步骤 16 永远最后执行。
 
-### 步骤 9：建立全仓基线和质量门
+### 步骤 9：建立全仓基线和质量门（已完成）
 
 **目的：** 先让仓库能够诚实地回答“哪些组件被验证过”，不改运行时业务行为。
 

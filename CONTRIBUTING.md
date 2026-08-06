@@ -4,10 +4,10 @@ This repository welcomes human-authored and AI-assisted pull requests. AI PRs ar
 
 ## Development Setup
 
-Use `uv` for the Python package:
+Install all locked development dependencies from the repository root:
 
 ```bash
-uv sync --all-groups
+make install
 ```
 
 Install pre-commit hooks before opening PRs:
@@ -16,12 +16,10 @@ Install pre-commit hooks before opening PRs:
 uv run pre-commit install
 ```
 
-The dashboard is a separate Vite scaffold:
+Run the Dashboard development server separately when working on the frontend:
 
 ```bash
-cd dashboard
-npm install
-npm run dev
+npm --prefix dashboard run dev
 ```
 
 Do not commit local secrets, `.env`, virtual environments, `node_modules`, build outputs, or generated cache files.
@@ -50,14 +48,17 @@ Before asking for review:
 
 ## Required Local Checks
 
-Run the same quality checks used by CI:
+Run the repository-wide required checks:
 
 ```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run python -m compileall -q bcg tests
-uv run python -m unittest discover -s tests
+make check
 ```
+
+`make check` runs the Python lint, format, compile, and pytest gates; builds and
+tests the Agent; builds the Dashboard; checks shell syntax; and checks tracked
+files for private or generated artifacts. The corresponding component commands
+are available as `make test-python`, `make build-agent`, `make test-agent`,
+`make build-dashboard`, `make check-shell`, and `make check-repository`.
 
 Run pre-commit before pushing:
 
@@ -81,7 +82,9 @@ If you are using an LLM coding agent, instruct it to resolve bot review conversa
 
 ## Code Style
 
-Python code must pass Ruff lint and formatting.
+Python code must pass Ruff lint and formatting. TypeScript changes must pass the
+owning package's build, and changes with an existing test surface must pass its
+tests.
 
 Project conventions:
 
@@ -96,7 +99,9 @@ Ownership and layout:
 
 - Backend package code belongs under `bcg/`.
 - Dashboard/frontend code belongs under `dashboard/`.
-- Unit tests belong under `tests/`.
+- Python unit tests belong under `tests/`.
+- Agent tests belong under `agent-cli/test/`.
+- Dashboard tests belong under `dashboard/` alongside its test configuration.
 - Public examples belong under `examples/`.
 - Reusable developer scripts belong under `scripts/`.
 
