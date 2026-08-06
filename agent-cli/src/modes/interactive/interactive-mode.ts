@@ -155,6 +155,7 @@ import {
 	showLoginDialog,
 	type AuthDialogDeps,
 } from "./auth-dialogs.ts";
+import { showTrustSelector, showUserMessageSelector } from "./trust-selectors.ts";
 import { buildResourceSections } from "./resources-sections.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -3827,27 +3828,18 @@ ${block.body}`, 0, 0),
 	}
 
 	private showTrustSelector(): void {
-		const cwd = this.sessionManager.getCwd();
-		const trustStore = new ProjectTrustStore(this.runtimeHost.services.agentDir);
-		const savedDecision = trustStore.getEntry(cwd);
-		this.showSelector((done) => {
-			const selector = new TrustSelectorComponent({
-				cwd,
-				savedDecision,
-				projectTrusted: this.settingsManager.isProjectTrusted(),
-				onSelect: (selection) => {
-					trustStore.setMany(selection.updates);
-					done();
-					this.showStatus(
-						`Saved trust decision: ${selection.trusted ? "trusted" : "untrusted"}. Restart BCG for this to take effect.`,
-					);
-				},
-				onCancel: () => {
-					done();
-					this.ui.requestRender();
-				},
-			});
-			return { component: selector, focus: selector };
+		showTrustSelector({
+			showSelector: (create) => this.showSelector(create),
+			requestRender: () => this.ui.requestRender(),
+			showStatus: (message) => this.showStatus(message),
+			getCwd: () => this.sessionManager.getCwd(),
+			getSavedDecision: (cwd) =>
+				new ProjectTrustStore(this.runtimeHost.services.agentDir).getEntry(cwd),
+			isProjectTrusted: () => this.settingsManager.isProjectTrusted(),
+			saveTrust: (updates) => {
+				const trustStore = new ProjectTrustStore(this.runtimeHost.services.agentDir);
+				trustStore.setMany(updates);
+			},
 		});
 	}
 
@@ -3884,40 +3876,14 @@ ${block.body}`, 0, 0),
 	}
 
 	private showUserMessageSelector(): void {
-		const userMessages = this.session.getUserMessagesForForking();
-
-		if (userMessages.length === 0) {
-			this.showStatus("No messages to fork from");
-			return;
-		}
-
-		const initialSelectedId = userMessages[userMessages.length - 1]?.entryId;
-
-		this.showSelector((done) => {
-			const selector = new UserMessageSelectorComponent(
-				userMessages.map((m) => ({ id: m.entryId, text: m.text })),
-				async (entryId) => {
-					done();
-					try {
-						const result = await this.runtimeHost.fork(entryId);
-						if (result.cancelled) {
-							this.ui.requestRender();
-							return;
-						}
-
-						this.editor.setText(result.selectedText ?? "");
-						this.showStatus("Forked to new session");
-					} catch (error: unknown) {
-						this.showError(error instanceof Error ? error.message : String(error));
-					}
-				},
-				() => {
-					done();
-					this.ui.requestRender();
-				},
-				initialSelectedId,
-			);
-			return { component: selector, focus: selector.getMessageList() };
+		showUserMessageSelector({
+			showSelector: (create) => this.showSelector(create),
+			requestRender: () => this.ui.requestRender(),
+			showStatus: (message) => this.showStatus(message),
+			showError: (message) => this.showError(message),
+			getUserMessagesForForking: () => this.session.getUserMessagesForForking(),
+			fork: (entryId) => this.runtimeHost.fork(entryId),
+			setEditorText: (text) => this.editor.setText(text),
 		});
 	}
 
