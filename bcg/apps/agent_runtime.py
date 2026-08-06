@@ -196,9 +196,9 @@ def _resolve_graph_config() -> Path:
     raise AgentLaunchError(
         "The Graph Construction server is not running and no YAML configuration "
         "(~/.bcg/config.yaml) or model_config.json was found. Run `bcg setup` "
-        "first, or set BCG_GRAPH_CONFIG to its path. Searched:\n"
-        + searched
+        "first, or set BCG_GRAPH_CONFIG to its path. Searched:\n" + searched
     )
+
 
 def _local_server_address(graph_url: str) -> tuple[str, int]:
     parsed = urlparse(graph_url)

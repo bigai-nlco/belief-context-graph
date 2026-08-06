@@ -34,10 +34,10 @@ export HOME="$temporary_home"
 
 # --- Python launcher ---
 check "bcg --version" "1.0.0" "$(bcg --version 2>&1)"
-check "bcg config show" "backend" "$(bcg config show 2>&1 | head -5)"
+check "bcg config" "backend" "$(bcg config 2>&1 | head -5)"
 
 # Packaged defaults reachable from the installed CLI (fresh HOME, no config)
-check "bcg packaged defaults (port)" "8848" "$(bcg config show 2>&1 | grep -m1 'port:')"
+check "bcg packaged defaults (port)" "8848" "$(bcg config 2>&1 | grep -m1 'port:')"
 
 # First configuration creation: a fresh HOME gets no config yet, and the
 # packaged defaults are the effective settings (no legacy fallback).

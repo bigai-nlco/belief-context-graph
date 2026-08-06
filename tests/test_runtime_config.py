@@ -20,7 +20,9 @@ def test_no_config_keeps_legacy_fallback_path(tmp_path: Path) -> None:
     assert raw is None
 
 
-def test_yaml_config_is_consumed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_yaml_config_is_consumed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     cfg = tmp_path / "config.yaml"
     cfg.write_text(
         "schema_version: 1\n"

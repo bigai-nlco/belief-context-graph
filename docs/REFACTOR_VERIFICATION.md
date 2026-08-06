@@ -81,7 +81,7 @@
 若本机仍有旧 `model_config.json`：**仍可被读取（回退窗口，读取时发
 DeprecationWarning，1.0.x 后移除）**，但建议手工迁移到 `~/.bcg/config.yaml`
 的 `models`/`pipeline` 域（`bcg setup` 重新运行也会生成 YAML）。
-迁移后 `bcg config show` 确认模型/管道参数正确、无 warning。
+迁移后 `bcg config` 确认模型/管道参数正确、无 warning。
 
 ### 2.5 旧产物只读消费
 

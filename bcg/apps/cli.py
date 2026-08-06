@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -121,18 +122,37 @@ def _setup() -> None:
 
 @app.command(
     "config",
-    help="Inspect the unified configuration or migrate legacy JSON files.",
-    context_settings=_FORWARD_CONTEXT,
-    add_help_option=False,
+    help="Show the effective configuration and each field's source.",
 )
-def _config(ctx: typer.Context) -> None:
-    from bcg.config.cli import app as config_app
+def _config(
+    config: Annotated[
+        Path | None,
+        typer.Option("--config", help="Explicit YAML config file."),
+    ] = None,
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit the effective settings as JSON.")
+    ] = False,
+) -> None:
+    from bcg.config import load_settings, locate_config_files
 
-    arguments = list(ctx.args)
-    if not arguments:
-        typer.echo(config_app.get_help())
-        raise typer.Exit(0)
-    config_app(args=arguments, prog_name="bcg config", standalone_mode=False)
+    settings, sources = load_settings(explicit=str(config) if config else None)
+    if json_output:
+        import json
+
+        typer.echo(json.dumps(settings.model_dump(), ensure_ascii=False, indent=2))
+        return
+    loaded = locate_config_files(explicit=str(config) if config else None)
+    typer.echo(f"Loaded files: {[str(p) for p in loaded] or 'packaged defaults only'}")
+    for section, value in settings.model_dump().items():
+        if isinstance(value, dict):
+            typer.echo(f"[{section}]")
+            for key, item in value.items():
+                if isinstance(item, dict):
+                    typer.echo(f"  {key}: <{len(item)} entries>")
+                else:
+                    typer.echo(f"  {key}: {item}")
+        else:
+            typer.echo(f"{section}: {value}")
 
 
 def main(argv: list[str] | None = None) -> None:

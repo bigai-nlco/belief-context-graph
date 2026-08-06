@@ -312,4 +312,3 @@ def test_project_yaml_drives_construct_cli_defaults(
     assert captured["embedding_key"] == "custom-embedding"
     assert captured["options"].incremental_merge_threshold == 0.41
     assert captured["options"].verify_merge is True
-
