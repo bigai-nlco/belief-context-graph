@@ -1,7 +1,5 @@
 import "./style.css";
 
-type JsonRecord = Record<string, unknown>;
-
 type BCGNode = {
   uuid?: string;
   id?: string;
@@ -26,66 +24,6 @@ type BCGGraph = {
   edges?: BCGEdge[];
 };
 
-type BeliefNodeType =
-  | "Evidence"
-  | "Claim"
-  | "BeliefVariable"
-  | "Factor"
-  | "Decision"
-  | "Other";
-
-type BeliefNode = {
-  id: string;
-  type: BeliefNodeType;
-  label: string;
-  posterior?: number;
-  status?: string;
-  sourceType?: string;
-  stance?: string;
-  layer?: string;
-  beliefText?: string;
-  trajectoryIndex?: number;
-  x: number;
-  y: number;
-  vx?: number;
-  vy?: number;
-  payload?: JsonRecord;
-};
-
-type EdgeDir = "forward" | "backward";
-
-type BeliefEdge = {
-  id: string;
-  source: string;
-  target: string;
-  type: string;
-  dir: EdgeDir;
-  note?: string;
-  weight?: number;
-  direction?: number;
-  payload?: JsonRecord;
-};
-
-type BeliefMemoryGraph = {
-  memory_key: string;
-  title: string;
-  description: string;
-  mode: string;
-  gdb: "memgraph";
-  memgraph_uri: string;
-  memgraph_lab_url: string;
-  nodes: BeliefNode[];
-  edges: BeliefEdge[];
-  summary: {
-    claims: number;
-    belief_variables: number;
-    evidence: number;
-    factors: number;
-    decisions: number;
-    confidence?: number;
-  };
-};
-
 type DashboardState = {
   memory: BeliefMemoryGraph;
   selectedNodeId: string;
@@ -99,13 +37,29 @@ type DashboardState = {
   source: "api" | "sample";
 };
 
-type LayoutMode = "original" | "star" | "layers";
+import { applyLayout } from "./layout.ts";
+import type {
+  BeliefEdge,
+  BeliefMemoryGraph,
+  BeliefNode,
+  BeliefNodeType,
+  EdgeDir,
+  JsonRecord,
+  LayoutMode,
+} from "./types.ts";
+import {
+  edgeRelationLabel,
+  normalizeAnyGraph,
+  normalizeMemory,
+  sourceClass,
+  sourceLabel,
+  uniqueDirectedEdges,
+} from "./normalize.ts";
 
 const app = document.querySelector<HTMLDivElement>("#app");
-const memgraphUri =
-  import.meta.env.VITE_MEMGRAPH_URI || "bolt://172.25.10.2:7687";
+const memgraphUri = import.meta.env.VITE_MEMGRAPH_URI || "bolt://localhost:7687";
 const memgraphLabUrl =
-  import.meta.env.VITE_MEMGRAPH_LAB_URL || "http://172.25.10.2:12345/lab";
+  import.meta.env.VITE_MEMGRAPH_LAB_URL || "http://localhost:12345/lab";
 
 const typeOrder: Record<BeliefNodeType, number> = {
   Evidence: 0,
@@ -305,7 +259,7 @@ async function loadGraphFromApi(): Promise<BeliefMemoryGraph | null> {
   for (const url of candidates) {
     try {
       const payload = await fetchJson<unknown>(url);
-      const memory = normalizeAnyGraph(payload, url);
+      const memory = normalizeAnyGraph(payload, url, { memgraphUri, memgraphLabUrl });
       if (memory.nodes.length > 0) return memory;
     } catch {
       continue;
@@ -1039,207 +993,13 @@ function syncLayoutButtons(): void {
   }
 }
 
-function normalizeAnyGraph(payload: unknown, source: string): BeliefMemoryGraph {
-  const record = asRecord(payload);
-  const nestedMemory = asRecord(record.memory);
-  const graph = asRecord(record.graph);
-  const candidate = Object.keys(nestedMemory).length
-    ? nestedMemory
-    : Object.keys(graph).length
-      ? graph
-      : record;
-  const nodes = Array.isArray(candidate.nodes)
-    ? candidate.nodes.map((node, index) => normalizeNode(node, index))
-    : [];
-  const edges = Array.isArray(candidate.edges)
-    ? candidate.edges.map((edge, index) => normalizeEdge(edge, index))
-    : [];
-  const memory: BeliefMemoryGraph = {
-    memory_key: stringValue(candidate.memory_key) || stringValue(record.memory_key) || "default",
-    title: stringValue(candidate.title) || "Graph Memory",
-    description:
-      stringValue(candidate.description) ||
-      `Loaded through ${source}; normalized to BCG dashboard topology.`,
-    mode: stringValue(candidate.mode) || "api",
-    gdb: "memgraph",
-    memgraph_uri:
-      stringValue(candidate.memgraph_uri) ||
-      stringValue(record.memgraph_uri) ||
-      memgraphUri,
-    memgraph_lab_url:
-      stringValue(candidate.memgraph_lab_url) ||
-      stringValue(record.memgraph_lab_url) ||
-      memgraphLabUrl,
-    nodes,
-    edges,
-    summary: summarize(nodes, edges),
-  };
-  return normalizeMemory(memory);
-}
 
-function normalizeNode(raw: unknown, index: number): BeliefNode {
-  const node = asRecord(raw);
-  const payload = asRecord(node.payload);
-  const metadata = asRecord(node.metadata);
-  const id = stringValue(node.id) || stringValue(node.uuid) || `node_${index}`;
-  const type = nodeType(
-    node.type ?? payload.type ?? metadata.type ?? metadata.label ?? payload.label,
-  );
-  return {
-    id,
-    type,
-    label:
-      stringValue(node.label) ||
-      stringValue(node.name) ||
-      stringValue(payload.name) ||
-      id,
-    posterior: numberValue(node.posterior ?? node.probability ?? payload.posterior),
-    status: stringValue(node.status ?? payload.status ?? metadata.status),
-    sourceType: sourceClass(payload.source_type ?? metadata.source_type),
-    stance: stringValue(payload.stance ?? metadata.stance) || "asserted",
-    layer: stringValue(payload.layer ?? metadata.layer) || type,
-    beliefText:
-      stringValue(payload.belief) ||
-      stringValue(payload.claim) ||
-      stringValue(node.label) ||
-      stringValue(node.name) ||
-      id,
-    trajectoryIndex: numberValue(payload.trajectory_index ?? metadata.trajectory_index),
-    x: numberValue(node.x ?? payload.x) ?? 0,
-    y: numberValue(node.y ?? payload.y) ?? 0,
-    payload: {
-      ...payload,
-      metadata,
-      bcg_uuid: node.uuid,
-    },
-  };
-}
 
-function normalizeEdge(raw: unknown, index: number): BeliefEdge {
-  const edge = asRecord(raw);
-  const payload = asRecord(edge.payload);
-  const metadata = asRecord(edge.metadata);
-  const type = stringValue(
-    edge.type ?? edge.label ?? payload.type ?? metadata.type ?? payload.relation,
-  );
-  return {
-    id: stringValue(edge.id) || stringValue(edge.uuid) || `edge_${index}`,
-    source: stringValue(edge.source),
-    target: stringValue(edge.target),
-    type: relationType(type || "informs"),
-    dir: edgeDir(payload.dir ?? payload._dir ?? metadata.dir),
-    note: stringValue(payload.note ?? metadata.note),
-    weight: numberValue(edge.weight ?? payload.weight),
-    direction: edgeDirection(type || "RELATED_TO"),
-    payload: {
-      ...payload,
-      metadata,
-      bcg_uuid: edge.uuid,
-    },
-  };
-}
 
-function normalizeMemory(memory: BeliefMemoryGraph): BeliefMemoryGraph {
-  const nodes = memory.nodes
-    .filter((node) => node.id)
-    .map((node) => {
-      const payload = asRecord(node.payload);
-      return {
-        ...node,
-        sourceType: sourceClass(node.sourceType ?? payload.source_type),
-        stance: node.stance || stringValue(payload.stance) || "asserted",
-        layer: node.layer || stringValue(payload.layer) || node.type,
-        beliefText:
-          node.beliefText ||
-          stringValue(payload.belief) ||
-          stringValue(payload.claim) ||
-          node.label,
-        trajectoryIndex:
-          node.trajectoryIndex ?? numberValue(payload.trajectory_index) ?? 0,
-      };
-    });
-  const nodeIds = new Set(nodes.map((node) => node.id));
-  const edges = uniqueDirectedEdges(
-    memory.edges.filter(
-      (edge) => edge.source && edge.target && nodeIds.has(edge.source) && nodeIds.has(edge.target),
-    ).map((edge) => ({
-      ...edge,
-      type: relationType(edge.type),
-      dir: edge.dir || edgeDir(asRecord(edge.payload).dir),
-    })),
-  );
-  const normalized = {
-    ...memory,
-    nodes,
-    edges,
-    summary: summarize(nodes, edges),
-  };
-  applyLayout(normalized, "original");
-  return normalized;
-}
 
-function applyLayout(memory: BeliefMemoryGraph, mode: LayoutMode = state.layoutMode): void {
-  const layout =
-    mode === "star"
-      ? starLayout(memory.nodes)
-      : mode === "layers"
-        ? layeredLayout(memory.nodes)
-        : originalLayout(memory.nodes);
-  for (const node of memory.nodes) {
-    const point = layout.get(node.id);
-    if (point) {
-      node.x = point.x;
-      node.y = point.y;
-    }
-  }
-}
 
-function originalLayout(nodes: BeliefNode[]): Map<string, { x: number; y: number }> {
-  const hasPositions = nodes.some((node) => node.x > 0 || node.y > 0);
-  if (hasPositions) return new Map(nodes.map((node) => [node.id, { x: node.x, y: node.y }]));
-  return layeredLayout(nodes);
-}
 
-function layeredLayout(nodes: BeliefNode[]): Map<string, { x: number; y: number }> {
-  const groups = new Map<number, BeliefNode[]>();
-  for (const node of nodes) {
-    const level = typeOrder[node.type] ?? typeOrder.Other;
-    const group = groups.get(level) ?? [];
-    group.push(node);
-    groups.set(level, group);
-  }
-  const layout = new Map<string, { x: number; y: number }>();
-  for (const [level, group] of groups) {
-    const x = 82 + level * 184;
-    const step = group.length > 1 ? 420 / (group.length - 1) : 0;
-    group.forEach((node, index) => {
-      layout.set(node.id, {
-        x,
-        y: group.length > 1 ? 70 + index * step : 280,
-      });
-    });
-  }
-  return layout;
-}
 
-function starLayout(nodes: BeliefNode[]): Map<string, { x: number; y: number }> {
-  const center =
-    nodes.find((node) => node.type === "Decision") ??
-    nodes.find((node) => node.type === "BeliefVariable") ??
-    nodes[0];
-  const layout = new Map<string, { x: number; y: number }>();
-  if (!center) return layout;
-  layout.set(center.id, { x: 450, y: 280 });
-  const outer = nodes.filter((node) => node.id !== center.id);
-  outer.forEach((node, index) => {
-    const angle = -Math.PI / 2 + (index / Math.max(1, outer.length)) * Math.PI * 2;
-    layout.set(node.id, {
-      x: 450 + Math.cos(angle) * 225,
-      y: 280 + Math.sin(angle) * 205,
-    });
-  });
-  return layout;
-}
 
 function memoryToBcgGraph(memory: BeliefMemoryGraph): BCGGraph {
   return {
@@ -1276,86 +1036,18 @@ function memoryToBcgGraph(memory: BeliefMemoryGraph): BCGGraph {
   };
 }
 
-function summarize(nodes: BeliefNode[], edges: BeliefEdge[]): BeliefMemoryGraph["summary"] {
-  return {
-    claims: nodes.filter((node) => node.type === "Claim").length,
-    belief_variables: nodes.filter((node) => node.type === "BeliefVariable").length,
-    evidence: nodes.filter((node) => node.type === "Evidence").length,
-    factors: nodes.filter((node) => node.type === "Factor").length,
-    decisions: nodes.filter((node) => node.type === "Decision").length,
-    confidence: average(nodes.map((node) => node.posterior).filter(isNumber)),
-  };
-}
 
-function uniqueDirectedEdges(edges: BeliefEdge[]): BeliefEdge[] {
-  const selected = new Map<string, { edge: BeliefEdge; score: number; index: number }>();
-  edges.forEach((edge, index) => {
-    if (!edge.source || !edge.target || edge.source === edge.target) return;
-    const edgeKey = directedEdgeKey(edge);
-    const score =
-      (edgePriority[edgeRelationLabel(edge)] ?? 0) * 1000 +
-      Math.abs(edge.weight ?? 0) -
-      index / 100000;
-    const current = selected.get(edgeKey);
-    if (!current || score > current.score) {
-      selected.set(edgeKey, { edge, score, index });
-    }
-  });
-  return Array.from(selected.values())
-    .sort((left, right) => left.index - right.index)
-    .map((item) => item.edge);
-}
 
-function directedEdgeKey(edge: BeliefEdge): string {
-  return [edge.source, edge.target, edgeRelationLabel(edge), edge.dir].join("\u0000");
-}
 
-function edgeRelationLabel(edge: BeliefEdge): string {
-  return relationType(edge.type);
-}
 
-function relationType(value: unknown): string {
-  const raw = stringValue(value).trim().replace(/\s+/g, "_").toLowerCase();
-  if (raw.includes("contradict") || raw.includes("refute")) return "contradicts";
-  if (raw.includes("confirm") || raw.includes("support")) return "confirms";
-  if (raw.includes("extend")) return "extends";
-  return "informs";
-}
 
-function edgeDir(value: unknown): EdgeDir {
-  return stringValue(value).toLowerCase() === "backward" ? "backward" : "forward";
-}
 
 function selectedEdge(): BeliefEdge | undefined {
   return state.memory.edges.find((edge) => edge.id === state.selectedEdgeId);
 }
 
-function sourceClass(value: unknown): string {
-  const raw = stringValue(value).trim().replace(/[\s-]+/g, "_").toLowerCase();
-  if (
-    [
-      "user_input",
-      "llm_reasoning",
-      "tool_result",
-      "historical_retrieval",
-      "tool_call",
-      "assistant_other",
-    ].includes(raw)
-  ) {
-    return raw;
-  }
-  if (raw === "message" || raw === "dashboard") return "user_input";
-  if (raw === "model_reasoning") return "llm_reasoning";
-  return "assistant_other";
-}
 
-function sourceLabel(value: unknown): string {
-  return sourceClass(value).replace(/_/g, " ");
-}
 
-function edgeDirection(type: string): number {
-  return /contradict|refute|negative|against/i.test(type) ? -1 : 1;
-}
 
 function edgeCurve(source: BeliefNode, targetNode: BeliefNode, dir: EdgeDir): string {
   const midX = (source.x + targetNode.x) / 2;
@@ -1853,30 +1545,9 @@ function sampleMemory(): BeliefMemoryGraph {
   return memory;
 }
 
-function nodeType(value: unknown): BeliefNodeType {
-  const raw = stringValue(value).replace(/[_\s-]+/g, "").toLowerCase();
-  if (raw === "evidence") return "Evidence";
-  if (raw === "claim") return "Claim";
-  if (raw === "beliefvariable" || raw === "belief") return "BeliefVariable";
-  if (raw === "factor") return "Factor";
-  if (raw === "decision") return "Decision";
-  return "Claim";
-}
 
-function asRecord(value: unknown): JsonRecord {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as JsonRecord)
-    : {};
-}
 
-function stringValue(value: unknown): string {
-  return typeof value === "string" ? value : value == null ? "" : String(value);
-}
 
-function numberValue(value: unknown): number | undefined {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : undefined;
-}
 
 function isNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
