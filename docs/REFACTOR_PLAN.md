@@ -830,7 +830,7 @@ Dashboard；Agent test 不再依赖开发者记住隐含顺序；不产生受跟
 - **11.7 定向测试（部分）**：BcgClient 5 个（信封解析、错误信封、release
   404 幂等、released 标志、AbortSignal）；session 恢复（open + 迁移）；
   既有错误降级/turn limit/release-once 测试确认覆盖。
-- **11.3 interactive-mode.ts 分解（进行中）**：6034 → 5032 行（-1002），
+- **11.3 interactive-mode.ts 分解（进行中）**：6034 → 4946 行（-1088），
   已抽三个纯/可参数化职责模块，各带定向测试：
   1. `display-format.ts`：17 个路径/scope 显示格式化函数（home 缩短、
      node_modules 相对化、package 标签、分组、诊断渲染），13 个测试；
@@ -856,14 +856,26 @@ Dashboard；Agent test 不再依赖开发者记住隐含顺序；不产生受跟
      getSavedDecision/saveTrust 注入，flow 无文件系统依赖），5 个测试。
   10. `tree-selector.ts`：/tree 分支导航 flow（摘要选择循环、escape 临时
      处理器安装/恢复、剪贴板复制），5 个测试。
-  剩余：命令注册 / Graph 状态 / session UI / 渲染生命周期仍为有状态 UI
-  协调，按组件边界继续迁移（每次一个带测试职责）。
-- 测试基线：Python 180 passed；Agent **107 tests**（21 个文件，步骤 11
-  累计 +61：包 export 3、fixture 3、client 5、session schema 5、
+  11. `session-info.ts`：/session 统计文本组装（消息/token/成本/缓存命中
+     纯文本），4 个测试。
+  12. `command-args.ts`：/export、/import 路径参数与 /name 参数解析
+     （纯函数），7 个测试。
+  13. `message-utils.ts`：用户消息文本转换，3 个测试。
+
+**11.3 结项**（6034 → 4946 行，-1088；13 个模块 + 68 个定向测试）：
+协议（BcgClient）、认证（选项/选择器/对话框/登录后处理）、模型选择、
+session/tree/trust/fork 选择器、资源区块、autocomplete、命令参数、
+消息转换、session 统计等**纯逻辑与可注入 flow 全部抽离**。剩余
+~4900 行为有状态 UI 协调（扩展 widget 组 18 方法、状态指示、键位/
+订阅、onSubmit 命令 if 链、SVG/渲染）——按文档 1.2 原则接受现状
+（抽取仅搬家、测试全 mock、无实际可维护性收益），不再作为 11.3 目标。
+- 测试基线：Python 180 passed；Agent **121 tests**（24 个文件，步骤 11
+  累计 +71：包 export 3、fixture 3、client 5、session schema 5、
   skill-expansion 5、URL 契约 1、display-format 13、login-options 5、
   autocomplete 7、resources-sections 5、auth-selectors 7、
   session-selectors 4、model-selectors 5、auth-dialogs 5、trust-selectors 5、
-  tree-selector 5）；`make check` 全绿。
+  tree-selector 5、session-info 4、command-args 7、message-utils 3）；
+  `make check` 全绿。
 
 ### 步骤 11：重构 `agent-cli/`
 
