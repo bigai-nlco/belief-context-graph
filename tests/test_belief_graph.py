@@ -24,9 +24,15 @@ from bcg.construct.light.llm import call_model, parse_json_response
 from bcg.construct.light.online import SessionManager as LightSessionManager
 from bcg.construct.light.split import semantic_breakpoint_chunks, split_sentences
 from bcg.construct.light.stance import StancePrediction
-from bcg.graph import BCGEdge, BCGNode, BeliefPayload, BeliefSource, RelationPayload
-from bcg.llm import LLMResponse
-from bcg.runner import _bcg_from_construct, _ConstructClientAdapter
+from bcg.core.graph import (
+    BCGEdge,
+    BCGNode,
+    BeliefPayload,
+    BeliefSource,
+    RelationPayload,
+)
+from bcg.core.llm import LLMResponse
+from bcg.core.runner import _bcg_from_construct, _ConstructClientAdapter
 
 T = TypeVar("T")
 

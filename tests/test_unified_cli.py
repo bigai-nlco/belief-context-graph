@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from click.utils import strip_ansi
 
-from bcg import cli
+from bcg.apps import cli
 from bcg.construct import cli as construct_cli
 
 
@@ -124,7 +124,7 @@ def test_backend_module_cli_prepends_selected_backend(monkeypatch) -> None:
     from bcg.construct.light import cli as light_cli
 
     received: list[str] = []
-    monkeypatch.setattr("bcg.run.main", received.extend)
+    monkeypatch.setattr("bcg.apps.run.main", received.extend)
 
     light_cli.main(["run", "--input", "data.json"])
 
@@ -134,9 +134,9 @@ def test_backend_module_cli_prepends_selected_backend(monkeypatch) -> None:
 @pytest.mark.parametrize(
     ("command", "target"),
     [
-        ("run", "bcg.run.main"),
-        ("server", "bcg.online_server.main"),
-        ("replay", "bcg.online_driver.main"),
+        ("run", "bcg.apps.run.main"),
+        ("server", "bcg.apps.online_server.main"),
+        ("replay", "bcg.apps.online_driver.main"),
     ],
 )
 def test_api_based_module_cli_prepends_backend(command, target, monkeypatch) -> None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from bcg.utils import new_run_id, save_json
+from bcg.core.utils import new_run_id, save_json
 
 from .._shared.spans import trim_span
 

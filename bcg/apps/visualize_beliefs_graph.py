@@ -23,9 +23,9 @@ runtime artifacts:
 
 Usage
 -----
-    python -m bcg.visualize_beliefs_graph path/to/result.json -o graph.html
-    python -m bcg.visualize_beliefs_graph path/to/final_graph.json -o graph.html
-    python -m bcg.visualize_beliefs_graph path/to/belief_graph.jsonl -o graph.html
+    python -m bcg.apps.visualize_beliefs_graph path/to/result.json -o graph.html
+    python -m bcg.apps.visualize_beliefs_graph path/to/final_graph.json -o graph.html
+    python -m bcg.apps.visualize_beliefs_graph path/to/belief_graph.jsonl -o graph.html
 """
 
 from __future__ import annotations

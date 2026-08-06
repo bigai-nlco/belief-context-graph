@@ -66,11 +66,7 @@ _CURRENT_STREAM_DIR = os.path.join(_REPO_ROOT, "outputs")
 _BUNDLED_DEMO_DIR = os.path.join(HERE, "demo_output")
 # Prefer the repository's construct output when present; otherwise run standalone with the bundled demo.
 DEFAULT_STREAM_DIR = next(
-    (
-        p
-        for p in (_CURRENT_STREAM_DIR,)
-        if os.path.isdir(p)
-    ),
+    (p for p in (_CURRENT_STREAM_DIR,) if os.path.isdir(p)),
     _BUNDLED_DEMO_DIR,
 )
 STREAM_URL_PREFIX = "/outputs_stream"

@@ -19,7 +19,7 @@ from bcg.construct.light.llm import (
 from bcg.construct.light.llm import (
     load_embedding_config as load_light_embedding_config,
 )
-from bcg.env import find_project_env, load_project_env, read_env_file
+from bcg.core.env import find_project_env, load_project_env, read_env_file
 
 
 def test_env_discovery_supports_tool_install_working_directory(

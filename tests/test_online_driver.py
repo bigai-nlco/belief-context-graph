@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from bcg.online_driver import drive, iter_jsonl
+from bcg.apps.online_driver import drive, iter_jsonl
 
 
 class FakeManager:

@@ -8,9 +8,9 @@ from threading import Event
 
 import pytest
 
-from bcg.benchmark.loaders import BenchmarkDataError, load_benchmark
-from bcg.benchmark.models import BenchmarkTask
-from bcg.benchmark.runner import (
+from bcg.apps.benchmark.loaders import BenchmarkDataError, load_benchmark
+from bcg.apps.benchmark.models import BenchmarkTask
+from bcg.apps.benchmark.runner import (
     APIQuotaExhaustedError,
     RunConfig,
     _execute,
@@ -19,7 +19,7 @@ from bcg.benchmark.runner import (
     run_benchmarks,
     summarize_results,
 )
-from bcg.benchmark.scoring import (
+from bcg.apps.benchmark.scoring import (
     JudgeConfig,
     LLMJudge,
     extract_multiple_choice,

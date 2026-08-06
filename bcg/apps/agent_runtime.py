@@ -250,7 +250,7 @@ def ensure_graph_server(graph_url: str) -> None:
     command = [
         sys.executable,
         "-m",
-        "bcg.online_server",
+        "bcg.apps.online_server",
         backend,
         "--host",
         host,

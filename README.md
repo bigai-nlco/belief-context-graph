@@ -356,7 +356,7 @@ Then run the following as a normal Python program:
 import asyncio
 
 from bcg import BCG, BCGMemory, BCGRunner
-from bcg.llm import LLMClient
+from bcg.core.llm import LLMClient
 
 
 async def main() -> None:
@@ -400,7 +400,7 @@ For a streaming application, manage the lifecycle explicitly and push turns as t
 import asyncio
 
 from bcg import BCG, BCGMemory, BCGRunner
-from bcg.llm import LLMClient
+from bcg.core.llm import LLMClient
 
 
 async def main() -> None:

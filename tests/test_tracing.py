@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from bcg.tracing import is_tracing_enabled, trace
+from bcg.core.tracing import is_tracing_enabled, trace
 
 
 def test_trace_is_noop_when_disabled(monkeypatch) -> None:
@@ -27,7 +27,7 @@ def test_trace_supports_async_functions_when_disabled(monkeypatch) -> None:
 
 
 def test_llm_module_imports_with_tracing() -> None:
-    from bcg.llm import LLMClient, LLMConfig, LLMResponse
+    from bcg.core.llm import LLMClient, LLMConfig, LLMResponse
 
     assert LLMClient is not None
     assert LLMConfig is not None

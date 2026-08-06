@@ -5,7 +5,7 @@ import os
 import stat
 from pathlib import Path
 
-from bcg import setup
+from bcg.apps import setup
 
 
 def test_api_setup_persists_global_configuration(

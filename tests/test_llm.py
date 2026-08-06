@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-from bcg.llm import _response_output_items, _usage_dict
+from bcg.core.llm import _response_output_items, _usage_dict
 
 
 class _Dumpable:

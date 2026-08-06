@@ -38,7 +38,7 @@ def _root(ctx: typer.Context) -> None:
     add_help_option=False,
 )
 def _run(ctx: typer.Context) -> None:
-    from bcg.run import main as run_main
+    from bcg.apps.run import main as run_main
 
     run_main(list(ctx.args))
 
@@ -50,7 +50,7 @@ def _run(ctx: typer.Context) -> None:
     add_help_option=False,
 )
 def _server(ctx: typer.Context) -> None:
-    from bcg.online_server import main as server_main
+    from bcg.apps.online_server import main as server_main
 
     server_main(list(ctx.args))
 
@@ -62,7 +62,7 @@ def _server(ctx: typer.Context) -> None:
     add_help_option=False,
 )
 def _replay(ctx: typer.Context) -> None:
-    from bcg.online_driver import main as replay_main
+    from bcg.apps.online_driver import main as replay_main
 
     replay_main(list(ctx.args))
 
@@ -74,7 +74,7 @@ def _replay(ctx: typer.Context) -> None:
     add_help_option=False,
 )
 def _visualize(ctx: typer.Context) -> None:
-    from bcg.visualize_beliefs_graph import main as visualize_main
+    from bcg.apps.visualize_beliefs_graph import main as visualize_main
 
     visualize_main(list(ctx.args))
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from bcg.cli_help import RichArgumentParser
+from bcg.apps.cli_help import RichArgumentParser
 
 
 def backend_main(backend: str, argv: list[str] | None = None) -> None:
@@ -22,9 +22,9 @@ def backend_main(backend: str, argv: list[str] | None = None) -> None:
 
     command, rest = args[0], args[1:]
     handlers = {
-        "run": ("bcg.run", "main"),
-        "server": ("bcg.online_server", "main"),
-        "replay": ("bcg.online_driver", "main"),
+        "run": ("bcg.apps.run", "main"),
+        "server": ("bcg.apps.online_server", "main"),
+        "replay": ("bcg.apps.online_driver", "main"),
     }
     if command not in handlers:
         choices = ", ".join(handlers)

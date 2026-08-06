@@ -111,7 +111,9 @@ def build(root):
 
 
 def main():
-    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    repo_root = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    )
     current_root = os.path.join(repo_root, "outputs")
     default_root = current_root if os.path.isdir(current_root) else current_root
     ap = argparse.ArgumentParser()

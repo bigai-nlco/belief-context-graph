@@ -63,7 +63,7 @@ def migrate(
 ) -> None:
     """Convert legacy model_config.json / ~/.bcg/config.json to YAML."""
 
-    from bcg.setup import state_root
+    from bcg.apps.setup import state_root
 
     dest = output or (state_root() / "config.yaml")
     try:

@@ -22,7 +22,7 @@ from bcg.construct.dispatch import DEFAULT_BACKEND
 from bcg.construct.light import online as light_online
 from bcg.construct.light import pipeline as light_pipeline
 from bcg.construct.light.stream import StreamOptions as LightStreamOptions
-from bcg.runner import BCGRunner
+from bcg.core.runner import BCGRunner
 
 FIXTURES = Path(__file__).parent / "fixtures" / "refactor"
 
@@ -163,21 +163,21 @@ def test_import_bcg_does_not_load_apps_or_concrete_backends() -> None:
 @pytest.mark.parametrize(
     ("module_name", "symbol"),
     [
-        ("bcg.graph", "BCG"),
-        ("bcg.memory", "BCGMemory"),
-        ("bcg.runner", "BCGRunner"),
-        ("bcg.llm", "LLMClient"),
-        ("bcg.env", "load_project_env"),
-        ("bcg.cli", "main"),
-        ("bcg.run", "main"),
-        ("bcg.online_server", "main"),
-        ("bcg.online_driver", "main"),
-        ("bcg.visualize_beliefs_graph", "main"),
-        ("bcg.setup", "run_setup"),
-        ("bcg.benchmark.cli", "main"),
+        ("bcg.core.graph", "BCG"),
+        ("bcg.core.memory", "BCGMemory"),
+        ("bcg.core.runner", "BCGRunner"),
+        ("bcg.core.llm", "LLMClient"),
+        ("bcg.core.env", "load_project_env"),
+        ("bcg.apps.cli", "main"),
+        ("bcg.apps.run", "main"),
+        ("bcg.apps.online_server", "main"),
+        ("bcg.apps.online_driver", "main"),
+        ("bcg.apps.visualize_beliefs_graph", "main"),
+        ("bcg.apps.setup", "run_setup"),
+        ("bcg.apps.benchmark.cli", "main"),
     ],
 )
-def test_public_and_legacy_module_paths_remain_importable(
+def test_public_module_paths_remain_importable(
     module_name: str,
     symbol: str,
 ) -> None:
@@ -189,13 +189,13 @@ def test_public_and_legacy_module_paths_remain_importable(
 @pytest.mark.parametrize(
     ("module_name", "arguments", "expected_option"),
     [
-        ("bcg.run", ["api_based", "--help"], "--incremental-merge-threshold"),
-        ("bcg.online_server", ["api_based", "--help"], "--port"),
-        ("bcg.online_driver", ["api_based", "--help"], "--input"),
-        ("bcg.visualize_beliefs_graph", ["--help"], "--output"),
+        ("bcg.apps.run", ["api_based", "--help"], "--incremental-merge-threshold"),
+        ("bcg.apps.online_server", ["api_based", "--help"], "--port"),
+        ("bcg.apps.online_driver", ["api_based", "--help"], "--input"),
+        ("bcg.apps.visualize_beliefs_graph", ["--help"], "--output"),
     ],
 )
-def test_legacy_module_help_contract(
+def test_module_help_contract(
     module_name: str,
     arguments: list[str],
     expected_option: str,
@@ -238,8 +238,8 @@ def test_import_bcg_does_not_load_project_env(tmp_path: Path) -> None:
     assert completed.stdout.strip() == "missing"
 
 
-def test_import_bcg_env_shim_no_longer_loads_env(tmp_path: Path) -> None:
-    """Step-7 contract: importing ``bcg.env`` must not touch os.environ."""
+def test_import_bcg_env_no_longer_loads_env(tmp_path: Path) -> None:
+    """Step-7 contract: importing the env module must not touch os.environ."""
     env_file = tmp_path / ".env"
     env_file.write_text("BCG_STEP7_ENV_MARKER=loaded-by-import\n", encoding="utf-8")
     child_env = os.environ.copy()
@@ -252,7 +252,7 @@ def test_import_bcg_env_shim_no_longer_loads_env(tmp_path: Path) -> None:
             sys.executable,
             "-c",
             (
-                "import os; import bcg.env; "
+                "import os; from bcg.core import env; "
                 "print(os.environ.get('BCG_STEP7_ENV_MARKER', 'missing'))"
             ),
         ],
@@ -351,7 +351,9 @@ def _imported_modules(path: Path) -> set[str]:
 
 def test_step1_dependency_direction_has_no_concrete_backend_imports() -> None:
     project_root = Path(__file__).parents[1]
-    runner_imports = _imported_modules(project_root / "bcg" / "runner.py")
+    runner_imports: set[str] = set()
+    for module_path in (project_root / "bcg" / "core").glob("*.py"):
+        runner_imports.update(_imported_modules(module_path))
     registry_imports = _imported_modules(
         project_root / "bcg" / "construct" / "backends.py"
     )
