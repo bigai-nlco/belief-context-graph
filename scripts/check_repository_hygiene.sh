@@ -25,4 +25,11 @@ if ((${#forbidden_paths[@]} > 0)); then
   exit 1
 fi
 
+personal_abs="$(git grep -l '/data/user/' -- ':!docs/REFACTOR_PLAN.md' 2>/dev/null || true)"
+if [[ -n "$personal_abs" ]]; then
+  printf 'Personal absolute paths must not appear in tracked files:\n' >&2
+  printf '  %s\n' $personal_abs >&2
+  exit 1
+fi
+
 printf 'Repository hygiene checks passed.\n'

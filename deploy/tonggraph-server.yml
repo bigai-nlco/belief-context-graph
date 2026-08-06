@@ -3,7 +3,9 @@
 host: 0.0.0.0
 port: 8719
 
-data_dir: /data/user/fukeshu/belief-tracer3/var/tonggraph
+# Portable template default; scripts/start_tonggraph_server.sh injects the
+# effective TONGGRAPH_DATA_DIR into a runtime copy of this file.
+data_dir: ./var/tonggraph
 
 graphs:
   agent_workspace:

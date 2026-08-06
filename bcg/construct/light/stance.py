@@ -33,9 +33,9 @@ from typing import Any
 
 from .constants import VALID_STANCES
 
-DEFAULT_STANCE_MODEL_PATH = (
-    "/data/user/wenxinyi/experiments/models/deberta-v3-large-zeroshot-v2.0"
-)
+# Model path is configured per deployment (model_config.yaml -> stance.model_path);
+# no machine-specific default is shipped.
+DEFAULT_STANCE_MODEL_PATH = ""
 
 STANCE_ORDER = ("asserted", "recalled", "judged", "speculated")
 
@@ -111,7 +111,9 @@ def normalize_stance_config(
 
     return {
         "enabled": bool(raw.get("enabled", True)),
-        "model_path": str(raw.get("model_path") or DEFAULT_STANCE_MODEL_PATH),
+        "model_path": str(raw.get("model_path") or DEFAULT_STANCE_MODEL_PATH)
+        if DEFAULT_STANCE_MODEL_PATH
+        else str(raw.get("model_path") or ""),
         "device": str(raw.get("device") or "auto"),
         "dtype": str(raw.get("dtype") or "auto"),
         "batch_size": max(1, int(raw.get("batch_size", 16) or 16)),
