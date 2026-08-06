@@ -127,6 +127,10 @@ class ConstructBackend(Protocol):
 BeliefGraphRunPaths = RunPaths
 BeliefGraphRunResult = RunResult
 
+# HTTP contract version (contracts/http.schema.json is the normative source;
+# contract tests assert this constant matches the file's schema_version).
+HTTP_SCHEMA_VERSION = 1
+
 
 __all__ = [
     "Artifact",
@@ -134,6 +138,7 @@ __all__ = [
     "BeliefGraphRunResult",
     "ConstructBackend",
     "ConstructSession",
+    "HTTP_SCHEMA_VERSION",
     "RunOptions",
     "RunPaths",
     "RunResult",

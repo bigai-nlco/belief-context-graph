@@ -45,7 +45,7 @@ agent:
 construct:
 	@$(BCG) construct $(CONSTRUCT_ARGS)
 
-.PHONY: lint-python compile-python test-python build-agent test-agent build-dashboard check-shell check-repository test check
+.PHONY: lint-python compile-python test-python build-agent test-agent build-dashboard check-shell check-repository check-contracts test check
 lint-python:
 	@$(UV) run ruff check .
 	@$(UV) run ruff format --check .
@@ -71,9 +71,13 @@ check-shell:
 check-repository:
 	@scripts/check_repository_hygiene.sh
 
+check-contracts:
+	@$(UV) run python contracts/generate_ts_types.py --check
+	@$(UV) run pytest -q tests/test_http_contract.py
+
 test: test-python test-agent
 
-check: lint-python compile-python test build-dashboard check-shell check-repository
+check: lint-python compile-python test build-dashboard check-shell check-repository check-contracts
 
 .PHONY: vllm-server
 vllm-server:

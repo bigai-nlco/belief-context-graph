@@ -89,6 +89,7 @@ from bcg.apps.cli_help import RichArgumentParser
 from bcg.apps.cli_options import add_run_options, add_server_options
 from bcg.config.runtime import resolve_runtime_config
 from bcg.construct.dispatch import DEFAULT_BACKEND, split_backend_args
+from bcg.core.contracts import HTTP_SCHEMA_VERSION
 
 
 def _bootstrap_env() -> None:
@@ -197,6 +198,7 @@ def make_handler(manager, trajectory_closed_error: type, *, quiet: bool = False)
                         "status": "ok",
                         "active": manager.active_problem_ids(),
                         "all": manager.all_problem_ids(),
+                        "schema_version": HTTP_SCHEMA_VERSION,
                     },
                 )
                 return

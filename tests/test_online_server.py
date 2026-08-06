@@ -137,7 +137,7 @@ def test_http_happy_path_and_query_mapping(http_service: Any) -> None:
 
     status, health = request(address, "GET", "/health")
     assert status == 200
-    assert health == {"status": "ok", "active": [], "all": []}
+    assert health == {"status": "ok", "active": [], "all": [], "schema_version": 1}
 
     status, graph = request(
         address,
