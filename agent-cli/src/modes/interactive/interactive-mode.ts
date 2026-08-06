@@ -141,6 +141,11 @@ import {
 	type AuthSelectorsDeps,
 } from "./auth-selectors.ts";
 import { showSessionSelector } from "./session-selectors.ts";
+import {
+	showModelSelector,
+	showModelsSelector,
+	type ModelSelectorDeps,
+} from "./model-selectors.ts";
 import { buildResourceSections } from "./resources-sections.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -3837,125 +3842,36 @@ ${block.body}`, 0, 0),
 		});
 	}
 
+	private get modelSelectorDeps(): ModelSelectorDeps {
+		return {
+			ui: this.ui,
+			settingsManager: this.settingsManager,
+			modelRuntime: this.session.modelRuntime,
+			getCurrentModel: () => this.session.model,
+			scopedModels: this.session.scopedModels,
+			showSelector: (create) => this.showSelector(create),
+			showStatus: (message) => this.showStatus(message),
+			showError: (message) => this.showError(message),
+			requestRender: () => this.ui.requestRender(),
+			setModel: (model) => this.session.setModel(model),
+			onModelSetSuccess: (model) => {
+				this.footer.invalidate();
+				this.updateEditorBorderColor();
+				void this.maybeWarnAboutAnthropicSubscriptionAuth(model);
+			},
+			refreshProviderCount: async () => {
+				this.updateAvailableProviderCount();
+			},
+			setScopedModels: (models) => this.session.setScopedModels(models),
+		};
+	}
+
 	private showModelSelector(initialSearchInput?: string): void {
-		this.showSelector((done) => {
-			const selector = new ModelSelectorComponent(
-				this.ui,
-				this.session.model,
-				this.settingsManager,
-				this.session.modelRuntime,
-				this.session.scopedModels,
-				async (model) => {
-					try {
-						await this.session.setModel(model);
-						this.footer.invalidate();
-						this.updateEditorBorderColor();
-						done();
-						this.showStatus(`Model: ${model.id}`);
-						void this.maybeWarnAboutAnthropicSubscriptionAuth(model);
-					} catch (error) {
-						done();
-						this.showError(error instanceof Error ? error.message : String(error));
-					}
-				},
-				() => {
-					done();
-					this.ui.requestRender();
-				},
-				initialSearchInput,
-			);
-			return { component: selector, focus: selector };
-		});
+		showModelSelector(this.modelSelectorDeps, initialSearchInput);
 	}
 
 	private async showModelsSelector(): Promise<void> {
-		// Get all available models
-		await this.session.modelRuntime.refresh();
-		const allModels = [...(await this.session.modelRuntime.getAvailable())];
-		const allModelIds = new Set(allModels.map((model) => `${model.provider}/${model.id}`));
-		const configuredPatterns = this.settingsManager.getEnabledModels();
-		const sessionScopedModels = this.session.scopedModels;
-
-		if (allModels.length === 0 && !configuredPatterns?.length && sessionScopedModels.length === 0) {
-			this.showStatus("No models available");
-			return;
-		}
-
-		const configuredScope = configuredPatterns?.length
-			? await resolveModelScopeWithDiagnostics(configuredPatterns, this.session.modelRuntime)
-			: undefined;
-
-		// Check if session has scoped models (from previous session-only changes or CLI --models)
-		const hasSessionScope = sessionScopedModels.length > 0;
-
-		// Build enabled model IDs from session state or settings
-		let currentEnabledIds: string[] | null = null;
-
-		if (hasSessionScope) {
-			// Use current session's scoped models
-			currentEnabledIds = sessionScopedModels.map((scoped) => `${scoped.model.provider}/${scoped.model.id}`);
-		} else if (configuredScope) {
-			currentEnabledIds = configuredScope.scopedModels.map(
-				(scoped) => `${scoped.model.provider}/${scoped.model.id}`,
-			);
-		}
-
-		for (const diagnostic of configuredScope?.diagnostics ?? []) {
-			if (diagnostic.code !== "no-match") continue;
-			currentEnabledIds ??= [];
-			if (!currentEnabledIds.includes(diagnostic.pattern)) currentEnabledIds.push(diagnostic.pattern);
-		}
-
-		// Helper to update session's scoped models (session-only, no persist)
-		const updateSessionModels = async (enabledIds: string[] | null) => {
-			currentEnabledIds = enabledIds === null ? null : [...enabledIds];
-			const hasEnabledAvailableModel = enabledIds?.some((id) => allModelIds.has(id)) ?? false;
-			const allAvailableModelsEnabled =
-				enabledIds !== null && [...allModelIds].every((id) => enabledIds.includes(id));
-			if (enabledIds && hasEnabledAvailableModel && !allAvailableModelsEnabled) {
-				const newScopedModels = await resolveModelScope(enabledIds, this.session.modelRuntime);
-				this.session.setScopedModels(
-					newScopedModels.map((sm) => ({
-						model: sm.model,
-						thinkingLevel: sm.thinkingLevel,
-					})),
-				);
-			} else {
-				// All enabled or none enabled = no filter
-				this.session.setScopedModels([]);
-			}
-			await this.updateAvailableProviderCount();
-			this.ui.requestRender();
-		};
-
-		this.showSelector((done) => {
-			const selector = new ScopedModelsSelectorComponent(
-				{
-					allModels,
-					enabledModelIds: currentEnabledIds,
-				},
-				{
-					onChange: async (enabledIds) => {
-						await updateSessionModels(enabledIds);
-					},
-					onPersist: (enabledIds) => {
-						// Persist to settings
-						const allEnabled =
-							enabledIds !== null &&
-							enabledIds.length === allModels.length &&
-							enabledIds.every((id) => allModelIds.has(id));
-						const newPatterns = enabledIds === null || allEnabled ? undefined : enabledIds;
-						this.settingsManager.setEnabledModels(newPatterns ? [...newPatterns] : undefined);
-						this.showStatus("Model selection saved to settings");
-					},
-					onCancel: () => {
-						done();
-						this.ui.requestRender();
-					},
-				},
-			);
-			return { component: selector, focus: selector };
-		});
+		await showModelsSelector(this.modelSelectorDeps);
 	}
 
 	private showUserMessageSelector(): void {
