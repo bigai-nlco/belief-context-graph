@@ -70,6 +70,7 @@ check-shell:
 
 check-scripts:
 	@bash scripts/test_scripts.sh
+	@$(UV) run python scripts/check_deploy_yaml.py
 
 check-repository:
 	@scripts/check_repository_hygiene.sh
