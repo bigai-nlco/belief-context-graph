@@ -105,9 +105,7 @@ def locate_config_files(
     if configured:
         path = Path(configured).expanduser().resolve()
         if not path.is_file():
-            raise BCGConfigError(
-                f"config file from {env_name} does not exist: {path}"
-            )
+            raise BCGConfigError(f"config file from {env_name} does not exist: {path}")
         if path not in found:
             found.append(path)
     for name in project_names:
@@ -137,12 +135,20 @@ def load_settings(
     merged: dict[str, Any] = {}
     sources: dict[str, str] = {}
 
-    chain = list(reversed(locate_config_files(
-        explicit=explicit, env_name=env_name,
-        project_names=project_names, home=home,
-    )))
+    chain = list(
+        reversed(
+            locate_config_files(
+                explicit=explicit,
+                env_name=env_name,
+                project_names=project_names,
+                home=home,
+            )
+        )
+    )
     chain.append("packaged defaults")  # lowest precedence last
-    merged = _deep_merge(merged, defaults_dict(), source="packaged defaults", sources=sources)
+    merged = _deep_merge(
+        merged, defaults_dict(), source="packaged defaults", sources=sources
+    )
     for path in chain:
         if path == "packaged defaults":
             continue

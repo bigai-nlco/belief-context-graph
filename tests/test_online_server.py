@@ -116,8 +116,10 @@ def request(
     payload: Any | None = None,
     raw: str | None = None,
 ) -> tuple[int, dict[str, Any]]:
-    body = raw if raw is not None else (
-        json.dumps(payload) if payload is not None else None
+    body = (
+        raw
+        if raw is not None
+        else (json.dumps(payload) if payload is not None else None)
     )
     headers = {"Content-Type": "application/json"} if body is not None else {}
     connection = HTTPConnection(*address, timeout=3)
@@ -272,6 +274,7 @@ def test_threading_http_server_processes_different_ids_concurrently() -> None:
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
+
         def push(problem_id: str) -> tuple[int, dict[str, Any]]:
             return request(
                 server.server_address,

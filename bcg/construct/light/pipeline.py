@@ -46,14 +46,23 @@ def run_item(
 ) -> dict[str, Any]:
     """Build the belief graph for ONE normalised item."""
     builder = StreamingBeliefBuilder(
-        client=client, model=model, item_id=item["item_id"],
-        item_meta=item.get("meta"), out_dir=out_dir, options=options,
-        embedder=embedder, edge_generator=edge_generator,
+        client=client,
+        model=model,
+        item_id=item["item_id"],
+        item_meta=item.get("meta"),
+        out_dir=out_dir,
+        options=options,
+        embedder=embedder,
+        edge_generator=edge_generator,
         max_tokens=max_tokens,
     )
     for turn in item["turns"]:
-        builder.ingest_turn(turn["role"], turn["content"],
-                            date=turn.get("date"), has_answer=turn.get("has_answer"))
+        builder.ingest_turn(
+            turn["role"],
+            turn["content"],
+            date=turn.get("date"),
+            has_answer=turn.get("has_answer"),
+        )
     meta: dict[str, Any] = {"order_sorted": item.get("order_sorted", False)}
     if extra_meta:
         meta.update(extra_meta)
@@ -90,10 +99,12 @@ def run_input(
     max_tokens = cfg.get("max_tokens")
     pricing = cfg.get("pricing")
 
-    masked = (cfg.get("api_key", "") or "")
+    masked = cfg.get("api_key", "") or ""
     masked = (masked[:6] + "…" + masked[-3:]) if len(masked) > 10 else "***"
-    print(f"[info] model={model}  base_url={cfg['base_url']}  api_key={masked}"
-          + (f"  max_tokens={max_tokens}" if max_tokens else ""))
+    print(
+        f"[info] model={model}  base_url={cfg['base_url']}  api_key={masked}"
+        + (f"  max_tokens={max_tokens}" if max_tokens else "")
+    )
     extractor_cfg = options.to_dict()["extractor"]
     if extractor_cfg.get("enabled", True):
         print(
@@ -103,7 +114,10 @@ def run_input(
             f"context_scope={extractor_cfg['context_scope']}"
         )
     else:
-        print("[warn] generative extractor disabled; turns will produce no nodes", file=sys.stderr)
+        print(
+            "[warn] generative extractor disabled; turns will produce no nodes",
+            file=sys.stderr,
+        )
     entity_cfg = options.to_dict()["entities"]
     print(
         f"[info] entities method={entity_cfg['method']}  "
@@ -127,10 +141,14 @@ def run_input(
     if emb_cfg is not None:
         embedder = make_embedder(emb_cfg)
         if emb_cfg.get("provider") == "local":
-            print(f"[info] embedding provider=local  model={emb_cfg['model']}  "
-                  f"(weights load lazily on first use)")
+            print(
+                f"[info] embedding provider=local  model={emb_cfg['model']}  "
+                f"(weights load lazily on first use)"
+            )
         else:
-            print(f"[info] embedding model={emb_cfg['model']}  base_url={emb_cfg['base_url']}")
+            print(
+                f"[info] embedding model={emb_cfg['model']}  base_url={emb_cfg['base_url']}"
+            )
     else:
         if options.chunking_enabled:
             print(
@@ -156,8 +174,16 @@ def run_input(
         USAGE.reset()
         if embedder is not None:
             embedder.clear_cache()
-        run_item(item, client=client, model=model, out_dir=sub,
-                 options=options, embedder=embedder, max_tokens=max_tokens,
-                 pricing=pricing, extra_meta={"input_path": input_path})
+        run_item(
+            item,
+            client=client,
+            model=model,
+            out_dir=sub,
+            options=options,
+            embedder=embedder,
+            max_tokens=max_tokens,
+            pricing=pricing,
+            extra_meta={"input_path": input_path},
+        )
 
     print("\n[done]")

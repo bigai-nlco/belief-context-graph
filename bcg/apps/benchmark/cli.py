@@ -30,6 +30,7 @@ def _bootstrap_env() -> None:
 
     load_project_env()
 
+
 app = typer.Typer(
     name="bcg benchmark",
     help="Evaluate the reference Agent in Default and BCG context modes.",

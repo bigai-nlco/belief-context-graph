@@ -82,7 +82,6 @@ DEFAULT_PROPAGATION_MIN_CONFIDENCE_DELTA = 0.001
 MAX_PROPAGATION_ITERATIONS = 3
 
 
-
 def _as_float(value: Any, default: float) -> float:
     try:
         return float(value)
@@ -180,7 +179,9 @@ def normalize_confidence_config(config: dict[str, Any] | None = None) -> dict[st
         ),
         "max_iterations": max(
             0,
-            int(_as_float(rel_raw.get("max_iterations"), rel_defaults["max_iterations"])),
+            int(
+                _as_float(rel_raw.get("max_iterations"), rel_defaults["max_iterations"])
+            ),
         ),
     }
     return cfg
@@ -290,16 +291,18 @@ def init_belief_confidence(
     belief["evidence_confidence"] = 0.0
     belief["factor_confidence"] = 0.0
     belief["confidence"] = conf
-    belief["confidence_history"] = [{
-        "step": "initial",
-        "value": conf,
-        "evidence_confidence": 0.0,
-        "factor_confidence": 0.0,
-        "confidence_config": {
-            "source": _norm_role(role),
-            "stance": _norm_stance(stance),
-        },
-    }]
+    belief["confidence_history"] = [
+        {
+            "step": "initial",
+            "value": conf,
+            "evidence_confidence": 0.0,
+            "factor_confidence": 0.0,
+            "confidence_config": {
+                "source": _norm_role(role),
+                "stance": _norm_stance(stance),
+            },
+        }
+    ]
     return belief
 
 
@@ -359,14 +362,16 @@ def recompute_evidence_confidence_from_node(
     recompute_node_confidence(node)
 
     if record_history and scored_ids:
-        node.setdefault("confidence_history", []).append({
-            "step": step,
-            "value": node["confidence"],
-            "delta": round(float(node.get("confidence") or 0.0) - old_conf, 3),
-            "evidence_confidence": new_ev_score,
-            "evidence_delta": round(new_ev_score - old_ev_score, 6),
-            "scored_evidence_ids": list(scored_ids),
-        })
+        node.setdefault("confidence_history", []).append(
+            {
+                "step": step,
+                "value": node["confidence"],
+                "delta": round(float(node.get("confidence") or 0.0) - old_conf, 3),
+                "evidence_confidence": new_ev_score,
+                "evidence_delta": round(new_ev_score - old_ev_score, 6),
+                "scored_evidence_ids": list(scored_ids),
+            }
+        )
     return node
 
 
@@ -400,17 +405,19 @@ def record_evidence_merge_confidence(
     recompute_node_confidence(canonical)
 
     evidence_delta = round(new_ev_score - old_ev_score, 6)
-    canonical.setdefault("confidence_history", []).append({
-        "step": "merge_evidence",
-        "value": canonical["confidence"],
-        "delta": round(canonical["confidence"] - old, 3),
-        "evidence_confidence": new_ev_score,
-        "evidence_delta": evidence_delta,
-        "scored_evidence_ids": list(scored_evidence_ids),
-        "added_evidence_ids": list(added_evidence_ids),
-        "from_belief_id": newest_id,
-        "absorbed_belief_ids": list(absorbed_ids),
-    })
+    canonical.setdefault("confidence_history", []).append(
+        {
+            "step": "merge_evidence",
+            "value": canonical["confidence"],
+            "delta": round(canonical["confidence"] - old, 3),
+            "evidence_confidence": new_ev_score,
+            "evidence_delta": evidence_delta,
+            "scored_evidence_ids": list(scored_evidence_ids),
+            "added_evidence_ids": list(added_evidence_ids),
+            "from_belief_id": newest_id,
+            "absorbed_belief_ids": list(absorbed_ids),
+        }
+    )
 
 
 def _relation_signal(relation: dict[str, Any]) -> tuple[int, int, float] | None:
@@ -597,15 +604,17 @@ def propagate_relation_confidences(
             updated_ids.add(node_id)
             changed_this_round.append(node_id)
             if record_history:
-                node.setdefault("confidence_history", []).append({
-                    "step": step,
-                    "value": node["confidence"],
-                    "delta": round(confidence_delta, 3),
-                    "factor_confidence": factor_score,
-                    "factor_delta": round(factor_delta, 6),
-                    "iteration": iteration,
-                    "relation_contributions": contributions,
-                })
+                node.setdefault("confidence_history", []).append(
+                    {
+                        "step": step,
+                        "value": node["confidence"],
+                        "delta": round(confidence_delta, 3),
+                        "factor_confidence": factor_score,
+                        "factor_delta": round(factor_delta, 6),
+                        "iteration": iteration,
+                        "relation_contributions": contributions,
+                    }
+                )
             if abs(confidence_delta) > min_delta:
                 for relation in relation_list:
                     output_id = relation_output_node_id(relation)
@@ -619,4 +628,3 @@ def propagate_relation_confidences(
             break
     report["updated_node_ids"] = sorted(updated_ids)
     return report
-

@@ -34,8 +34,7 @@ from typing import Any
 from .constants import VALID_STANCES
 
 DEFAULT_STANCE_MODEL_PATH = (
-    "/data/user/wenxinyi/experiments/models/"
-    "deberta-v3-large-zeroshot-v2.0"
+    "/data/user/wenxinyi/experiments/models/deberta-v3-large-zeroshot-v2.0"
 )
 
 STANCE_ORDER = ("asserted", "recalled", "judged", "speculated")
@@ -171,7 +170,9 @@ class LocalZeroShotStanceClassifier:
             return None
         value = getattr(self._torch, self.config["dtype"], None)
         if value is None:
-            raise ValueError(f"Unsupported stance model dtype: {self.config['dtype']!r}")
+            raise ValueError(
+                f"Unsupported stance model dtype: {self.config['dtype']!r}"
+            )
         return value
 
     @staticmethod
@@ -183,7 +184,11 @@ class LocalZeroShotStanceClassifier:
         if isinstance(id2label, Mapping):
             for raw_idx, raw_label in id2label.items():
                 label = self._canonical_label(raw_label)
-                if "entail" in label and not label.startswith(("not_", "non_")) and "not_entail" not in label:
+                if (
+                    "entail" in label
+                    and not label.startswith(("not_", "non_"))
+                    and "not_entail" not in label
+                ):
                     try:
                         return int(raw_idx)
                     except (TypeError, ValueError):
@@ -193,7 +198,11 @@ class LocalZeroShotStanceClassifier:
         if isinstance(label2id, Mapping):
             for raw_label, raw_idx in label2id.items():
                 label = self._canonical_label(raw_label)
-                if "entail" in label and not label.startswith(("not_", "non_")) and "not_entail" not in label:
+                if (
+                    "entail" in label
+                    and not label.startswith(("not_", "non_"))
+                    and "not_entail" not in label
+                ):
                     try:
                         return int(raw_idx)
                     except (TypeError, ValueError):
@@ -314,14 +323,19 @@ class LocalZeroShotStanceClassifier:
                     logits = self._model(**encoded).logits.float()
                 entailment_logits.extend(
                     float(value)
-                    for value in logits[:, self._entailment_index].detach().cpu().tolist()
+                    for value in logits[:, self._entailment_index]
+                    .detach()
+                    .cpu()
+                    .tolist()
                 )
 
         n_labels = len(STANCE_ORDER)
         predictions: list[StancePrediction] = []
         for text_index in range(len(clean_texts)):
             start = text_index * n_labels
-            row = torch.tensor(entailment_logits[start:start + n_labels], dtype=torch.float32)
+            row = torch.tensor(
+                entailment_logits[start : start + n_labels], dtype=torch.float32
+            )
             probabilities = torch.softmax(row, dim=-1).tolist()
             scores = {
                 stance: round(float(probabilities[index]), 6)
@@ -332,12 +346,14 @@ class LocalZeroShotStanceClassifier:
                 key=lambda index: (probabilities[index], -index),
             )
             best_stance = STANCE_ORDER[best_index]
-            predictions.append(StancePrediction(
-                stance=best_stance,
-                confidence=round(float(probabilities[best_index]), 6),
-                scores=scores,
-                model_path=self.model_path,
-            ))
+            predictions.append(
+                StancePrediction(
+                    stance=best_stance,
+                    confidence=round(float(probabilities[best_index]), 6),
+                    scores=scores,
+                    model_path=self.model_path,
+                )
+            )
         return predictions
 
 

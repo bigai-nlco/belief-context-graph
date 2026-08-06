@@ -271,7 +271,9 @@ class BCGEdge(BaseModel):
     )
     source: str = Field(..., description="UUID of the source node.")
     target: str = Field(..., description="UUID of the target node.")
-    weight: float | None = Field(default=None, description="Confidence propagation edge weight.")
+    weight: float | None = Field(
+        default=None, description="Confidence propagation edge weight."
+    )
     relation: RelationPayload | None = Field(
         default=None, description="Typed relation payload for belief edges."
     )

@@ -53,26 +53,24 @@ def posterior_confidence(
 
 BASE_CONFIDENCE: dict[tuple, float] = {
     # role          stance         confidence
-    ("user",       "asserted"):    0.88,
-    ("user",       "recalled"):    0.78,
-    ("user",       "judged"):      0.72,
-    ("user",       "speculated"):  0.58,
-
-    ("tool",       "asserted"):    0.88,    # what the tool returned is treated as fact
-    ("tool",       "recalled"):    0.78,
-    ("tool",       "judged"):      0.74,
-    ("tool",       "speculated"):  0.62,
-
-    ("assistant",  "asserted"):    0.78,    # final answers / committed claims
-    ("assistant",  "recalled"):    0.68,
-    ("assistant",  "judged"):      0.65,
-    ("assistant",  "speculated"):  0.45,
+    ("user", "asserted"): 0.88,
+    ("user", "recalled"): 0.78,
+    ("user", "judged"): 0.72,
+    ("user", "speculated"): 0.58,
+    ("tool", "asserted"): 0.88,  # what the tool returned is treated as fact
+    ("tool", "recalled"): 0.78,
+    ("tool", "judged"): 0.74,
+    ("tool", "speculated"): 0.62,
+    ("assistant", "asserted"): 0.78,  # final answers / committed claims
+    ("assistant", "recalled"): 0.68,
+    ("assistant", "judged"): 0.65,
+    ("assistant", "speculated"): 0.45,
 }
 
 SOURCE_RELIABILITY = {
-    "user":       0.85,
-    "tool":       0.80,
-    "assistant":  0.65,
+    "user": 0.85,
+    "tool": 0.80,
+    "assistant": 0.65,
 }
 
 STANCE_QUALITY = {
@@ -143,8 +141,6 @@ def _role_from_record(record: dict[str, Any]) -> str:
     return str(record.get("role") or src.get("role") or src.get("type") or "")
 
 
-
-
 def init_belief_confidence(belief: dict[str, Any]) -> dict[str, Any]:
     """Initialise flat confidence fields on a freshly created belief/decision."""
     role = _role_from_record(belief)
@@ -155,13 +151,16 @@ def init_belief_confidence(belief: dict[str, Any]) -> dict[str, Any]:
     belief["evidence_confidence"] = 0.0
     belief["factor_confidence"] = 0.0
     belief["confidence"] = conf
-    belief["confidence_history"] = [{
-        "step": "initial",
-        "value": conf,
-        "evidence_confidence": 0.0,
-        "factor_confidence": 0.0,
-    }]
+    belief["confidence_history"] = [
+        {
+            "step": "initial",
+            "value": conf,
+            "evidence_confidence": 0.0,
+            "factor_confidence": 0.0,
+        }
+    ]
     return belief
+
 
 __all__ = [
     "BASE_CONFIDENCE",

@@ -37,7 +37,6 @@ def _bootstrap_env() -> None:
     load_project_env()
 
 
-
 def _state_root() -> Path:
     configured = os.environ.get("BCG_HOME")
     return Path(configured).expanduser() if configured else Path.home() / ".bcg"

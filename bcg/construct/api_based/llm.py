@@ -89,7 +89,6 @@ def _is_reserved_key(key: str) -> bool:
 # accumulated log to outputs/token_usage.{json,txt}.
 
 
-
 def _resolve_config_api_key(
     cfg: dict[str, Any],
     *,
@@ -103,6 +102,7 @@ def _resolve_config_api_key(
         default_env=default_env,
         config_path=config_path,
     )
+
 
 def _deep_merge_dict(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     out = dict(base or {})
@@ -132,7 +132,8 @@ def load_belief_graph_config(
     elif not model_key:
         chosen = next(
             (
-                key for key in raw
+                key
+                for key in raw
                 if not _is_reserved_key(key) and isinstance(raw.get(key), dict)
             ),
             None,
@@ -180,11 +181,15 @@ def load_config(
             chosen = model_key
         elif model_key:
             available = ", ".join(repr(k) for k in raw if not _is_reserved_key(k))
-            raise KeyError(f"Model key {model_key!r} not found in {display_path}. Available: {available}")
+            raise KeyError(
+                f"Model key {model_key!r} not found in {display_path}. Available: {available}"
+            )
         else:
             chosen = next((k for k in raw if not _is_reserved_key(k)), None)
             if chosen is None:
-                raise ValueError(f"{path} contains no chat-model entries (only reserved keys)")
+                raise ValueError(
+                    f"{path} contains no chat-model entries (only reserved keys)"
+                )
         inner = raw[chosen]
         if not isinstance(inner, dict):
             raise ValueError(f"Nested entry {chosen!r} must be a JSON object")
@@ -211,7 +216,9 @@ def make_client(cfg: dict[str, Any]) -> OpenAI:
     return OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"])
 
 
-def _normalize_temperature_for_model(model: str, temperature: float | None) -> float | None:
+def _normalize_temperature_for_model(
+    model: str, temperature: float | None
+) -> float | None:
     """Return a chat-completions temperature accepted by known strict models."""
     if temperature is None:
         return None
@@ -257,14 +264,16 @@ def call_model(
     # that was sent to the LLM.
     with contextlib.suppress(Exception):
         # Never fail the call due to logging issues
-        _log_prompt({
-            "ts": datetime.now(UTC).isoformat(),
-            "model": model,
-            "label": usage_label,
-            "max_tokens": max_tokens,
-            "prompt_len": len(prompt) if prompt is not None else 0,
-            "prompt": prompt,
-        })
+        _log_prompt(
+            {
+                "ts": datetime.now(UTC).isoformat(),
+                "model": model,
+                "label": usage_label,
+                "max_tokens": max_tokens,
+                "prompt_len": len(prompt) if prompt is not None else 0,
+                "prompt": prompt,
+            }
+        )
     for attempt in range(retries):
         try:
             resp = client.chat.completions.create(**kwargs)
@@ -277,7 +286,7 @@ def call_model(
                 file=sys.stderr,
             )
             if attempt < retries - 1:
-                time.sleep(backoff ** attempt)
+                time.sleep(backoff**attempt)
     raise RuntimeError(f"All retries failed: {last_err}")
 
 
@@ -297,7 +306,7 @@ def parse_json_response(text: str) -> dict[str, Any]:
     start = s.find("{")
     end = s.rfind("}")
     if 0 <= start < end:
-        candidate = s[start:end + 1]
+        candidate = s[start : end + 1]
         try:
             return json.loads(candidate)
         except json.JSONDecodeError as e:
@@ -308,6 +317,7 @@ def parse_json_response(text: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Embedding config + client
 # ---------------------------------------------------------------------------
+
 
 def load_embedding_config(
     path: str = "model_config.json",
@@ -418,8 +428,8 @@ class LocalEmbeddingClient:
         self.dtype: str | None = cfg.get("dtype")
         self.max_length: int | None = cfg.get("max_length")
         self.extra_model_kwargs: dict[str, Any] = dict(cfg.get("model_kwargs") or {})
-        self._model = None                       # lazy-loaded
-        self._model_lock = threading.Lock()       # guards lazy load under concurrency
+        self._model = None  # lazy-loaded
+        self._model_lock = threading.Lock()  # guards lazy load under concurrency
         self._cache: dict[str, list[float]] = {}
         self._cache_lock = threading.Lock()
         if log_path:
@@ -463,17 +473,23 @@ class LocalEmbeddingClient:
             if self.dtype and self.dtype != "auto":
                 model_kwargs.setdefault("torch_dtype", self.dtype)
             device = None if (not self.device or self.device == "auto") else self.device
-            print(f"[info] loading local embedding model {self.model!r}"
-                  + (f" on {device}" if device else "") + " ...", file=sys.stderr)
+            print(
+                f"[info] loading local embedding model {self.model!r}"
+                + (f" on {device}" if device else "")
+                + " ...",
+                file=sys.stderr,
+            )
             t0 = time.time()
             model = SentenceTransformer(
-                self.model, device=device,
-                model_kwargs=model_kwargs or None)
+                self.model, device=device, model_kwargs=model_kwargs or None
+            )
             if self.max_length:
                 with contextlib.suppress(Exception):
                     model.max_seq_length = int(self.max_length)
-            print(f"[info] local embedding model ready ({time.time() - t0:.1f}s)",
-                  file=sys.stderr)
+            print(
+                f"[info] local embedding model ready ({time.time() - t0:.1f}s)",
+                file=sys.stderr,
+            )
             self._model = model
         return self._model
 
@@ -507,7 +523,8 @@ class LocalEmbeddingClient:
             if len(vec_lists) != len(batch):
                 raise RuntimeError(
                     f"local embedding returned {len(vec_lists)} vectors "
-                    f"for {len(batch)} inputs")
+                    f"for {len(batch)} inputs"
+                )
             with self._cache_lock:
                 for t, v in zip(batch, vec_lists, strict=False):
                     self._cache[t] = v
@@ -524,21 +541,24 @@ class LocalEmbeddingClient:
             )
 
         dim = len(results[0]) if results and results[0] is not None else 0
-        self._log({
-            "ts": datetime.now(UTC).isoformat(),
-            "provider": "local",
-            "purpose": purpose,
-            "model": self.model,
-            "n_texts": len(texts),
-            "n_cached": sum(cached_flags),
-            "n_api": len(missing_idx),
-            "dimension": dim,
-            "elapsed_s": round(time.time() - t0, 3),
-            "texts": [{"index": i, "cached": cached_flags[i], "text": t}
-                      for i, t in enumerate(texts)],
-        })
+        self._log(
+            {
+                "ts": datetime.now(UTC).isoformat(),
+                "provider": "local",
+                "purpose": purpose,
+                "model": self.model,
+                "n_texts": len(texts),
+                "n_cached": sum(cached_flags),
+                "n_api": len(missing_idx),
+                "dimension": dim,
+                "elapsed_s": round(time.time() - t0, 3),
+                "texts": [
+                    {"index": i, "cached": cached_flags[i], "text": t}
+                    for i, t in enumerate(texts)
+                ],
+            }
+        )
         return [r if r is not None else [] for r in results]
-
 
 
 def make_embedder(cfg: dict[str, Any], log_path: Any | None = None):

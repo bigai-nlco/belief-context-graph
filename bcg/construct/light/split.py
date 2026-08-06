@@ -44,7 +44,7 @@ class SemanticChunk:
 
 _SENT_END_RE = re.compile(r'[.!?。！？；;…]+[\'"”’\)\]）】」』]*')
 _MIN_FRAGMENT_LEN = 4
-_TAG_RE = re.compile(r'</?[A-Za-z][A-Za-z0-9_]*(?:\s+[^<>]*?)?\s*/?>')
+_TAG_RE = re.compile(r"</?[A-Za-z][A-Za-z0-9_]*(?:\s+[^<>]*?)?\s*/?>")
 
 
 def _is_pure_tag(text: str, s: int, e: int) -> bool:
@@ -109,12 +109,14 @@ def split_sentences(text: str) -> list[Sentence]:
     result: list[Sentence] = []
     for index, (start, end) in enumerate(merged):
         start, end = trim_span(text, start, end)
-        result.append(Sentence(
-            index=index,
-            text=text[start:end],
-            start=start,
-            end=end,
-        ))
+        result.append(
+            Sentence(
+                index=index,
+                text=text[start:end],
+                start=start,
+                end=end,
+            )
+        )
     return result
 
 
@@ -131,7 +133,9 @@ def _buffered_sentence_texts(
     return texts
 
 
-def _groups_from_breakpoints(n_sentences: int, breakpoints: list[int]) -> list[list[int]]:
+def _groups_from_breakpoints(
+    n_sentences: int, breakpoints: list[int]
+) -> list[list[int]]:
     groups: list[list[int]] = []
     start = 0
     for breakpoint in sorted(set(breakpoints)):
@@ -216,7 +220,7 @@ def semantic_breakpoint_chunks(
             sentences=[sentence],
             start=sentence.start,
             end=sentence.end,
-            text=content[sentence.start:sentence.end],
+            text=content[sentence.start : sentence.end],
         )
         return [chunk], {
             "algorithm": "semantic_breakpoint",
@@ -241,14 +245,14 @@ def semantic_breakpoint_chunks(
     vectors = embedder.embed(window_texts, purpose=purpose)
     similarity = cosine_similarity_matrix(vectors)
     adjacent_distances = [
-        float(1.0 - similarity[index, index + 1])
-        for index in range(len(sentences) - 1)
+        float(1.0 - similarity[index, index + 1]) for index in range(len(sentences) - 1)
     ]
 
     percentile = min(100.0, max(0.0, float(breakpoint_percentile_threshold)))
     distance_threshold = float(np.percentile(adjacent_distances, percentile))
     raw_breakpoints = [
-        index for index, distance in enumerate(adjacent_distances)
+        index
+        for index, distance in enumerate(adjacent_distances)
         if distance > distance_threshold
     ]
     groups = _groups_from_breakpoints(len(sentences), raw_breakpoints)
@@ -259,14 +263,16 @@ def semantic_breakpoint_chunks(
         chunk_sentences = [sentences[index] for index in indices]
         start = chunk_sentences[0].start
         end = chunk_sentences[-1].end
-        chunks.append(SemanticChunk(
-            chunk_id=chunk_id,
-            sentence_indices=list(indices),
-            sentences=chunk_sentences,
-            start=start,
-            end=end,
-            text=content[start:end],
-        ))
+        chunks.append(
+            SemanticChunk(
+                chunk_id=chunk_id,
+                sentence_indices=list(indices),
+                sentences=chunk_sentences,
+                start=start,
+                end=end,
+                text=content[start:end],
+            )
+        )
 
     info: dict[str, Any] = {
         "algorithm": "semantic_breakpoint",
@@ -311,14 +317,20 @@ def single_fallback_chunk(
         start, end = trim_span(content, 0, len(content))
         indices = []
         text = content[start:end]
-    chunks = [SemanticChunk(
-        chunk_id=0,
-        sentence_indices=indices,
-        sentences=list(sentences),
-        start=start,
-        end=end,
-        text=text,
-    )] if text else []
+    chunks = (
+        [
+            SemanticChunk(
+                chunk_id=0,
+                sentence_indices=indices,
+                sentences=list(sentences),
+                start=start,
+                end=end,
+                text=text,
+            )
+        ]
+        if text
+        else []
+    )
     return chunks, {
         "algorithm": "semantic_breakpoint",
         "fallback": "single_chunk",
@@ -333,7 +345,9 @@ def single_fallback_chunk(
                 "end": end,
                 "preview": text[:120] + ("…" if len(text) > 120 else ""),
             }
-        ] if chunks else [],
+        ]
+        if chunks
+        else [],
     }
 
 
@@ -377,14 +391,18 @@ def _chunk_text_region(
     next_base = sent_base + len(sentences)
 
     if not enabled:
-        chunks, _ = single_fallback_chunk(sentences, content, reason="chunking disabled")
+        chunks, _ = single_fallback_chunk(
+            sentences, content, reason="chunking disabled"
+        )
         return chunks, next_base
     if len(sentences) == 1:
         chunks, _ = single_fallback_chunk(sentences, content, reason="single sentence")
         return chunks, next_base
     try:
         chunks, _ = semantic_breakpoint_chunks(
-            sentences, content, embedder,
+            sentences,
+            content,
+            embedder,
             breakpoint_percentile_threshold=breakpoint_percentile_threshold,
             buffer_size=buffer_size,
             min_chunk_sentences=min_chunk_sentences,
@@ -417,10 +435,14 @@ def semantic_chunks_isolating_tool_calls(
         if not enabled:
             return single_fallback_chunk(sentences, content, reason="chunking disabled")
         if len(sentences) < 2:
-            return single_fallback_chunk(sentences, content, reason="fewer than 2 sentences")
+            return single_fallback_chunk(
+                sentences, content, reason="fewer than 2 sentences"
+            )
         try:
             return semantic_breakpoint_chunks(
-                sentences, content, embedder,
+                sentences,
+                content,
+                embedder,
                 breakpoint_percentile_threshold=breakpoint_percentile_threshold,
                 buffer_size=buffer_size,
                 min_chunk_sentences=min_chunk_sentences,
@@ -448,18 +470,23 @@ def semantic_chunks_isolating_tool_calls(
             ts, te = trim_span(content, rs, re_)
             if te <= ts:
                 continue
-            all_chunks.append(SemanticChunk(
-                chunk_id=0,               # reassigned below
-                sentence_indices=[],      # a tool call is one opaque unit
-                sentences=[],
-                start=ts,
-                end=te,
-                text=content[ts:te],
-            ))
+            all_chunks.append(
+                SemanticChunk(
+                    chunk_id=0,  # reassigned below
+                    sentence_indices=[],  # a tool call is one opaque unit
+                    sentences=[],
+                    start=ts,
+                    end=te,
+                    text=content[ts:te],
+                )
+            )
             n_tool_call_chunks += 1
         else:
             region_chunks, sent_base = _chunk_text_region(
-                content, rs, re_, embedder,
+                content,
+                rs,
+                re_,
+                embedder,
                 enabled=enabled,
                 breakpoint_percentile_threshold=breakpoint_percentile_threshold,
                 buffer_size=buffer_size,

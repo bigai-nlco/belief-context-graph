@@ -76,7 +76,9 @@ def resolve_dated_output_root(output_root: Any, now: datetime | None = None) -> 
     m = _DATED_OUTPUT_RE.match(root.name)
     if not m:
         return root
-    month = f"{local_now.month:02d}" if len(m.group("month")) == 2 else str(local_now.month)
+    month = (
+        f"{local_now.month:02d}" if len(m.group("month")) == 2 else str(local_now.month)
+    )
     day = f"{local_now.day:02d}" if len(m.group("day")) == 2 else str(local_now.day)
     year = f"{local_now.year:04d}_" if m.group("year") else ""
     return root.with_name(f"{m.group('prefix')}{year}{month}_{day}")
@@ -100,6 +102,7 @@ def _optional_bool(value: Any) -> bool | None:
 # ===========================================================================
 # One trajectory  (one problem_id)
 # ===========================================================================
+
 
 class StreamingTrajectorySession:
     """
@@ -177,8 +180,8 @@ class StreamingTrajectorySession:
         self._buf_date: str | None = None
         self._buf_has_answer: bool | None = None
 
-        self._n_received = 0       # raw dicts seen
-        self._n_ingested = 0       # turns actually fed to the engine
+        self._n_received = 0  # raw dicts seen
+        self._n_ingested = 0  # turns actually fed to the engine
         self._finalized = False
         self._result: dict[str, Any] | None = None
 
@@ -215,7 +218,9 @@ class StreamingTrajectorySession:
         prompt_token = bind_prompt_log_path(self._logs_dir / "prompts.jsonl")
         emb_token = None
         if self.embedder is not None:
-            emb_token = self.embedder.set_log_path(self._logs_dir / "embedding_calls.jsonl")
+            emb_token = self.embedder.set_log_path(
+                self._logs_dir / "embedding_calls.jsonl"
+            )
         try:
             yield
         finally:
@@ -237,7 +242,6 @@ class StreamingTrajectorySession:
         """
         with self._lock:
             yield self
-
 
     def _ensure_builder(self) -> Any:
         if self._builder is None:
@@ -298,14 +302,16 @@ class StreamingTrajectorySession:
                 "sessions": [],
                 "generated_at": _now(),
             }
-        return builder.graph.snapshot(extra={
-            "problem_id": self.problem_id,
-            "item_id": self.problem_id,
-            "stage": stage,
-            "finalized": self._finalized,
-            "stream_turn_index": max(0, self._n_ingested - 1),
-            "n_turns_ingested": self._n_ingested,
-        })
+        return builder.graph.snapshot(
+            extra={
+                "problem_id": self.problem_id,
+                "item_id": self.problem_id,
+                "stage": stage,
+                "finalized": self._finalized,
+                "stream_turn_index": max(0, self._n_ingested - 1),
+                "n_turns_ingested": self._n_ingested,
+            }
+        )
 
     def _emit_snapshot(self, *, stage: str) -> dict[str, Any]:
         """Snapshot, append to belief_graph.jsonl, refresh belief_graph_latest.json."""
@@ -390,18 +396,22 @@ class StreamingTrajectorySession:
         # a trajectory cannot end mid-message
         is_msg_end = True if is_traj_end else bool(turn.get("is_message_end", True))
         date = turn.get("date") or turn.get("session_date")
-        has_answer = _optional_bool(turn.get("has_answer")) if "has_answer" in turn else None
+        has_answer = (
+            _optional_bool(turn.get("has_answer")) if "has_answer" in turn else None
+        )
 
         # 1) RAW stream log (real time) — every received dict, ingested or not
         self._n_received += 1
-        self._append_stream_log({
-            "recv_ts": _now(),
-            "recv_index": self._n_received - 1,
-            "ingested": is_msg_end,
-            "is_message_end": is_msg_end,
-            "is_trajectory_end": is_traj_end,
-            "turn": turn,
-        })
+        self._append_stream_log(
+            {
+                "recv_ts": _now(),
+                "recv_index": self._n_received - 1,
+                "ingested": is_msg_end,
+                "is_message_end": is_msg_end,
+                "is_trajectory_end": is_traj_end,
+                "turn": turn,
+            }
+        )
 
         # 2) fragment buffering (no-op under the default one-dict-one-turn contract)
         if not is_msg_end:

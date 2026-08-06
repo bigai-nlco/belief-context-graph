@@ -32,8 +32,8 @@ from typing import Any
 from .._shared.spans import trim_span
 
 # Fuzzy-match acceptance knobs.
-FUZZY_MIN_RATIO = 0.6          # matched chars must cover >= 60% of the excerpt
-FUZZY_MAX_SPAN_FACTOR = 2.0    # located span must stay near the excerpt length
+FUZZY_MIN_RATIO = 0.6  # matched chars must cover >= 60% of the excerpt
+FUZZY_MAX_SPAN_FACTOR = 2.0  # located span must stay near the excerpt length
 FUZZY_MAX_SPAN_SLACK = 80
 
 VALID_STANCES = {"asserted", "recalled", "speculated", "judged"}
@@ -82,8 +82,9 @@ def locate_excerpt(excerpt: str, content: str) -> tuple[int | None, int | None, 
         s = blocks[0].a
         e = blocks[-1].a + blocks[-1].size
         span = e - s
-        max_span = max(len(excerpt) * FUZZY_MAX_SPAN_FACTOR,
-                       len(excerpt) + FUZZY_MAX_SPAN_SLACK)
+        max_span = max(
+            len(excerpt) * FUZZY_MAX_SPAN_FACTOR, len(excerpt) + FUZZY_MAX_SPAN_SLACK
+        )
         if matched >= FUZZY_MIN_RATIO * len(excerpt) and span <= max_span:
             s, e = trim_span(content, s, e)
             if e > s:
@@ -94,10 +95,10 @@ def locate_excerpt(excerpt: str, content: str) -> tuple[int | None, int | None, 
 
 def source_descriptor(
     *,
-    role: str,                       # kept for caller compatibility; stored outside source
+    role: str,  # kept for caller compatibility; stored outside source
     item_id: str,
     turn_index: int,
-    flat_turn_index: int,            # same value as turn_index in this stream pipeline
+    flat_turn_index: int,  # same value as turn_index in this stream pipeline
     date: str | None = None,
     has_answer: bool | None = None,
 ) -> dict[str, Any]:

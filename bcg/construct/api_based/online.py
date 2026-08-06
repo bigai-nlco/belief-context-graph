@@ -143,7 +143,7 @@ class SessionManager:
         self.max_tokens = cfg.get("max_tokens")
         if self.pricing is None:
             self.pricing = cfg.get("pricing")
-        masked = (cfg.get("api_key", "") or "")
+        masked = cfg.get("api_key", "") or ""
         masked = (masked[:6] + "…" + masked[-3:]) if len(masked) > 10 else "***"
         print(
             f"[online] model={self.model}  base_url={cfg['base_url']}  api_key={masked}"
@@ -254,12 +254,15 @@ class SessionManager:
                 _run_group(pid)
         else:
             with concurrent.futures.ThreadPoolExecutor(
-                    max_workers=min(len(order), 8)) as ex:
+                max_workers=min(len(order), 8)
+            ) as ex:
                 list(ex.map(_run_group, order))
 
         return {"pushed": len(turns), "finalized": finalized, "latest": latest}
 
-    def push_item(self, item: dict[str, Any], *, finalize: bool = True) -> dict[str, Any]:
+    def push_item(
+        self, item: dict[str, Any], *, finalize: bool = True
+    ) -> dict[str, Any]:
         """
         Process one normalised loader item exactly like ``pipeline.run_item``:
         ingest its turns in order, then finalize at the end.
@@ -331,7 +334,8 @@ class SessionManager:
                 _run(item)
         else:
             with concurrent.futures.ThreadPoolExecutor(
-                    max_workers=min(len(items), 8)) as ex:
+                max_workers=min(len(items), 8)
+            ) as ex:
                 list(ex.map(_run, items))
 
         return {"items": len(items), "finalized": finalized, "latest": latest}

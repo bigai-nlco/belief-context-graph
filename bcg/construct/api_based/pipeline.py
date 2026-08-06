@@ -51,13 +51,22 @@ def run_item(
 ) -> dict[str, Any]:
     """Build the belief graph for ONE normalised item."""
     builder = StreamingBeliefBuilder(
-        client=client, model=model, item_id=item["item_id"],
-        item_meta=item.get("meta"), out_dir=out_dir, options=options,
-        embedder=embedder, max_tokens=max_tokens,
+        client=client,
+        model=model,
+        item_id=item["item_id"],
+        item_meta=item.get("meta"),
+        out_dir=out_dir,
+        options=options,
+        embedder=embedder,
+        max_tokens=max_tokens,
     )
     for turn in item["turns"]:
-        builder.ingest_turn(turn["role"], turn["content"],
-                            date=turn.get("date"), has_answer=turn.get("has_answer"))
+        builder.ingest_turn(
+            turn["role"],
+            turn["content"],
+            date=turn.get("date"),
+            has_answer=turn.get("has_answer"),
+        )
     meta: dict[str, Any] = {"order_sorted": item.get("order_sorted", False)}
     if extra_meta:
         meta.update(extra_meta)
@@ -88,23 +97,32 @@ def run_input(
     max_tokens = cfg.get("max_tokens")
     pricing = cfg.get("pricing")
 
-    masked = (cfg.get("api_key", "") or "")
+    masked = cfg.get("api_key", "") or ""
     masked = (masked[:6] + "…" + masked[-3:]) if len(masked) > 10 else "***"
-    print(f"[info] model={model}  base_url={cfg['base_url']}  api_key={masked}"
-          + (f"  max_tokens={max_tokens}" if max_tokens else ""))
+    print(
+        f"[info] model={model}  base_url={cfg['base_url']}  api_key={masked}"
+        + (f"  max_tokens={max_tokens}" if max_tokens else "")
+    )
 
     emb_cfg = load_embedding_config(config_path, embedding_key=embedding_key)
     embedder = None
     if emb_cfg is not None:
         embedder = make_embedder(emb_cfg)
         if emb_cfg.get("provider") == "local":
-            print(f"[info] embedding provider=local  model={emb_cfg['model']}  "
-                  f"(weights load lazily on first use)")
+            print(
+                f"[info] embedding provider=local  model={emb_cfg['model']}  "
+                f"(weights load lazily on first use)"
+            )
         else:
-            print(f"[info] embedding model={emb_cfg['model']}  base_url={emb_cfg['base_url']}")
+            print(
+                f"[info] embedding model={emb_cfg['model']}  base_url={emb_cfg['base_url']}"
+            )
     else:
-        print(f"[warn] no {embedding_key!r} entry in {config_path} — the incremental "
-              "merge pass will be skipped", file=sys.stderr)
+        print(
+            f"[warn] no {embedding_key!r} entry in {config_path} — the incremental "
+            "merge pass will be skipped",
+            file=sys.stderr,
+        )
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -117,9 +135,17 @@ def run_input(
         USAGE.reset()
         if embedder is not None:
             embedder.clear_cache()
-        run_item(item, client=client, model=model, out_dir=sub,
-                 options=options, embedder=embedder, max_tokens=max_tokens,
-                 pricing=pricing, extra_meta={"input_path": input_path})
+        run_item(
+            item,
+            client=client,
+            model=model,
+            out_dir=sub,
+            options=options,
+            embedder=embedder,
+            max_tokens=max_tokens,
+            pricing=pricing,
+            extra_meta={"input_path": input_path},
+        )
 
     print("\n[done]")
 

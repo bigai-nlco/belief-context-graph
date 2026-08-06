@@ -295,7 +295,6 @@ def test_explicit_load_project_env_still_loads(tmp_path: Path) -> None:
     assert completed.stdout.strip() == "loaded-explicitly"
 
 
-
 def test_core_env_source_root_tracks_repository_after_move() -> None:
     from bcg.core.env import SOURCE_PROJECT_ROOT
 
@@ -338,6 +337,7 @@ def test_unified_errors_keep_standard_exception_compatibility() -> None:
     assert issubclass(BCGConfigError, ValueError)
     assert issubclass(BCGUsageError, RuntimeError)
 
+
 def _imported_modules(path: Path) -> set[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     modules: set[str] = set()
@@ -352,7 +352,9 @@ def _imported_modules(path: Path) -> set[str]:
 def test_step1_dependency_direction_has_no_concrete_backend_imports() -> None:
     project_root = Path(__file__).parents[1]
     runner_imports = _imported_modules(project_root / "bcg" / "runner.py")
-    registry_imports = _imported_modules(project_root / "bcg" / "construct" / "backends.py")
+    registry_imports = _imported_modules(
+        project_root / "bcg" / "construct" / "backends.py"
+    )
     pipeline_imports = _imported_modules(
         project_root / "bcg" / "construct" / "api_based" / "pipeline.py"
     )
@@ -364,15 +366,10 @@ def test_step1_dependency_direction_has_no_concrete_backend_imports() -> None:
         "bcg.construct.api_based",
         "bcg.construct.light",
     )
+    assert not any(module.startswith(concrete_prefixes) for module in runner_imports)
+    assert not any(module.startswith(concrete_prefixes) for module in registry_imports)
     assert not any(
-        module.startswith(concrete_prefixes) for module in runner_imports
-    )
-    assert not any(
-        module.startswith(concrete_prefixes) for module in registry_imports
-    )
-    assert not any(
-        module.startswith(concrete_prefixes)
-        or module.startswith("bcg.apps")
+        module.startswith(concrete_prefixes) or module.startswith("bcg.apps")
         for module in core_imports
     )
     assert "bcg.runner" not in pipeline_imports

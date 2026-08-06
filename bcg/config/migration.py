@@ -241,8 +241,7 @@ def migrate_to_yaml(
     settings = legacy_settings(project_root=project_root, home=home)
     if settings is None:
         raise FileNotFoundError(
-            "no legacy configuration found (model_config.json / "
-            "~/.bcg/config.json)"
+            "no legacy configuration found (model_config.json / ~/.bcg/config.json)"
         )
     dest = Path(dest).expanduser().resolve()
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -251,15 +250,16 @@ def migrate_to_yaml(
         shutil.copy2(dest, backup)
     body = _merge_settings(defaults_dict(), settings)
     body["schema_version"] = 1
-    fd, tmp = tempfile.mkstemp(
-        prefix=f".{dest.name}.", suffix=".tmp", dir=dest.parent
-    )
+    fd, tmp = tempfile.mkstemp(prefix=f".{dest.name}.", suffix=".tmp", dir=dest.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             import yaml
 
             yaml.safe_dump(
-                body, f, sort_keys=False, default_flow_style=False,
+                body,
+                f,
+                sort_keys=False,
+                default_flow_style=False,
                 allow_unicode=True,
             )
         os.replace(tmp, dest)

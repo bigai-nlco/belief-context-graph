@@ -40,7 +40,9 @@ def _on_off(value: bool) -> str:
     return "ON" if value else "OFF"
 
 
-def add_run_options(parser: argparse.ArgumentParser, settings: Any | None = None) -> None:
+def add_run_options(
+    parser: argparse.ArgumentParser, settings: Any | None = None
+) -> None:
     """Add the shared api_based run knobs (evidence mode / merge / context)."""
     defaults = _runner_defaults(settings)
 

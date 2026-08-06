@@ -179,6 +179,7 @@ Write each belief in the third person so it is self-contained.""",
     ),
 }
 
+
 def _resolve_extraction_role(role: str) -> str | None:
     key = (role or "").strip().lower()
     key = normalize_role(key)
@@ -198,10 +199,9 @@ def format_graph_nodes_context(
     for node in ordered:
         node_type = node.get("node_type") or "belief"
         text = str(
-            node.get("decision") if node_type == "decision" else node.get("belief")
-            or node.get("belief")
-            or node.get("decision")
-            or ""
+            node.get("decision")
+            if node_type == "decision"
+            else node.get("belief") or node.get("belief") or node.get("decision") or ""
         )
         if len(text) > 240:
             text = text[:220] + " ..."
@@ -251,7 +251,8 @@ _EXCERPT_CONSTRAINT = (
 def _output_schema(is_assistant: bool, require_excerpt: bool) -> str:
     exc = (
         ',\n      "supporting_excerpts": ["<verbatim excerpt copied from the chunk>"]'
-        if require_excerpt else ""
+        if require_excerpt
+        else ""
     )
     beliefs = (
         '  "beliefs": [\n'
@@ -264,7 +265,8 @@ def _output_schema(is_assistant: bool, require_excerpt: bool) -> str:
     decisions = (
         '  "decisions": [\n'
         '    { "decision": "<final selected answer, especially content inside \\boxed{...}>"'
-        + exc + " }\n"
+        + exc
+        + " }\n"
         "  ]"
     )
     return head + beliefs + ",\n" + decisions + "\n}\n"
@@ -314,7 +316,8 @@ def build_chunk_extraction_prompt(
         "\nYou maintain a belief graph INCREMENTALLY. From the CHUNK below, output "
         "only the NEW belief/decision nodes it expresses. Relations and duplicate "
         "detection are handled in separate steps — do not output relations."
-        + cap_line + "\n",
+        + cap_line
+        + "\n",
         _BELIEF_DEFINITION,
         guidance + "\n",
     ]
@@ -328,7 +331,11 @@ def build_chunk_extraction_prompt(
         "Do NOT copy them as output.\n"
         f"{GRAPH_NODES_PLACEHOLDER}\n"
     )
-    if turn_content and turn_content.strip() and turn_content.strip() != chunk_text.strip():
+    if (
+        turn_content
+        and turn_content.strip()
+        and turn_content.strip() != chunk_text.strip()
+    ):
         parts.append(
             "## Full turn (context — READ ONLY)\n"
             "The chunk below is one part of this turn. Use the full turn only to "
@@ -349,6 +356,7 @@ def build_chunk_extraction_prompt(
         prompt = prompt.replace(TURN_CONTENT_PLACEHOLDER, turn_content or "")
     prompt = prompt.replace(CHUNK_PLACEHOLDER, chunk_text or "")
     return prompt
+
 
 RELATION_PROMPT = f"""\
 You are a conservative relation-edge annotator for a belief graph.
@@ -421,14 +429,18 @@ def build_relation_prompt(nodes: list[dict[str, Any]], current_node_ids: set) ->
     for node in sorted(nodes, key=lambda item: int(item.get("id", 0))):
         source = node.get("source") or {}
         node_type = node.get("node_type") or "belief"
-        payload.append({
-            "id": node.get("id"),
-            "turn": source.get("turn_id"),
-            "role": node.get("role") or source.get("role") or source.get("type"),
-            "node_type": node_type,
-            "content": node.get("decision") if node_type == "decision" else node.get("belief"),
-            "is_current_turn": node.get("id") in current_node_ids,
-        })
+        payload.append(
+            {
+                "id": node.get("id"),
+                "turn": source.get("turn_id"),
+                "role": node.get("role") or source.get("role") or source.get("type"),
+                "node_type": node_type,
+                "content": node.get("decision")
+                if node_type == "decision"
+                else node.get("belief"),
+                "is_current_turn": node.get("id") in current_node_ids,
+            }
+        )
     return RELATION_PROMPT.replace(
         RELATION_NODES_PLACEHOLDER,
         _json.dumps(payload, ensure_ascii=False, indent=2),

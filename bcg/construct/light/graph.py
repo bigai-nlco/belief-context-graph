@@ -46,7 +46,9 @@ class BeliefGraph:
         self._next_relation_id = 0
         self.confidence_config = normalize_confidence_config(confidence_config)
         self.valid_relation_types = set(
-            DEFAULT_RELATION_TYPES if valid_relation_types is None else valid_relation_types
+            DEFAULT_RELATION_TYPES
+            if valid_relation_types is None
+            else valid_relation_types
         )
 
     @property
@@ -265,7 +267,9 @@ class BeliefGraph:
             "beliefs": [
                 node for node in nodes if node.get("node_type", "belief") == "belief"
             ],
-            "decisions": [node for node in nodes if node.get("node_type") == "decision"],
+            "decisions": [
+                node for node in nodes if node.get("node_type") == "decision"
+            ],
             "evidence": [self.evidence[i] for i in sorted(self.evidence)],
             "relations": list(self.relations),
             "merges": list(self.merges),

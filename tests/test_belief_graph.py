@@ -790,17 +790,13 @@ def test_backend_normalized_artifact_contract(
     result = run(runner.finalize())
 
     expected_path = (
-        Path(__file__).parent
-        / "fixtures"
-        / "refactor"
-        / f"construct_{backend}.json"
+        Path(__file__).parent / "fixtures" / "refactor" / f"construct_{backend}.json"
     )
     expected = json.loads(expected_path.read_text(encoding="utf-8"))
 
     assert _normalized_backend_contract(result) == expected
     for output_path in result.output_paths.to_dict().values():
         assert Path(output_path).exists()
-
 
 
 def test_semantic_split_clusters_with_fake_embeddings() -> None:

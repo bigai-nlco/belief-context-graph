@@ -48,8 +48,6 @@ def _bootstrap_env() -> None:
     load_project_env()
 
 
-
-
 ROLE_LABEL = {
     "system": "system",
     "user": "user",
@@ -66,7 +64,10 @@ def escape(s: Any) -> str:
 
 
 def safe_class(s: Any) -> str:
-    return re.sub(r"[^a-zA-Z0-9_-]+", "-", str(s or "unknown").lower()).strip("-") or "unknown"
+    return (
+        re.sub(r"[^a-zA-Z0-9_-]+", "-", str(s or "unknown").lower()).strip("-")
+        or "unknown"
+    )
 
 
 def node_text(n: dict[str, Any]) -> str:
@@ -141,12 +142,16 @@ def load_graph_file(path: Path) -> dict[str, Any]:
 def normalize_trajectory(data: dict[str, Any]) -> list[dict[str, Any]]:
     trajectory = data.get("trajectory")
     if isinstance(trajectory, list):
-        return [m if isinstance(m, dict) else {"role": "unknown", "content": str(m)}
-                for m in trajectory]
+        return [
+            m if isinstance(m, dict) else {"role": "unknown", "content": str(m)}
+            for m in trajectory
+        ]
     messages = data.get("messages")
     if isinstance(messages, list):
-        return [m if isinstance(m, dict) else {"role": "unknown", "content": str(m)}
-                for m in messages]
+        return [
+            m if isinstance(m, dict) else {"role": "unknown", "content": str(m)}
+            for m in messages
+        ]
     return []
 
 
@@ -182,7 +187,10 @@ def normalize_nodes(data: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         nn = dict(n)
         nn["id"] = nid
-        nn.setdefault("node_type", "decision" if "decision" in nn and "belief" not in nn else "belief")
+        nn.setdefault(
+            "node_type",
+            "decision" if "decision" in nn and "belief" not in nn else "belief",
+        )
         nn.setdefault("source", nn.get("source") or {})
         clean_nodes.append(nn)
 
@@ -291,15 +299,17 @@ def normalize_relations(
             continue
         seen_rel.add(key)
 
-        clean_rels.append({
-            "id": rid,
-            "from_id": fid,
-            "to_id": tid,
-            "type": rtype,
-            "note": str(r.get("note") or ""),
-            "activated_factor_ids": activated_factor_ids,
-            "raw": r,
-        })
+        clean_rels.append(
+            {
+                "id": rid,
+                "from_id": fid,
+                "to_id": tid,
+                "type": rtype,
+                "note": str(r.get("note") or ""),
+                "activated_factor_ids": activated_factor_ids,
+                "raw": r,
+            }
+        )
 
     clean_rels.sort(key=lambda x: x.get("id", 0))
     return clean_rels
@@ -362,9 +372,13 @@ def normalize_input(data: dict[str, Any]) -> dict[str, Any]:
         "evidence": evidence_clean,
         "timing": normalize_timing(data),
         "options": data.get("options") if isinstance(data.get("options"), dict) else {},
-        "token_usage": data.get("token_usage") if isinstance(data.get("token_usage"), dict) else {},
+        "token_usage": data.get("token_usage")
+        if isinstance(data.get("token_usage"), dict)
+        else {},
         "decision_history": normalize_decision_history(data),
-        "raw_counts": data.get("counts") if isinstance(data.get("counts"), dict) else {},
+        "raw_counts": data.get("counts")
+        if isinstance(data.get("counts"), dict)
+        else {},
     }
 
 
@@ -394,7 +408,9 @@ def evidence_records_for_node(
     return records
 
 
-def slice_with_marks(original: str, intervals: list[tuple[int, int, int]]) -> list[dict[str, Any]]:
+def slice_with_marks(
+    original: str, intervals: list[tuple[int, int, int]]
+) -> list[dict[str, Any]]:
     if not intervals:
         return [{"text": original, "nodes": []}]
 
@@ -899,7 +915,9 @@ def render_graph_svg(
 
     for ci, ti in enumerate(turns):
         cx = pad_x + col_w / 2 + ci * col_w
-        parts.append(f'<text class="col-label" x="{cx}" y="{height-12}">turn[{ti}]</text>')
+        parts.append(
+            f'<text class="col-label" x="{cx}" y="{height - 12}">turn[{ti}]</text>'
+        )
 
     marker_defs = []
     marker_colors = {
@@ -943,7 +961,7 @@ def render_graph_svg(
             f'<path class="edge type-{typ}" d="{p}" marker-end="url(#arr-{marker})" '
             f'data-rel-id="{rid}" data-from-id="{fid}" data-to-id="{tid}" '
             f'data-type="{typ}" data-key="{escape(key)}" '
-            f'onclick="selectEdge({fid},{tid},\'{typ}\',{rid})"/>'
+            f"onclick=\"selectEdge({fid},{tid},'{typ}',{rid})\"/>"
         )
         # Invisible wider hit target: keeps edges easy to click without drawing
         # relation IDs or activated factor IDs on the graph canvas. Those IDs
@@ -952,7 +970,7 @@ def render_graph_svg(
             f'<path class="edge-hit" d="{p}" '
             f'data-rel-id="{rid}" data-from-id="{fid}" data-to-id="{tid}" '
             f'data-type="{typ}" data-key="{escape(key)}" '
-            f'onclick="selectEdge({fid},{tid},\'{typ}\',{rid})"/>'
+            f"onclick=\"selectEdge({fid},{tid},'{typ}',{rid})\"/>"
         )
 
     for n in nodes:
@@ -972,7 +990,7 @@ def render_graph_svg(
             f'<rect x="-42" y="-19" width="84" height="38"/>'
             f'<text class="id" x="0" y="-6">{label}#{nid}</text>'
             f'<text class="conf" x="0" y="9">{escape(conf_text)}</text>'
-            f'</g>'
+            f"</g>"
         )
 
     return (
@@ -1010,7 +1028,10 @@ def render_html(data: dict[str, Any], src_path: str) -> str:
         by_msg.setdefault(ti, []).append((n["id"], n, ranges))
 
     msg_html = (
-        "".join(render_message_panel(i, m, by_msg.get(i, [])) for i, m in enumerate(trajectory))
+        "".join(
+            render_message_panel(i, m, by_msg.get(i, []))
+            for i, m in enumerate(trajectory)
+        )
         or "<p>No trajectory.</p>"
     )
 
@@ -1029,8 +1050,12 @@ def render_html(data: dict[str, Any], src_path: str) -> str:
         rel_counts[r.get("type", "?")] = rel_counts.get(r.get("type", "?"), 0) + 1
         activated_refs += len(r.get("activated_factor_ids") or [])
 
-    role_stats = "".join(f"<span><b>{v}</b> {escape(k)}</span>" for k, v in sorted(role_counts.items()))
-    type_stats = "".join(f"<span><b>{v}</b> {escape(k)}</span>" for k, v in sorted(type_counts.items()))
+    role_stats = "".join(
+        f"<span><b>{v}</b> {escape(k)}</span>" for k, v in sorted(role_counts.items())
+    )
+    type_stats = "".join(
+        f"<span><b>{v}</b> {escape(k)}</span>" for k, v in sorted(type_counts.items())
+    )
     rel_stats = ", ".join(f"{v} {escape(k)}" for k, v in sorted(rel_counts.items()))
 
     meta_model = data.get("model", "") or ""
@@ -1055,8 +1080,8 @@ def render_html(data: dict[str, Any], src_path: str) -> str:
         f'<header class="page-head"><h1>Belief Graph · {escape(prompt_name)}</h1>'
         f'<div class="meta">source · <b>{escape(Path(src_path).name)}</b> &nbsp; model · <b>{escape(meta_model)}</b></div></header>'
         f'<div class="stats"><span><b>{len(nodes)}</b> nodes</span>{type_stats}{role_stats}'
-        f'<span><b>{len(rels)}</b> relations</span><span>{escape(rel_stats)}</span>'
-        f'<span><b>{len(factors)}</b> factors</span><span><b>{activated_refs}</b> activated factor refs</span></div>'
+        f"<span><b>{len(rels)}</b> relations</span><span>{escape(rel_stats)}</span>"
+        f"<span><b>{len(factors)}</b> factors</span><span><b>{activated_refs}</b> activated factor refs</span></div>"
         '<div class="layout"><div class="left"><h2 class="section-title">Conversation trajectory</h2>'
         f'{msg_html}</div><div class="right"><div class="graph-wrap"><div class="legend">'
         '<span><span class="sw causal"></span>causal</span>'
@@ -1065,7 +1090,7 @@ def render_html(data: dict[str, Any], src_path: str) -> str:
         '<span><span class="sw contradicts"></span>contradicts</span>'
         f'</div>{graph_svg}</div><div class="detail-wrap"><h2 class="section-title">Inspector</h2><div id="detail"></div></div></div></div>'
         '<div class="hint">Raw IDs match code IDs and start from 0. Click a node, edge path, or factor badge. Esc clears selection.</div>'
-        f'<script>window.GRAPH_DATA = {graph_json};{JS}</script>'
+        f"<script>window.GRAPH_DATA = {graph_json};{JS}</script>"
         "</body></html>"
     )
 
@@ -1074,9 +1099,11 @@ def main(argv: list[str] | None = None) -> None:
     _bootstrap_env()
     parser = RichArgumentParser(
         prog="bcg construct visualize",
-        description="Graph visualizer for construct_beliefs result.json / final_graph.json / belief_graph.jsonl"
+        description="Graph visualizer for construct_beliefs result.json / final_graph.json / belief_graph.jsonl",
     )
-    parser.add_argument("input", help="Path to result.json, final_graph.json, or belief_graph.jsonl")
+    parser.add_argument(
+        "input", help="Path to result.json, final_graph.json, or belief_graph.jsonl"
+    )
     parser.add_argument("--output", "-o", default=None, help="Output HTML path")
     args = parser.parse_args(argv)
 
@@ -1092,7 +1119,11 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     html = render_html(data, str(in_path))
-    out_path = Path(args.output) if args.output else in_path.parent / f"graph_{in_path.stem}.html"
+    out_path = (
+        Path(args.output)
+        if args.output
+        else in_path.parent / f"graph_{in_path.stem}.html"
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html, encoding="utf-8")
     print(f"[ok] wrote {out_path}  ({out_path.stat().st_size:,} bytes)")

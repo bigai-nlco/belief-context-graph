@@ -53,17 +53,29 @@ def normalize_extractor_config(
     """Return a validated, JSON-serialisable generative-extractor config."""
     raw = dict(config or {})
     required = (
-        "enabled", "provider", "base_url", "model", "temperature",
-        "max_tokens", "max_concurrency", "request_timeout", "retries",
-        "context_scope", "enable_thinking", "include_turn_content",
-        "require_excerpt", "dynamic_node_cap", "node_cap_unit",
-        "node_cap_ratio", "node_cap_min", "node_cap_max",
+        "enabled",
+        "provider",
+        "base_url",
+        "model",
+        "temperature",
+        "max_tokens",
+        "max_concurrency",
+        "request_timeout",
+        "retries",
+        "context_scope",
+        "enable_thinking",
+        "include_turn_content",
+        "require_excerpt",
+        "dynamic_node_cap",
+        "node_cap_unit",
+        "node_cap_ratio",
+        "node_cap_min",
+        "node_cap_max",
     )
     missing = [key for key in required if key not in raw]
     if missing:
         raise ValueError(
-            "belief_graph.extractor is missing required field(s): "
-            + ", ".join(missing)
+            "belief_graph.extractor is missing required field(s): " + ", ".join(missing)
         )
     resolve_config_api_key(
         raw,
@@ -103,8 +115,7 @@ def normalize_extractor_config(
         #   size = sentence count (node_cap_unit="sentence") or char count ("char")
         "dynamic_node_cap": bool(raw["dynamic_node_cap"]),
         "node_cap_unit": (
-            "char" if str(raw["node_cap_unit"]).lower() == "char"
-            else "sentence"
+            "char" if str(raw["node_cap_unit"]).lower() == "char" else "sentence"
         ),
         "node_cap_ratio": float(raw["node_cap_ratio"]),
         "node_cap_min": max(1, int(raw["node_cap_min"])),
@@ -115,7 +126,7 @@ def normalize_extractor_config(
 @dataclass(frozen=True)
 class ExtractedNode:
     chunk_index: int
-    node_type: str            # "belief" | "decision"
+    node_type: str  # "belief" | "decision"
     text: str
     supporting_excerpts: list[str] = field(default_factory=list)
 
@@ -169,11 +180,13 @@ class QwenChunkExtractor:
             return self._client
         with self._client_lock:
             if self._client is None:
-                self._client = make_client({
-                    "base_url": self.config["base_url"],
-                    "api_key": self.config["api_key"],
-                    "model": self.model,
-                })
+                self._client = make_client(
+                    {
+                        "base_url": self.config["base_url"],
+                        "api_key": self.config["api_key"],
+                        "model": self.model,
+                    }
+                )
         return self._client
 
     # -- parsing ------------------------------------------------------------
@@ -185,7 +198,9 @@ class QwenChunkExtractor:
             # Make silent failures visible: a truncated/absent JSON (e.g. a
             # thinking model that spent the token budget on reasoning) is the
             # most common cause of unexpected zero-node turns.
-            reason = parsed.get("_parse_error") if isinstance(parsed, dict) else "not a dict"
+            reason = (
+                parsed.get("_parse_error") if isinstance(parsed, dict) else "not a dict"
+            )
             snippet = (raw or "").strip().replace("\n", " ")[:200]
             print(
                 f"    [extract] chunk {chunk_index} ({role}) JSON parse failed "
@@ -238,11 +253,14 @@ class QwenChunkExtractor:
         if self.config.get("node_cap_unit") == "char":
             size = len(str(getattr(chunk, "text", chunk) or ""))
         else:
-            size = len(
-                getattr(chunk, "sentence_indices", None)
-                or getattr(chunk, "sentences", None)
-                or []
-            ) or 1
+            size = (
+                len(
+                    getattr(chunk, "sentence_indices", None)
+                    or getattr(chunk, "sentences", None)
+                    or []
+                )
+                or 1
+            )
         cap = math.ceil(size * float(self.config.get("node_cap_ratio", 1.0)))
         cap = max(int(self.config.get("node_cap_min", 1)), cap)
         upper = int(self.config.get("node_cap_max", 0))
@@ -290,7 +308,9 @@ class QwenChunkExtractor:
             reasoning_effort = None
             extra_body = {"chat_template_kwargs": {"enable_thinking": False}}
 
-        turn_ctx = turn_content if self.config.get("include_turn_content", False) else None
+        turn_ctx = (
+            turn_content if self.config.get("include_turn_content", False) else None
+        )
         require_excerpt = self.config.get("require_excerpt", False)
         prompts: list[str | None] = []
         chunk_texts: list[str] = []
@@ -377,10 +397,9 @@ class QwenChunkExtractor:
                 cap = chunk_caps[index]
                 if cap and len(nodes) > cap:
                     # Hard backstop: keep decisions first, then beliefs in order.
-                    ordered = (
-                        [n for n in nodes if n.node_type == "decision"]
-                        + [n for n in nodes if n.node_type != "decision"]
-                    )
+                    ordered = [n for n in nodes if n.node_type == "decision"] + [
+                        n for n in nodes if n.node_type != "decision"
+                    ]
                     nodes = ordered[:cap]
                 return nodes
             except Exception as exc:
@@ -408,7 +427,9 @@ class QwenChunkExtractor:
                 results[index] = _run_one(index)
             return results
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(_run_one, index): index for index in range(len(chunks))}
+            futures = {
+                pool.submit(_run_one, index): index for index in range(len(chunks))
+            }
             for future in futures:
                 index = futures[future]
                 results[index] = future.result()

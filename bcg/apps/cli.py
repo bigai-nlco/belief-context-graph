@@ -16,8 +16,6 @@ def _bootstrap_env() -> None:
     load_project_env()
 
 
-
-
 def _package_version() -> str:
     try:
         return version("bcg")

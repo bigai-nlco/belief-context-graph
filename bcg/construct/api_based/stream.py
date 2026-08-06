@@ -76,7 +76,7 @@ class StreamOptions:
     # Needs an embedder (same as incremental_merge).
     verify_merge: bool = False
     # prompt budgets
-    context_chars: int = 9000             # existing-nodes context budget
+    context_chars: int = 9000  # existing-nodes context budget
     # skip turns whose content is shorter than this (0 = never skip)
     min_content_len: int = 0
     confidence_config: dict[str, Any] = field(default_factory=dict)
@@ -139,7 +139,7 @@ class StreamingBeliefBuilder:
         self._events = EventRecorder(self.out_dir / "events.jsonl")
         self._artifacts = ArtifactWriter(self.out_dir)
 
-        self._trajectory: list[dict[str, Any]] = []   # flat, ALL turns (incl. system)
+        self._trajectory: list[dict[str, Any]] = []  # flat, ALL turns (incl. system)
         self._flat_turn = 0
         self._finalized = False
         self._start_time = datetime.now(UTC)
@@ -152,7 +152,10 @@ class StreamingBeliefBuilder:
         # Final (trajectory-end) merge timing; filled in finalize(). Always
         # zero now that the trajectory-end global merge has been removed.
         self._final_merge_timing: dict[str, Any] = {
-            "merging": 0.0, "llm_check": 0.0, "total": 0.0}
+            "merging": 0.0,
+            "llm_check": 0.0,
+            "total": 0.0,
+        }
 
     # ------------------------------------------------------------------ events
     def _propagate_relation_confidences(
@@ -179,13 +182,15 @@ class StreamingBeliefBuilder:
     ) -> dict[str, Any]:
         """Process one incoming turn: extract nodes, merge, then link local edges."""
         flat_idx = self._flat_turn
-        turn_idx = flat_idx                       # no sessions: turn index == flat index
+        turn_idx = flat_idx  # no sessions: turn index == flat index
         content = content or ""
         raw_role = (role or "user").strip().lower()
         eff_role = normalize_role(raw_role)
 
         traj_entry: dict[str, Any] = {
-            "role": raw_role, "content": content, "turn_index": turn_idx,
+            "role": raw_role,
+            "content": content,
+            "turn_index": turn_idx,
         }
         if date is not None:
             traj_entry["date"] = date
@@ -198,9 +203,12 @@ class StreamingBeliefBuilder:
         skip_reason: str | None = None
         report: dict[str, Any] = {"split": None}
 
-        skip = (raw_role == "system" or not content.strip()
-                or eff_role not in BELIEF_ROLES
-                or len(content) < self.options.min_content_len)
+        skip = (
+            raw_role == "system"
+            or not content.strip()
+            or eff_role not in BELIEF_ROLES
+            or len(content) < self.options.min_content_len
+        )
         if skip:
             if raw_role == "system":
                 skip_reason = "system turn"
@@ -213,50 +221,69 @@ class StreamingBeliefBuilder:
         else:
             _t_turn = time.perf_counter()
             new_nodes, relations_added, report = self._update_from_turn(
-                eff_role, content, turn_idx, flat_idx, date, has_answer)
+                eff_role, content, turn_idx, flat_idx, date, has_answer
+            )
             turn_total = time.perf_counter() - _t_turn
             # Normalise + round the sub-step timing produced by _update_from_turn,
             # attach turn_total, and record one wide-table row for this turn.
             st = report.get("timing") or {}
-            st = {k: round(float(st.get(k, 0.0) or 0.0), 6) for k in
-                  ("node_generation", "merging", "llm_check", "edge_generation")}
+            st = {
+                k: round(float(st.get(k, 0.0) or 0.0), 6)
+                for k in ("node_generation", "merging", "llm_check", "edge_generation")
+            }
             st["turn_total"] = round(turn_total, 6)
             report["timing"] = st
-            self._turn_timings.append(
-                {"turn_index": turn_idx, "role": raw_role, **st})
+            self._turn_timings.append({"turn_index": turn_idx, "role": raw_role, **st})
 
         self._flat_turn += 1
         n_merged = len((report.get("incremental_merge") or {}).get("applied", []))
-        print(f"  t{turn_idx} role={raw_role:<9} -> {len(new_nodes)} node(s), "
-              f"{relations_added} relation(s)"
-              + (f", {n_merged} merge(s)" if n_merged else "")
-              + (f"  [skip: {skip_reason}]" if skip_reason else ""))
-        return self._events.record("turn", {
-            "turn_index": turn_idx,
-            "trajectory_index": flat_idx,
-            "role": raw_role,
-            "effective_role": eff_role,
-            "content_chars": len(content),
-            "skip_reason": skip_reason,
-            "split": report.get("split"),
-            "raw_output": report.get("raw_output"),
-            "raw_relation_output": report.get("raw_relation_output"),
-            "new_node_ids": [b["id"] for b in new_nodes],
-            "new_belief_ids": [b["id"] for b in new_nodes if b.get("node_type", "belief") == "belief"],
-            "new_decision_ids": [b["id"] for b in new_nodes if b.get("node_type") == "decision"],
-            "relations_added": relations_added,
-            "edge_attempts": report.get("edge_attempts"),
-            "edge_linked_previous_trajectory_index": report.get(
-                "edge_linked_previous_trajectory_index"),
-            "edge_skip_reason": report.get("edge_skip_reason"),
-            "incremental_merge": report.get("incremental_merge"),
-            "timing": report.get("timing"),
-        })
+        print(
+            f"  t{turn_idx} role={raw_role:<9} -> {len(new_nodes)} node(s), "
+            f"{relations_added} relation(s)"
+            + (f", {n_merged} merge(s)" if n_merged else "")
+            + (f"  [skip: {skip_reason}]" if skip_reason else "")
+        )
+        return self._events.record(
+            "turn",
+            {
+                "turn_index": turn_idx,
+                "trajectory_index": flat_idx,
+                "role": raw_role,
+                "effective_role": eff_role,
+                "content_chars": len(content),
+                "skip_reason": skip_reason,
+                "split": report.get("split"),
+                "raw_output": report.get("raw_output"),
+                "raw_relation_output": report.get("raw_relation_output"),
+                "new_node_ids": [b["id"] for b in new_nodes],
+                "new_belief_ids": [
+                    b["id"]
+                    for b in new_nodes
+                    if b.get("node_type", "belief") == "belief"
+                ],
+                "new_decision_ids": [
+                    b["id"] for b in new_nodes if b.get("node_type") == "decision"
+                ],
+                "relations_added": relations_added,
+                "edge_attempts": report.get("edge_attempts"),
+                "edge_linked_previous_trajectory_index": report.get(
+                    "edge_linked_previous_trajectory_index"
+                ),
+                "edge_skip_reason": report.get("edge_skip_reason"),
+                "incremental_merge": report.get("incremental_merge"),
+                "timing": report.get("timing"),
+            },
+        )
 
     # ------------------------------------------ per-turn three-phase pipeline
     def _update_from_turn(
-        self, role: str, content: str, turn_idx: int, flat_idx: int,
-        date: str | None, has_answer: bool | None,
+        self,
+        role: str,
+        content: str,
+        turn_idx: int,
+        flat_idx: int,
+        date: str | None,
+        has_answer: bool | None,
     ):
         """Three-phase per-turn update:
         Phase 1 — extract belief/decision nodes (one LLM call)
@@ -269,18 +296,29 @@ class StreamingBeliefBuilder:
         # Per-turn sub-step wall clocks (seconds), filled across the three phases.
         # merging/llm_check come from the incremental merge (merge.py); a turn may
         # issue several relation calls, whose times accumulate into edge_generation.
-        timing = {"node_generation": 0.0, "merging": 0.0,
-                  "llm_check": 0.0, "edge_generation": 0.0}
+        timing = {
+            "node_generation": 0.0,
+            "merging": 0.0,
+            "llm_check": 0.0,
+            "edge_generation": 0.0,
+        }
         report["timing"] = timing
 
         src = source_descriptor(
-            role=role, item_id=self.item_id, turn_index=turn_idx,
-            flat_turn_index=flat_idx, date=date, has_answer=has_answer)
+            role=role,
+            item_id=self.item_id,
+            turn_index=turn_idx,
+            flat_turn_index=flat_idx,
+            date=date,
+            has_answer=has_answer,
+        )
 
         graph_nodes_str = format_graph_nodes(
-            self.graph.active(), char_budget=opt.context_chars)
+            self.graph.active(), char_budget=opt.context_chars
+        )
         graph_edges_str = format_graph_edges(
-            self.graph.relations, keep_ids=set(self.graph.ids()))
+            self.graph.relations, keep_ids=set(self.graph.ids())
+        )
 
         # ---- prepare evidence mode
         sentences = None
@@ -296,11 +334,18 @@ class StreamingBeliefBuilder:
         USAGE.set_label(f"t{turn_idx}.extract:{role}")
         _t_nodes = time.perf_counter()
         node_res = extract_nodes(
-            self.client, self.model,
-            role=role, mode=opt.evidence_mode,
-            content=content, sentences=sentences, clusters=clusters_idx,
-            graph_nodes_str=graph_nodes_str, graph_edges_str=graph_edges_str,
-            current_date=date, max_tokens=self.max_tokens)
+            self.client,
+            self.model,
+            role=role,
+            mode=opt.evidence_mode,
+            content=content,
+            sentences=sentences,
+            clusters=clusters_idx,
+            graph_nodes_str=graph_nodes_str,
+            graph_edges_str=graph_edges_str,
+            current_date=date,
+            max_tokens=self.max_tokens,
+        )
         timing["node_generation"] = time.perf_counter() - _t_nodes
         report["raw_output"] = node_res.get("raw_output")
         report["skipped"] = node_res.get("skipped", False)
@@ -323,24 +368,29 @@ class StreamingBeliefBuilder:
         #      are excluded from incremental merge entirely: intermediate answers
         #      should not absorb each other during generation, because only the
         #      final decision is retained as a decision at trajectory end.
-        if (new_nodes and self.options.incremental_merge
-                and self.embedder is not None):
+        if new_nodes and self.options.incremental_merge and self.embedder is not None:
             USAGE.set_label(f"t{turn_idx}.merge")
             verify_merge = self.options.verify_merge
             decision_ids = {
-                node["id"] for node in self.graph.active()
+                node["id"]
+                for node in self.graph.active()
                 if isinstance(node.get("id"), int)
                 and node.get("node_type") == "decision"
             }
             inc = run_merge_pass(
-                graph=self.graph, strategy="embedding",
-                verify=verify_merge, verify_rewrite=verify_merge,
-                client=self.client, model=self.model, embedder=self.embedder,
+                graph=self.graph,
+                strategy="embedding",
+                verify=verify_merge,
+                verify_rewrite=verify_merge,
+                client=self.client,
+                model=self.model,
+                embedder=self.embedder,
                 threshold=self.options.incremental_merge_threshold,
                 max_tokens=self.max_tokens,
                 pass_label=f"turn_{turn_idx}",
                 log_dir=(self.logs_dir if verify_merge else None),
-                exclude_node_ids=decision_ids)
+                exclude_node_ids=decision_ids,
+            )
             # embedding candidate time -> merging; LLM verify time -> llm_check.
             # Present even when the pass is internally skipped (defaults to 0).
             _mt = inc.get("timing") or {}
@@ -353,16 +403,18 @@ class StreamingBeliefBuilder:
                     "relation_rewire": inc.get("relation_rewire"),
                 }
                 for m in inc.get("applied", []):
-                    for aid in (m.get("absorbed_ids") or []):
+                    for aid in m.get("absorbed_ids") or []:
                         new_node_ids.discard(aid)
                 if inc.get("applied"):
-                    report.setdefault("confidence_propagation", []).append({
-                        "trigger": "incremental_merge",
-                        "report": self._propagate_relation_confidences(
-                            seed_output_node_ids=None,
-                            step="relation_propagation_after_merge",
-                        ),
-                    })
+                    report.setdefault("confidence_propagation", []).append(
+                        {
+                            "trigger": "incremental_merge",
+                            "report": self._propagate_relation_confidences(
+                                seed_output_node_ids=None,
+                                step="relation_propagation_after_merge",
+                            ),
+                        }
+                    )
 
         # ---- PHASE 3: extract relations inside a local edge window.
         #
@@ -386,16 +438,19 @@ class StreamingBeliefBuilder:
 
             for candidate_idx in range(flat_idx - 1, -1, -1):
                 previous_node_ids = self._node_ids_from_trajectory_index(
-                    active_nodes, candidate_idx)
+                    active_nodes, candidate_idx
+                )
 
                 if not previous_node_ids:
-                    report["edge_attempts"].append({
-                        "previous_trajectory_index": candidate_idx,
-                        "previous_node_ids": [],
-                        "relations_added": 0,
-                        "cross_turn_relations_added": 0,
-                        "skip_reason": "no active nodes from this turn after merge",
-                    })
+                    report["edge_attempts"].append(
+                        {
+                            "previous_trajectory_index": candidate_idx,
+                            "previous_node_ids": [],
+                            "relations_added": 0,
+                            "cross_turn_relations_added": 0,
+                            "skip_reason": "no active nodes from this turn after merge",
+                        }
+                    )
                     continue
 
                 tried_prior_window = True
@@ -447,7 +502,8 @@ class StreamingBeliefBuilder:
         else:
             report["edge_skip_reason"] = (
                 "no active current-turn nodes after incremental merge"
-                if new_nodes else "no current-turn nodes extracted"
+                if new_nodes
+                else "no current-turn nodes extracted"
             )
 
         return new_nodes, relations_added, report
@@ -478,35 +534,44 @@ class StreamingBeliefBuilder:
         edge_window_ids = surviving_new_ids | previous_node_ids
         graph_nodes_post = format_graph_nodes(
             [node for node in active_nodes if node.get("id") in edge_window_ids],
-            char_budget=context_chars)
+            char_budget=context_chars,
+        )
         graph_edges_post = format_graph_edges(
-            self.graph.relations, keep_ids=edge_window_ids)
+            self.graph.relations, keep_ids=edge_window_ids
+        )
 
         previous_label = (
-            "current_only" if previous_trajectory_index is None
+            "current_only"
+            if previous_trajectory_index is None
             else f"prev{previous_trajectory_index}"
         )
         USAGE.set_label(f"t{turn_idx}.relations:{role}:{previous_label}")
         rel_res = extract_relations(
-            self.client, self.model,
-            role=role, content=content,
+            self.client,
+            self.model,
+            role=role,
+            content=content,
             graph_nodes_str=graph_nodes_post,
             graph_edges_str=graph_edges_post,
             new_node_ids=surviving_new_ids,
-            current_date=date, max_tokens=self.max_tokens)
+            current_date=date,
+            max_tokens=self.max_tokens,
+        )
 
         resolved = self._resolve_relations(
-            rel_res.get("relations", []), {}, active_ids,
+            rel_res.get("relations", []),
+            {},
+            active_ids,
             new_node_ids=surviving_new_ids,
-            previous_node_ids=previous_node_ids)
+            previous_node_ids=previous_node_ids,
+        )
 
         existing_keys = {
             (r.get("from_id"), r.get("to_id"), r.get("type"))
             for r in self.graph.relations
         }
         resolved_keys = {
-            (r.get("from_id"), r.get("to_id"), r.get("type"))
-            for r in resolved
+            (r.get("from_id"), r.get("to_id"), r.get("type")) for r in resolved
         }
         new_keys = resolved_keys - existing_keys
         cross_turn_relations_added = sum(
@@ -514,19 +579,24 @@ class StreamingBeliefBuilder:
             for r in resolved
             if (r.get("from_id"), r.get("to_id"), r.get("type")) in new_keys
             and (
-                (r.get("from_id") in surviving_new_ids
-                 and r.get("to_id") in previous_node_ids)
-                or
-                (r.get("from_id") in previous_node_ids
-                 and r.get("to_id") in surviving_new_ids)
+                (
+                    r.get("from_id") in surviving_new_ids
+                    and r.get("to_id") in previous_node_ids
+                )
+                or (
+                    r.get("from_id") in previous_node_ids
+                    and r.get("to_id") in surviving_new_ids
+                )
             )
         )
         before_relation_count = len(self.graph.relations)
         relations_added = self.graph.add_relations(resolved)
         added_relations = self.graph.relations[before_relation_count:]
         seed_output_node_ids = [
-            node_id for node_id in
-            (relation_output_node_id(relation) for relation in added_relations)
+            node_id
+            for node_id in (
+                relation_output_node_id(relation) for relation in added_relations
+            )
             if node_id is not None
         ]
         propagation_report = (
@@ -534,7 +604,8 @@ class StreamingBeliefBuilder:
                 seed_output_node_ids=seed_output_node_ids,
                 step="relation_propagation_after_relation_add",
             )
-            if seed_output_node_ids else None
+            if seed_output_node_ids
+            else None
         )
 
         attempt = {
@@ -549,7 +620,9 @@ class StreamingBeliefBuilder:
         if propagation_report is not None:
             attempt["confidence_propagation"] = propagation_report
         if rel_res.get("skipped"):
-            attempt["skip_reason"] = rel_res.get("skip_reason") or "relation extraction skipped"
+            attempt["skip_reason"] = (
+                rel_res.get("skip_reason") or "relation extraction skipped"
+            )
         return relations_added, cross_turn_relations_added, attempt
 
     @staticmethod
@@ -569,16 +642,22 @@ class StreamingBeliefBuilder:
         if mode == "sentence":
             sents = getattr(self, "_last_sentences", []) or []
             idxs = cb.get("supporting_sentence_indices")
-            chosen = ([sents[i] for i in idxs if 0 <= i < len(sents)]
-                      if idxs else list(sents))
+            chosen = (
+                [sents[i] for i in idxs if 0 <= i < len(sents)] if idxs else list(sents)
+            )
             if not chosen:
                 chosen = list(sents)
             return [
-                evidence_from_sentence(s.start, s.end, content, src, stance=stance, role=role)
+                evidence_from_sentence(
+                    s.start, s.end, content, src, stance=stance, role=role
+                )
                 for s in chosen
             ]
         excerpts = cb.get("supporting_excerpts", [])
-        return [evidence_from_excerpt(ex, content, src, stance=stance, role=role) for ex in excerpts]
+        return [
+            evidence_from_excerpt(ex, content, src, stance=stance, role=role)
+            for ex in excerpts
+        ]
 
     def _resolve_relations(
         self,
@@ -634,8 +713,14 @@ class StreamingBeliefBuilder:
                 continue
             seen.add(key)
             note = r.get("note", "") or ""
-            out.append({"from_id": fid, "to_id": tid, "type": rtype,
-                        "note": note if isinstance(note, str) else str(note)})
+            out.append(
+                {
+                    "from_id": fid,
+                    "to_id": tid,
+                    "type": rtype,
+                    "note": note if isinstance(note, str) else str(note),
+                }
+            )
         return out
 
     @staticmethod
@@ -698,7 +783,8 @@ class StreamingBeliefBuilder:
             node["decision_history"] = []
         init_belief_confidence(node)
         recompute_evidence_confidence_from_node(
-            node, self.graph.evidence,
+            node,
+            self.graph.evidence,
             record_history=True,
             step="initial_evidence",
         )
@@ -745,8 +831,7 @@ class StreamingBeliefBuilder:
         they participate in the final global belief merge.
         """
         decisions = [
-            node for node in self.graph.active()
-            if node.get("node_type") == "decision"
+            node for node in self.graph.active() if node.get("node_type") == "decision"
         ]
         report: dict[str, Any] = {
             "kept_decision_id": None,
@@ -765,7 +850,9 @@ class StreamingBeliefBuilder:
         )
 
         report["kept_decision_id"] = final_decision.get("id")
-        report["kept_latest_generated_id"] = self._decision_generation_key(final_decision)[0]
+        report["kept_latest_generated_id"] = self._decision_generation_key(
+            final_decision
+        )[0]
 
         for node in decisions:
             if node.get("id") == final_decision.get("id"):
@@ -825,12 +912,15 @@ class StreamingBeliefBuilder:
         # graph membership.
         if isinstance(final_decision_id, int):
             final_decision = self.graph.beliefs.get(final_decision_id)
-            if (final_decision is not None
-                    and final_decision.get("node_type") == "decision"):
+            if (
+                final_decision is not None
+                and final_decision.get("node_type") == "decision"
+            ):
                 final_decision["decision_history"] = sorted(
                     node_id
                     for node_id in decision_normalization.get(
-                        "converted_to_belief_ids", [])
+                        "converted_to_belief_ids", []
+                    )
                     if isinstance(node_id, int)
                 )
 
@@ -840,8 +930,14 @@ class StreamingBeliefBuilder:
 
         summary = {
             "n_nodes": len(self.graph.active()),
-            "n_beliefs": sum(1 for n in self.graph.active() if n.get("node_type", "belief") == "belief"),
-            "n_decisions": sum(1 for n in self.graph.active() if n.get("node_type") == "decision"),
+            "n_beliefs": sum(
+                1
+                for n in self.graph.active()
+                if n.get("node_type", "belief") == "belief"
+            ),
+            "n_decisions": sum(
+                1 for n in self.graph.active() if n.get("node_type") == "decision"
+            ),
             "final_decision_id": final_decision_id,
             "relations": len(self.graph.relations),
             "n_final_merges": len(merge_report.get("applied", [])),
@@ -855,13 +951,17 @@ class StreamingBeliefBuilder:
         nodes = self.graph.active()
 
         # Aggregate the per-turn sub-step timings across the whole trajectory.
-        _steps = ("node_generation", "merging", "llm_check",
-                  "edge_generation", "turn_total")
+        _steps = (
+            "node_generation",
+            "merging",
+            "llm_check",
+            "edge_generation",
+            "turn_total",
+        )
         by_step: dict[str, Any] = {}
         for _s in _steps:
             _vals = [float(t.get(_s, 0.0) or 0.0) for t in self._turn_timings]
-            by_step[_s] = {"total_seconds": round(sum(_vals), 6),
-                           "n_turns": len(_vals)}
+            by_step[_s] = {"total_seconds": round(sum(_vals), 6), "n_turns": len(_vals)}
 
         result: dict[str, Any] = {
             "prompt_name": "construct_beliefs",
@@ -884,28 +984,48 @@ class StreamingBeliefBuilder:
             result["meta"] = dict(self.item_meta)
         if extra_meta:
             result.update(extra_meta)
-        result.update({
-            "trajectory": self._trajectory,
-            "final": summary,
-            "all_nodes": nodes,
-            "all_beliefs": [n for n in nodes if n.get("node_type", "belief") == "belief"],
-            "all_decisions": [n for n in nodes if n.get("node_type") == "decision"],
-            "evidence": [self.graph.evidence[i] for i in sorted(self.graph.evidence.keys())],
-            "relations": self.graph.relations,
-            "merges": self.graph.merges,
-            "source_counts": _count_by(nodes, lambda b: b.get("role") or (b.get("source") or {}).get("role") or (b.get("source") or {}).get("type")),
-            "stance_counts": _count_by(nodes, lambda b: b.get("stance")),
-            "node_type_counts": _count_by(nodes, lambda b: b.get("node_type", "belief")),
-            "token_usage": USAGE.summary(pricing),
-        })
+        result.update(
+            {
+                "trajectory": self._trajectory,
+                "final": summary,
+                "all_nodes": nodes,
+                "all_beliefs": [
+                    n for n in nodes if n.get("node_type", "belief") == "belief"
+                ],
+                "all_decisions": [n for n in nodes if n.get("node_type") == "decision"],
+                "evidence": [
+                    self.graph.evidence[i] for i in sorted(self.graph.evidence.keys())
+                ],
+                "relations": self.graph.relations,
+                "merges": self.graph.merges,
+                "source_counts": _count_by(
+                    nodes,
+                    lambda b: (
+                        b.get("role")
+                        or (b.get("source") or {}).get("role")
+                        or (b.get("source") or {}).get("type")
+                    ),
+                ),
+                "stance_counts": _count_by(nodes, lambda b: b.get("stance")),
+                "node_type_counts": _count_by(
+                    nodes, lambda b: b.get("node_type", "belief")
+                ),
+                "token_usage": USAGE.summary(pricing),
+            }
+        )
 
         self._artifacts.write_json("result.json", result)
         self._events.record("finalize", summary)
-        self._events.record("timing", {"start": self._start_time.isoformat(),
-                               "end": self._end_time.isoformat(),
-                               "duration_seconds": duration,
-                               "by_step": by_step,
-                               "final_merge": self._final_merge_timing})
+        self._events.record(
+            "timing",
+            {
+                "start": self._start_time.isoformat(),
+                "end": self._end_time.isoformat(),
+                "duration_seconds": duration,
+                "by_step": by_step,
+                "final_merge": self._final_merge_timing,
+            },
+        )
         # timing.csv — WIDE table, one file PER ITEM in this item's logs/ folder,
         # all times in SECONDS. Rows are tagged by `row_type` so a downstream viz
         # script can split them cleanly (e.g. pandas: df[df.row_type == "turn"]):
@@ -919,60 +1039,115 @@ class StreamingBeliefBuilder:
         #                          sub-step totals, the summed turn_total, and the
         #                          full-trajectory counts + duration_seconds.
         try:
-            n_beliefs = sum(1 for n in nodes if n.get("node_type", "belief") == "belief")
+            n_beliefs = sum(
+                1 for n in nodes if n.get("node_type", "belief") == "belief"
+            )
             n_decisions = sum(1 for n in nodes if n.get("node_type") == "decision")
             timing_path = self.logs_dir / "timing.csv"
-            header = ["row_type", "item_id", "turn_index", "role",
-                      "node_generation", "merging", "llm_check",
-                      "edge_generation", "turn_total",
-                      "n_nodes", "n_beliefs", "n_decisions", "n_relations",
-                      "n_merges", "duration_seconds", "result_path"]
+            header = [
+                "row_type",
+                "item_id",
+                "turn_index",
+                "role",
+                "node_generation",
+                "merging",
+                "llm_check",
+                "edge_generation",
+                "turn_total",
+                "n_nodes",
+                "n_beliefs",
+                "n_decisions",
+                "n_relations",
+                "n_merges",
+                "duration_seconds",
+                "result_path",
+            ]
 
             def _f(x: Any) -> str:
                 return f"{float(x or 0.0):.6f}"
 
             # One self-contained file per item -> write fresh (overwrite) with the
             # header every time finalize runs for this trajectory.
-            with open(timing_path, "w", newline='', encoding="utf-8") as csvf:
+            with open(timing_path, "w", newline="", encoding="utf-8") as csvf:
                 writer = csv.writer(csvf)
                 writer.writerow(header)
                 # one row per built turn
                 for t in self._turn_timings:
-                    writer.writerow([
-                        "turn", self.item_id, t.get("turn_index"), t.get("role"),
-                        _f(t.get("node_generation")), _f(t.get("merging")),
-                        _f(t.get("llm_check")), _f(t.get("edge_generation")),
-                        _f(t.get("turn_total")),
-                        "", "", "", "", "", "", "",
-                    ])
+                    writer.writerow(
+                        [
+                            "turn",
+                            self.item_id,
+                            t.get("turn_index"),
+                            t.get("role"),
+                            _f(t.get("node_generation")),
+                            _f(t.get("merging")),
+                            _f(t.get("llm_check")),
+                            _f(t.get("edge_generation")),
+                            _f(t.get("turn_total")),
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]
+                    )
                 # trajectory-end merge pass — removed, always 0
                 fm = self._final_merge_timing or {}
-                writer.writerow([
-                    "final_merge", self.item_id, "", "",
-                    _f(0.0), _f(fm.get("merging")), _f(fm.get("llm_check")),
-                    _f(0.0), _f(fm.get("total")),
-                    "", "", "", "", "", "", "",
-                ])
+                writer.writerow(
+                    [
+                        "final_merge",
+                        self.item_id,
+                        "",
+                        "",
+                        _f(0.0),
+                        _f(fm.get("merging")),
+                        _f(fm.get("llm_check")),
+                        _f(0.0),
+                        _f(fm.get("total")),
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                    ]
+                )
                 # per-trajectory summary
-                writer.writerow([
-                    "item", self.item_id, "", "",
-                    _f(by_step["node_generation"]["total_seconds"]),
-                    _f(by_step["merging"]["total_seconds"]),
-                    _f(by_step["llm_check"]["total_seconds"]),
-                    _f(by_step["edge_generation"]["total_seconds"]),
-                    _f(by_step["turn_total"]["total_seconds"]),
-                    len(nodes), n_beliefs, n_decisions,
-                    len(self.graph.relations), len(self.graph.merges),
-                    _f(duration), str(self.out_dir / "result.json"),
-                ])
+                writer.writerow(
+                    [
+                        "item",
+                        self.item_id,
+                        "",
+                        "",
+                        _f(by_step["node_generation"]["total_seconds"]),
+                        _f(by_step["merging"]["total_seconds"]),
+                        _f(by_step["llm_check"]["total_seconds"]),
+                        _f(by_step["edge_generation"]["total_seconds"]),
+                        _f(by_step["turn_total"]["total_seconds"]),
+                        len(nodes),
+                        n_beliefs,
+                        n_decisions,
+                        len(self.graph.relations),
+                        len(self.graph.merges),
+                        _f(duration),
+                        str(self.out_dir / "result.json"),
+                    ]
+                )
         except Exception:
-            self._events.record("timing_csv_error", {"error": "failed to write timing.csv"})
+            self._events.record(
+                "timing_csv_error", {"error": "failed to write timing.csv"}
+            )
 
         USAGE.save_json(self.out_dir / "token_usage.json", pricing=pricing)
         USAGE.save_text(self.out_dir / "token_usage.txt", pricing=pricing)
-        print(f"  [finalize] {len(nodes)} node(s); "
-              f"{len(self.graph.relations)} relation(s); "
-              f"{len(self.graph.merges)} merge record(s); {duration:.3f}s")
+        print(
+            f"  [finalize] {len(nodes)} node(s); "
+            f"{len(self.graph.relations)} relation(s); "
+            f"{len(self.graph.merges)} merge record(s); {duration:.3f}s"
+        )
         print(f"  saved -> {self.out_dir / 'result.json'}")
         return result
 

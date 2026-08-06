@@ -21,14 +21,14 @@ from __future__ import annotations
 
 from .._shared.roles import normalize_role
 
-CONTENT_PLACEHOLDER       = "<<<CONTENT>>>"
-SENTENCES_PLACEHOLDER     = "<<<SENTENCES>>>"
-GRAPH_NODES_PLACEHOLDER   = "<<<GRAPH_NODES>>>"
-GRAPH_EDGES_PLACEHOLDER   = "<<<GRAPH_EDGES>>>"
-CURRENT_DATE_PLACEHOLDER  = "<<<CURRENT_DATE>>>"
+CONTENT_PLACEHOLDER = "<<<CONTENT>>>"
+SENTENCES_PLACEHOLDER = "<<<SENTENCES>>>"
+GRAPH_NODES_PLACEHOLDER = "<<<GRAPH_NODES>>>"
+GRAPH_EDGES_PLACEHOLDER = "<<<GRAPH_EDGES>>>"
+CURRENT_DATE_PLACEHOLDER = "<<<CURRENT_DATE>>>"
 CANDIDATE_GROUP_PLACEHOLDER = "<<<CANDIDATE_GROUP>>>"
-BELIEFS_LIST_PLACEHOLDER  = "<<<BELIEFS_LIST>>>"
-NEW_NODE_IDS_PLACEHOLDER  = "<<<NEW_NODE_IDS>>>"
+BELIEFS_LIST_PLACEHOLDER = "<<<BELIEFS_LIST>>>"
+NEW_NODE_IDS_PLACEHOLDER = "<<<NEW_NODE_IDS>>>"
 
 
 # =====================================================================
@@ -389,6 +389,7 @@ boilerplate wrappers ("Execution output of […]:", "Your answer has been submit
     ),
 }
 
+
 def _resolve_role(role: str) -> str | None:
     role = (role or "").strip().lower()
     role = normalize_role(role)
@@ -418,9 +419,9 @@ def format_clustered_sentences_for_prompt(
 def build_update_prompt(
     role: str,
     *,
-    mode: str = "sentences",                 # "sentences" | "excerpt"
+    mode: str = "sentences",  # "sentences" | "excerpt"
     content: str | None = None,
-    sentences_block: str | None = None,   # pre-rendered indexed sentence list
+    sentences_block: str | None = None,  # pre-rendered indexed sentence list
     graph_nodes: str = "[]",
     graph_edges: str = "[]",
     current_date: str | None = None,
@@ -451,7 +452,8 @@ def build_update_prompt(
         parts.append(
             "## Sentence input\n"
             "The current turn's content was split into COMPLETE sentences with stable indices [k]. "
-            "Reference them in supporting_sentence_indices; evidence is always a whole sentence.\n")
+            "Reference them in supporting_sentence_indices; evidence is always a whole sentence.\n"
+        )
         parts.append(_HARD_CONSTRAINTS_SENTENCES)
         parts.append(_OUTPUT_FORMAT_SENTENCES)
         parts.append(f"## Current turn sentences\n{SENTENCES_PLACEHOLDER}\n")
@@ -590,7 +592,8 @@ def build_node_extraction_prompt(
         parts.append(
             "## Sentence input\n"
             "The current turn's content was split into COMPLETE sentences with stable indices [k]. "
-            "Reference them in supporting_sentence_indices; evidence is always a whole sentence.\n")
+            "Reference them in supporting_sentence_indices; evidence is always a whole sentence.\n"
+        )
         parts.append(_HARD_CONSTRAINTS_SENTENCES_NODES)
         parts.append(_OUTPUT_FORMAT_SENTENCES_NODES)
         parts.append(f"## Current turn sentences\n{SENTENCES_PLACEHOLDER}\n")

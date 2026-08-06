@@ -9,7 +9,9 @@ from bcg.construct import cli as construct_cli
 
 def test_root_without_arguments_launches_interactive_agent(monkeypatch) -> None:
     calls: list[list[str]] = []
-    monkeypatch.setattr("bcg.apps.agent_runtime.main", lambda args: calls.append(args) or 0)
+    monkeypatch.setattr(
+        "bcg.apps.agent_runtime.main", lambda args: calls.append(args) or 0
+    )
 
     cli.main([])
 

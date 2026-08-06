@@ -30,9 +30,7 @@ def split_backend_args(
         return default, args
     if args[0] not in backends:
         choices = ", ".join(backends)
-        raise ValueError(
-            f"unknown backend {args[0]!r}; choose one of: {choices}"
-        )
+        raise ValueError(f"unknown backend {args[0]!r}; choose one of: {choices}")
     return args[0], args[1:]
 
 

@@ -20,9 +20,9 @@ from .._shared.spans import trim_span
 @dataclass
 class Sentence:
     index: int
-    text: str       # EXACT slice: content[start:end]
-    start: int      # offset within the segment content
-    end: int        # exclusive
+    text: str  # EXACT slice: content[start:end]
+    start: int  # offset within the segment content
+    end: int  # exclusive
 
 
 # ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ class Sentence:
 
 # Sentence-final punctuation possibly followed by closing quotes/brackets.
 _SENT_END_RE = re.compile(r'[.!?。！？；;…]+[\'"”’\)\]）】」』]*')
-_MIN_FRAGMENT_LEN = 4   # fragments shorter than this merge into a neighbour
+_MIN_FRAGMENT_LEN = 4  # fragments shorter than this merge into a neighbour
 
 # Agent / XML-ish tags (e.g. <think>, </think>, <tool_call>, <tool_response>,
 # <answer>, or tags with attributes like <tool_call name="x">). These are NOT
@@ -39,7 +39,7 @@ _MIN_FRAGMENT_LEN = 4   # fragments shorter than this merge into a neighbour
 # are dropped, so evidence sentences never carry a leading "<think>" or a
 # "<tool_response>…</tool_response>" wrapper. A "<" not introducing a tag (e.g.
 # "a < b") is left untouched.
-_TAG_RE = re.compile(r'</?[A-Za-z][A-Za-z0-9_]*(?:\s+[^<>]*?)?\s*/?>')
+_TAG_RE = re.compile(r"</?[A-Za-z][A-Za-z0-9_]*(?:\s+[^<>]*?)?\s*/?>")
 
 
 def _is_pure_tag(text: str, s: int, e: int) -> bool:
@@ -86,7 +86,7 @@ def split_sentences(text: str) -> list[Sentence]:
             cuts.add(e)
     for m in re.finditer(r"\n", text):
         cuts.add(m.start() + 1)
-    for m in _TAG_RE.finditer(text):       # isolate every tag
+    for m in _TAG_RE.finditer(text):  # isolate every tag
         cuts.add(m.start())
         cuts.add(m.end())
     cuts.add(len(text))
@@ -105,7 +105,7 @@ def split_sentences(text: str) -> list[Sentence]:
     # tiny-fragment merge inside each run so tags are never re-absorbed.
     merged: list[tuple[int, int]] = []
     run: list[tuple[int, int]] = []
-    for (s, e) in spans:
+    for s, e in spans:
         if _is_pure_tag(text, s, e):
             if run:
                 merged.extend(_merge_tiny(run))

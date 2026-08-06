@@ -68,6 +68,7 @@ def parse_date(s: str | None) -> datetime | None:
 # Shape detection (internal only — not a user-facing "scenario")
 # ---------------------------------------------------------------------------
 
+
 def _is_sessioned(data: Any) -> bool:
     probe: dict[str, Any] | None = None
     if isinstance(data, list) and data and isinstance(data[0], dict):
@@ -81,18 +82,25 @@ def _is_sessioned(data: Any) -> bool:
 # Normalisers
 # ---------------------------------------------------------------------------
 
+
 def _turns_from_messages(messages: Any) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for m in messages or []:
         if isinstance(m, dict):
-            out.append({"role": m.get("role") or "user",
-                        "content": m.get("content", "") or "",
-                        "date": m.get("date"),
-                        "has_answer": m.get("has_answer")})
+            out.append(
+                {
+                    "role": m.get("role") or "user",
+                    "content": m.get("content", "") or "",
+                    "date": m.get("date"),
+                    "has_answer": m.get("has_answer"),
+                }
+            )
     return out
 
 
-def _flatten_sessions(raw: dict[str, Any], keep_order: bool) -> tuple[list[dict[str, Any]], bool]:
+def _flatten_sessions(
+    raw: dict[str, Any], keep_order: bool
+) -> tuple[list[dict[str, Any]], bool]:
     sessions_raw = raw.get("sessions") or []
     raw.get("session_ids") or []
     dates = raw.get("dates") or []
@@ -100,17 +108,22 @@ def _flatten_sessions(raw: dict[str, Any], keep_order: bool) -> tuple[list[dict[
     sess: list[dict[str, Any]] = []
     for i, turns_raw in enumerate(sessions_raw):
         date = dates[i] if i < len(dates) else None
-        sess.append({
-            "date": date,
-            "date_parsed": parse_date(date),
-            "turns": [
-                {"role": t.get("role") or "user",
-                 "content": t.get("content", "") or "",
-                 "date": date,
-                 "has_answer": t.get("has_answer")}
-                for t in (turns_raw or []) if isinstance(t, dict)
-            ],
-        })
+        sess.append(
+            {
+                "date": date,
+                "date_parsed": parse_date(date),
+                "turns": [
+                    {
+                        "role": t.get("role") or "user",
+                        "content": t.get("content", "") or "",
+                        "date": date,
+                        "has_answer": t.get("has_answer"),
+                    }
+                    for t in (turns_raw or [])
+                    if isinstance(t, dict)
+                ],
+            }
+        )
 
     order_sorted = False
     if (not keep_order) and sess and all(s["date_parsed"] is not None for s in sess):
@@ -133,12 +146,26 @@ def iter_items(data: Any, keep_order: bool = False) -> list[dict[str, Any]]:
                 continue
             item_id = str(raw.get("question_id") or raw.get("item_id") or f"item_{idx}")
             turns, order_sorted = _flatten_sessions(raw, keep_order)
-            meta = {k: raw.get(k) for k in (
-                "question_id", "question_type", "question", "answer",
-                "question_date", "answer_session_ids",
-            ) if k in raw}
-            items.append({"item_id": item_id, "meta": meta,
-                          "turns": turns, "order_sorted": order_sorted})
+            meta = {
+                k: raw.get(k)
+                for k in (
+                    "question_id",
+                    "question_type",
+                    "question",
+                    "answer",
+                    "question_date",
+                    "answer_session_ids",
+                )
+                if k in raw
+            }
+            items.append(
+                {
+                    "item_id": item_id,
+                    "meta": meta,
+                    "turns": turns,
+                    "order_sorted": order_sorted,
+                }
+            )
         return items
 
     # trajectory / bare list / {"messages": ...}
@@ -150,11 +177,19 @@ def iter_items(data: Any, keep_order: bool = False) -> list[dict[str, Any]]:
         item_id = "trajectory"
     else:
         messages, item_id = [], "trajectory"
-    return [{"item_id": item_id, "meta": {}, "turns": _turns_from_messages(messages),
-             "order_sorted": False}]
+    return [
+        {
+            "item_id": item_id,
+            "meta": {},
+            "turns": _turns_from_messages(messages),
+            "order_sorted": False,
+        }
+    ]
 
 
-def select_items(items: list[dict[str, Any]], selector: str | None) -> list[dict[str, Any]]:
+def select_items(
+    items: list[dict[str, Any]], selector: str | None
+) -> list[dict[str, Any]]:
     """Filter items by id or by 0-based index. None selects all."""
     if selector is None or selector == "":
         return items
@@ -169,7 +204,8 @@ def select_items(items: list[dict[str, Any]], selector: str | None) -> list[dict
         pass
     raise KeyError(
         f"--item {selector!r} matches no item id and is not a valid index "
-        f"(0..{len(items) - 1})")
+        f"(0..{len(items) - 1})"
+    )
 
 
 def sanitize_name(name: str) -> str:

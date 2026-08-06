@@ -98,12 +98,12 @@ def _bootstrap_env() -> None:
     load_project_env()
 
 
-
 # ---------------------------------------------------------------------------
 # Shared HTTP plumbing (backend-agnostic: works against any SessionManager
 # exposing push / push_many / push_input / finalize / get_graph /
 # active_problem_ids / all_problem_ids).
 # ---------------------------------------------------------------------------
+
 
 def _parse_turns_body(raw: bytes) -> list[dict[str, Any]]:
     """Accept a JSON array of dicts OR NDJSON (one dict per line)."""
@@ -191,11 +191,14 @@ def make_handler(manager, trajectory_closed_error: type, *, quiet: bool = False)
         def do_GET(self):
             url = urlparse(self.path)
             if url.path == "/health":
-                self._send(200, {
-                    "status": "ok",
-                    "active": manager.active_problem_ids(),
-                    "all": manager.all_problem_ids(),
-                })
+                self._send(
+                    200,
+                    {
+                        "status": "ok",
+                        "active": manager.active_problem_ids(),
+                        "all": manager.all_problem_ids(),
+                    },
+                )
                 return
             if url.path == "/graph":
                 pid = (parse_qs(url.query).get("problem_id") or [None])[0]
@@ -249,7 +252,7 @@ def make_handler(manager, trajectory_closed_error: type, *, quiet: bool = False)
                     body = _parse_json_body(raw)
                     pid = body.get("problem_id") if isinstance(body, dict) else None
                     if not pid:
-                        raise ValueError("body must be {\"problem_id\": \"...\"}")
+                        raise ValueError('body must be {"problem_id": "..."}')
                     graph = manager.finalize(pid)
                     self._send(200, graph)
                     return
@@ -258,7 +261,7 @@ def make_handler(manager, trajectory_closed_error: type, *, quiet: bool = False)
                     body = _parse_json_body(raw)
                     pid = body.get("problem_id") if isinstance(body, dict) else None
                     if not pid:
-                        raise ValueError("body must be {\"problem_id\": \"...\"}")
+                        raise ValueError('body must be {"problem_id": "..."}')
                     self._send(200, manager.release(pid))
                     return
 
@@ -278,7 +281,9 @@ def make_handler(manager, trajectory_closed_error: type, *, quiet: bool = False)
     return Handler
 
 
-def serve(manager, trajectory_closed_error: type, host: str, port: int, *, quiet: bool = False):
+def serve(
+    manager, trajectory_closed_error: type, host: str, port: int, *, quiet: bool = False
+):
     """Create (but do not block) a ThreadingHTTPServer. Caller runs serve_forever."""
     httpd = ThreadingHTTPServer(
         (host, port), make_handler(manager, trajectory_closed_error, quiet=quiet)
@@ -287,7 +292,9 @@ def serve(manager, trajectory_closed_error: type, host: str, port: int, *, quiet
 
 
 def _serve_forever(manager, trajectory_closed_error: type, args) -> None:
-    httpd = serve(manager, trajectory_closed_error, args.host, args.port, quiet=args.quiet)
+    httpd = serve(
+        manager, trajectory_closed_error, args.host, args.port, quiet=args.quiet
+    )
     print(
         f"[online-server] listening on http://{args.host}:{args.port}  "
         f"(POST /turn, /turns, /input, /finalize, /release ; GET /graph, /health)"
@@ -303,6 +310,7 @@ def _serve_forever(manager, trajectory_closed_error: type, args) -> None:
 # ---------------------------------------------------------------------------
 # light backend
 # ---------------------------------------------------------------------------
+
 
 def _run_light(argv: list[str]) -> None:
     from bcg.construct.light.online import SessionManager, TrajectoryClosedError
@@ -333,6 +341,7 @@ def _run_light(argv: list[str]) -> None:
 # api_based backend
 # ---------------------------------------------------------------------------
 
+
 def _run_api_based(argv: list[str]) -> None:
     from bcg.construct.api_based.online import (
         SessionManager,
@@ -349,11 +358,13 @@ def _run_api_based(argv: list[str]) -> None:
     add_server_options(p, runtime.settings.server)
     p.add_argument("--config", "-c", default=runtime.config_path)
     p.add_argument(
-        "--output-dir", "-o", default="outputs_stream",
+        "--output-dir",
+        "-o",
+        default="outputs_stream",
         help="output root. Basenames like outputs_2026_7_6 auto-roll to "
-             "today's outputs_Y_M_D for new sessions; templates such as "
-             "outputs_{Y}_{m}_{d} or outputs_{date} are also supported. "
-             "Plain outputs_stream stays fixed.",
+        "today's outputs_Y_M_D for new sessions; templates such as "
+        "outputs_{Y}_{m}_{d} or outputs_{date} are also supported. "
+        "Plain outputs_stream stays fixed.",
     )
     p.add_argument("--model-key", default=runtime.settings.model_key)
     p.add_argument("--embedding-key", default=runtime.settings.embedding_key)
@@ -394,8 +405,8 @@ def main(argv: list[str] | None = None) -> None:
             prog="bcg construct server",
             description="construct_beliefs v3 streaming belief-graph HTTP server.",
             epilog="Run 'bcg construct server <backend> --help' for a backend's "
-                   "full option list. If omitted, the backend defaults to "
-                   f"{DEFAULT_BACKEND!r} for compatibility.",
+            "full option list. If omitted, the backend defaults to "
+            f"{DEFAULT_BACKEND!r} for compatibility.",
         )
         parser.add_argument(
             "backend",

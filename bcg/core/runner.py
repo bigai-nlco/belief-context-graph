@@ -329,9 +329,7 @@ class BCGRunner:
 
     def _require_active(self) -> None:
         if not self._active:
-            raise BCGUsageError(
-                "No active belief run. Call begin_belief_run() first."
-            )
+            raise BCGUsageError("No active belief run. Call begin_belief_run() first.")
 
 
 async def _invoke_engine(llm: Any, func: Any, *args: Any) -> Any:

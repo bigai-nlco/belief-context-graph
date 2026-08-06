@@ -31,13 +31,13 @@ def show(
 ) -> None:
     """Print the effective configuration and each field's source."""
 
-    settings, sources = load_settings(
-        explicit=str(config) if config else None
-    )
+    settings, sources = load_settings(explicit=str(config) if config else None)
     if json_output:
         typer.echo(json.dumps(settings.model_dump(), ensure_ascii=False, indent=2))
         return
-    typer.echo(f"Loaded files: {[str(p) for p in locate_config_files(explicit=str(config) if config else None)] or 'packaged defaults only'}")
+    typer.echo(
+        f"Loaded files: {[str(p) for p in locate_config_files(explicit=str(config) if config else None)] or 'packaged defaults only'}"
+    )
     for section, value in settings.model_dump().items():
         if isinstance(value, dict):
             typer.echo(f"[{section}]")

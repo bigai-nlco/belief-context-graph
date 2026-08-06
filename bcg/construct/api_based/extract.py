@@ -30,7 +30,11 @@ VALID_RELATION_TYPES = {"depends_on", "supplements", "contradicts"}
 
 
 def _clean_str(v: Any) -> str | None:
-    if isinstance(v, str) and v.strip() and v.strip().lower() not in ("null", "none", "n/a"):
+    if (
+        isinstance(v, str)
+        and v.strip()
+        and v.strip().lower() not in ("null", "none", "n/a")
+    ):
         return v.strip()
     return None
 
@@ -96,8 +100,13 @@ def _clean_node(
         idx_in = raw.get("supporting_sentence_indices")
         indices: list[int] | None = None
         if isinstance(idx_in, list):
-            cleaned = sorted({int(i) for i in idx_in
-                              if isinstance(i, (int, float)) and 0 <= int(i) < n_sentences})
+            cleaned = sorted(
+                {
+                    int(i)
+                    for i in idx_in
+                    if isinstance(i, (int, float)) and 0 <= int(i) < n_sentences
+                }
+            )
             if cleaned:
                 indices = cleaned
         out["supporting_sentence_indices"] = indices
@@ -134,6 +143,7 @@ def _clean_relations(raw: Any) -> list[dict[str, Any]]:
 # Context formatting
 # ---------------------------------------------------------------------------
 
+
 def _node_line(b: dict[str, Any]) -> str:
     src = b.get("source") or {}
     line = {
@@ -165,32 +175,51 @@ def format_graph_nodes(nodes: list[dict[str, Any]], char_budget: int = 9000) -> 
         total -= len(lines[0]) + 4
         lines.pop(0)
         omitted += 1
-    items = [f"  (... {omitted} earlier node(s) omitted for length ...)"] if omitted else []
+    items = (
+        [f"  (... {omitted} earlier node(s) omitted for length ...)"] if omitted else []
+    )
     items += ["  " + s for s in lines]
     return "[\n" + ",\n".join(items) + "\n]"
 
 
-def format_graph_edges(relations: list[dict[str, Any]],
-                       keep_ids: set | None = None,
-                       max_edges: int = 400) -> str:
+def format_graph_edges(
+    relations: list[dict[str, Any]], keep_ids: set | None = None, max_edges: int = 400
+) -> str:
     """Compact view of existing typed relations so the model won't duplicate them."""
     if not relations:
         return "[]"
     rels = relations
     if keep_ids is not None:
-        rels = [r for r in rels if r.get("from_id") in keep_ids and r.get("to_id") in keep_ids]
+        rels = [
+            r
+            for r in rels
+            if r.get("from_id") in keep_ids and r.get("to_id") in keep_ids
+        ]
     if not rels:
         return "[]"
-    rels = sorted(rels, key=lambda r: (r.get("from_id", 0), r.get("to_id", 0)))[-max_edges:]
-    lines = ["  " + json.dumps({"id": r.get("id"), "from": r.get("from_id"), "to": r.get("to_id"),
-                                "type": r.get("type")}, ensure_ascii=False)
-             for r in rels]
+    rels = sorted(rels, key=lambda r: (r.get("from_id", 0), r.get("to_id", 0)))[
+        -max_edges:
+    ]
+    lines = [
+        "  "
+        + json.dumps(
+            {
+                "id": r.get("id"),
+                "from": r.get("from_id"),
+                "to": r.get("to_id"),
+                "type": r.get("type"),
+            },
+            ensure_ascii=False,
+        )
+        for r in rels
+    ]
     return "[\n" + ",\n".join(lines) + "\n]"
 
 
 # ---------------------------------------------------------------------------
 # Update entry point
 # ---------------------------------------------------------------------------
+
 
 def update_graph(
     client,
@@ -218,29 +247,54 @@ def update_graph(
     n_sentences = len(sentences or [])
     if mode != "excerpt":
         if clusters:
-            sentences_block = format_clustered_sentences_for_prompt(sentences or [], clusters)
+            sentences_block = format_clustered_sentences_for_prompt(
+                sentences or [], clusters
+            )
         else:
             sentences_block = format_sentences_for_prompt(sentences or [])
         prompt = build_update_prompt(
-            role, mode="sentences", sentences_block=sentences_block,
-            graph_nodes=graph_nodes_str, graph_edges=graph_edges_str,
-            current_date=current_date)
+            role,
+            mode="sentences",
+            sentences_block=sentences_block,
+            graph_nodes=graph_nodes_str,
+            graph_edges=graph_edges_str,
+            current_date=current_date,
+        )
     else:
         prompt = build_update_prompt(
-            role, mode="excerpt", content=content or "",
-            graph_nodes=graph_nodes_str, graph_edges=graph_edges_str,
-            current_date=current_date)
+            role,
+            mode="excerpt",
+            content=content or "",
+            graph_nodes=graph_nodes_str,
+            graph_edges=graph_edges_str,
+            current_date=current_date,
+        )
 
     if prompt is None:
-        return {"nodes": [], "beliefs": [], "decisions": [], "relations": [],
-                "raw_output": None, "skipped": True, "skip_reason": f"unknown role {role!r}"}
+        return {
+            "nodes": [],
+            "beliefs": [],
+            "decisions": [],
+            "relations": [],
+            "raw_output": None,
+            "skipped": True,
+            "skip_reason": f"unknown role {role!r}",
+        }
 
     try:
-        raw = llm.call_model(client, model, prompt,
-                             temperature=temperature, max_tokens=max_tokens)
+        raw = llm.call_model(
+            client, model, prompt, temperature=temperature, max_tokens=max_tokens
+        )
     except Exception as e:
-        return {"nodes": [], "beliefs": [], "decisions": [], "relations": [],
-                "raw_output": f"[ERROR] {e}", "skipped": True, "skip_reason": str(e)}
+        return {
+            "nodes": [],
+            "beliefs": [],
+            "decisions": [],
+            "relations": [],
+            "raw_output": f"[ERROR] {e}",
+            "skipped": True,
+            "skip_reason": str(e),
+        }
 
     parsed = llm.parse_json_response(raw)
     parsed = parsed if isinstance(parsed, dict) else {}
@@ -274,13 +328,20 @@ def update_graph(
         ordinal += 1
 
     relations = _clean_relations(parsed.get("relations", []) or [])
-    return {"nodes": out_nodes, "beliefs": out_beliefs, "decisions": out_decisions,
-            "relations": relations, "raw_output": raw, "skipped": False}
+    return {
+        "nodes": out_nodes,
+        "beliefs": out_beliefs,
+        "decisions": out_decisions,
+        "relations": relations,
+        "raw_output": raw,
+        "skipped": False,
+    }
 
 
 # ---------------------------------------------------------------------------
 # Two-phase extraction (Phase 1: nodes only, Phase 2: relations only)
 # ---------------------------------------------------------------------------
+
 
 def extract_nodes(
     client,
@@ -301,31 +362,52 @@ def extract_nodes(
     n_sentences = len(sentences or [])
     if mode != "excerpt":
         if clusters:
-            sentences_block = format_clustered_sentences_for_prompt(sentences or [], clusters)
+            sentences_block = format_clustered_sentences_for_prompt(
+                sentences or [], clusters
+            )
         else:
             sentences_block = format_sentences_for_prompt(sentences or [])
         prompt = build_node_extraction_prompt(
-            role, mode="sentences", sentences_block=sentences_block,
-            graph_nodes=graph_nodes_str, graph_edges=graph_edges_str,
-            current_date=current_date)
+            role,
+            mode="sentences",
+            sentences_block=sentences_block,
+            graph_nodes=graph_nodes_str,
+            graph_edges=graph_edges_str,
+            current_date=current_date,
+        )
     else:
         prompt = build_node_extraction_prompt(
-            role, mode="excerpt", content=content or "",
-            graph_nodes=graph_nodes_str, graph_edges=graph_edges_str,
-            current_date=current_date)
+            role,
+            mode="excerpt",
+            content=content or "",
+            graph_nodes=graph_nodes_str,
+            graph_edges=graph_edges_str,
+            current_date=current_date,
+        )
 
     if prompt is None:
-        return {"nodes": [], "beliefs": [], "decisions": [],
-                "raw_output": None, "skipped": True,
-                "skip_reason": f"unknown role {role!r}"}
+        return {
+            "nodes": [],
+            "beliefs": [],
+            "decisions": [],
+            "raw_output": None,
+            "skipped": True,
+            "skip_reason": f"unknown role {role!r}",
+        }
 
     try:
-        raw = llm.call_model(client, model, prompt,
-                             temperature=temperature, max_tokens=max_tokens)
+        raw = llm.call_model(
+            client, model, prompt, temperature=temperature, max_tokens=max_tokens
+        )
     except Exception as e:
-        return {"nodes": [], "beliefs": [], "decisions": [],
-                "raw_output": f"[ERROR] {e}", "skipped": True,
-                "skip_reason": str(e)}
+        return {
+            "nodes": [],
+            "beliefs": [],
+            "decisions": [],
+            "raw_output": f"[ERROR] {e}",
+            "skipped": True,
+            "skip_reason": str(e),
+        }
 
     parsed = llm.parse_json_response(raw)
     parsed = parsed if isinstance(parsed, dict) else {}
@@ -358,8 +440,13 @@ def extract_nodes(
         out_decisions.append(cd)
         ordinal += 1
 
-    return {"nodes": out_nodes, "beliefs": out_beliefs,
-            "decisions": out_decisions, "raw_output": raw, "skipped": False}
+    return {
+        "nodes": out_nodes,
+        "beliefs": out_beliefs,
+        "decisions": out_decisions,
+        "raw_output": raw,
+        "skipped": False,
+    }
 
 
 def extract_relations(
@@ -377,15 +464,20 @@ def extract_relations(
 ) -> dict[str, Any]:
     """Phase 2: one LLM call to extract relations on the post-merge graph."""
     import json as _json
+
     prompt = build_relation_extraction_prompt(
-        role=role, content=content or "",
-        graph_nodes=graph_nodes_str, graph_edges=graph_edges_str,
+        role=role,
+        content=content or "",
+        graph_nodes=graph_nodes_str,
+        graph_edges=graph_edges_str,
         new_node_ids=_json.dumps(sorted(new_node_ids)),
-        current_date=current_date)
+        current_date=current_date,
+    )
 
     try:
-        raw = llm.call_model(client, model, prompt,
-                             temperature=temperature, max_tokens=max_tokens)
+        raw = llm.call_model(
+            client, model, prompt, temperature=temperature, max_tokens=max_tokens
+        )
     except Exception as e:
         return {"relations": [], "raw_output": f"[ERROR] {e}", "skipped": True}
 

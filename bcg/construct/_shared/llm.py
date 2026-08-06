@@ -128,6 +128,7 @@ class TokenUsageTracker:
     def totals(self) -> dict[str, int]:
         def _s(key: str) -> int:
             return sum(int(r.get(key) or 0) for r in self.records)
+
         return {
             "n_calls": self.n_calls,
             "input_tokens": _s("input_tokens"),
@@ -141,7 +142,12 @@ class TokenUsageTracker:
             lbl = r.get("label") or "unlabeled"
             agg = out.setdefault(
                 lbl,
-                {"n_calls": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+                {
+                    "n_calls": 0,
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "total_tokens": 0,
+                },
             )
             agg["n_calls"] += 1
             agg["input_tokens"] += int(r.get("input_tokens") or 0)
@@ -190,11 +196,15 @@ class TokenUsageTracker:
         t = self.totals()
         bar = "=" * 74
         sub = "-" * 74
-        lines = [bar, " LLM token usage for this input", bar,
-                 f"  total LLM calls : {t['n_calls']}",
-                 f"  input tokens    : {t['input_tokens']:,}",
-                 f"  output tokens   : {t['output_tokens']:,}",
-                 f"  total tokens    : {t['total_tokens']:,}"]
+        lines = [
+            bar,
+            " LLM token usage for this input",
+            bar,
+            f"  total LLM calls : {t['n_calls']}",
+            f"  input tokens    : {t['input_tokens']:,}",
+            f"  output tokens   : {t['output_tokens']:,}",
+            f"  total tokens    : {t['total_tokens']:,}",
+        ]
         cost = self.estimate_cost(pricing)
         if cost:
             lines.append(
@@ -202,17 +212,21 @@ class TokenUsageTracker:
                 f"  (in {cost['input_per_1k']}/1k, out {cost['output_per_1k']}/1k)"
             )
         lines += [sub, " by stage:"]
-        for lbl, agg in sorted(self.by_label().items(),
-                               key=lambda kv: kv[1]["total_tokens"], reverse=True):
+        for lbl, agg in sorted(
+            self.by_label().items(), key=lambda kv: kv[1]["total_tokens"], reverse=True
+        ):
             lines.append(
                 f"   {lbl:<34.34} calls={agg['n_calls']:>3}  "
                 f"in={agg['input_tokens']:>8,}  "
                 f"out={agg['output_tokens']:>7,}  "
                 f"total={agg['total_tokens']:>8,}"
             )
-        lines += [sub, " per-call detail:",
-                  f"   {'#':>3}  {'label':<34} {'model':<16} "
-                  f"{'in':>8} {'out':>7} {'total':>8}  est"]
+        lines += [
+            sub,
+            " per-call detail:",
+            f"   {'#':>3}  {'label':<34} {'model':<16} "
+            f"{'in':>8} {'out':>7} {'total':>8}  est",
+        ]
         for r in self.records:
             est = "*" if r.get("estimated") else ""
             lines.append(
@@ -266,11 +280,15 @@ class TokenUsageTracker:
 # again at the top of the worker before doing any LLM/embedding call. See
 # merge.py's parallel incremental-merge verification loop for a worked example.
 
-_usage_var: contextvars.ContextVar[TokenUsageTracker] = contextvars.ContextVar("usage_tracker")
+_usage_var: contextvars.ContextVar[TokenUsageTracker] = contextvars.ContextVar(
+    "usage_tracker"
+)
 _prompt_log_path_var: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
-    "prompt_log_path", default=None)
+    "prompt_log_path", default=None
+)
 _embedding_log_path_var: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
-    "embedding_log_path", default=None)
+    "embedding_log_path", default=None
+)
 
 # Small locks around the actual file appends. Two threads (e.g. two parallel
 # merge-verify LLM calls within one session, or two different sessions that
@@ -422,6 +440,7 @@ def _record_usage(resp: Any, *, model: str, prompt: str, label: str | None) -> N
 # Chat-model config + client
 # ---------------------------------------------------------------------------
 
+
 class EmbeddingClient:
     """
     OpenAI-compatible embeddings client with an in-memory cache and a JSONL
@@ -493,7 +512,7 @@ class EmbeddingClient:
                     missing_idx.append(i)
 
         for batch_start in range(0, len(missing_idx), self.batch_size):
-            batch_ids = missing_idx[batch_start:batch_start + self.batch_size]
+            batch_ids = missing_idx[batch_start : batch_start + self.batch_size]
             batch = [texts[i] for i in batch_ids]
             kwargs: dict[str, Any] = {"model": self.model, "input": batch}
             if self.dimensions:
@@ -506,10 +525,12 @@ class EmbeddingClient:
                     break
                 except Exception as e:
                     last_err = e
-                    print(f"    [embed retry {attempt + 1}/3] {type(e).__name__}: {e}",
-                          file=sys.stderr)
+                    print(
+                        f"    [embed retry {attempt + 1}/3] {type(e).__name__}: {e}",
+                        file=sys.stderr,
+                    )
                     if attempt < 2:
-                        time.sleep(2 ** attempt)
+                        time.sleep(2**attempt)
             if resp is None:
                 raise RuntimeError(f"Embedding call failed after retries: {last_err}")
 
@@ -517,7 +538,8 @@ class EmbeddingClient:
             vecs = [list(d.embedding) for d in data]
             if len(vecs) != len(batch):
                 raise RuntimeError(
-                    f"Embedding API returned {len(vecs)} vectors for {len(batch)} inputs")
+                    f"Embedding API returned {len(vecs)} vectors for {len(batch)} inputs"
+                )
             with self._cache_lock:
                 for t, v in zip(batch, vecs, strict=False):
                     self._cache[t] = v
@@ -539,28 +561,32 @@ class EmbeddingClient:
             )
 
         dim = len(results[0]) if results and results[0] is not None else 0
-        self._log({
-            "ts": datetime.now(UTC).isoformat(),
-            "purpose": purpose,
-            "model": self.model,
-            "n_texts": len(texts),
-            "n_cached": sum(cached_flags),
-            "n_api": len(missing_idx),
-            "dimension": dim,
-            "elapsed_s": round(time.time() - t0, 3),
-            "texts": [{"index": i, "cached": cached_flags[i], "text": t}
-                      for i, t in enumerate(texts)],
-        })
+        self._log(
+            {
+                "ts": datetime.now(UTC).isoformat(),
+                "purpose": purpose,
+                "model": self.model,
+                "n_texts": len(texts),
+                "n_cached": sum(cached_flags),
+                "n_api": len(missing_idx),
+                "dimension": dim,
+                "elapsed_s": round(time.time() - t0, 3),
+                "texts": [
+                    {"index": i, "cached": cached_flags[i], "text": t}
+                    for i, t in enumerate(texts)
+                ],
+            }
+        )
         return [r if r is not None else [] for r in results]
 
 
 def cosine_similarity_matrix(vectors: list[list[float]]):
     """Pairwise cosine similarity (numpy array, shape n x n)."""
     import numpy as np
+
     arr = np.asarray(vectors, dtype=np.float64)
     norms = np.linalg.norm(arr, axis=1, keepdims=True)
     norms[norms == 0.0] = 1.0
     unit = arr / norms
     sim = unit @ unit.T
     return np.clip(sim, -1.0, 1.0)
-

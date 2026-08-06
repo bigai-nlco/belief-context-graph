@@ -85,7 +85,9 @@ def normalize_entity_config(config: Mapping[str, Any] | None = None) -> dict[str
     elif isinstance(labels, str):
         label_list = [labels.strip().upper()] if labels.strip() else None
     else:
-        label_list = [str(value).strip().upper() for value in labels if str(value).strip()]
+        label_list = [
+            str(value).strip().upper() for value in labels if str(value).strip()
+        ]
         label_list = label_list or None
 
     custom_patterns = raw.get("patterns") or []
@@ -100,7 +102,9 @@ def normalize_entity_config(config: Mapping[str, Any] | None = None) -> dict[str
         "confidence_threshold": threshold,
         "merge_overlapping": bool(raw.get("merge_overlapping", True)),
         "include_standard_types": bool(raw.get("include_standard_types", True)),
-        "spacy_model": str(raw.get("spacy_model") or raw.get("model") or DEFAULT_SPACY_MODEL),
+        "spacy_model": str(
+            raw.get("spacy_model") or raw.get("model") or DEFAULT_SPACY_MODEL
+        ),
         "huggingface_model": str(
             raw.get("huggingface_model") or DEFAULT_HUGGINGFACE_MODEL
         ),
@@ -111,7 +115,9 @@ def normalize_entity_config(config: Mapping[str, Any] | None = None) -> dict[str
 
 
 def _validate_methods(methods: Sequence[str]) -> None:
-    unsupported = sorted({method for method in methods if method not in SUPPORTED_NER_METHODS})
+    unsupported = sorted(
+        {method for method in methods if method not in SUPPORTED_NER_METHODS}
+    )
     if unsupported:
         supported = ", ".join(SUPPORTED_NER_METHODS)
         raise ValueError(
@@ -151,7 +157,9 @@ class NamedEntityRecognizer:
 
         self.config = normalize_entity_config(merged)
         configured = self.config["method"]
-        self.methods = (configured,) if isinstance(configured, str) else tuple(configured)
+        self.methods = (
+            (configured,) if isinstance(configured, str) else tuple(configured)
+        )
         self.fallback_methods = tuple(self.config["fallback_methods"])
         self.confidence_threshold = float(self.config["confidence_threshold"])
         self.merge_overlapping = bool(self.config["merge_overlapping"])
@@ -212,7 +220,10 @@ class NamedEntityRecognizer:
             entity
             for entity in candidates
             if entity.confidence >= self.confidence_threshold
-            and (self.allowed_labels is None or entity.label.upper() in self.allowed_labels)
+            and (
+                self.allowed_labels is None
+                or entity.label.upper() in self.allowed_labels
+            )
             and self._valid_surface(entity.text)
         ]
         if self.merge_overlapping:
@@ -285,7 +296,9 @@ class NamedEntityRecognizer:
         try:
             import spacy
         except ImportError as exc:
-            raise RuntimeError("spaCy is required for pattern/rules NER methods") from exc
+            raise RuntimeError(
+                "spaCy is required for pattern/rules NER methods"
+            ) from exc
         self._spacy_blank_nlp = spacy.blank("en")
         return self._spacy_blank_nlp
 
@@ -309,22 +322,24 @@ class NamedEntityRecognizer:
         ruler = EntityRuler(nlp, overwrite_ents=True, validate=True)
         patterns: list[dict[str, Any]] = []
         if self.include_standard_types:
-            patterns.extend([
-                {
-                    "label": "ACRONYM",
-                    "pattern": [
-                        {"IS_UPPER": True, "IS_ALPHA": True},
-                        {"IS_UPPER": True, "IS_ALPHA": True, "OP": "*"},
-                    ],
-                },
-                {
-                    "label": "PROPER_NAME",
-                    "pattern": [
-                        {"IS_TITLE": True, "IS_ALPHA": True},
-                        {"IS_TITLE": True, "IS_ALPHA": True, "OP": "+"},
-                    ],
-                },
-            ])
+            patterns.extend(
+                [
+                    {
+                        "label": "ACRONYM",
+                        "pattern": [
+                            {"IS_UPPER": True, "IS_ALPHA": True},
+                            {"IS_UPPER": True, "IS_ALPHA": True, "OP": "*"},
+                        ],
+                    },
+                    {
+                        "label": "PROPER_NAME",
+                        "pattern": [
+                            {"IS_TITLE": True, "IS_ALPHA": True},
+                            {"IS_TITLE": True, "IS_ALPHA": True, "OP": "+"},
+                        ],
+                    },
+                ]
+            )
         patterns.extend(
             pattern for pattern in self.custom_patterns if isinstance(pattern, dict)
         )
@@ -350,10 +365,12 @@ class NamedEntityRecognizer:
         if self.include_standard_types:
             matcher.add(
                 "PROPER_NAME",
-                [[
-                    {"IS_TITLE": True, "IS_ALPHA": True},
-                    {"IS_TITLE": True, "IS_ALPHA": True, "OP": "*"},
-                ]],
+                [
+                    [
+                        {"IS_TITLE": True, "IS_ALPHA": True},
+                        {"IS_TITLE": True, "IS_ALPHA": True, "OP": "*"},
+                    ]
+                ],
             )
             matcher.add(
                 "ACRONYM",
@@ -487,7 +504,9 @@ class NamedEntityRecognizer:
     def _dedupe_in_text_order(entities: Sequence[Entity]) -> list[Entity]:
         output: list[Entity] = []
         seen = set()
-        for entity in sorted(entities, key=lambda value: (value.start_char, value.end_char)):
+        for entity in sorted(
+            entities, key=lambda value: (value.start_char, value.end_char)
+        ):
             key = (entity.text.casefold(), entity.label.upper())
             if key in seen:
                 continue
@@ -520,7 +539,9 @@ class EntityClassifier:
     ) -> dict[str, list[Entity]]:
         grouped: dict[str, list[Entity]] = {}
         for entity in entities:
-            grouped.setdefault(self.classify_entity_type(entity, **context), []).append(entity)
+            grouped.setdefault(self.classify_entity_type(entity, **context), []).append(
+                entity
+            )
         return grouped
 
 
@@ -544,4 +565,3 @@ class EntityConfidenceScorer:
                 )
             )
         return output
-

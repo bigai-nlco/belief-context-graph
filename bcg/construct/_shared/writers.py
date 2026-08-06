@@ -42,9 +42,7 @@ class ArtifactWriter:
     def write_json(self, name: str, payload: Any) -> Path:
         """Write ``payload`` as pretty JSON via temp-file + atomic replace."""
         path = self.out_dir / name
-        fd, tmp = tempfile.mkstemp(
-            prefix=f".{name}.", suffix=".tmp", dir=self.out_dir
-        )
+        fd, tmp = tempfile.mkstemp(prefix=f".{name}.", suffix=".tmp", dir=self.out_dir)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)

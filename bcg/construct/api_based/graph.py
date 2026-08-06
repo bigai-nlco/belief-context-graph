@@ -236,7 +236,9 @@ class BeliefGraph:
         d: dict[str, Any] = {
             "generated_at": datetime.now(UTC).isoformat(),
             "n_nodes": len(self.beliefs),
-            "n_beliefs": sum(1 for n in nodes if n.get("node_type", "belief") == "belief"),
+            "n_beliefs": sum(
+                1 for n in nodes if n.get("node_type", "belief") == "belief"
+            ),
             "n_decisions": sum(1 for n in nodes if n.get("node_type") == "decision"),
             "nodes": nodes,
             "beliefs": [n for n in nodes if n.get("node_type", "belief") == "belief"],

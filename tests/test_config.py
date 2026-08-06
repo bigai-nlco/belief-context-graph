@@ -37,7 +37,9 @@ def test_defaults_load_and_validate() -> None:
 
 
 def test_schema_rejects_unknown_fields(tmp_path: Path) -> None:
-    bad = _write(tmp_path, "bad.yaml", "schema_version: 1\nbackend: api_based\nnope: 1\n")
+    bad = _write(
+        tmp_path, "bad.yaml", "schema_version: 1\nbackend: api_based\nnope: 1\n"
+    )
     with pytest.raises(Exception, match="nope"):
         load_settings(explicit=str(bad), home=Path("/nonexistent-home"))
 
@@ -72,9 +74,7 @@ def test_schema_version_mismatch_is_rejected(tmp_path: Path) -> None:
 def test_precedence_explicit_beats_env_beats_project_beats_user(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _write(
-        tmp_path, "user.yaml", "server:\n  port: 1111\nbackend: light\n"
-    )
+    _write(tmp_path, "user.yaml", "server:\n  port: 1111\nbackend: light\n")
     project = _write(tmp_path, "project.yaml", "server:\n  port: 2222\n")
     env_cfg = _write(tmp_path, "env.yaml", "server:\n  port: 3333\n")
     explicit = _write(tmp_path, "explicit.yaml", "server:\n  port: 4444\n")
@@ -143,9 +143,7 @@ def test_deep_merge_rules(tmp_path: Path) -> None:
 
 
 def test_null_means_fallback(tmp_path: Path) -> None:
-    nullable = _write(
-        tmp_path, "null.yaml", "server:\n  port: null\n  host: null\n"
-    )
+    nullable = _write(tmp_path, "null.yaml", "server:\n  port: null\n  host: null\n")
     settings, _ = load_settings(explicit=str(nullable), home=Path("/nonexistent-home"))
     assert settings.server.port == 8848  # fell back to defaults
     assert settings.server.host == "127.0.0.1"
@@ -200,7 +198,6 @@ def test_generic_config_yaml_is_not_auto_discovered(
     assert settings.backend == "api_based"
 
 
-
 # ---------------------------------------------------------------------------
 # wheel packaging
 # ---------------------------------------------------------------------------
@@ -223,9 +220,9 @@ def test_wheel_contains_defaults_example_and_pytyped(tmp_path: Path) -> None:
     assert "bcg/config/defaults.yaml" in names
     assert "bcg/config/config.example.yaml" in names
     assert "bcg/py.typed" in names
-    assert DEFAULTS_PATH.read_text(encoding="utf-8") == zipfile.ZipFile(
-        wheels[0]
-    ).read("bcg/config/defaults.yaml").decode("utf-8")
+    assert DEFAULTS_PATH.read_text(encoding="utf-8") == zipfile.ZipFile(wheels[0]).read(
+        "bcg/config/defaults.yaml"
+    ).decode("utf-8")
 
 
 def test_example_config_parses_and_validates() -> None:
@@ -265,9 +262,7 @@ def test_yaml_settings_are_consumed_by_both_backend_loaders(
 
     for module in (api_llm, light_llm):
         model = module.load_config(str(config), model_key="graph-model")
-        embedding = module.load_embedding_config(
-            str(config), embedding_key="vectors"
-        )
+        embedding = module.load_embedding_config(str(config), embedding_key="vectors")
         pipeline = module.load_belief_graph_config(str(config))
 
         assert model["base_url"] == "https://models.example/v1"
@@ -339,15 +334,27 @@ _LEGACY_MODEL_CONFIG = {
     },
     "belief_graph": {
         "_comment": "pipeline comment",
-        "runtime": {"evidence_mode": "chunk", "context_chars": 12000, "min_content_len": 0},
-        "incremental_merge": {"enabled": True, "threshold": 0.76, "keep_newest_text": False},
+        "runtime": {
+            "evidence_mode": "chunk",
+            "context_chars": 12000,
+            "min_content_len": 0,
+        },
+        "incremental_merge": {
+            "enabled": True,
+            "threshold": 0.76,
+            "keep_newest_text": False,
+        },
     },
 }
 
 _LEGACY_USER_CONFIG = {
     "version": 1,
     "setupComplete": True,
-    "agent": {"authMethod": "api_key", "baseUrl": "https://agent.test/v1", "model": "gpt-5.5"},
+    "agent": {
+        "authMethod": "api_key",
+        "baseUrl": "https://agent.test/v1",
+        "model": "gpt-5.5",
+    },
     "context": {"mode": "bcg", "recentTurns": 2},
     "graph": {
         "serverMode": "managed",
@@ -466,9 +473,7 @@ def test_migrate_to_yaml_is_atomic_idempotent_and_validates(tmp_path: Path) -> N
         json.dumps(_LEGACY_MODEL_CONFIG), encoding="utf-8"
     )
     dest = tmp_path / "out" / "config.yaml"
-    written = migrate_to_yaml(
-        dest, project_root=tmp_path, home=tmp_path / "no-home"
-    )
+    written = migrate_to_yaml(dest, project_root=tmp_path, home=tmp_path / "no-home")
     assert written == dest
     assert dest.is_file()
     assert not list(dest.parent.glob(f".{dest.name}.*.tmp"))
@@ -494,4 +499,6 @@ def test_migrate_to_yaml_fails_without_legacy_files(tmp_path: Path) -> None:
     from bcg.config import migrate_to_yaml
 
     with pytest.raises(FileNotFoundError, match="no legacy configuration"):
-        migrate_to_yaml(tmp_path / "x.yaml", project_root=tmp_path, home=tmp_path / "no")
+        migrate_to_yaml(
+            tmp_path / "x.yaml", project_root=tmp_path, home=tmp_path / "no"
+        )

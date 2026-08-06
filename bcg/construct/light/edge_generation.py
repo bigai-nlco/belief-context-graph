@@ -22,8 +22,15 @@ def normalize_edge_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
     """Validate the complete ``belief_graph.edge_generation`` config block."""
     raw = dict(config or {})
     required = (
-        "enabled", "provider", "base_url", "model", "temperature",
-        "max_tokens", "retries", "enable_thinking", "fail_on_error",
+        "enabled",
+        "provider",
+        "base_url",
+        "model",
+        "temperature",
+        "max_tokens",
+        "retries",
+        "enable_thinking",
+        "fail_on_error",
         "search_previous_turns",
     )
     missing = [key for key in required if key not in raw]
@@ -86,7 +93,10 @@ class QwenEdgeGenerator:
         if not self.config["enabled"]:
             return {
                 "relations": [],
-                "diagnostics": {"skipped": True, "skip_reason": "edge generation disabled"},
+                "diagnostics": {
+                    "skipped": True,
+                    "skip_reason": "edge generation disabled",
+                },
             }
         prompt = build_relation_prompt(nodes, current_node_ids)
         extra_body = None
@@ -115,7 +125,9 @@ class QwenEdgeGenerator:
             "diagnostics": {
                 "model": self.model,
                 "raw_output": raw,
-                "parse_error": parsed.get("_parse_error") if isinstance(parsed, dict) else "not an object",
+                "parse_error": parsed.get("_parse_error")
+                if isinstance(parsed, dict)
+                else "not an object",
                 "n_returned": len(relations),
             },
         }

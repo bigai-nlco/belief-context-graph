@@ -91,21 +91,22 @@ def _set_primary_text_field(
 def _compact_for_merge(b: dict[str, Any]) -> dict[str, Any]:
     src = b.get("source") or {}
     c = {
-        "id":        b.get("id"),
+        "id": b.get("id"),
         "node_type": b.get("node_type", "belief"),
-        "role":      b.get("role") or src.get("role") or src.get("type"),
-        "turn":      src.get("turn_id", src.get("turn_index")),
-        "stance":    b.get("stance"),
-        "conf":      b.get("confidence"),
-        "entities":  b.get("entities") or [],
-        "belief":    _node_text(b),
+        "role": b.get("role") or src.get("role") or src.get("type"),
+        "turn": src.get("turn_id", src.get("turn_index")),
+        "stance": b.get("stance"),
+        "conf": b.get("confidence"),
+        "entities": b.get("entities") or [],
+        "belief": _node_text(b),
     }
     return c
 
 
 def _blob(beliefs: list[dict[str, Any]]) -> str:
-    return json.dumps([_compact_for_merge(b) for b in beliefs],
-                      ensure_ascii=False, indent=2)
+    return json.dumps(
+        [_compact_for_merge(b) for b in beliefs], ensure_ascii=False, indent=2
+    )
 
 
 def _merge_role(b: dict[str, Any]) -> str:
@@ -141,7 +142,9 @@ def _same_node_type(ids: list[int], by_id: dict[int, dict[str, Any]]) -> bool:
     return len(types) == 1
 
 
-def _split_ids_by_role(ids: list[int], by_id: dict[int, dict[str, Any]]) -> list[list[int]]:
+def _split_ids_by_role(
+    ids: list[int], by_id: dict[int, dict[str, Any]]
+) -> list[list[int]]:
     """Split ids into subgroups sharing BOTH role and node_type.
 
     The bucket key is (role, node_type), so a mixed-role or mixed-type group is
@@ -158,6 +161,7 @@ def _split_ids_by_role(ids: list[int], by_id: dict[int, dict[str, Any]]) -> list
 # ---------------------------------------------------------------------------
 # Candidate generation (embedding strategy)
 # ---------------------------------------------------------------------------
+
 
 class _UnionFind:
     def __init__(self, n: int) -> None:
@@ -213,9 +217,7 @@ def _embedding_candidates(
     if incremental:
         # Deliberately omit old x old pairs from both iteration and cosine work.
         pair_indices = [
-            (min(i, j), max(i, j))
-            for i in new_indices
-            for j in old_indices
+            (min(i, j), max(i, j)) for i in new_indices for j in old_indices
         ]
         pair_indices.extend(
             (new_indices[a], new_indices[b])
@@ -224,9 +226,7 @@ def _embedding_candidates(
         )
         pair_indices = sorted(set(pair_indices))
     else:
-        pair_indices = [
-            (i, j) for i in range(n) for j in range(i + 1, n)
-        ]
+        pair_indices = [(i, j) for i in range(n) for j in range(i + 1, n)]
 
     uf = _UnionFind(n)
     pairs: list[dict[str, Any]] = []
@@ -239,11 +239,15 @@ def _embedding_candidates(
         if s < threshold:
             continue
         rec = {
-            "id_a": beliefs[i]["id"], "id_b": beliefs[j]["id"],
-            "role_a": roles[i], "role_b": roles[j],
-            "type_a": types[i], "type_b": types[j],
+            "id_a": beliefs[i]["id"],
+            "id_b": beliefs[j]["id"],
+            "role_a": roles[i],
+            "role_b": roles[j],
+            "type_a": types[i],
+            "type_b": types[j],
             "similarity": round(s, 4),
-            "belief_a": texts[i], "belief_b": texts[j],
+            "belief_a": texts[i],
+            "belief_b": texts[j],
         }
         if roles[i] != roles[j]:
             rec["skipped_reason"] = "cross_role"
@@ -272,8 +276,11 @@ def _embedding_candidates(
         groups_by_root: dict[int, list[int]] = {}
         for i in range(n):
             groups_by_root.setdefault(uf.find(i), []).append(i)
-        groups = [sorted(beliefs[i]["id"] for i in idxs)
-                  for idxs in groups_by_root.values() if len(idxs) >= 2]
+        groups = [
+            sorted(beliefs[i]["id"] for i in idxs)
+            for idxs in groups_by_root.values()
+            if len(idxs) >= 2
+        ]
     else:
         # First build connected components among new nodes only. Then attach each
         # component to at most one old anchor: the old node with the strongest
@@ -300,21 +307,26 @@ def _embedding_candidates(
                 )[0]
                 anchor_id = int(beliefs[anchor_idx]["id"])
                 anchored_groups.setdefault(anchor_id, set()).update(component_ids)
-                anchor_choices.append({
-                    "new_component_ids": component_ids,
-                    "selected_old_id": anchor_id,
-                    "selected_similarity": round(float(anchor_score), 4),
-                    "other_old_candidates": [
-                        {
-                            "old_id": int(beliefs[idx]["id"]),
-                            "similarity": round(float(score), 4),
-                        }
-                        for idx, score in sorted(
-                            candidates.items(),
-                            key=lambda item: (-item[1], int(beliefs[item[0]]["id"])),
-                        )[1:]
-                    ],
-                })
+                anchor_choices.append(
+                    {
+                        "new_component_ids": component_ids,
+                        "selected_old_id": anchor_id,
+                        "selected_similarity": round(float(anchor_score), 4),
+                        "other_old_candidates": [
+                            {
+                                "old_id": int(beliefs[idx]["id"]),
+                                "similarity": round(float(score), 4),
+                            }
+                            for idx, score in sorted(
+                                candidates.items(),
+                                key=lambda item: (
+                                    -item[1],
+                                    int(beliefs[item[0]]["id"]),
+                                ),
+                            )[1:]
+                        ],
+                    }
+                )
             elif len(component_ids) >= 2:
                 standalone_groups.append(component_ids)
 
@@ -331,12 +343,11 @@ def _embedding_candidates(
     _embedding_candidates.last_incremental_policy = {  # type: ignore[attr-defined]
         "enabled": incremental,
         "new_node_ids": sorted(new_ids) if incremental else [],
-        "old_node_ids": sorted(
-            int(beliefs[i]["id"]) for i in old_indices
-        ) if incremental else [],
+        "old_node_ids": sorted(int(beliefs[i]["id"]) for i in old_indices)
+        if incremental
+        else [],
         "old_old_pairs_omitted": (
-            len(old_indices) * (len(old_indices) - 1) // 2
-            if incremental else 0
+            len(old_indices) * (len(old_indices) - 1) // 2 if incremental else 0
         ),
         "anchor_choices": anchor_choices,
     }
@@ -346,6 +357,7 @@ def _embedding_candidates(
 # ---------------------------------------------------------------------------
 # LLM verification / proposal
 # ---------------------------------------------------------------------------
+
 
 def _parse_merge_groups(
     raw: str,
@@ -403,6 +415,7 @@ def _parse_merge_groups(
 # ---------------------------------------------------------------------------
 # Apply one confirmed merge group to the graph
 # ---------------------------------------------------------------------------
+
 
 def _apply_merge_group(
     graph: BeliefGraph,
@@ -474,11 +487,13 @@ def _apply_merge_group(
                 _append_evidence_id(graph.add_evidence(ev), is_additional=True)
 
     canon["evidence_ids"] = merged_eids
-    canon["supporting_excerpts"] = list(dict.fromkeys(
-        graph.evidence[eid].get("text")
-        for eid in merged_eids
-        if eid in graph.evidence and graph.evidence[eid].get("text")
-    ))
+    canon["supporting_excerpts"] = list(
+        dict.fromkeys(
+            graph.evidence[eid].get("text")
+            for eid in merged_eids
+            if eid in graph.evidence and graph.evidence[eid].get("text")
+        )
+    )
 
     merged_from = list(canon.get("merged_from") or [])
     for absorbed_id, snapshot in zip(absorbed_ids, absorbed_snapshots, strict=False):
@@ -492,14 +507,19 @@ def _apply_merge_group(
     # field is consistent across members.
     if keep_newest_text and newest_id != canon_id:
         newest_snapshot = next(
-            (snap for aid, snap in zip(absorbed_ids, absorbed_snapshots, strict=False)
-             if aid == newest_id),
+            (
+                snap
+                for aid, snap in zip(absorbed_ids, absorbed_snapshots, strict=False)
+                if aid == newest_id
+            ),
             None,
         )
         if newest_snapshot is not None:
             newest_text = _node_text(newest_snapshot)
             if newest_text:
-                text_key = "decision" if canon.get("node_type") == "decision" else "belief"
+                text_key = (
+                    "decision" if canon.get("node_type") == "decision" else "belief"
+                )
                 _set_primary_text_field(canon, text_key=text_key, text=newest_text)
 
     # Old member entities must not survive a text-changing merge. The stable
@@ -541,8 +561,6 @@ def _apply_merge_group(
     return record
 
 
-
-
 def _infer_incremental_new_ids(
     beliefs: list[dict[str, Any]], pass_label: str
 ) -> set[int] | None:
@@ -558,7 +576,7 @@ def _infer_incremental_new_ids(
     if not pass_label.startswith(prefix):
         return None
     try:
-        turn_index = int(pass_label[len(prefix):])
+        turn_index = int(pass_label[len(prefix) :])
     except ValueError:
         return set()
 
@@ -578,10 +596,11 @@ def _infer_incremental_new_ids(
 # Pass entry point
 # ---------------------------------------------------------------------------
 
+
 def run_merge_pass(
     *,
     graph: BeliefGraph,
-    strategy: str,                       # "embedding" | "llm" | "off"
+    strategy: str,  # "embedding" | "llm" | "off"
     client,
     model: str,
     embedder=None,
@@ -593,7 +612,8 @@ def run_merge_pass(
     incremental_new_ids: set[int] | None = None,
     exclude_node_ids: set[int] | None = None,
     max_verify_workers: int = 8,
-    summary_regenerator: Callable[[dict[str, Any], list[dict[str, Any]]], str] | None = None,
+    summary_regenerator: Callable[[dict[str, Any], list[dict[str, Any]]], str]
+    | None = None,
     keep_newest_text: bool = True,
 ) -> dict[str, Any]:
     """Run one merge pass over the active graph. Returns a report dict.
@@ -635,11 +655,10 @@ def run_merge_pass(
     decision_ids = {
         int(node["id"])
         for node in all_active
-        if node.get("node_type") == "decision"
-        and isinstance(node.get("id"), int)
+        if node.get("node_type") == "decision" and isinstance(node.get("id"), int)
     }
     requested_excluded_ids: set[int] = set(decision_ids)
-    for raw_id in (exclude_node_ids or set()):
+    for raw_id in exclude_node_ids or set():
         try:
             requested_excluded_ids.add(int(raw_id))
         except (TypeError, ValueError):
@@ -647,15 +666,13 @@ def run_merge_pass(
     active_all_ids = {int(b["id"]) for b in all_active}
     excluded_existing_ids = sorted(requested_excluded_ids & active_all_ids)
     excluded_decision_ids = sorted(decision_ids & active_all_ids)
-    active = [
-        b for b in all_active
-        if int(b["id"]) not in requested_excluded_ids
-    ]
+    active = [b for b in all_active if int(b["id"]) not in requested_excluded_ids]
     if strategy == "off" or len(active) < 2:
         return {
             "skipped": True,
-            "skip_reason": ("strategy off" if strategy == "off"
-                            else "fewer than 2 eligible beliefs"),
+            "skip_reason": (
+                "strategy off" if strategy == "off" else "fewer than 2 eligible beliefs"
+            ),
             "applied": [],
             "excluded_node_ids": excluded_existing_ids,
             "excluded_decision_ids": excluded_decision_ids,
@@ -689,7 +706,9 @@ def run_merge_pass(
                 "excluded_node_ids": excluded_existing_ids,
                 "excluded_decision_ids": excluded_decision_ids,
             }
-        print(f"  [merge:{pass_label}] no embedding client — falling back to strategy=llm")
+        print(
+            f"  [merge:{pass_label}] no embedding client — falling back to strategy=llm"
+        )
         strategy = "llm"
 
     log: dict[str, Any] = {
@@ -720,36 +739,49 @@ def run_merge_pass(
         log["verify"] = verify
         _t_embed = time.perf_counter()
         candidate_groups, pairs = _embedding_candidates(
-            active, embedder, threshold, pass_label, incremental_new_ids)
+            active, embedder, threshold, pass_label, incremental_new_ids
+        )
         embedding_seconds += time.perf_counter() - _t_embed
         log["candidate_pairs"] = pairs
         log["skipped_cross_role_pairs"] = getattr(
-            _embedding_candidates, "last_skipped_cross_role", [])
+            _embedding_candidates, "last_skipped_cross_role", []
+        )
         log["skipped_cross_type_pairs"] = getattr(
-            _embedding_candidates, "last_skipped_cross_type", [])
+            _embedding_candidates, "last_skipped_cross_type", []
+        )
         log["incremental_policy"] = getattr(
-            _embedding_candidates, "last_incremental_policy", {"enabled": False})
+            _embedding_candidates, "last_incremental_policy", {"enabled": False}
+        )
         log["candidate_groups"] = candidate_groups
         if verify:
-            print("No LLM verification for embedding strategy is not yet implemented in this snippet.")
+            print(
+                "No LLM verification for embedding strategy is not yet implemented in this snippet."
+            )
         else:
             # embedding-ONLY (no LLM verification): confirm every candidate group
             # directly. Evidence is unioned/deduplicated in _apply_merge_group;
             # the canonical summary is regenerated locally after all groups.
             for g_ids in candidate_groups:
                 ids = [i for i in g_ids if i in allowed_ids and i not in used_ids]
-                if (len(ids) < 2 or not _same_merge_role(ids, by_id)
-                        or not _same_node_type(ids, by_id)):
+                if (
+                    len(ids) < 2
+                    or not _same_merge_role(ids, by_id)
+                    or not _same_node_type(ids, by_id)
+                ):
                     continue
                 used_ids.update(ids)
                 role = _merge_role(by_id[ids[0]]) if ids[0] in by_id else "unknown"
                 ntype = _merge_node_type(by_id[ids[0]]) if ids[0] in by_id else "belief"
-                confirmed.append({
-                    "ids": ids,
-                    "reason": (f"embedding cosine >= {threshold} "
-                               f"within role={role}, node_type={ntype} "
-                               f"(no LLM verification)"),
-                })
+                confirmed.append(
+                    {
+                        "ids": ids,
+                        "reason": (
+                            f"embedding cosine >= {threshold} "
+                            f"within role={role}, node_type={ntype} "
+                            f"(no LLM verification)"
+                        ),
+                    }
+                )
     else:  # strategy == "llm"
         print("No LLM full-list merge in this snippet.")
         # prompt = PROMPT_MERGE_FULL.replace(BELIEFS_LIST_PLACEHOLDER, _blob(active))
@@ -769,21 +801,31 @@ def run_merge_pass(
     skipped_type_mismatch: list[dict[str, Any]] = []
     for g in sorted(confirmed, key=lambda g: g["ids"][0]):
         if not _same_merge_role(g["ids"], by_id):
-            skipped_role_mismatch.append({"ids": g["ids"], "reason": "cross_role_group"})
+            skipped_role_mismatch.append(
+                {"ids": g["ids"], "reason": "cross_role_group"}
+            )
             continue
         if not _same_node_type(g["ids"], by_id):
-            skipped_type_mismatch.append({"ids": g["ids"], "reason": "cross_type_group"})
+            skipped_type_mismatch.append(
+                {"ids": g["ids"], "reason": "cross_type_group"}
+            )
             continue
         rec = _apply_merge_group(
-            graph, g["ids"], g["reason"], pass_label,
+            graph,
+            g["ids"],
+            g["reason"],
+            pass_label,
             keep_newest_text=keep_newest_text,
         )
         applied_records.append(rec)
         for absorbed_id in rec["absorbed_ids"]:
             mapping[absorbed_id] = rec["canonical_id"]
 
-    rewire = graph.remap_relations(mapping) if mapping else {
-        "rewritten": 0, "dropped_self": 0, "dropped_duplicate": 0}
+    rewire = (
+        graph.remap_relations(mapping)
+        if mapping
+        else {"rewritten": 0, "dropped_self": 0, "dropped_duplicate": 0}
+    )
 
     # Duplicate evidence ids that lost the first-id tie-break are no longer
     # referenced after absorbed nodes are removed. Prune them before summary
@@ -807,15 +849,23 @@ def run_merge_pass(
                 "before": before,
             }
             try:
-                regenerated = str(summary_regenerator(node, evidence_records) or "").strip()
+                regenerated = str(
+                    summary_regenerator(node, evidence_records) or ""
+                ).strip()
                 if regenerated:
-                    text_key = "decision" if node.get("node_type") == "decision" else "belief"
+                    text_key = (
+                        "decision" if node.get("node_type") == "decision" else "belief"
+                    )
                     original_key = (
-                        "decision_original" if text_key == "decision" else "belief_original"
+                        "decision_original"
+                        if text_key == "decision"
+                        else "belief_original"
                     )
                     if regenerated != before:
                         node.setdefault(original_key, before)
-                        _set_primary_text_field(node, text_key=text_key, text=regenerated)
+                        _set_primary_text_field(
+                            node, text_key=text_key, text=regenerated
+                        )
                     node["entities"] = []
                 entry["after"] = _node_text(node)
             except Exception as exc:
@@ -870,25 +920,35 @@ def run_merge_pass(
             f.write(_render_text_log(log))
         log["log_path"] = str(json_path)
 
-    return {"skipped": False, "strategy": strategy, "applied": applied,
-            "n_candidate_groups": len(log.get("candidate_groups", confirmed)),
-            "incremental_policy": log.get("incremental_policy"),
-            "excluded_node_ids": excluded_existing_ids,
-            "excluded_decision_ids": excluded_decision_ids,
-            "relation_rewire": rewire,
-            "evidence_prune": evidence_prune,
-            "summary_regeneration": summary_regeneration,
-            "timing": {"embedding_seconds": round(embedding_seconds, 6),
-                       "llm_verify_seconds": round(llm_verify_seconds, 6),
-                       "summary_regeneration_seconds": round(summary_regeneration_seconds, 6)},
-            "log_path": log.get("log_path")}
+    return {
+        "skipped": False,
+        "strategy": strategy,
+        "applied": applied,
+        "n_candidate_groups": len(log.get("candidate_groups", confirmed)),
+        "incremental_policy": log.get("incremental_policy"),
+        "excluded_node_ids": excluded_existing_ids,
+        "excluded_decision_ids": excluded_decision_ids,
+        "relation_rewire": rewire,
+        "evidence_prune": evidence_prune,
+        "summary_regeneration": summary_regeneration,
+        "timing": {
+            "embedding_seconds": round(embedding_seconds, 6),
+            "llm_verify_seconds": round(llm_verify_seconds, 6),
+            "summary_regeneration_seconds": round(summary_regeneration_seconds, 6),
+        },
+        "log_path": log.get("log_path"),
+    }
 
 
 def _render_text_log(log: dict[str, Any]) -> str:
     lines = [
         "=" * 74,
         f" merge pass: {log['pass']}   strategy={log['strategy']}"
-        + (f"   threshold={log['threshold']}" if log.get("threshold") is not None else ""),
+        + (
+            f"   threshold={log['threshold']}"
+            if log.get("threshold") is not None
+            else ""
+        ),
         f" nodes in: {log['n_beliefs']}",
         "=" * 74,
     ]
@@ -910,42 +970,57 @@ def _render_text_log(log: dict[str, Any]) -> str:
                 f"sim={choice.get('selected_similarity')}"
             )
     for p in log.get("candidate_pairs", []):
-        lines.append(f"  pair  #{p['id_a']} ~ #{p['id_b']}  "
-                     f"role={p.get('role_a')}  sim={p['similarity']}")
+        lines.append(
+            f"  pair  #{p['id_a']} ~ #{p['id_b']}  "
+            f"role={p.get('role_a')}  sim={p['similarity']}"
+        )
         lines.append(f"        a: {p['belief_a'][:100]}")
         lines.append(f"        b: {p['belief_b'][:100]}")
     skipped = log.get("skipped_cross_role_pairs") or []
     if skipped:
         lines.append(f" skipped cross-role candidate pairs: {len(skipped)}")
         for p in skipped[:20]:
-            lines.append(f"  skip  #{p['id_a']}({p.get('role_a')}) ~ "
-                         f"#{p['id_b']}({p.get('role_b')})  sim={p['similarity']}")
+            lines.append(
+                f"  skip  #{p['id_a']}({p.get('role_a')}) ~ "
+                f"#{p['id_b']}({p.get('role_b')})  sim={p['similarity']}"
+            )
     skipped_t = log.get("skipped_cross_type_pairs") or []
     if skipped_t:
         lines.append(f" skipped cross-type candidate pairs: {len(skipped_t)}")
         for p in skipped_t[:20]:
-            lines.append(f"  skip  #{p['id_a']}({p.get('type_a')}) ~ "
-                         f"#{p['id_b']}({p.get('type_b')})  sim={p['similarity']}")
+            lines.append(
+                f"  skip  #{p['id_a']}({p.get('type_a')}) ~ "
+                f"#{p['id_b']}({p.get('type_b')})  sim={p['similarity']}"
+            )
     if "candidate_groups" in log:
         lines.append(f" candidate groups: {log['candidate_groups']}")
     for v in log.get("llm_verifications", []):
-        lines.append(f"  verify {v.get('candidate_ids')}"
-                     + (f" -> ERROR {v['error']}" if "error" in v else
-                        f" -> {[g['ids'] for g in v.get('accepted_groups', [])]}"))
+        lines.append(
+            f"  verify {v.get('candidate_ids')}"
+            + (
+                f" -> ERROR {v['error']}"
+                if "error" in v
+                else f" -> {[g['ids'] for g in v.get('accepted_groups', [])]}"
+            )
+        )
     for g in log.get("skipped_role_mismatch_groups", []):
         lines.append(f"  SKIP cross-role merge group {g.get('ids')}")
     for g in log.get("skipped_type_mismatch_groups", []):
         lines.append(f"  SKIP cross-type merge group {g.get('ids')}")
     for m in log.get("applied_merges", []):
-        lines.append(f"  MERGE  {m['absorbed_ids']} -> #{m['canonical_id']}  "
-                     f"(conf {m.get('old_confidence', '—')} -> {m.get('new_confidence', m.get('adopted_confidence'))}; "
-                     f"additional evidence={m.get('added_evidence_ids', [])})")
+        lines.append(
+            f"  MERGE  {m['absorbed_ids']} -> #{m['canonical_id']}  "
+            f"(conf {m.get('old_confidence', '—')} -> {m.get('new_confidence', m.get('adopted_confidence'))}; "
+            f"additional evidence={m.get('added_evidence_ids', [])})"
+        )
         lines.append(f"         canonical: {m['canonical_belief']}")
         if m.get("reason"):
             lines.append(f"         reason:    {m['reason']}")
     rw = log.get("relation_rewire") or {}
-    lines.append(f" relations: rewritten={rw.get('rewritten', 0)}  "
-                 f"dropped_self={rw.get('dropped_self', 0)}  "
-                 f"dropped_dup={rw.get('dropped_duplicate', 0)}")
+    lines.append(
+        f" relations: rewritten={rw.get('rewritten', 0)}  "
+        f"dropped_self={rw.get('dropped_self', 0)}  "
+        f"dropped_dup={rw.get('dropped_duplicate', 0)}"
+    )
     lines.append("=" * 74)
     return "\n".join(lines) + "\n"
