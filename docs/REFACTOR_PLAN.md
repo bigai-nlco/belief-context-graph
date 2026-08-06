@@ -830,11 +830,20 @@ Dashboard；Agent test 不再依赖开发者记住隐含顺序；不产生受跟
 - **11.7 定向测试（部分）**：BcgClient 5 个（信封解析、错误信封、release
   404 幂等、released 标志、AbortSignal）；session 恢复（open + 迁移）；
   既有错误降级/turn limit/release-once 测试确认覆盖。
-- **11.3 interactive-mode.ts（6034 行）分解：未开始**——最大工作项，
-  需按命令注册 / Graph 状态 / 模型登录 flow / session UI / 渲染生命周期
-  既有边界逐个迁移，每次一个带测试的职责。
-- 测试基线：Python 180 passed；Agent **46 tests**（11 个文件）；
-  `make check` 全绿。
+- **11.3 interactive-mode.ts 分解（进行中）**：6034 → 5616 行（-418），
+  已抽三个纯/可参数化职责模块，各带定向测试：
+  1. `display-format.ts`：17 个路径/scope 显示格式化函数（home 缩短、
+     node_modules 相对化、package 标签、分组、诊断渲染），13 个测试；
+  2. `login-provider-options.ts`：登录/登出 provider 选项构建（按 auth
+     类型过滤、排序、configured 状态标记、id/name 匹配），5 个测试；
+  3. `autocomplete-source.ts`：autocomplete 源标签（u/p/t + npm/git）、
+     描述前缀、内建命令冲突诊断（内置命令列表参数化），7 个测试。
+  剩余：命令注册 / Graph 状态 / 模型登录 UI flow / session UI / 渲染
+  生命周期仍为有状态 UI 协调，按组件边界继续迁移（每次一个带测试职责）。
+- 测试基线：Python 180 passed；Agent **71 tests**（14 个文件，步骤 11
+  累计 +31：包 export 3、fixture 3、client 5、session schema 5、
+  skill-expansion 5、URL 契约 1、display-format 13、login-options 5、
+  autocomplete 7）；`make check` 全绿。
 
 ### 步骤 11：重构 `agent-cli/`
 
