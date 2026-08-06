@@ -1,6 +1,6 @@
 # BCG service scripts and runtime configuration
 
-Covers `scripts/start_vllm.sh`, `scripts/start_sglang_server.sh` and
+Covers `scripts/start_vllm.sh`, `scripts/start_sglang.sh` and
 `scripts/start_tonggraph_server.sh`. All scripts load the repository `.env`
 (see `.env.example`), validate inputs and fail fast on missing/invalid
 settings. Shared helpers live in `scripts/lib/common.sh`
@@ -18,15 +18,15 @@ settings. Shared helpers live in `scripts/lib/common.sh`
 | `VLLM_GPU_MEMORY_UTILIZATION` | no | 0.88 | no | start_vllm |
 | `VLLM_VISIBLE_GPUS` | no | 0 | no | start_vllm |
 | `VLLM_BIN` | no | `<repo>/.venv/bin/vllm` | no | start_vllm |
-| `SGLANG_MODEL` | yes (SGLang) | falls back to `VLLM_MODEL` | no | start_sglang_server |
-| `SGLANG_PORT` | no | 8003 (falls back to `VLLM_PORT`) | no | start_sglang_server |
-| `SGLANG_HOST` | no | 0.0.0.0 (falls back to `VLLM_HOST`) | no | start_sglang_server |
-| `SGLANG_VISIBLE_GPUS` | no | 1 (falls back to `VLLM_VISIBLE_GPUS`/`CUDA_VISIBLE_DEVICES`) | no | start_sglang_server |
-| `SGLANG_TP` / `SGLANG_DP` | no | 1 | no | start_sglang_server |
-| `SGLANG_MEM_FRACTION_STATIC` | no | 0.90 (falls back to `VLLM_GPU_MEMORY_UTILIZATION`) | no | start_sglang_server |
-| `SGLANG_DTYPE` | no | auto (falls back to `VLLM_DTYPE`) | no | start_sglang_server |
-| `SGLANG_CONTEXT_LENGTH` | no | SGLang auto | no | start_sglang_server |
-| `SGLANG_LOG` | no | `<repo>/var/logs/sglang-*.log` | no | start_sglang_server |
+| `SGLANG_MODEL` | yes (SGLang) | falls back to `VLLM_MODEL` | no | start_sglang |
+| `SGLANG_PORT` | no | 8003 (falls back to `VLLM_PORT`) | no | start_sglang |
+| `SGLANG_HOST` | no | 0.0.0.0 (falls back to `VLLM_HOST`) | no | start_sglang |
+| `SGLANG_VISIBLE_GPUS` | no | 1 (falls back to `VLLM_VISIBLE_GPUS`/`CUDA_VISIBLE_DEVICES`) | no | start_sglang |
+| `SGLANG_TP` / `SGLANG_DP` | no | 1 | no | start_sglang |
+| `SGLANG_MEM_FRACTION_STATIC` | no | 0.90 (falls back to `VLLM_GPU_MEMORY_UTILIZATION`) | no | start_sglang |
+| `SGLANG_DTYPE` | no | auto (falls back to `VLLM_DTYPE`) | no | start_sglang |
+| `SGLANG_CONTEXT_LENGTH` | no | SGLang auto | no | start_sglang |
+| `SGLANG_LOG` | no | `<repo>/var/logs/sglang-*.log` | no | start_sglang |
 | `TONGGRAPH_SERVER_BIN` | no | `tonggraph-server` on PATH | no | start_tonggraph_server |
 | `TONGGRAPH_CONFIG` | no | `<repo>/deploy/tonggraph-server.yml` | no | start_tonggraph_server |
 | `TONGGRAPH_DATA_DIR` | no | `<repo>/var/tonggraph` | no | start_tonggraph_server |

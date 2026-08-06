@@ -98,4 +98,4 @@ vllm-server:
 
 .PHONY: sglang-server
 sglang-server:
-	@scripts/start_sglang_server.sh
+	@scripts/start_sglang.sh

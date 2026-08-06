@@ -6,12 +6,12 @@
 #   api key:  none / EMPTY
 #
 # Usage:
-#   scripts/start_sglang_server.sh
-#   scripts/start_sglang_server.sh --background
-#   scripts/start_sglang_server.sh --status
-#   scripts/start_sglang_server.sh --stop
-#   scripts/start_sglang_server.sh --gpus 0 --model /path/to/model --served-model-name Qwen3-8B
-#   scripts/start_sglang_server.sh -- --chat-template /path/to/template.jinja
+#   scripts/start_sglang.sh
+#   scripts/start_sglang.sh --background
+#   scripts/start_sglang.sh --status
+#   scripts/start_sglang.sh --stop
+#   scripts/start_sglang.sh --gpus 0 --model /path/to/model --served-model-name Qwen3-8B
+#   scripts/start_sglang.sh -- --chat-template /path/to/template.jinja
 
 set -euo pipefail
 

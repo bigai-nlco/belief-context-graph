@@ -40,11 +40,11 @@ out="$(VLLM_MODEL=/models/qwen VLLM_PORT=abc bash scripts/start_vllm.sh --dry-ru
 check "vllm: invalid port rejected" "Invalid VLLM_PORT: abc" "$out"
 
 # --- sglang defaults and overrides ---
-out="$(SGLANG_MODEL=/models/qwen bash scripts/start_sglang_server.sh --dry-run 2>&1 || true)"
+out="$(SGLANG_MODEL=/models/qwen bash scripts/start_sglang.sh --dry-run 2>&1 || true)"
 check "sglang: default port"      "--port 8003" "$out"
 check "sglang: served model name" "--served-model-name /models/qwen" "$out"
 
-out="$(SGLANG_MODEL=/models/qwen bash scripts/start_sglang_server.sh --dry-run --port 7001 --served-model-name Qwen3-8B 2>&1 || true)"
+out="$(SGLANG_MODEL=/models/qwen bash scripts/start_sglang.sh --dry-run --port 7001 --served-model-name Qwen3-8B 2>&1 || true)"
 check "sglang: override port"     "--port 7001" "$out"
 check "sglang: override name"     "--served-model-name Qwen3-8B" "$out"
 
