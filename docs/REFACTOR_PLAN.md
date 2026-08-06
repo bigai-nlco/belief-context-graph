@@ -838,12 +838,17 @@ Dashboard；Agent test 不再依赖开发者记住隐含顺序；不产生受跟
      类型过滤、排序、configured 状态标记、id/name 匹配），5 个测试；
   3. `autocomplete-source.ts`：autocomplete 源标签（u/p/t + npm/git）、
      描述前缀、内建命令冲突诊断（内置命令列表参数化），7 个测试。
-  剩余：命令注册 / Graph 状态 / 模型登录 UI flow / session UI / 渲染
-  生命周期仍为有状态 UI 协调，按组件边界继续迁移（每次一个带测试职责）。
-- 测试基线：Python 180 passed；Agent **71 tests**（14 个文件，步骤 11
-  累计 +31：包 export 3、fixture 3、client 5、session schema 5、
+  4. `resources-sections.ts`：showLoadedResources 的区块组装
+     （Context/Skills/Prompts/Extensions/Themes 区块 + 四类诊断块），
+     类内只保留数据收集与容器渲染，5 个测试。
+  剩余：命令注册 / Graph 状态 / 模型登录 UI flow（showModelSelector/
+  showLogin* 组件编排，依赖注入面 8+）/ session UI / 渲染生命周期
+  仍为有状态 UI 协调，按组件边界继续迁移（每次一个带测试职责）；
+  模型作用域解析等纯逻辑已独立于既有模块。
+- 测试基线：Python 180 passed；Agent **76 tests**（15 个文件，步骤 11
+  累计 +36：包 export 3、fixture 3、client 5、session schema 5、
   skill-expansion 5、URL 契约 1、display-format 13、login-options 5、
-  autocomplete 7）；`make check` 全绿。
+  autocomplete 7、resources-sections 5）；`make check` 全绿。
 
 ### 步骤 11：重构 `agent-cli/`
 
