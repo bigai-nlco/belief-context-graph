@@ -545,10 +545,11 @@ export function loadEntriesFromFile(filePath: string): FileEntry[] {
 		closeSync(fd);
 	}
 
-	// Validate session header
+	// Validate session header. v1 headers have no id; the migration path
+	// (migrateToCurrentVersion) fills ids in afterwards.
 	if (entries.length === 0) return entries;
 	const header = entries[0];
-	if (header.type !== "session" || typeof (header as { id?: unknown }).id !== "string") {
+	if (header.type !== "session") {
 		return [];
 	}
 
@@ -564,7 +565,7 @@ function parseSessionHeaderCandidate(line: string): SessionHeader | null | undef
 	if (!line.trim()) return undefined;
 	const entry = parseSessionEntryLine(line);
 	if (!entry) return undefined;
-	if (entry.type !== "session" || typeof (entry as { id?: unknown }).id !== "string") return null;
+	if (entry.type !== "session") return null;
 	return entry;
 }
 
