@@ -140,6 +140,7 @@ import {
 	showOAuthSelector,
 	type AuthSelectorsDeps,
 } from "./auth-selectors.ts";
+import { showSessionSelector } from "./session-selectors.ts";
 import { buildResourceSections } from "./resources-sections.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -4152,40 +4153,32 @@ ${block.body}`, 0, 0),
 	}
 
 	private showSessionSelector(): void {
-		this.showSelector((done) => {
-			const selector = new SessionSelectorComponent(
-				(onProgress) =>
-					SessionManager.list(this.sessionManager.getCwd(), this.sessionManager.getSessionDir(), onProgress),
-				(onProgress) =>
-					this.sessionManager.usesDefaultSessionDir()
-						? SessionManager.listAll(onProgress)
-						: SessionManager.listAll(this.sessionManager.getSessionDir(), onProgress),
-				async (sessionPath) => {
-					done();
-					await this.handleResumeSession(sessionPath);
-				},
-				() => {
-					done();
-					this.ui.requestRender();
-				},
-				() => {
-					void this.shutdown();
-				},
-				() => this.ui.requestRender(),
-				{
-					renameSession: async (sessionFilePath: string, nextName: string | undefined) => {
-						const next = (nextName ?? "").trim();
-						if (!next) return;
-						const mgr = SessionManager.open(sessionFilePath);
-						mgr.appendSessionInfo(next);
-					},
-					showRenameHint: true,
-					keybindings: this.keybindings,
-				},
-
-				this.sessionManager.getSessionFile(),
-			);
-			return { component: selector, focus: selector };
+		showSessionSelector({
+			showSelector: (create) => this.showSelector(create),
+			requestRender: () => this.ui.requestRender(),
+			resumeSession: async (sessionPath) => {
+				await this.handleResumeSession(sessionPath);
+			},
+			shutdown: () => {
+				void this.shutdown();
+			},
+			keybindings: this.keybindings,
+			listSessions: (cwd, sessionDir, onProgress) =>
+				SessionManager.list(cwd, sessionDir, onProgress),
+			listAllSessions: (sessionDir, onProgress) =>
+				sessionDir !== undefined
+					? SessionManager.listAll(sessionDir, onProgress)
+					: SessionManager.listAll(onProgress),
+			usesDefaultSessionDir: () => this.sessionManager.usesDefaultSessionDir(),
+			getCwd: () => this.sessionManager.getCwd(),
+			getSessionDir: () => this.sessionManager.getSessionDir(),
+			getSessionFile: () => this.sessionManager.getSessionFile(),
+			renameSession: (sessionFilePath, nextName) => {
+				const next = (nextName ?? "").trim();
+				if (!next) return;
+				const mgr = SessionManager.open(sessionFilePath);
+				mgr.appendSessionInfo(next);
+			},
 		});
 	}
 
