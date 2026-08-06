@@ -42,15 +42,19 @@ def test_api_setup_persists_global_configuration(
 
     persisted = json.loads((tmp_path / "config.json").read_text())
     assert persisted == config
-    graph_models = json.loads((tmp_path / "model_config.json").read_text())
-    assert graph_models["graph-model"] == {
+    # model settings now land in the unified YAML config (legacy JSON no longer written)
+    import yaml
+
+    yaml_config = yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
+    assert yaml_config["models"]["graph-model"] == {
         "base_url": "https://agent.test/v1",
         "api_key_env": "OPENAI_API_KEY",
         "model": "agent-model",
         "max_tokens": 65536,
         "temperature": 0,
     }
-    assert "embedding" not in graph_models
+    assert "embedding" not in yaml_config["models"]
+    assert not (tmp_path / "model_config.json").exists()
     assert (tmp_path / ".env").read_text().endswith("OPENAI_API_KEY=agent-secret\n")
     assert stat.S_IMODE((tmp_path / ".env").stat().st_mode) == 0o600
 

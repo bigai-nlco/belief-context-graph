@@ -82,6 +82,47 @@ def _read_credentials() -> dict[str, str]:
     return read_env_file(credentials_path())
 
 
+def _write_user_yaml_config(graph_model_config: dict[str, Any]) -> None:
+    """Write setup's model/pipeline settings into ~/.bcg/config.yaml.
+
+    The YAML settings file is the unified configuration source; the legacy
+    model_config.json is no longer written (readers keep a fallback window).
+    """
+    from bcg.config.loader import defaults_dict
+    from bcg.config.schema import BCGSettings
+
+    def _strip_comments(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: _strip_comments(item)
+                for key, item in value.items()
+                if not key.startswith("_comment")
+            }
+        if isinstance(value, list):
+            return [_strip_comments(item) for item in value]
+        return value
+
+    settings_dict: dict[str, Any] = {
+        "schema_version": 1,
+        "models": {
+            key: _strip_comments(value)
+            for key, value in graph_model_config.items()
+            if key != "belief_graph"
+        },
+    }
+    pipeline = _strip_comments(graph_model_config.get("belief_graph"))
+    if isinstance(pipeline, dict) and pipeline:
+        settings_dict["pipeline"] = pipeline
+    merged = {**defaults_dict(), **settings_dict}
+    BCGSettings.model_validate(merged)  # setup output must be consumable
+
+    import yaml
+
+    dest = state_root() / "config.yaml"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    yaml.safe_dump(settings_dict, dest.open("w", encoding="utf-8"), sort_keys=False)
+
+
 def _write_credentials(values: dict[str, str]) -> None:
     path = credentials_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -794,7 +835,7 @@ def run_setup(
     }
     _write_credentials(credentials)
     if graph_model_config is not None:
-        _write_json(model_config_path(), graph_model_config)
+        _write_user_yaml_config(graph_model_config)
     _write_json(config_path(), result)
 
     if _supports_rich_input(input_fn):

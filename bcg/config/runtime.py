@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -88,6 +89,13 @@ def load_construct_config(
                 "model_config.json file."
             )
         return None, str(path)
+    warnings.warn(
+        f"legacy JSON configuration {path} is deprecated; migrate to YAML "
+        "(see bcg/config/config.example.yaml). The JSON fallback will be "
+        "removed after the 1.0.x window.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     try:
         raw = json.loads(config_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:

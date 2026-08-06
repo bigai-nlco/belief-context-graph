@@ -89,7 +89,7 @@ class SessionManager:
     def __init__(
         self,
         *,
-        config_path: str = "model_config.json",
+        config_path: str | None = None,  # None = layered YAML configuration
         model_key: str | None = None,
         embedding_key: str = "embedding",
         output_root: Any = "outputs_stream",
