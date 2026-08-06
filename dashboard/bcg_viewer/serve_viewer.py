@@ -5,24 +5,20 @@ Does two jobs:
   1. Serves the static viewer + stream output files (with no-store on the
      jsonl/json so the browser can live-tail growing files).
   2. Exposes a tiny JSON API so the viewer's "Run new case" button can launch
-     belief-context-graph/scripts/start.sh (a fresh rollout), watch for the new
-     output <id>/ directory it produces, and stream it live.
+     a construct run (configured via --start-sh), watch for the new output
+     <id>/ directory it produces, and stream it live.
 
-This lives in bcg-viewer/ (a sibling of bcg-construct). It reads the belief-graph
-stream from ../bcg-construct/outputs_7_2 by default when present, then
-outputs_7_1, then outputs_stream, and maps the URL prefix
-/outputs_stream/ onto that directory, so the viewer works even though the stream
-lives outside this folder.
+This is a deprecated read-only devtool (see dashboard/README.md). It reads
+the belief-graph stream from the repository's default construct output
+directory (--stream-dir, default: ../outputs when present, else the
+bundled demo_output directory) and maps the URL prefix /outputs_stream/
+onto it.
 
-Run it from the bcg-viewer directory, ideally inside the same activated
-environment you normally launch start.sh from (the rollout subprocess inherits
-this process's environment — conda env, PYTHONPATH, etc.):
+Run it from the dashboard/bcg_viewer directory:
 
-    conda activate belief_tracer        # whatever you use for rollouts
-    python3 serve_viewer.py             # binds 0.0.0.0:8123 (LAN-reachable)
+    python3 serve_viewer.py --start-sh /path/to/bcg/scripts/start_construct.sh
 
-Then open  http://<this-host-ip>:8123/belief_graph_stream_viewer.html
-(or http://127.0.0.1:8123/... from the same machine).
+Then open  http://127.0.0.1:8123/belief_graph_stream_viewer.html
 
 Options:
     --host / --port                 bind address (default 0.0.0.0:8123)
@@ -30,8 +26,8 @@ Options:
     --stream-dir DIR                stream output root; outputs_2026_7_6
                                     auto-rolls daily, or use templates like
                                     outputs_{Y}_{m}_{d}
-                                    (default: ../bcg-construct/outputs_7_2
-                                    if present, else the bundled demo_output directory)
+                                    (default: the repository's outputs
+                                    directory if present, else the bundled demo_output directory)
     --start-sh PATH                 script the Run button launches
     --default-max-problems N        default problems per click (default 1)
     --login-shell                   run start.sh via `bash -lc` (loads ~/.bashrc,
@@ -65,16 +61,14 @@ from datetime import UTC, datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-_BCG_CONSTRUCT = os.path.join(os.path.dirname(HERE), "bcg-construct")
-_LATEST_STREAM_DIR = os.path.join(_BCG_CONSTRUCT, "outputs_7_2")
-_PREVIOUS_STREAM_DIR = os.path.join(_BCG_CONSTRUCT, "outputs_7_1")
-_LEGACY_STREAM_DIR = os.path.join(_BCG_CONSTRUCT, "outputs_stream")
+_REPO_ROOT = os.path.dirname(os.path.dirname(HERE))
+_CURRENT_STREAM_DIR = os.path.join(_REPO_ROOT, "outputs")
 _BUNDLED_DEMO_DIR = os.path.join(HERE, "demo_output")
-# Prefer a real sibling BCG stream when present; otherwise run standalone with the bundled demo.
+# Prefer the repository's construct output when present; otherwise run standalone with the bundled demo.
 DEFAULT_STREAM_DIR = next(
     (
         p
-        for p in (_LATEST_STREAM_DIR, _PREVIOUS_STREAM_DIR, _LEGACY_STREAM_DIR)
+        for p in (_CURRENT_STREAM_DIR,)
         if os.path.isdir(p)
     ),
     _BUNDLED_DEMO_DIR,
@@ -146,13 +140,12 @@ CFG = {
     "root": HERE,
     "stream_dir": DEFAULT_STREAM_DIR,
     "stream_dir_template": DEFAULT_STREAM_DIR,
-    "start_sh": "/home/yofuria/Desktop/GraphMemoryEvaluation/belief-context-graph/scripts/start.sh",
+    "start_sh": "",
     "default_max_problems": 1,
     "default_save_alias": "demo_test",
     "login_shell": False,
-    "data_file": "/home/yofuria/Desktop/GraphMemoryEvaluation/belief-context-graph/datasets/sub_AVeriTeC/data/dev_subset10.json",
-    # rollout output root that holds <alias>/averitec/trajectories.jsonl (agent-side per-step timings)
-    "rollout_output_dir": "/home/yofuria/Desktop/GraphMemoryEvaluation/belief-context-graph/output",
+    "data_file": "",
+    "rollout_output_dir": "",
 }
 _TIMINGS_CACHE = {}  # graph_problem_id -> result dict
 RUNS_DIR = os.path.join(HERE, ".viewer_runs")

@@ -5,7 +5,7 @@ For every sample directory that has both a `trajectory_stream.jsonl` and a
 `belief_graph.jsonl`, we record the claim/question (used as the dropdown label),
 the number of streamed turns, and the size of the final belief graph.
 
-Run from the `bcg-construct` directory (or pass --root):
+Run from anywhere; pass --root pointing at the construct output directory:
 
     python3 build_stream_manifest.py
 
@@ -111,23 +111,15 @@ def build(root):
 
 
 def main():
-    bcg_construct = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bcg-construct"
-    )
-    latest_root = os.path.join(bcg_construct, "outputs_7_2")
-    previous_root = os.path.join(bcg_construct, "outputs_7_1")
-    legacy_root = os.path.join(bcg_construct, "outputs_stream")
-    default_root = next(
-        (p for p in (latest_root, previous_root, legacy_root) if os.path.isdir(p)),
-        legacy_root,
-    )
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    current_root = os.path.join(repo_root, "outputs")
+    default_root = current_root if os.path.isdir(current_root) else current_root
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--root",
         default=default_root,
         help="directory that holds the per-sample stream folders "
-        "(default: ../bcg-construct/outputs_7_2 if present, "
-        "else outputs_7_1/outputs_stream)",
+        "(default: <repo>/outputs)",
     )
     ap.add_argument(
         "--out", default=None, help="output path (default: <root>/manifest.json)"
