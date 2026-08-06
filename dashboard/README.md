@@ -18,21 +18,20 @@ errors.
 See `.env.example` (`VITE_BCG_API_URL`, `VITE_BCG_PROBLEM_ID`,
 `VITE_MEMGRAPH_URI`, `VITE_MEMGRAPH_LAB_URL`).
 
-## Feature matrix (old `bcg_viewer/` vs dashboard)
+## Feature matrix
 
-| Feature | Old Viewer (`bcg_viewer/`) | Dashboard | Conclusion |
-|---|---|---|---|
-| Live graph from construct server | 3 guessed URLs, none exist | contract endpoint `/graph` | migrate → dashboard |
-| Artifact / JSONL replay | `build_stream_manifest.py` + static viewer | `loadArtifactReplay` + future UI picker | migrate → dashboard |
-| Directory import | Python `serve_viewer.py` | not yet wired (devtool) | keep as devtool until wired |
-| Run control | not present | not present | out of scope (devtool service only) |
-| Timing / metrics | stream manifest tables | metrics header | migrate → dashboard |
-| Subgraph | not present | not present | out of scope |
-| Memgraph/TongGraph connection | bolt + lab links | env-driven (devtool) | keep as devtool |
+| Feature | Dashboard | Conclusion |
+|---|---|---|
+| Live graph from construct server | contract endpoint `/graph` | implemented |
+| Artifact / JSONL replay | `loadArtifactReplay` | implemented (UI picker future) |
+| Directory import | not yet wired | devtool, out of scope until wired |
+| Run control | not present | out of scope (devtool service only) |
+| Timing / metrics | metrics header | implemented |
+| Subgraph | not present | out of scope |
+| Memgraph/TongGraph connection | env-driven | devtool |
 
-Old Viewer status: **deprecated**. It stays as a read-only reference until
-the dashboard reaches feature parity (step 16 removal window); no further
-feature work lands in `bcg_viewer/`.
+The legacy `bcg_viewer/` was removed in step 16 after reaching parity for the
+features above.
 
 ## Scripts
 

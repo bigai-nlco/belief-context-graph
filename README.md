@@ -55,7 +55,7 @@ This repository includes a simple terminal Agent as a reference integration. It 
 <div align="center">
 
 <img
-  src="dashboard/bcg_viewer/live_demo_clear.gif"
+  src="docs/images/live_demo_clear.gif"
   alt="Belief Context Graph live demo"
   width="900"
 />

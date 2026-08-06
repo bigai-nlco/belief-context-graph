@@ -7,7 +7,7 @@
 |---|---|---|---|
 | `http.schema.json` | 图构造服务的 HTTP 请求/响应（snapshot、/turns、/release、/health、错误信封） | `bcg.apps.online_server` | `agent-cli`（`BcgContextManager`） |
 | `memory-document.schema.json` | 持久化 memory document（`memory.json`，`schema: bcg.memory.v2`） | `bcg.core.runner` | dashboard、benchmark、回放工具 |
-| `stream.schema.json` | stream JSONL（`belief_graph.jsonl` 行、`trajectory_stream.jsonl`、`result.json`） | `bcg.construct._shared.session` | `dashboard/bcg_viewer`、`build_stream_manifest.py` |
+| `stream.schema.json` | stream JSONL（`belief_graph.jsonl` 行、`trajectory_stream.jsonl`、`result.json`） | `bcg.construct._shared.session` | dashboard、benchmark |
 | `defaults.json` | 跨语言共享默认值（server host/port） | — | Python `bcg/config/defaults.yaml`、`agent-cli` settings |
 | `fixtures/` | 确定性请求/响应基准，Python 与 TypeScript 测试共用 | — | Python/TS contract tests |
 | `generate_ts_types.py` | 从 `http.schema.json` 生成 TypeScript 类型 | — | `agent-cli/src/core/context/bcg-contract.types.ts` |

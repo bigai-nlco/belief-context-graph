@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://bcg.dev/contracts/stream.schema.json",
   "title": "BCG stream artifacts",
-  "description": "Shapes of stream JSONL artifacts: one belief_graph.jsonl line (a live snapshot), trajectory_stream.jsonl lines and result.json. Consumed by dashboard/bcg_viewer and build_stream_manifest.py.",
+  "description": "Shapes of stream JSONL artifacts: one belief_graph.jsonl line (a live snapshot), trajectory_stream.jsonl lines and result.json. Consumed by the dashboard and benchmark tooling.",
   "schema_version": 1,
   "$defs": {
     "snapshot": { "$ref": "http.schema.json#/$defs/snapshot" },
