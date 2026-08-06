@@ -159,6 +159,7 @@ import { showTrustSelector, showUserMessageSelector } from "./trust-selectors.ts
 import { showTreeSelector, type TreeSelectorDeps } from "./tree-selector.ts";
 import { buildSessionInfoText } from "./session-info.ts";
 import { getCommandNameArgument, getPathCommandArgument } from "./command-args.ts";
+import { getUserMessageText } from "./message-utils.ts";
 import { buildResourceSections } from "./resources-sections.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -2581,15 +2582,6 @@ ${block.body}`, 0, 0),
 	}
 
 	/** Extract text content from a user message */
-	private getUserMessageText(message: Message): string {
-		if (message.role !== "user") return "";
-		const textBlocks =
-			typeof message.content === "string"
-				? [{ type: "text", text: message.content }]
-				: message.content.filter((c: { type: string }) => c.type === "text");
-		return textBlocks.map((c) => (c as { text: string }).text).join("");
-	}
-
 	/**
 	 * Show a status message in the chat.
 	 *
@@ -2683,7 +2675,7 @@ ${block.body}`, 0, 0),
 				break;
 			}
 			case "user": {
-				const textContent = this.getUserMessageText(message);
+				const textContent = getUserMessageText(message);
 				if (textContent) {
 					if (this.chatContainer.children.length > 0) {
 						this.chatContainer.addChild(new Spacer(1));
