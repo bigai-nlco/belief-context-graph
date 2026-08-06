@@ -156,6 +156,7 @@ import {
 	type AuthDialogDeps,
 } from "./auth-dialogs.ts";
 import { showTrustSelector, showUserMessageSelector } from "./trust-selectors.ts";
+import { showTreeSelector, type TreeSelectorDeps } from "./tree-selector.ts";
 import { buildResourceSections } from "./resources-sections.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -3908,139 +3909,56 @@ ${block.body}`, 0, 0),
 		}
 	}
 
+	private get treeSelectorDeps(): TreeSelectorDeps {
+		return {
+			showSelector: (create) => this.showSelector(create),
+			requestRender: () => this.ui.requestRender(),
+			showStatus: (message) => this.showStatus(message),
+			showError: (message) => this.showError(message),
+			getTree: () => this.sessionManager.getTree(),
+			getLeafId: () => this.sessionManager.getLeafId(),
+			getTerminalRows: () => this.ui.terminal.rows,
+			getTreeFilterMode: () => this.settingsManager.getTreeFilterMode(),
+			getBranchSummarySkipPrompt: () => this.settingsManager.getBranchSummarySkipPrompt(),
+			appendLabelChange: (entryId, label) => this.sessionManager.appendLabelChange(entryId, label),
+			promptForSummaryChoice: (title, options) => this.showExtensionSelector(title, options),
+			promptForCustomInstructions: (title) => this.showExtensionEditor(title),
+			abortBranchSummary: () => this.session.abortBranchSummary(),
+			navigateTree: (entryId, options) =>
+				this.session.navigateTree(entryId, {
+					summarize: options.summarize,
+					customInstructions: options.customInstructions,
+				}),
+			setEditorTextIfEmpty: (text) => {
+				if (!this.editor.getText().trim()) {
+					this.editor.setText(text);
+				}
+			},
+			flushCompactionQueue: () => {
+				void this.flushCompactionQueue({ willRetry: false });
+			},
+			withSummaryEscapeHandler: (handler) => {
+				const previous = this.defaultEditor.onEscape;
+				this.defaultEditor.onEscape = handler;
+				return () => {
+					this.defaultEditor.onEscape = previous;
+				};
+			},
+			showSummaryIndicator: () => {
+				this.chatContainer.addChild(new Spacer(1));
+				this.showStatusIndicator(new BranchSummaryStatusIndicator(this.ui));
+			},
+			clearSummaryIndicator: () => {
+				this.clearStatusIndicator("branchSummary");
+			},
+			renderInitialMessages: () => this.renderInitialMessages(),
+			clearChat: () => this.chatContainer.clear(),
+			copyToClipboard: (text) => copyToClipboard(text),
+		};
+	}
+
 	private showTreeSelector(initialSelectedId?: string): void {
-		const tree = this.sessionManager.getTree();
-		const realLeafId = this.sessionManager.getLeafId();
-		const initialFilterMode = this.settingsManager.getTreeFilterMode();
-
-		if (tree.length === 0) {
-			this.showStatus("No entries in session");
-			return;
-		}
-
-		this.showSelector((done) => {
-			const selector = new TreeSelectorComponent(
-				tree,
-				realLeafId,
-				this.ui.terminal.rows,
-				async (entryId) => {
-					// Selecting the current leaf is a no-op (already there)
-					if (entryId === realLeafId) {
-						done();
-						this.showStatus("Already at this point");
-						return;
-					}
-
-					// Ask about summarization
-					done(); // Close selector first
-
-					// Loop until user makes a complete choice or cancels to tree
-					let wantsSummary = false;
-					let customInstructions: string | undefined;
-
-					// Check if we should skip the prompt (user preference to always default to no summary)
-					if (!this.settingsManager.getBranchSummarySkipPrompt()) {
-						while (true) {
-							const summaryChoice = await this.showExtensionSelector("Summarize branch?", [
-								"No summary",
-								"Summarize",
-								"Summarize with custom prompt",
-							]);
-
-							if (summaryChoice === undefined) {
-								// User pressed escape - re-show tree selector with same selection
-								this.showTreeSelector(entryId);
-								return;
-							}
-
-							wantsSummary = summaryChoice !== "No summary";
-
-							if (summaryChoice === "Summarize with custom prompt") {
-								customInstructions = await this.showExtensionEditor("Custom summarization instructions");
-								if (customInstructions === undefined) {
-									// User cancelled - loop back to summary selector
-									continue;
-								}
-							}
-
-							// User made a complete choice
-							break;
-						}
-					}
-
-					// Set up escape handler and status indicator if summarizing
-					let showingSummaryIndicator = false;
-					const originalOnEscape = this.defaultEditor.onEscape;
-
-					if (wantsSummary) {
-						this.defaultEditor.onEscape = () => {
-							this.session.abortBranchSummary();
-						};
-						this.chatContainer.addChild(new Spacer(1));
-						this.showStatusIndicator(new BranchSummaryStatusIndicator(this.ui));
-						showingSummaryIndicator = true;
-						this.ui.requestRender();
-					}
-
-					try {
-						const result = await this.session.navigateTree(entryId, {
-							summarize: wantsSummary,
-							customInstructions,
-						});
-
-						if (result.aborted) {
-							// Summarization aborted - re-show tree selector with same selection
-							this.showStatus("Branch summarization cancelled");
-							this.showTreeSelector(entryId);
-							return;
-						}
-						if (result.cancelled) {
-							this.showStatus("Navigation cancelled");
-							return;
-						}
-
-						// Update UI
-						this.chatContainer.clear();
-						this.renderInitialMessages();
-						if (result.editorText && !this.editor.getText().trim()) {
-							this.editor.setText(result.editorText);
-						}
-						this.showStatus("Navigated to selected point");
-						void this.flushCompactionQueue({ willRetry: false });
-					} catch (error) {
-						this.showError(error instanceof Error ? error.message : String(error));
-					} finally {
-						if (showingSummaryIndicator) {
-							this.clearStatusIndicator("branchSummary");
-						}
-						this.defaultEditor.onEscape = originalOnEscape;
-					}
-				},
-				() => {
-					done();
-					this.ui.requestRender();
-				},
-				(entryId, label) => {
-					this.sessionManager.appendLabelChange(entryId, label);
-					this.ui.requestRender();
-				},
-				initialSelectedId,
-				initialFilterMode,
-			);
-			selector.onCopy = async (text) => {
-				if (!text) {
-					this.showError("Selected entry has no text to copy");
-					return;
-				}
-				try {
-					await copyToClipboard(text);
-					this.showStatus("Copied selected message to clipboard");
-				} catch (error) {
-					this.showError(error instanceof Error ? error.message : String(error));
-				}
-			};
-			return { component: selector, focus: selector };
-		});
+		showTreeSelector(this.treeSelectorDeps, initialSelectedId);
 	}
 
 	private showSessionSelector(): void {
