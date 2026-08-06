@@ -44,11 +44,11 @@
 				"hosted-git-info": "9.0.3",
 				"ignore": "7.0.5",
 				"jiti": "2.7.0",
-				"minimatch": "10.2.5",
+				"minimatch": "^10.2.6",
 				"proper-lockfile": "4.1.2",
 				"semver": "7.8.0",
 				"typebox": "1.1.38",
-				"undici": "8.5.0",
+				"undici": "^8.10.0",
 				"yaml": "2.9.0"
 			},
 			"bin": {
@@ -1432,9 +1432,9 @@
 			"license": "MIT"
 		},
 		"node_modules/brace-expansion": {
-			"version": "5.0.8",
-			"resolved": "https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.8.tgz",
-			"integrity": "sha512-JZyDyq3D4AUifKTPOB7DELf6XsB3WdPuNxCtob1vFXPsSXhdAiHBWJ/tJ8HAc9aH84BK+5JFZLNkJKx3G9kzQg==",
+			"version": "5.0.9",
+			"resolved": "https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.9.tgz",
+			"integrity": "sha512-ScQ4IuvIEF1TMlP7Zt+vjJ//9zlPb2SDcxWxM3bk8s6t6GGdJ7KO1dCcTidOPJKePW30LE/2cT7wCyPho9/Wxg==",
 			"inBundle": true,
 			"license": "MIT",
 			"dependencies": {
@@ -2487,13 +2487,13 @@
 			}
 		},
 		"node_modules/minimatch": {
-			"version": "10.2.5",
-			"resolved": "https://registry.npmjs.org/minimatch/-/minimatch-10.2.5.tgz",
-			"integrity": "sha512-MULkVLfKGYDFYejP07QOurDLLQpcjk7Fw+7jXS2R2czRQzR56yHRveU5NDJEOviH+hETZKSkIk5c+T23GjFUMg==",
+			"version": "10.2.6",
+			"resolved": "https://registry.npmjs.org/minimatch/-/minimatch-10.2.6.tgz",
+			"integrity": "sha512-vpLQEs+VLCr1nU0BXS07maYoFwlDAH0gngQuuttxIwutDFEMHq2blX+8vpgxDdK3J1PwjCJiep77OitTZ4Ll1A==",
 			"inBundle": true,
 			"license": "BlueOak-1.0.0",
 			"dependencies": {
-				"brace-expansion": "^5.0.5"
+				"brace-expansion": "^5.0.8"
 			},
 			"engines": {
 				"node": "18 || 20 || >=22"
@@ -3276,9 +3276,9 @@
 			}
 		},
 		"node_modules/undici": {
-			"version": "8.5.0",
-			"resolved": "https://registry.npmjs.org/undici/-/undici-8.5.0.tgz",
-			"integrity": "sha512-xamtWoB1EshgjpmlXd7GGm2VfdDtw1+rD8uhry8pSNW3If6S8E0m2T2+orSKeZXEn/aPJMviCpDBA65WJt8zhg==",
+			"version": "8.10.0",
+			"resolved": "https://registry.npmjs.org/undici/-/undici-8.10.0.tgz",
+			"integrity": "sha512-HvltHd7avK13QIw/oLe4qoOLyoVSoafqJ2jYOrtMRBkbYT31eiBQ8O0ehRKZiEZCMEyLFQNIADpgCWC5fALvYQ==",
 			"inBundle": true,
 			"license": "MIT",
 			"engines": {

@@ -53,16 +53,16 @@
 		"hosted-git-info": "9.0.3",
 		"ignore": "7.0.5",
 		"jiti": "2.7.0",
-		"minimatch": "10.2.5",
+		"minimatch": "^10.2.6",
 		"proper-lockfile": "4.1.2",
 		"semver": "7.8.0",
 		"typebox": "1.1.38",
-		"undici": "8.5.0",
+		"undici": "^8.10.0",
 		"yaml": "2.9.0"
 	},
 	"bundledDependencies": true,
 	"overrides": {
-		"brace-expansion": "5.0.8",
+		"brace-expansion": "5.0.9",
 		"protobufjs": "7.6.5",
 		"rimraf": "6.1.2",
 		"gaxios": {
@@ -100,5 +100,25 @@
 	},
 	"engines": {
 		"node": ">=22.19.0"
-	}
+	},
+	"bundleDependencies": [
+		"@bigai-nlco/bcg-agent-core",
+		"@bigai-nlco/bcg-ai",
+		"@bigai-nlco/bcg-tui",
+		"@silvia-odwyer/photon-node",
+		"chalk",
+		"cross-spawn",
+		"diff",
+		"glob",
+		"highlight.js",
+		"hosted-git-info",
+		"ignore",
+		"jiti",
+		"minimatch",
+		"proper-lockfile",
+		"semver",
+		"typebox",
+		"undici",
+		"yaml"
+	]
 }
