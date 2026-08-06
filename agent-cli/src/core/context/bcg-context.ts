@@ -1,4 +1,5 @@
 import type { AgentMessage } from "@bigai-nlco/bcg-agent-core";
+import { BcgClient, type BcgTurnPayload } from "./bcg-client.ts";
 import type { BcgSnapshot, BcgTurn } from "./bcg-contract.types.ts";
 import { bashExecutionToText } from "../messages.ts";
 
@@ -24,10 +25,6 @@ export class BcgTurnLimitError extends Error {
 	}
 }
 
-// Wire types come from the versioned cross-language contract
-// (contracts/http.schema.json; generated file bcg-contract.types.ts).
-// BcgTurnPayload pins the flags this client always sends.
-type BcgTurnPayload = BcgTurn & { is_message_end: true; is_trajectory_end: false };
 
 export interface BcgContextManagerOptions {
 	baseUrl: string;
@@ -46,6 +43,7 @@ interface SerializedMessage {
 	message: AgentMessage;
 	payload: BcgTurnPayload | undefined;
 }
+
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
@@ -199,29 +197,6 @@ function partitionTurns(
 	};
 }
 
-function parseSnapshot(value: unknown, problemId: string): BcgSnapshot | undefined {
-	if (!isRecord(value)) {
-		return undefined;
-	}
-	if (Array.isArray(value.beliefs)) {
-		return value as unknown as BcgSnapshot;
-	}
-	const latest = value.latest;
-	if (!isRecord(latest)) {
-		return undefined;
-	}
-	const matching = latest[problemId];
-	if (isRecord(matching)) {
-		return matching as unknown as BcgSnapshot;
-	}
-	for (const snapshot of Object.values(latest)) {
-		if (isRecord(snapshot)) {
-			return snapshot as unknown as BcgSnapshot;
-		}
-	}
-	return undefined;
-}
-
 export function formatBcgMarkdown(snapshot: BcgSnapshot, includeRelations = true): string {
 	const beliefs = Array.isArray(snapshot.beliefs) ? snapshot.beliefs : [];
 	if (beliefs.length === 0) {
@@ -255,7 +230,7 @@ export class BcgContextManager {
 	private readonly includeRelations: boolean;
 	private readonly getSystemPrompt: () => string;
 	private readonly getInitialUserMessage?: () => AgentMessage | undefined;
-	private readonly fetch: typeof globalThis.fetch;
+	private readonly client: BcgClient;
 	private readonly onWarning: (message: string) => void;
 	private readonly sentMessages = new WeakSet<object>();
 	private seeded = false;
@@ -275,7 +250,7 @@ export class BcgContextManager {
 		this.includeRelations = options.includeRelations;
 		this.getSystemPrompt = options.getSystemPrompt;
 		this.getInitialUserMessage = options.getInitialUserMessage;
-		this.fetch = options.fetch ?? globalThis.fetch;
+		this.client = new BcgClient({ baseUrl: options.baseUrl, problemId: options.problemId, timeoutMs: options.timeoutMs, fetch: options.fetch });
 		this.onWarning = options.onWarning ?? ((message) => console.warn(message));
 	}
 
@@ -349,15 +324,7 @@ export class BcgContextManager {
 		}
 		this.released = true;
 		try {
-			const response = await this.fetch(`${this.baseUrl}/release`, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ problem_id: this.problemId }),
-				signal: AbortSignal.timeout(this.timeoutMs),
-			});
-			if (!response.ok && response.status !== 404) {
-				throw new Error(`BCG server returned HTTP ${response.status}`);
-			}
+			await this.client.release();
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
 			this.onWarning(`[BCG context] failed to release Graph session: ${detail}`);
@@ -403,24 +370,8 @@ export class BcgContextManager {
 		if (this.submittedTurns + payloads.length > this.maxTurns) {
 			throw new BcgTurnLimitError(this.submittedTurns, this.maxTurns);
 		}
-		const signals = [AbortSignal.timeout(this.timeoutMs)];
-		if (signal) {
-			signals.push(signal);
-		}
-		const response = await this.fetch(`${this.baseUrl}/turns`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(payloads),
-			signal: AbortSignal.any(signals),
-		});
-		if (!response.ok) {
-			throw new Error(`BCG server returned HTTP ${response.status}`);
-		}
+		const snapshot = await this.client.postTurns(payloads, signal);
 		this.submittedTurns += payloads.length;
-		const snapshot = parseSnapshot(await response.json(), this.problemId);
-		if (!snapshot) {
-			throw new Error("BCG server returned an invalid graph snapshot");
-		}
 		return snapshot;
 	}
 
