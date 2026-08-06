@@ -134,6 +134,12 @@ import {
 	getBuiltInCommandConflictDiagnostics,
 	prefixAutocompleteDescription,
 } from "./autocomplete-source.ts";
+import {
+	showLoginAuthTypeSelector,
+	showLoginProviderSelector,
+	showOAuthSelector,
+	type AuthSelectorsDeps,
+} from "./auth-selectors.ts";
 import { buildResourceSections } from "./resources-sections.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -4220,6 +4226,22 @@ ${block.body}`, 0, 0),
 		}
 	}
 
+	private get authSelectorDeps(): AuthSelectorsDeps {
+		return {
+			showStatus: (message) => this.showStatus(message),
+			showError: (message) => this.showError(message),
+			requestRender: () => this.ui.requestRender(),
+			showSelector: (create) => this.showSelector(create),
+			getLoginProviderOptions: (authType) => this.getLoginProviderOptions(authType),
+			getLogoutProviderOptions: () => this.getLogoutProviderOptions(),
+			startProviderLogin: (option) => this.startProviderLogin(option),
+			logout: async (providerId) => {
+				await this.session.modelRuntime.logout(providerId);
+				await this.updateAvailableProviderCount();
+			},
+		};
+	}
+
 	private getLoginProviderOptions(authType?: "oauth" | "api_key"): AuthSelectorProvider[] {
 		return buildLoginProviderOptions(this.session.modelRuntime, authType);
 	}
@@ -4267,151 +4289,18 @@ ${block.body}`, 0, 0),
 	}
 
 	private showLoginAuthTypeSelector(providerOptions?: AuthSelectorProvider[]): void {
-		const oauthProvider = providerOptions?.find((provider) => provider.authType === "oauth");
-		const oauthLoginLabel =
-			oauthProvider?.method && "loginLabel" in oauthProvider.method ? oauthProvider.method.loginLabel : undefined;
-		const subscriptionLabel = oauthLoginLabel ?? "Sign in with an account";
-		const apiKeyLabel = "Sign in with an API key";
-		const availableAuthTypes = providerOptions
-			? new Set(providerOptions.map((provider) => provider.authType))
-			: new Set<AuthSelectorProvider["authType"]>(["oauth", "api_key"]);
-		const options: string[] = [];
-		if (availableAuthTypes.has("oauth")) {
-			options.push(subscriptionLabel);
-		}
-		if (availableAuthTypes.has("api_key")) {
-			options.push(apiKeyLabel);
-		}
-
-		if (options.length === 0) {
-			this.showStatus("No login methods available.");
-			return;
-		}
-
-		if (providerOptions && options.length === 1) {
-			const providerOption = providerOptions[0];
-			if (providerOption) {
-				void this.startProviderLogin(providerOption);
-			}
-			return;
-		}
-
-		const title = providerOptions?.[0]
-			? `Select authentication method for ${providerOptions[0].name}:`
-			: "Select authentication method:";
-		this.showSelector((done) => {
-			const selector = new ExtensionSelectorComponent(
-				title,
-				options,
-				(option) => {
-					done();
-					const authType = option === subscriptionLabel ? "oauth" : "api_key";
-					if (providerOptions) {
-						const providerOption = providerOptions.find((provider) => provider.authType === authType);
-						if (providerOption) {
-							void this.startProviderLogin(providerOption);
-						}
-						return;
-					}
-					this.showLoginProviderSelector(authType);
-				},
-				() => {
-					done();
-					this.ui.requestRender();
-				},
-			);
-			return { component: selector, focus: selector };
-		});
+		showLoginAuthTypeSelector(this.authSelectorDeps, providerOptions);
 	}
 
-	private showLoginProviderSelector(authType?: AuthSelectorProvider["authType"], initialSearchInput?: string): void {
-		const providerOptions = this.getLoginProviderOptions(authType);
-		if (providerOptions.length === 0) {
-			const message =
-				authType === "oauth"
-					? "No subscription providers available."
-					: authType === "api_key"
-						? "No API key providers available."
-						: "No login providers available.";
-			this.showStatus(message);
-			return;
-		}
-
-		this.showSelector((done) => {
-			const selector = new OAuthSelectorComponent(
-				"login",
-				providerOptions,
-				async (providerId, selectedAuthType) => {
-					done();
-
-					const providerOption = providerOptions.find(
-						(provider) => provider.id === providerId && provider.authType === selectedAuthType,
-					);
-					if (!providerOption) {
-						return;
-					}
-
-					await this.startProviderLogin(providerOption);
-				},
-				() => {
-					done();
-					if (authType) {
-						this.showLoginAuthTypeSelector();
-					} else {
-						this.ui.requestRender();
-					}
-				},
-				initialSearchInput,
-			);
-			return { component: selector, focus: selector };
-		});
+	private showLoginProviderSelector(
+		authType?: AuthSelectorProvider["authType"],
+		initialSearchInput?: string,
+	): void {
+		showLoginProviderSelector(this.authSelectorDeps, authType, initialSearchInput);
 	}
 
 	private async showOAuthSelector(mode: "login" | "logout"): Promise<void> {
-		if (mode === "login") {
-			this.showLoginAuthTypeSelector();
-			return;
-		}
-
-		const providerOptions = await this.getLogoutProviderOptions();
-		if (providerOptions.length === 0) {
-			this.showStatus(
-				"No stored credentials to remove. /logout only removes credentials saved by /login; environment variables and models.json config are unchanged.",
-			);
-			return;
-		}
-
-		this.showSelector((done) => {
-			const selector = new OAuthSelectorComponent(
-				mode,
-				providerOptions,
-				async (providerId: string) => {
-					done();
-
-					const providerOption = providerOptions.find((provider) => provider.id === providerId);
-					if (!providerOption) {
-						return;
-					}
-
-					try {
-						await this.session.modelRuntime.logout(providerOption.id);
-						await this.updateAvailableProviderCount();
-						const message =
-							providerOption.authType === "oauth"
-								? `Logged out of ${providerOption.name}`
-								: `Removed stored API key for ${providerOption.name}. Environment variables and models.json config are unchanged.`;
-						this.showStatus(message);
-					} catch (error: unknown) {
-						this.showError(`Logout failed: ${error instanceof Error ? error.message : String(error)}`);
-					}
-				},
-				() => {
-					done();
-					this.ui.requestRender();
-				},
-			);
-			return { component: selector, focus: selector };
-		});
+		await showOAuthSelector(this.authSelectorDeps, mode);
 	}
 
 	private async completeProviderAuthentication(
