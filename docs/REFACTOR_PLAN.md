@@ -632,7 +632,7 @@ bcg/
 
 ---
 
-## 第二部分：仓库级重构（步骤 9-14 已完成，步骤 11 结项，步骤 15-16 待执行）
+## 第二部分：仓库级重构（步骤 9-15 已完成，步骤 11 结项，步骤 16 待执行）
 
 ### 10. 审计结论与当前基线
 
@@ -1056,6 +1056,36 @@ dry-run golden 覆盖默认值和 override；TongGraph 数据目录 override 被
 `scripts/start.sh`、个人绝对路径或失效命令；benchmark fixture 与当前 artifact contract 一致。
 
 **回滚：** 文档随对应行为提交或紧随其后；不得先删旧说明而没有新规范入口。
+
+#### 步骤 15 执行记录（2026-08-06，已完成）
+
+- **CONTRIBUTING（文档 2、5）**：required checks 与 `make check` 链逐项
+  对齐（lint/compile/test、agent、dashboard、shell、scripts golden、
+  contracts、release+install smoke），明确"CI 就是 make check 原样"；
+  新增 E2E/外部服务测试说明与安全升级流程（11.6 策略）；维护边界矩阵
+  （core/construct/benchmark/Agent/Dashboard/deploy/contracts）+ 跨组件
+  变更审批点；架构决策指向 docs/adr/。
+- **benchmark（文档 3）**：固定最小 fixture
+  `tests/fixtures/benchmark/browsecomp.jsonl` + 端到端 loader smoke 测试；
+  `bcg/apps/benchmark/README.md` 说明只读消费（artifact 形状由
+  stream.schema.json / memory document 契约覆盖）与数据政策
+  （完整数据集不入库、缺失数据 loud fail）。
+- **过期引用清理（文档 6、验收）**：bcg_viewer（deprecated 只读工具）的
+  `bcg-construct`/`scripts/start.sh`/`outputs_7_2`/`/home/yofuria/...`
+  个人路径全部清除（stream 目录回退改为仓库 outputs、Run 按钮显式
+  `--start-sh`）；dashboard/package.json 补 license/repository 元数据；
+  deploy/README.md 说明模板与 data_dir 注入。git grep 确认 tracked 文件
+  无 bcg-construct、scripts/start.sh、/home/yofuria、172.25.10.2
+  （REFACTOR_PLAN 自身历史语境除外）。
+- **README/维护文档（文档 1）**：README 架构图与 Quick Start 已按真实
+  组件（api_based/light、install 两路径）；Agent（agent-cli/README）、
+  Dashboard（dashboard/README + 功能矩阵）、部署（scripts/README +
+  deploy/README）各有最小维护文档。
+- 验收核对：新开发者按受跟踪文档可复现 required checks（CONTRIBUTING
+  命令即 make check）✅；全仓无已删除组件名/个人路径/失效命令 ✅；
+  benchmark fixture 与当前 artifact contract 一致 ✅。
+- 测试/检查：make check 全绿（Python 181（+1 fixture smoke）、Agent
+  121、Dashboard 15、contracts、scripts、release、hygiene）。
 
 ### 步骤 16：在兼容窗口后删除旧代码
 
