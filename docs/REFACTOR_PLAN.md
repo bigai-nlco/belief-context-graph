@@ -632,7 +632,7 @@ bcg/
 
 ---
 
-## 第二部分：仓库级重构（步骤 9-15 已完成，步骤 11 结项，步骤 16 待执行）
+## 第二部分：仓库级重构（全部完成：步骤 9-16）
 
 ### 10. 审计结论与当前基线
 
@@ -1106,6 +1106,46 @@ dry-run golden 覆盖默认值和 override；TongGraph 数据目录 override 被
 3. 新入口拥有等价 contract/unit/smoke 保护，必要数据已完成迁移演练。
 4. 删除作为独立 breaking commit/PR，不夹带新功能或格式变化。
 5. 回滚方式明确；持久化数据 reader 通常比 writer 多保留一个版本。
+
+#### 步骤 16 执行记录（2026-08-06，已完成）
+
+兼容层从未发布过任何版本（重构全程在仓库内进行，1.0.0 尚未发布），
+因此不存在"已发布的兼容窗口"；删除按独立 breaking commit 执行，
+消费者扫描（git grep 全仓 tracked 文件）确认无未迁移引用。
+
+删除的候选：
+
+1. **Python 转发壳（breaking commit `f272dc3`）**：`bcg.graph`/`memory`/
+   `runner`/`llm`/`env`/`utils`/`tracing`/`setup`/`agent_runtime`/`run`/
+   `online_server`/`online_driver`/`visualize_beliefs_graph`/`cli`/
+   `cli_help` 及 `bcg.benchmark` 转发包。消费者全部改为规范路径
+   （construct CLI→`bcg.apps.*`、`api_based/utils`→`bcg.core.utils`、
+   agent_runtime 子进程→`bcg.apps.online_server`、tests→core/apps）；
+   架构/legacy-module/CLI 契约测试同步更新。
+2. **旧 JSON 配置 migration adapters（breaking commit `dc131f4`）**：
+   `bcg.config.migration`（migrate_model_config/migrate_user_config/
+   legacy_settings/migrate_to_yaml/find_legacy_configs）、`bcg config
+   migrate` 命令、4B 测试段。YAML 配置自步骤 4 起是唯一路径；
+   LEGACY_CONFIG_PATH/runtime 模块保留（仍是当前运行时配置行为）。
+3. **`dashboard/bcg_viewer/`（breaking commit `b549e0b`）**：步骤 12 功能
+   矩阵达成后删除；live-demo gif 移至 docs/images；README/contracts
+   消费者列表更新。
+
+保留（按文档条件 5 与 13 承诺）：
+
+- **Agent session v1/v2 迁移器**（migrateSessionEntries）：持久化数据
+  reader 多保留一个版本（旧 session 文件仍需可读）。
+- **SGLang 的 `VLLM_*` 环境变量 alias**：映射到同一内部配置、不复制启动
+  逻辑；scripts/README 承诺的"一个发布周期"窗口从 1.0.0 发布后起算。
+
+最终验收：
+
+- 全仓 required checks 全绿（Python 174、Agent 121、Dashboard 15、
+  contracts、scripts golden、release+install smoke、hygiene）。✅
+- 跨语言 contract 测试通过（http/artifact/TS 生成类型）。✅
+- clean install + package smoke 通过（wheel 内容、install smoke）。✅
+- 无两套可写业务实现（转发壳/双后端统一路径/单一 session writer）。✅
+- 兼容层列表与删除记录在案（本节 + 三个 breaking commit）。✅
 
 **最终验收：** 全仓 required checks、跨语言 contract、clean install、package smoke 全绿；无两套可写业务实现；
 旧路径返回清晰迁移错误或按发布策略消失；文档和 release manifest 同步。
