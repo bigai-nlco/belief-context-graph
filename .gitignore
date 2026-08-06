@@ -249,6 +249,7 @@ TongGraph/
 
 # Temporary local docs (not for version control)
 REFACTOR_PLAN_*.md
+docs/REFACTOR_PLAN.md
 
 # PyPI configuration file
 .pypirc
