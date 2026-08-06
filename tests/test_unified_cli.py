@@ -148,3 +148,19 @@ def test_api_based_module_cli_prepends_backend(command, target, monkeypatch) -> 
     api_cli.main([command, "--config", "model_config.json"])
 
     assert received == ["api_based", "--config", "model_config.json"]
+
+
+def test_config_command_shows_effective_settings(capsys: pytest.CaptureFixture[str]) -> None:
+    """bcg config must stay a direct command (typer flattens single-command
+    sub-apps, which broke 'config show' after migrate was removed)."""
+    cli.main(["config", "--json"])
+    import json as _json
+
+    payload = _json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == 1
+    assert payload["backend"] in {"api_based", "light"}
+
+    cli.main(["config"])
+    out = capsys.readouterr().out
+    assert "Loaded files:" in out
+    assert "[runner]" in out
