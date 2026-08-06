@@ -14,10 +14,12 @@ Node schema additions:
   * node_type: "belief" | "decision"
   * entities: list[str]
   * evidence_ids: list[int]
-  * confidence / initial_confidence / evidence_confidence
+  * confidence / initial_confidence / evidence_confidence / factor_confidence
 
 Relation schema:
   * depends_on | supplements | contradicts
+  * depends_on / contradicts carry weight + activated_condition
+  * supplements keeps weight and activated_condition as null
 
   * merging is incremental only (per-turn, embedding-based); there is no
     trajectory-end global merge/dedup pass.

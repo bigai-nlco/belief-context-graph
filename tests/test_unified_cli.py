@@ -150,7 +150,9 @@ def test_api_based_module_cli_prepends_backend(command, target, monkeypatch) -> 
     assert received == ["api_based", "--config", "model_config.json"]
 
 
-def test_config_command_shows_effective_settings(capsys: pytest.CaptureFixture[str]) -> None:
+def test_config_command_shows_effective_settings(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """bcg config must stay a direct command (typer flattens single-command
     sub-apps, which broke 'config show' after migrate was removed)."""
     cli.main(["config", "--json"])

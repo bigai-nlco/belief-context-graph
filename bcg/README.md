@@ -59,7 +59,7 @@ You can drive either backend two ways:
 | Entities | Local spaCy NER (or HF token-classification), run **after** that turn's merge is complete | Returned directly by the node-extraction call |
 | Relations | Separate non-thinking Qwen model; backward window is either the immediately-previous turn only (`search_previous_turns: false`) or a full backward walk (`true`, the example config's default) | Same model, always a full backward walk: current turn vs. the immediately-previous turn's surviving nodes, walking further back one turn at a time until a cross-turn edge lands (or no turn remains) |
 | Evidence granularity | Whole semantic chunk (exact offsets) | Whole sentence (exact offsets, default) or model-quoted excerpt (`--evidence-mode excerpt`, located by a 3-stage exact→normalised→fuzzy matcher) |
-| Confidence policy | Hardcoded `(role, stance)` lookup table in `confidence.py` | Hardcoded `(role, stance)` lookup table in `confidence.py` |
+| Confidence policy | `api_based`: hardcoded `(role, stance)` table; `light`: config-driven prior — both plus evidence + relation factor confidence in `confidence.py` | Role/stance prior table plus the same evidence and relation factor confidence fields in `confidence.py` |
 | Merge | Incremental, embedding-only (**no** LLM verify step) | Incremental embedding merge, **optionally** LLM-verified + rewritten (`--verify-merge`, default off) |
 | Runtime tuning | Almost entirely via `model_config.json`'s `belief_graph` block — `bcg/run.py light` exposes no backend-specific CLI flags | Via CLI flags on `bcg/run.py` / `bcg/online_server.py` (`--evidence-mode`, `--incremental-merge*`, `--verify-merge`, `--context-chars`, `--min-content-len`) |
 | API key | Same mechanism as `api_based` — see [Configuration](#configuration) | `api_key_env` resolved from a project-root `.env` via `bcg.core.env` |
@@ -94,13 +94,15 @@ into whole sentences with exact offsets; in *excerpt* mode the model quotes
 a span verbatim and it's located by exact → whitespace-normalised → fuzzy
 matching.
 
-**Confidence** (`confidence.py`) is a logistic combination:
-`confidence = sigmoid(logit(initial_confidence) + evidence_confidence)`,
-where `initial_confidence` comes from a fixed `(role, stance)` table and
-`evidence_confidence` accumulates `source_reliability × stance_quality` for
-every piece of *additional* evidence folded in later by a merge (the
-evidence that created the node isn't counted twice). Every change is
-recorded in `confidence_history`.
+**Confidence** (`confidence.py`) is a logistic posterior:
+`confidence = sigmoid(logit(initial_confidence) + evidence_confidence + factor_confidence)`.
+`initial_confidence` is the node prior, `evidence_confidence` accumulates
+additional evidence folded in later by a merge, and `factor_confidence` is
+recomputed from active relation edges. `depends_on` contributes positive support
+from `to_id` to `from_id`; `contradicts` contributes negative support from
+`from_id` to `to_id`; `supplements` is semantic-only and keeps `weight` and
+`activated_condition` as `null`. Every change is recorded in
+`confidence_history`.
 
 **Merge gating**: nodes may only merge when their source `role` and
 `node_type` are identical. The canonical survivor is always the smallest id
@@ -150,11 +152,11 @@ produced a node (exact offsets) — there's no sentence/excerpt toggle; the
 `belief_graph.runtime.evidence_mode` config value ("chunk") is recorded but
 not branched on anywhere.
 
-**Confidence** uses the same logit/sigmoid posterior form as `api_based`,
-but every input to it — source reliability per role, stance quality per
-label, the aggregation method (`weighted_average`/`product`, etc.) — comes
-from `belief_graph.confidence` in `model_config.json` rather than a
-hardcoded table.
+**Confidence** uses the same logit/sigmoid posterior form as `api_based`.
+For `light`, source reliability per role, stance quality per label, aggregation
+method, relation default weight, relation activation threshold, propagation
+delta threshold, and maximum propagation iterations all come from
+`belief_graph.confidence` in `model_config.json`.
 
 **Timing**, per built turn: `node_generation`, `merging`,
 `entity_extraction`, `edge_generation`, plus `turn_total` — no `llm_check`
@@ -294,7 +296,7 @@ will actually touch:
     "runtime": { "evidence_mode": "chunk", "context_chars": 100000, "min_content_len": 0 },
     "incremental_merge": { "enabled": true, "threshold": 0.76, "keep_newest_text": false },
     "entities": { "method": "ml", "spacy_model": "en_core_web_sm" },
-    "confidence": { "initial_method": "weighted_average", "evidence_method": "product", ... },
+    "confidence": { "initial_method": "weighted_average", "evidence_method": "product", "default_relation_weight": 0.5, "input_confidence_threshold": 0.8, "propagation_min_confidence_delta": 0.001, "max_propagation_iterations": 3, ... },
     "chunking": { "enabled": true, "breakpoint_percentile_threshold": 95.0, "buffer_size": 1, "isolate_tool_calls": true }
   }
 }
@@ -304,7 +306,7 @@ Every field under `belief_graph`'s sub-sections is **required** — each
 normaliser (`normalize_extractor_config`, `normalize_edge_config`, ...)
 raises `ValueError` listing exactly which key is missing, so copy from
 `model_config.example.json` rather than writing a section from scratch.
-`api_based` ignores the whole `belief_graph` block.
+`api_based` reads `belief_graph.confidence` for relation-confidence propagation so batch `run.py` and `online_server.py` use the same thresholds; the rest of the `belief_graph` block is light-only.
 
 ---
 
