@@ -7,13 +7,6 @@ from bcg.config.loader import (
     load_settings,
     locate_config_files,
 )
-from bcg.config.migration import (
-    find_legacy_configs,
-    legacy_settings,
-    migrate_model_config,
-    migrate_to_yaml,
-    migrate_user_config,
-)
 from bcg.config.runtime import (
     LEGACY_CONFIG_PATH,
     RuntimeConfig,
@@ -31,14 +24,9 @@ __all__ = [
     "RuntimeConfig",
     "SCHEMA_VERSION",
     "defaults_dict",
-    "find_legacy_configs",
     "load_construct_config",
-    "legacy_settings",
     "load_settings",
     "locate_config_files",
-    "migrate_model_config",
-    "migrate_to_yaml",
-    "migrate_user_config",
     "resolve_runtime_config",
     "settings_to_construct_config",
 ]

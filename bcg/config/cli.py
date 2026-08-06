@@ -1,4 +1,4 @@
-"""``bcg config`` subcommands: show effective settings and migrate legacy JSON."""
+"""``bcg config`` subcommands: show effective settings."""
 
 from __future__ import annotations
 
@@ -9,11 +9,10 @@ from typing import Annotated
 import typer
 
 from bcg.config import load_settings, locate_config_files
-from bcg.config.migration import migrate_to_yaml
 
 app = typer.Typer(
     name="config",
-    help="Inspect the unified configuration or migrate legacy JSON files.",
+    help="Inspect the unified configuration.",
     add_completion=False,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
@@ -50,29 +49,4 @@ def show(
             typer.echo(f"{section}: {value}")
 
 
-@app.command("migrate")
-def migrate(
-    output: Annotated[
-        Path | None,
-        typer.Option(
-            "--output",
-            "-o",
-            help="Destination YAML file (default: ~/.bcg/config.yaml).",
-        ),
-    ] = None,
-) -> None:
-    """Convert legacy model_config.json / ~/.bcg/config.json to YAML."""
-
-    from bcg.apps.setup import state_root
-
-    dest = output or (state_root() / "config.yaml")
-    try:
-        written = migrate_to_yaml(dest)
-    except FileNotFoundError as exc:
-        typer.echo(f"bcg config migrate: {exc}", err=True)
-        raise typer.Exit(1) from exc
-    typer.echo(f"Wrote {written}")
-    typer.echo("Remove the legacy JSON files once the YAML config is verified.")
-
-
-__all__ = ["app"]
+_all__ = ["app"]
