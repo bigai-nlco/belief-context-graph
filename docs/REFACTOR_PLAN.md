@@ -632,7 +632,7 @@ bcg/
 
 ---
 
-## 第二部分：仓库级重构（步骤 9-10 已完成，步骤 11-16 待执行）
+## 第二部分：仓库级重构（步骤 9-10 已完成，步骤 11 进行中，步骤 12-16 待执行）
 
 ### 10. 审计结论与当前基线
 
@@ -800,6 +800,41 @@ Dashboard；Agent test 不再依赖开发者记住隐含顺序；不产生受跟
 - contract diff 能在 CI 阻止未声明的 breaking change（版本守卫 + 生成 freshness）。✅
 - 日志和 fixture 不含凭据。✅
 - 跨语言 fixture 双边消费（`contracts/fixtures/`）。✅
+
+#### 步骤 11 执行记录（2026-08-06，进行中）
+
+- **11.1 包测试入口与 export contract（已完成）**：三个 workspace 包
+  （bcg-agent-core / bcg-ai / bcg-tui）各加 `pretest`（build）+ `test`（vitest）
+  脚本和 export-contract 测试；三者均确认可独立发布（无 shell 依赖），
+  bcg-ai 根入口保持无副作用（不泄漏 generated catalogs）。
+- **11.2 BCG HTTP 收敛（已完成）**：`src/core/context/bcg-client.ts` 成为
+  contract-backed client（URL 组装、AbortSignal 组合、错误信封消费、
+  latest[problemId] 解析、release 幂等）；`BcgContextManager` 只保留上下文
+  窗口策略（发送哪些 turn、上限、markdown 渲染、降级）。错误消息现包含
+  服务器 error envelope 文本。
+- **11.4 session schema golden/migration（已完成）**：v3 golden fixture +
+  v1/v2 迁移测试（parentId 链、firstKeptEntryIndex→firstKeptEntryId、
+  hookMessage→custom、幂等、round-trip）；**修复真实兼容 bug**：
+  `loadEntriesFromFile`/`parseSessionHeaderCandidate` 原要求 header 带 id，
+  导致 v1 文件永远无法加载（迁移形同虚设），现仅要求 `type === "session"`。
+- **11.4 分解（部分）**：`_expandSkillCommand` 抽为
+  `src/core/skill-expansion.ts`（纯函数 + 注入 getSkills/emitError），5 个
+  定向测试；`_rebuildSystemPrompt` 已确认委托 `buildSystemPrompt`（组装已分离）。
+- **11.5 默认 URL 单一来源（已完成）**：`DEFAULT_BCG_GRAPH_URL` 常量 +
+  契约测试断言与 `contracts/defaults.json` 一致（Python defaults.yaml ↔
+  contract ↔ agent 三方同步）。
+- **11.6 生产依赖安全升级（已完成）**：undici 8.5.0→8.10.0（调用面仅
+  Dispatcher/Client/Pool，已确认兼容）、minimatch 10.2.6、brace-expansion
+  override 5.0.8→5.0.9；`npm audit --omit=dev` 0 漏洞；build/46 tests/
+  CLI smoke 全过。
+- **11.7 定向测试（部分）**：BcgClient 5 个（信封解析、错误信封、release
+  404 幂等、released 标志、AbortSignal）；session 恢复（open + 迁移）；
+  既有错误降级/turn limit/release-once 测试确认覆盖。
+- **11.3 interactive-mode.ts（6034 行）分解：未开始**——最大工作项，
+  需按命令注册 / Graph 状态 / 模型登录 flow / session UI / 渲染生命周期
+  既有边界逐个迁移，每次一个带测试的职责。
+- 测试基线：Python 180 passed；Agent **46 tests**（11 个文件）；
+  `make check` 全绿。
 
 ### 步骤 11：重构 `agent-cli/`
 
