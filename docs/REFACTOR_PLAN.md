@@ -632,7 +632,7 @@ bcg/
 
 ---
 
-## 第二部分：仓库级重构（步骤 9-10 已完成，步骤 11 进行中，步骤 12-16 待执行）
+## 第二部分：仓库级重构（步骤 9-10、13 已完成，步骤 11 进行中，步骤 12、14-16 待执行）
 
 ### 10. 审计结论与当前基线
 
@@ -921,6 +921,33 @@ dry-run golden 覆盖默认值和 override；TongGraph 数据目录 override 被
 
 **回滚：** 每类服务脚本独立提交；默认值变化必须单独列为 behavior change。保留旧环境变量 alias 一个
 发布周期，但最终只映射到同一内部配置，不复制启动逻辑。
+
+#### 步骤 13 执行记录（2026-08-06，已完成）
+
+- **TongGraph 配置链（文档 1）**：`scripts/start_tonggraph_server.sh` 删除
+  `/data/user/baijun/...` 可执行文件 fallback（仅 PATH / `TONGGRAPH_SERVER_BIN`）；
+  启动时把 `TONGGRAPH_DATA_DIR` 注入运行时配置副本
+  （`var/tonggraph-config.generated.yml`），override 被服务实际消费；
+  `deploy/tonggraph-server.yml` 变可移植模板（相对 `./var/tonggraph` 默认）。
+- **个人路径清理**：`bcg/construct/light/stance.py` 的
+  `/data/user/wenxinyi/...` 默认模型路径移除（空默认，按部署配置）；
+  `check_repository_hygiene.sh` 新增 git grep 检查，tracked 文件含
+  `/data/user/` 即失败（防回归）。
+- **共享 helper 与清单（文档 2、3）**：`scripts/lib/common.sh`
+  （`bcg_load_root_env`/`bcg_require_env`/`bcg_validate_port`/
+  `bcg_check_port_free`/`bcg_maybe_dry_run`）；三脚本统一 env 加载 + 端口
+  校验 + 必填快速失败；`scripts/README.md` 为环境变量清单
+  （required/default/secret + 兼容 alias + 外部生产组件）。
+- **dry-run 与 golden（文档 4）**：三脚本支持 `--dry-run` 渲染精确命令；
+  关键实现细节——sglang 的运行时检查（`import sglang`、进程探测）移到
+  渲染之后，否则 dry-run 也会挂；`scripts/test_scripts.sh` 15 个 golden
+  断言（默认/override/无效端口/缺 token/配置注入），`make check-scripts`
+  进 check 链。
+- **deploy YAML smoke（文档 5）**：`scripts/check_deploy_yaml.py` 校验结构、
+  端口范围、token 仅 `token_env` 引用、无内联凭据/个人路径。
+- `.gitignore` 的 `lib/` 规则加 `!scripts/lib/` 例外。
+- 测试/检查：make check 全绿（Python 180、Agent 87、contracts、shell、
+  scripts golden、hygiene）。
 
 ### 步骤 14：统一安装、构建和发布治理
 
