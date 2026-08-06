@@ -830,7 +830,7 @@ Dashboard；Agent test 不再依赖开发者记住隐含顺序；不产生受跟
 - **11.7 定向测试（部分）**：BcgClient 5 个（信封解析、错误信封、release
   404 幂等、released 标志、AbortSignal）；session 恢复（open + 迁移）；
   既有错误降级/turn limit/release-once 测试确认覆盖。
-- **11.3 interactive-mode.ts 分解（进行中）**：6034 → 5390 行（-644），
+- **11.3 interactive-mode.ts 分解（进行中）**：6034 → 5148 行（-886），
   已抽三个纯/可参数化职责模块，各带定向测试：
   1. `display-format.ts`：17 个路径/scope 显示格式化函数（home 缩短、
      node_modules 相对化、package 标签、分组、诊断渲染），13 个测试；
@@ -846,15 +846,20 @@ Dashboard；Agent test 不再依赖开发者记住隐含顺序；不产生受跟
      登录/登出后端、状态/错误上报），7 个测试（组件 mock 捕获构造）。
   6. `session-selectors.ts`：/sessions 选择器流程（列表/恢复/重命名/关闭
      注入），4 个测试。
-  剩余：命令注册 / Graph 状态 / 模型 selector 与登录对话框 flow
-  （showModelSelector/showLoginDialog/notifyAuthDialog，依赖注入面 8+）/
-  session UI / 渲染生命周期仍为有状态 UI 协调，按组件边界继续迁移
-  （每次一个带测试职责）；模型作用域解析等纯逻辑已独立于既有模块。
-- 测试基线：Python 180 passed；Agent **76 tests**（15 个文件，步骤 11
-  累计 +41：包 export 3、fixture 3、client 5、session schema 5、
+  7. `model-selectors.ts`：/model 与 /models（作用域选择 + 设置持久化）
+     flow，deps 注入 UI/模型后端，5 个测试。
+  8. `auth-dialogs.ts`：登录/登出对话框簇（showLoginDialog、
+     showApiKeyLoginDialog、showAmbientAuthDialog、showAuthSelect/Prompt、
+     loginProvider、notifyAuthDialog、completeProviderAuthentication），
+     登录后默认模型选择逻辑可直接测试，5 个测试。
+  剩余：命令注册 / Graph 状态 / showTrustSelector/showUserMessageSelector/
+  showTreeSelector / session UI / 渲染生命周期仍为有状态 UI 协调，按组件
+  边界继续迁移（每次一个带测试职责）。
+- 测试基线：Python 180 passed；Agent **97 tests**（19 个文件，步骤 11
+  累计 +51：包 export 3、fixture 3、client 5、session schema 5、
   skill-expansion 5、URL 契约 1、display-format 13、login-options 5、
   autocomplete 7、resources-sections 5、auth-selectors 7、
-  session-selectors 4）；`make check` 全绿。
+  session-selectors 4、model-selectors 5、auth-dialogs 5）；`make check` 全绿。
 
 ### 步骤 11：重构 `agent-cli/`
 
