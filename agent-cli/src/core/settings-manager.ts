@@ -156,6 +156,13 @@ export interface Settings {
 }
 
 /** Deep merge settings: project/overrides take precedence, nested objects merge recursively */
+/**
+ * Default BCG graph-service URL. Single source of truth is
+ * contracts/defaults.json (server.host/port); a contract test asserts this
+ * constant matches it.
+ */
+export const DEFAULT_BCG_GRAPH_URL = "http://127.0.0.1:8848";
+
 function deepMergeSettings(base: Settings, overrides: Settings): Settings {
 	const result: Settings = { ...base };
 
@@ -834,7 +841,7 @@ export class SettingsManager {
 		return {
 			provider: settings?.provider === "bcg" ? "bcg" : "default",
 			bcg: {
-				url: settings?.bcg?.url || process.env.BELIEF_GRAPH_URL || "http://127.0.0.1:8848",
+				url: settings?.bcg?.url || process.env.BELIEF_GRAPH_URL || DEFAULT_BCG_GRAPH_URL,
 				recentTurns,
 				maxTurns,
 				timeoutMs,
