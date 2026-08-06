@@ -17,7 +17,9 @@
 	"scripts": {
 		"clean": "shx rm -rf dist",
 		"build": "npm run clean && tsc -p tsconfig.build.json",
-		"check": "tsc --noEmit -p tsconfig.build.json"
+		"check": "tsc --noEmit -p tsconfig.build.json",
+		"pretest": "npm run build",
+		"test": "vitest --run test"
 	},
 	"dependencies": {
 		"get-east-asian-width": "1.6.0",

@@ -46,7 +46,9 @@
 	"scripts": {
 		"clean": "shx rm -rf dist",
 		"build": "npm run clean && tsc -p tsconfig.build.json && shx rm -rf dist/providers/data && shx cp -r src/providers/data dist/providers/data",
-		"check": "tsc --noEmit -p tsconfig.build.json"
+		"check": "tsc --noEmit -p tsconfig.build.json",
+		"pretest": "npm run build",
+		"test": "vitest --run test"
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "0.91.1",

@@ -22,7 +22,9 @@
 	"scripts": {
 		"clean": "shx rm -rf dist",
 		"build": "npm run clean && tsc -p tsconfig.build.json",
-		"check": "tsc --noEmit -p tsconfig.build.json"
+		"check": "tsc --noEmit -p tsconfig.build.json",
+		"pretest": "npm run build",
+		"test": "vitest --run test"
 	},
 	"dependencies": {
 		"@bigai-nlco/bcg-ai": "0.1.0",
