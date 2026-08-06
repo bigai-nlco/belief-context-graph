@@ -1,0 +1,16 @@
+[
+  {
+    "problem_id": "fixture-session:seed",
+    "role": "system",
+    "content": "You are a helpful assistant.",
+    "is_message_end": true,
+    "is_trajectory_end": false
+  },
+  {
+    "problem_id": "fixture-session:seed",
+    "role": "user",
+    "content": "Summarize the key beliefs in this conversation.",
+    "is_message_end": true,
+    "is_trajectory_end": false
+  }
+]

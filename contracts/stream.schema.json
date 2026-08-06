@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bcg.dev/contracts/stream.schema.json",
+  "title": "BCG stream artifacts",
+  "description": "Shapes of stream JSONL artifacts: one belief_graph.jsonl line (a live snapshot), trajectory_stream.jsonl lines and result.json. Consumed by dashboard/bcg_viewer and build_stream_manifest.py.",
+  "schema_version": 1,
+  "$defs": {
+    "snapshot": { "$ref": "http.schema.json#/$defs/snapshot" },
+    "trajectoryLine": {
+      "type": "object",
+      "required": ["recv_ts", "recv_index", "ingested", "is_message_end", "is_trajectory_end", "turn"],
+      "properties": {
+        "recv_ts": { "type": "string" },
+        "recv_index": { "type": "integer" },
+        "ingested": { "type": "boolean" },
+        "is_message_end": { "type": "boolean" },
+        "is_trajectory_end": { "type": "boolean" },
+        "turn": { "$ref": "http.schema.json#/$defs/turn" }
+      },
+      "additionalProperties": true
+    },
+    "result": {
+      "type": "object",
+      "description": "result.json produced by builder finalize().",
+      "required": ["trajectory", "all_nodes", "relations", "final"],
+      "properties": {
+        "prompt_name": { "type": "string" },
+        "model": { "type": "string" },
+        "item_id": { "type": "string" },
+        "generated_at": { "type": "string" },
+        "mode": { "enum": ["stream", "batch"] },
+        "options": { "type": "object" },
+        "trajectory": { "type": "array" },
+        "all_nodes": { "type": "array" },
+        "all_beliefs": { "type": "array" },
+        "all_decisions": { "type": "array" },
+        "evidence": { "type": "array" },
+        "relations": { "type": "array" },
+        "merges": { "type": "array" },
+        "final": { "type": "object" },
+        "timing": { "type": "object" },
+        "token_usage": { "type": "object" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

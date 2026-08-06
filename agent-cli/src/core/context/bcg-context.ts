@@ -1,4 +1,5 @@
 import type { AgentMessage } from "@bigai-nlco/bcg-agent-core";
+import type { BcgSnapshot, BcgTurn } from "./bcg-contract.types.ts";
 import { bashExecutionToText } from "../messages.ts";
 
 const GRAPH_PREFIX =
@@ -23,31 +24,10 @@ export class BcgTurnLimitError extends Error {
 	}
 }
 
-interface BcgTurnPayload {
-	problem_id: string;
-	role: "assistant" | "system" | "tool" | "user";
-	content: string;
-	is_message_end: true;
-	is_trajectory_end: false;
-}
-
-interface BcgBelief {
-	id?: string | number;
-	belief?: string;
-}
-
-interface BcgRelation {
-	from_id?: string | number;
-	to_id?: string | number;
-	type?: string;
-	note?: string;
-}
-
-interface BcgSnapshot {
-	beliefs?: BcgBelief[];
-	relations?: BcgRelation[];
-	forward_relations?: BcgRelation[];
-}
+// Wire types come from the versioned cross-language contract
+// (contracts/http.schema.json; generated file bcg-contract.types.ts).
+// BcgTurnPayload pins the flags this client always sends.
+type BcgTurnPayload = BcgTurn & { is_message_end: true; is_trajectory_end: false };
 
 export interface BcgContextManagerOptions {
 	baseUrl: string;
@@ -224,7 +204,7 @@ function parseSnapshot(value: unknown, problemId: string): BcgSnapshot | undefin
 		return undefined;
 	}
 	if (Array.isArray(value.beliefs)) {
-		return value as BcgSnapshot;
+		return value as unknown as BcgSnapshot;
 	}
 	const latest = value.latest;
 	if (!isRecord(latest)) {
@@ -232,11 +212,11 @@ function parseSnapshot(value: unknown, problemId: string): BcgSnapshot | undefin
 	}
 	const matching = latest[problemId];
 	if (isRecord(matching)) {
-		return matching as BcgSnapshot;
+		return matching as unknown as BcgSnapshot;
 	}
 	for (const snapshot of Object.values(latest)) {
 		if (isRecord(snapshot)) {
-			return snapshot as BcgSnapshot;
+			return snapshot as unknown as BcgSnapshot;
 		}
 	}
 	return undefined;
@@ -253,7 +233,7 @@ export function formatBcgMarkdown(snapshot: BcgSnapshot, includeRelations = true
 		lines.push(`- **[${belief.id ?? "?"}]** ${belief.belief ?? ""}`);
 	}
 
-	const relations = includeRelations ? (snapshot.forward_relations ?? snapshot.relations ?? []) : [];
+	const relations = includeRelations ? (snapshot.relations ?? []) : [];
 	if (relations.length > 0) {
 		lines.push("", "### Relations");
 		for (const relation of relations) {

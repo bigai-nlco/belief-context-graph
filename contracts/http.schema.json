@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bcg.dev/contracts/http.schema.json",
+  "title": "BCG graph-construction HTTP contract",
+  "description": "Versioned wire contract for the BCG construct server (bcg.apps.online_server). This is the single cross-language source of truth; Python producer tests validate real responses against it and agent-cli TypeScript types are generated from it (contracts/generate_ts_types.py). Compatibility rule: only additive optional fields are backward compatible; removing, renaming or changing defaults requires a new schema_version and migration.",
+  "schema_version": 1,
+  "$defs": {
+    "turn": {
+      "type": "object",
+      "description": "One incoming turn submitted to POST /turns.",
+      "required": ["problem_id", "role", "content"],
+      "properties": {
+        "problem_id": { "type": "string" },
+        "role": { "enum": ["assistant", "system", "tool", "user"] },
+        "content": { "type": "string" },
+        "is_message_end": { "type": "boolean" },
+        "is_trajectory_end": { "type": "boolean" },
+        "date": { "type": "string" },
+        "session_date": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "node": {
+      "type": "object",
+      "description": "A belief or decision node inside a snapshot.",
+      "required": ["id", "node_type"],
+      "properties": {
+        "id": { "type": "integer" },
+        "node_type": { "enum": ["belief", "decision"] },
+        "belief": { "type": "string" },
+        "decision": { "type": "string" },
+        "confidence": { "type": "number" },
+        "stance": { "type": "string" },
+        "role": { "type": "string" },
+        "layer": { "type": "string" },
+        "source": { "type": "object" },
+        "evidence_ids": { "type": "array", "items": { "type": "integer" } },
+        "factor_ids": { "type": "array", "items": { "type": "integer" } },
+        "supporting_excerpts": { "type": "array", "items": { "type": "string" } },
+        "merged_from": { "type": "array", "items": { "type": "integer" } },
+        "confidence_history": { "type": "array" }
+      },
+      "additionalProperties": true
+    },
+    "relation": {
+      "type": "object",
+      "description": "A typed edge between two nodes.",
+      "required": ["id", "from_id", "to_id", "type"],
+      "properties": {
+        "id": { "type": "integer" },
+        "from_id": { "type": "integer" },
+        "to_id": { "type": "integer" },
+        "type": { "enum": ["depends_on", "supplements", "contradicts"] },
+        "note": { "type": "string" },
+        "weight": { "type": "number" },
+        "activated_condition": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "snapshot": {
+      "type": "object",
+      "description": "Live graph snapshot returned by POST /turn, /turns, /finalize and GET /graph. Producers always emit the zero-valued skeleton fields.",
+      "required": ["generated_at", "n_nodes", "n_beliefs", "n_decisions", "nodes", "beliefs", "decisions", "relations"],
+      "properties": {
+        "problem_id": { "type": "string" },
+        "item_id": { "type": "string" },
+        "stage": { "enum": ["turn", "buffered", "final", "empty", "query"] },
+        "finalized": { "type": "boolean" },
+        "stream_turn_index": { "type": "integer" },
+        "n_turns_ingested": { "type": "integer" },
+        "generated_at": { "type": "string" },
+        "n_nodes": { "type": "integer" },
+        "n_beliefs": { "type": "integer" },
+        "n_decisions": { "type": "integer" },
+        "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+        "beliefs": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+        "decisions": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+        "evidence": { "type": "object" },
+        "relations": { "type": "array", "items": { "$ref": "#/$defs/relation" } },
+        "merges": { "type": "array" },
+        "sessions": { "type": "array" }
+      },
+      "additionalProperties": true
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "description": "Uniform error body for every non-2xx response (400/404/409/500).",
+      "required": ["error"],
+      "properties": {
+        "error": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "health": {
+      "type": "object",
+      "description": "GET /health response; consumers must check status == 'ok' and may pin schema_version.",
+      "required": ["status", "active", "all", "schema_version"],
+      "properties": {
+        "status": { "enum": ["ok"] },
+        "active": { "type": "array", "items": { "type": "string" } },
+        "all": { "type": "array", "items": { "type": "string" } },
+        "schema_version": { "type": "integer" }
+      },
+      "additionalProperties": false
+    },
+    "turnsRequest": {
+      "type": "array",
+      "description": "POST /turns body: a JSON array of turn objects (NDJSON also accepted by the server).",
+      "items": { "$ref": "#/$defs/turn" }
+    },
+    "turnsResponse": {
+      "type": "object",
+      "description": "POST /turns response envelope.",
+      "required": ["pushed", "finalized", "latest"],
+      "properties": {
+        "pushed": { "type": "integer" },
+        "finalized": { "type": "array", "items": { "type": "string" } },
+        "latest": {
+          "type": "object",
+          "description": "problem_id -> latest snapshot",
+          "additionalProperties": { "$ref": "#/$defs/snapshot" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "finalizeRequest": {
+      "type": "object",
+      "required": ["problem_id"],
+      "properties": { "problem_id": { "type": "string" } },
+      "additionalProperties": false
+    },
+    "releaseRequest": {
+      "type": "object",
+      "required": ["problem_id"],
+      "properties": { "problem_id": { "type": "string" } },
+      "additionalProperties": false
+    },
+    "releaseResponse": {
+      "type": "object",
+      "required": ["problem_id", "released"],
+      "properties": {
+        "problem_id": { "type": "string" },
+        "released": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "pushed": 2,
+  "finalized": [],
+  "latest": {
+    "fixture-session:seed": {
+      "problem_id": "fixture-session:seed",
+      "stage": "turn",
+      "finalized": false,
+      "stream_turn_index": 1,
+      "n_turns_ingested": 2,
+      "generated_at": "2026-08-06T00:00:00+00:00",
+      "n_nodes": 1,
+      "n_beliefs": 1,
+      "n_decisions": 0,
+      "nodes": [
+        {
+          "id": 1,
+          "node_type": "belief",
+          "belief": "The user asked for a summary of key beliefs.",
+          "confidence": 0.88,
+          "stance": "asserted",
+          "role": "user",
+          "layer": "io",
+          "evidence_ids": [1],
+          "supporting_excerpts": ["Summarize the key beliefs in this conversation."]
+        }
+      ],
+      "beliefs": [
+        {
+          "id": 1,
+          "node_type": "belief",
+          "belief": "The user asked for a summary of key beliefs.",
+          "confidence": 0.88,
+          "stance": "asserted",
+          "role": "user",
+          "layer": "io",
+          "evidence_ids": [1],
+          "supporting_excerpts": ["Summarize the key beliefs in this conversation."]
+        }
+      ],
+      "decisions": [],
+      "evidence": {},
+      "relations": [],
+      "merges": [],
+      "sessions": []
+    }
+  }
+}

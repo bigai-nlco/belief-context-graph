@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bcg.dev/contracts/memory-document.schema.json",
+  "title": "BCG persisted memory document",
+  "description": "Shape of memory.json (schema: bcg.memory.v2) produced by bcg.core.runner and consumed by dashboard, benchmark and replay tooling. Node/relation shapes are shared with the HTTP contract (http.schema.json).",
+  "schema_version": 1,
+  "$ref": "#/$defs/memoryDocument",
+  "$defs": {
+    "node": { "$ref": "http.schema.json#/$defs/node" },
+    "relation": { "$ref": "http.schema.json#/$defs/relation" },
+    "memoryDocument": {
+      "type": "object",
+      "required": ["schema", "engine", "run_id", "mode", "nodes", "beliefs", "relations", "trajectory"],
+      "properties": {
+        "schema": { "enum": ["bcg.memory.v2"] },
+        "engine": { "type": "string" },
+        "run_id": { "type": "string" },
+        "prompt_name": { "type": "string" },
+        "model": { "type": "string" },
+        "generated_at": { "type": "string" },
+        "mode": { "enum": ["stream", "batch"] },
+        "options": { "type": "object" },
+        "trajectory": { "type": "array" },
+        "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+        "beliefs": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+        "all_beliefs": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+        "decisions": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+        "io_beliefs": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+        "reasoning_beliefs": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+        "relations": { "type": "array", "items": { "$ref": "#/$defs/relation" } },
+        "forward_relations": { "type": "array", "items": { "$ref": "#/$defs/relation" } },
+        "backward_relations": { "type": "array", "items": { "$ref": "#/$defs/relation" } },
+        "merges": { "type": "array" },
+        "sessions": { "type": "array" },
+        "evidence": { "type": "array" },
+        "factors": { "type": "array" },
+        "graph": { "type": "object" },
+        "counts": { "type": "object" },
+        "token_usage": { "type": "object" },
+        "timing": { "type": "object" },
+        "metadata": { "type": "object" }
+      },
+      "additionalProperties": true
+    }
+  }
+}
