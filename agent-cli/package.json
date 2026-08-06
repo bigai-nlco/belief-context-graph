@@ -1,6 +1,6 @@
 {
 	"name": "@bigai-nlco/bcg-agent",
-	"version": "0.1.0",
+	"version": "1.0.0",
 	"description": "Interactive Belief Context Graph agent with graph-backed context management",
 	"type": "module",
 	"bcgConfig": {

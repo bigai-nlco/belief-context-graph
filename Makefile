@@ -35,6 +35,7 @@ install:
 .PHONY: install-tool
 install-tool:
 	@$(UV) tool install .
+	@$(NPM) --prefix agent-cli run build
 	@$(NPM) install -g ./agent-cli
 
 .PHONY: agent
@@ -78,6 +79,10 @@ check-scripts:
 check-repository:
 	@scripts/check_repository_hygiene.sh
 
+check-release:
+	@$(UV) run python scripts/release-manifest.py --check
+	@bash scripts/test_install_smoke.sh
+
 check-contracts:
 	@$(UV) run python contracts/generate_ts_types.py --check
 	@$(UV) run python contracts/check_schema_version.py
@@ -85,7 +90,7 @@ check-contracts:
 
 test: test-python test-agent
 
-check: lint-python compile-python test build-dashboard test-dashboard check-shell check-scripts check-repository check-contracts
+check: lint-python compile-python test build-dashboard test-dashboard check-shell check-scripts check-repository check-contracts check-release
 
 .PHONY: vllm-server
 vllm-server:

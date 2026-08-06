@@ -91,6 +91,9 @@ jobs:
       - name: Build Dashboard
         run: npm --prefix dashboard run build
 
+      - name: Release manifest check
+        run: make check-release
+
       - name: Test Dashboard
         run: npm --prefix dashboard test
 
