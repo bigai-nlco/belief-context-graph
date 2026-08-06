@@ -91,6 +91,9 @@ jobs:
       - name: Build Dashboard
         run: npm --prefix dashboard run build
 
+      - name: Test Dashboard
+        run: npm --prefix dashboard test
+
   repository:
     name: Repository
     runs-on: ubuntu-latest
