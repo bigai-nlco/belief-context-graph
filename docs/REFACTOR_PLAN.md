@@ -632,7 +632,7 @@ bcg/
 
 ---
 
-## 第二部分：仓库级重构（步骤 9-16，待执行）
+## 第二部分：仓库级重构（步骤 9-10 已完成，步骤 11-16 待执行）
 
 ### 10. 审计结论与当前基线
 
@@ -760,26 +760,46 @@ Dashboard；Agent test 不再依赖开发者记住隐含顺序；不产生受跟
 **回滚：** 质量门按组件独立提交。若新门暴露既有失败，先记录 baseline/临时 non-blocking，
 不得通过放宽已有 Python 或 Agent 断言来换取全绿。
 
-### 步骤 10：定义版本化跨组件契约
+### 步骤 10：定义版本化跨组件契约（已完成）
 
 **目的：** 在拆 Agent、Dashboard 或服务之前固定跨组件边界。
 
 1. 在顶层 `contracts/`（或经 ADR 确认的等价位置）记录服务拥有的 schema：
-   `/health`、`/turns`、`/release` 请求/响应、错误 envelope 和版本协商方式。
+   `/health`、`/turns`、`/release` 请求/响应、错误 envelope 和版本协商方式。✅
 2. 分开定义 HTTP snapshot、持久化 memory document、stream JSONL 三类 schema；不得因为字段
-   看起来相似就合成一个万能 Graph 类型。
+   看起来相似就合成一个万能 Graph 类型。✅
 3. 由 Python producer contract tests 验证真实响应；TypeScript 使用生成类型或由 CI 校验的
-   类型映射，替换 Agent 中无校验的 type assertion 和任意 snapshot fallback。
-4. 为兼容性写规则：只加 optional 字段为向后兼容；删除、改义或改默认值需新版本和 migration。
-5. 明确 BCG 配置到 Agent 设置的映射、优先级和敏感字段边界；URL 默认值只能有一个规范来源。
+   类型映射，替换 Agent 中无校验的 type assertion 和任意 snapshot fallback。✅
+4. 为兼容性写规则：只加 optional 字段为向后兼容；删除、改义或改默认值需新版本和 migration。✅
+5. 明确 BCG 配置到 Agent 设置的映射、优先级和敏感字段边界；URL 默认值只能有一个规范来源。✅
 6. 建立最小跨语言 contract fixture：无需模型，使用确定性 fake backend 验证 Agent client 与
-   Python handler 对同一请求/响应达成一致。
+   Python handler 对同一请求/响应达成一致。✅
 
-**验收：** schema 有版本且随仓库发布；Python producer、TS consumer、fixture 三方测试通过；
-contract diff 能在 CI 阻止未声明的 breaking change；日志和 fixture 不含凭据。
+实际做法与计划的差异（均不影响验收结论）：
 
-**回滚：** 先增加 schema 和旁路验证，再切消费者。切换失败时 Agent 仍可回到旧 client；
-服务不能在同一 refactor-only 提交中停止接受旧 payload。
+- 契约格式选 **JSON Schema（draft 2020-12）** 而非 OpenAPI：服务是极简 `http.server`（无框架），
+  JSON Schema 直接做语言无关规范来源；Python 用 `jsonschema` + `referencing` registry 校验，
+  TS 用**生成类型**（编译期）+ CI freshness 检查，未引入运行时 schema 校验依赖。
+- 三类 schema 分开定义（`http.schema.json` / `memory-document.schema.json` / `stream.schema.json`），
+  node/relation 子结构通过**跨文件 `$ref`** 复用（referencing Registry），不复制、也不合成万能类型。
+- 版本协商：`GET /health` 新增 `schema_version` 字段（server 行为变更，向后兼容）；常量
+  `bcg.core.contracts.HTTP_SCHEMA_VERSION` 与 schema 文件版本双向断言；TS 侧 `BCG_SCHEMA_VERSION`
+  由生成器产出。**版本守卫** `contracts/check_schema_version.py`：版本化契约文件内容变更但
+  `schema_version` 未递增时 CI 失败（本地未提交改动同样生效）。
+- 配置映射与敏感边界记录在 `contracts/README.md`；`contracts/defaults.json` 与
+  `bcg/config/defaults.yaml` 的 server 域一致性有测试（URL 默认值单一规范来源）。
+- Agent 契约修复：删除 `formatBcgMarkdown` 的 `forward_relations` 死分支（Python 从不产出，
+  靠 fallback 掩盖的契约漂移）；`parseSnapshot` 容错逻辑保留，类型断言改为生成类型。
+- 测试增量：Python **180 passed**（+9 HTTP producer、+4 artifact）；Agent **23 tests**（+3 fixture）。
+- `make check-contracts`（生成 freshness + 版本守卫 + 契约测试）进入 `make check` 与 CI Python job。
+
+验收（全部通过）：
+
+- schema 有版本且随仓库发布。✅
+- Python producer、TS consumer、fixture 三方测试通过。✅
+- contract diff 能在 CI 阻止未声明的 breaking change（版本守卫 + 生成 freshness）。✅
+- 日志和 fixture 不含凭据。✅
+- 跨语言 fixture 双边消费（`contracts/fixtures/`）。✅
 
 ### 步骤 11：重构 `agent-cli/`
 
