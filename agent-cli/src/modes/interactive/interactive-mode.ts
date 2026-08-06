@@ -129,6 +129,11 @@ import {
 	buildLogoutProviderOptions,
 	findLoginProviderOptions,
 } from "./login-provider-options.ts";
+import {
+	getAutocompleteSourceTag,
+	getBuiltInCommandConflictDiagnostics,
+	prefixAutocompleteDescription,
+} from "./autocomplete-source.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
 import { BorderedLoader } from "./components/bordered-loader.ts";
@@ -518,54 +523,6 @@ export class InteractiveMode {
 			(message) => this.showError(message),
 			() => this.updateEditorBorderColor(),
 		);
-	}
-
-	private getAutocompleteSourceTag(sourceInfo?: SourceInfo): string | undefined {
-		if (!sourceInfo) {
-			return undefined;
-		}
-
-		const scopePrefix = sourceInfo.scope === "user" ? "u" : sourceInfo.scope === "project" ? "p" : "t";
-		const source = sourceInfo.source.trim();
-
-		if (source === "auto" || source === "local" || source === "cli") {
-			return scopePrefix;
-		}
-
-		if (source.startsWith("npm:")) {
-			return `${scopePrefix}:${source}`;
-		}
-
-		const gitSource = parseGitUrl(source);
-		if (gitSource) {
-			const ref = gitSource.ref ? `@${gitSource.ref}` : "";
-			return `${scopePrefix}:git:${gitSource.host}/${gitSource.path}${ref}`;
-		}
-
-		return scopePrefix;
-	}
-
-	private prefixAutocompleteDescription(description: string | undefined, sourceInfo?: SourceInfo): string | undefined {
-		const sourceTag = this.getAutocompleteSourceTag(sourceInfo);
-		if (!sourceTag) {
-			return description;
-		}
-		return description ? `[${sourceTag}] ${description}` : `[${sourceTag}]`;
-	}
-
-	private getBuiltInCommandConflictDiagnostics(extensionRunner: ExtensionRunner): ResourceDiagnostic[] {
-		const builtinNames = new Set(BUILTIN_SLASH_COMMANDS.map((command) => command.name));
-		return extensionRunner
-			.getRegisteredCommands()
-			.filter((command) => builtinNames.has(command.name))
-			.map((command) => ({
-				type: "warning" as const,
-				message:
-					command.invocationName === command.name
-						? `Extension command '/${command.name}' conflicts with built-in interactive command. Skipping in autocomplete.`
-						: `Extension command '/${command.name}' conflicts with built-in interactive command. Available as '/${command.invocationName}'.`,
-				path: command.sourceInfo.path,
-			}));
 	}
 
 	private createBaseAutocompleteProvider(): AutocompleteProvider {
@@ -1201,7 +1158,7 @@ export class InteractiveMode {
 
 			const commandDiagnostics = this.session.extensionRunner.getCommandDiagnostics();
 			extensionDiagnostics.push(...commandDiagnostics);
-			extensionDiagnostics.push(...this.getBuiltInCommandConflictDiagnostics(this.session.extensionRunner));
+			extensionDiagnostics.push(...getBuiltInCommandConflictDiagnostics(this.session.extensionRunner, BUILTIN_SLASH_COMMANDS));
 
 			const shortcutDiagnostics = this.session.extensionRunner.getShortcutDiagnostics();
 			extensionDiagnostics.push(...shortcutDiagnostics);
