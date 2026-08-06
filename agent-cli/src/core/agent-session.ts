@@ -46,7 +46,7 @@ import {
 	streamSimple,
 } from "@bigai-nlco/bcg-ai/compat";
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
-import { stripFrontmatter } from "../utils/frontmatter.ts";
+import { expandSkillCommand } from "./skill-expansion.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
@@ -1300,29 +1300,10 @@ export class AgentSession {
 	 * Emits errors via extension runner if file read fails.
 	 */
 	private _expandSkillCommand(text: string): string {
-		if (!text.startsWith("/skill:")) return text;
-
-		const spaceIndex = text.indexOf(" ");
-		const skillName = spaceIndex === -1 ? text.slice(7) : text.slice(7, spaceIndex);
-		const args = spaceIndex === -1 ? "" : text.slice(spaceIndex + 1).trim();
-
-		const skill = this.resourceLoader.getSkills().skills.find((s) => s.name === skillName);
-		if (!skill) return text; // Unknown skill, pass through
-
-		try {
-			const content = readFileSync(skill.filePath, "utf-8");
-			const body = stripFrontmatter(content).trim();
-			const skillBlock = `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`;
-			return args ? `${skillBlock}\n\n${args}` : skillBlock;
-		} catch (err) {
-			// Emit error like extension commands do
-			this._extensionRunner.emitError({
-				extensionPath: skill.filePath,
-				event: "skill_expansion",
-				error: err instanceof Error ? err.message : String(err),
-			});
-			return text; // Return original on error
-		}
+		return expandSkillCommand(text, {
+			getSkills: () => this.resourceLoader.getSkills().skills,
+			emitError: (params) => this._extensionRunner.emitError(params),
+		});
 	}
 
 	/**
