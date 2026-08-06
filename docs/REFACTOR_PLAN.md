@@ -632,7 +632,7 @@ bcg/
 
 ---
 
-## 第二部分：仓库级重构（步骤 9-10、12、13 已完成，步骤 11 进行中，步骤 14-16 待执行）
+## 第二部分：仓库级重构（步骤 9-14 已完成，步骤 11 结项，步骤 15-16 待执行）
 
 ### 10. 审计结论与当前基线
 
@@ -1016,6 +1016,30 @@ dry-run golden 覆盖默认值和 override；TongGraph 数据目录 override 被
 失败不会留下被误认为完整安装的组合。
 
 **回滚：** packaging 与业务实现分离提交；发布失败回退 manifest/installer，不回退已验证的内部重构。
+
+#### 步骤 14 执行记录（2026-08-06，已完成）
+
+- **ADR-0001（docs/adr/）**：lockstep 主版本 + release manifest（patch 可
+  独立推进）；Dashboard 为发布 artifact、独立部署（不进 install.sh /
+  make install）。agent-cli 与 dashboard 版本对齐 1.0.0。
+- **release manifest**：`scripts/release-manifest.py`（--check 模式）输出
+  release-manifest.json（python/agent/dashboard 版本 + contract schema
+  版本 + lockfile-clean），锁文件漂移即失败。
+- **安装后 smoke**：`scripts/test_install_smoke.sh`——临时 HOME 下验证
+  `bcg --version`、`bcg config show`、打包 defaults 可达、只读命令不提前
+  创建 `~/.bcg`、`bcg-agent --version/help`。
+- **统一安装顺序**：`make install-tool` 修复为先 build agent 再
+  `npm install -g`；README 安装章节以表格统一两个 lockstep 路径
+  （install.sh 发布 / make install 源码），Dashboard 部署指引指向
+  dashboard/README。
+- **部分安装失败说明**：install.sh 的 npm 全局安装失败时明确提示
+  "bcg 可能已装，可重跑或 make install-tool"。
+- **CI**：packaging job 增加 `make check-release`（manifest 一致性 +
+  install smoke）；既有 wheel 内容测试与 npm pack inspect 保留。
+- 验收核对：release 可追溯到唯一组件组合（manifest）✅；锁文件无未提交
+  漂移（manifest --check）✅；干净环境安装/卸载路径有测试证据
+  （install smoke + wheel 测试）✅；失败不留下被误认为完整安装的组合
+  （install.sh 失败语义 + PATH/部分安装提示）✅。
 
 ### 步骤 15：文档、benchmark、artifact 和仓库治理
 
