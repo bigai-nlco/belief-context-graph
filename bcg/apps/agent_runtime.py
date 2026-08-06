@@ -175,9 +175,14 @@ def graph_server_is_ready(graph_url: str, timeout: float = 1.0) -> bool:
 
 
 def _resolve_graph_config() -> Path:
+    """Resolve the graph-server configuration: unified YAML first, then the
+    legacy model_config.json fallback window."""
     configured = os.environ.get("BCG_GRAPH_CONFIG")
     candidates = [
         Path(configured).expanduser() if configured else None,
+        _state_root() / "config.yaml",
+        Path.cwd() / "bcg.yaml",
+        PROJECT_ROOT / "bcg.yaml",
         Path.cwd() / "bcg" / "model_config.json",
         Path.cwd() / "model_config.json",
         PROJECT_ROOT / "bcg" / "model_config.json",
@@ -189,13 +194,11 @@ def _resolve_graph_config() -> Path:
             return candidate.resolve()
     searched = "\n  ".join(str(path) for path in candidates if path is not None)
     raise AgentLaunchError(
-        "The Graph Construction server is not running and no model_config.json "
-        "was found. Create it with\n"
-        "  cp bcg/model_config.example.json bcg/model_config.json\n"
-        "or set BCG_GRAPH_CONFIG to its path. Searched:\n"
-        f"  {searched}"
+        "The Graph Construction server is not running and no YAML configuration "
+        "(~/.bcg/config.yaml) or model_config.json was found. Run `bcg setup` "
+        "first, or set BCG_GRAPH_CONFIG to its path. Searched:\n"
+        + searched
     )
-
 
 def _local_server_address(graph_url: str) -> tuple[str, int]:
     parsed = urlparse(graph_url)
@@ -260,12 +263,14 @@ def ensure_graph_server(graph_url: str) -> None:
         str(config_path),
         "--output-dir",
         str(graph_dir),
-        "--model-key",
-        os.environ.get("BCG_GRAPH_MODEL_KEY", "gpt-5.5"),
-        "--embedding-key",
-        os.environ.get("BCG_GRAPH_EMBEDDING_KEY", "embedding"),
         "--quiet",
     ]
+    graph_model_key = os.environ.get("BCG_GRAPH_MODEL_KEY")
+    if graph_model_key:
+        command += ["--model-key", graph_model_key]
+    graph_embedding_key = os.environ.get("BCG_GRAPH_EMBEDDING_KEY")
+    if graph_embedding_key:
+        command += ["--embedding-key", graph_embedding_key]
     with log_path.open("ab") as log_file:
         process = subprocess.Popen(
             command,

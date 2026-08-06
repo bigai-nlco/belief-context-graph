@@ -154,7 +154,7 @@ The setup is saved under `~/.bcg` and works from every directory:
 ```text
 ~/.bcg/config.json        # Agent, context, and Graph runtime choices
 ~/.bcg/.env               # API keys and credentials; mode 0600
-~/.bcg/model_config.json  # Graph model routing; no inline secrets
+~/.bcg/config.yaml        # Unified YAML settings: models, pipeline, runner (see bcg/config/config.example.yaml)
 ~/.bcg/agent/             # Agent settings, authentication, and sessions
 ```
 
@@ -163,7 +163,7 @@ Run `bcg setup` at any time to change these settings.
 When a managed Graph backend is selected, `bcg` automatically:
 
 1. Checks `http://127.0.0.1:8848/health`.
-2. Reuses a healthy Graph Construction server or starts one with the selected backend and `~/.bcg/model_config.json`.
+2. Reuses a healthy Graph Construction server or starts one with the selected backend and `~/.bcg/config.yaml`.
 3. Writes its log to `~/.bcg/logs/graph-server.log` and graph artifacts to `~/.bcg/graphs/`.
 4. Opens the terminal Agent after the Graph server is ready.
 
@@ -210,7 +210,7 @@ The equivalent manual Graph server command is:
 
 ```bash
 bcg construct server api_based \
-  --config ~/.bcg/model_config.json \
+  --config ~/.bcg/config.yaml \
   --model-key graph-model \
   --embedding-key embedding \
   --host 127.0.0.1 \
@@ -269,7 +269,7 @@ BCG starts the light Graph Construction server at `127.0.0.1:8848`; it does not 
 
 ```bash
 bcg construct server light \
-  --config ~/.bcg/model_config.json \
+  --config ~/.bcg/config.yaml \
   --model-key graph-model \
   --embedding-key embedding \
   --host 127.0.0.1 \
@@ -277,7 +277,7 @@ bcg construct server light \
   --output-dir ~/.bcg/graphs
 ```
 
-For source development, `scripts/start_vllm.sh` is also available, but it reads `VLLM_*` values from the checkout's root `.env` or explicit command-line arguments; it does not read `~/.bcg/model_config.json`.
+For source development, `scripts/start_vllm.sh` is also available, but it reads `VLLM_*` values from the checkout's root `.env` or explicit command-line arguments; it does not read `~/.bcg/config.yaml`.
 
 #### Connect to an existing Graph server
 
@@ -290,12 +290,12 @@ The same two backends can process saved trajectories:
 ```bash
 bcg construct run api_based \
   --input data.json \
-  --config ~/.bcg/model_config.json \
+  --config ~/.bcg/config.yaml \
   --model-key graph-model
 
 bcg construct replay light \
   --input stream.jsonl \
-  --config ~/.bcg/model_config.json \
+  --config ~/.bcg/config.yaml \
   --model-key graph-model
 ```
 

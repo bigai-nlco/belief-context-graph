@@ -104,6 +104,9 @@ def _write_user_yaml_config(graph_model_config: dict[str, Any]) -> None:
 
     settings_dict: dict[str, Any] = {
         "schema_version": 1,
+        # keep the default model/embedding keys aligned with what we write
+        "model_key": GRAPH_MODEL_KEY,
+        "embedding_key": EMBEDDING_KEY,
         "models": {
             key: _strip_comments(value)
             for key, value in graph_model_config.items()

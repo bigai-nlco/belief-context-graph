@@ -46,6 +46,7 @@ def test_api_setup_persists_global_configuration(
     import yaml
 
     yaml_config = yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
+    assert yaml_config["model_key"] == "graph-model"
     assert yaml_config["models"]["graph-model"] == {
         "base_url": "https://agent.test/v1",
         "api_key_env": "OPENAI_API_KEY",

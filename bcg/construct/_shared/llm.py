@@ -437,7 +437,7 @@ def _record_usage(resp: Any, *, model: str, prompt: str, label: str | None) -> N
 
 
 # ---------------------------------------------------------------------------
-# Chat-model config + client
+# Embedding client (shared OpenAI-compatible wrapper)
 # ---------------------------------------------------------------------------
 
 
