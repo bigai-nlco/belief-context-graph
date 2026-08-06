@@ -64,7 +64,11 @@ for candidate in "$temporary_dir"/*.tgz; do
     fi
 done
 [ -n "$agent_archive" ] || fail "Could not package the terminal Agent."
-npm install --global "$agent_archive" --no-audit --no-fund
+if ! npm install --global "$agent_archive" --no-audit --no-fund; then
+    printf '%s\n' "bcg-agent installation failed. bcg may already be installed;"
+    printf 'rerun this installer or run %s to install only the Agent.\n' "make install-tool" >&2
+    exit 1
+fi
 
 if command -v bcg >/dev/null 2>&1 && command -v bcg-agent >/dev/null 2>&1; then
     printf '\n%s\n' "BCG is installed. Run:"
