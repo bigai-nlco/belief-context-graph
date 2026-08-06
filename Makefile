@@ -73,7 +73,8 @@ check-repository:
 
 check-contracts:
 	@$(UV) run python contracts/generate_ts_types.py --check
-	@$(UV) run pytest -q tests/test_http_contract.py
+	@$(UV) run python contracts/check_schema_version.py
+	@$(UV) run pytest -q tests/test_http_contract.py tests/test_artifact_contract.py
 
 test: test-python test-agent
 

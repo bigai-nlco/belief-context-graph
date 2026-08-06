@@ -43,6 +43,9 @@ jobs:
       - name: Test Python
         run: uv run pytest
 
+      - name: Contract checks
+        run: make check-contracts
+
   agent:
     name: Agent
     runs-on: ubuntu-latest
