@@ -576,3 +576,20 @@ raise SystemExit(1)
     assert result["score"] == 0.0
     assert summary["benchmarks"]["mmlu_pro"]["bcg"]["evaluated"] == 1
     assert summary["benchmarks"]["mmlu_pro"]["bcg"]["accuracy"] == 0.0
+
+
+def test_fixed_fixture_smoke() -> None:
+    """The committed minimal fixture is loadable end to end (step 15)."""
+    from bcg.apps.benchmark.loaders import load_benchmark
+
+    fixture_dir = Path(__file__).parents[0] / "fixtures" / "benchmark"
+    tasks = load_benchmark(
+        "browsecomp",
+        fixture_dir,
+        data_file=fixture_dir / "browsecomp.jsonl",
+    )
+    assert [task.question for task in tasks] == [
+        "Which river flows through Cairo?",
+        "Who directed N!ai, the Story of a !Kung Woman?",
+    ]
+    assert tasks[1].answers == ("John Marshall", "Adrienne Miesmer")

@@ -48,17 +48,48 @@ Before asking for review:
 
 ## Required Local Checks
 
-Run the repository-wide required checks:
+Run the repository-wide required checks (this is exactly what CI runs):
 
 ```bash
 make check
 ```
 
-`make check` runs the Python lint, format, compile, and pytest gates; builds and
-tests the Agent; builds the Dashboard; checks shell syntax; and checks tracked
-files for private or generated artifacts. The corresponding component commands
-are available as `make test-python`, `make build-agent`, `make test-agent`,
-`make build-dashboard`, `make check-shell`, and `make check-repository`.
+`make check` runs, in order: Python lint + format + compile + pytest
+(`lint-python`, `compile-python`, `test-python`), Agent build + tests
+(`build-agent`, `test-agent`), Dashboard build + tests (`build-dashboard`,
+`test-dashboard`), shell syntax (`check-shell`), script dry-run golden +
+deploy YAML smoke (`check-scripts`), tracked-file hygiene
+(`check-repository`), cross-language contracts (`check-contracts`), and
+release manifest + install smoke (`check-release`). No other command set is
+"the same as CI"; CI runs `make check` verbatim.
+
+Per-component commands:
+
+```bash
+make lint-python test-python          # Python
+make build-agent test-agent           # agent-cli (pretest builds packages)
+make build-dashboard test-dashboard   # dashboard vitest
+make check-shell check-scripts        # shell + script golden
+make check-contracts                  # contracts + generated TS types
+make check-release                    # release manifest + install smoke
+```
+
+### Optional E2E and external-service tests
+
+- Playwright browser workflows for the Dashboard are owned by the E2E
+  maintainer and are **not** part of `make check`; scenario fixtures are
+  defined under `dashboard/` when added.
+- Scripts and benchmarks that require external services (vLLM, SGLang,
+  TongGraph, live model APIs, benchmark datasets) are smoke-tested with
+  dry-run/golden fixtures only; they never run in `make check`.
+
+### Security upgrades
+
+- Production dependency audits run in CI (`npm audit --omit=dev`).
+- Upgrades follow the step-11.6 policy: confirm the actual usage surface,
+  update lockfiles, run build + unit + contract + CLI smoke; never
+  `npm audit fix --force` blindly. Record unfixed findings with owner,
+  deadline, and impact.
 
 Run pre-commit before pushing:
 
@@ -104,6 +135,21 @@ Ownership and layout:
 - Dashboard tests belong under `dashboard/` alongside its test configuration.
 - Public examples belong under `examples/`.
 - Reusable developer scripts belong under `scripts/`.
+- Cross-component contracts belong under `contracts/` (schema version
+  bumps require maintainer approval, see contracts/README.md).
+- Architecture decisions live in `docs/adr/`.
+
+Maintenance boundaries and cross-component approval points:
+
+| Area | Path | Requires cross-component approval when |
+|---|---|---|
+| SDK core | `bcg/core`, `bcg/config` | changing public exports, artifact schema, or defaults |
+| Construct backends | `bcg/construct` | changing snapshot/stream JSON shapes or confidence semantics |
+| Benchmark | `bcg/apps/benchmark` | changing the artifact contract it consumes or its CLI |
+| Agent | `agent-cli/` | changing BcgContextManager wire behavior or session schema |
+| Dashboard | `dashboard/` | changing normalizer/layout behavior or the live adapter |
+| Deploy/scripts | `install.sh`, `scripts/`, `deploy/` | changing env-var inventory, install order, or port defaults |
+| Contracts | `contracts/` | any schema change (bump `schema_version`) |
 
 Documentation conventions:
 
