@@ -632,7 +632,7 @@ bcg/
 
 ---
 
-## 第二部分：仓库级重构（步骤 9-10、13 已完成，步骤 11 进行中，步骤 12、14-16 待执行）
+## 第二部分：仓库级重构（步骤 9-10、12、13 已完成，步骤 11 进行中，步骤 14-16 待执行）
 
 ### 10. 审计结论与当前基线
 
@@ -953,6 +953,35 @@ dry-run golden 覆盖默认值和 override；TongGraph 数据目录 override 被
 - `.gitignore` 的 `lib/` 规则加 `!scripts/lib/` 例外。
 - 测试/检查：make check 全绿（Python 180、Agent 87、contracts、shell、
   scripts golden、hygiene）。
+
+#### 步骤 12 执行记录（2026-08-06，已完成）
+
+- **Vitest 基建 + normalizer/layout 抽取**：dashboard 加 vitest；`src/types.ts`、
+  `src/normalize.ts`（normalizeAnyGraph/normalizeNode/normalizeEdge/
+  normalizeMemory + helper）、`src/layout.ts`（applyLayout/original/layered/
+  star）从 main.ts（1912 → 1583 行）抽出；测试以
+  `contracts/fixtures/turns-response.json` 为输入。
+- **修复真实契约漂移（测试暴露）**：normalizeNode 原不认识契约的顶层
+  `node_type`/`belief`/`confidence` 字段（节点全变 Claim、标签变 id）；
+  normalizeEdge 不认识 `from_id`/`to_id`（契约关系边全部被过滤丢失）——
+  已接线并加回归测试。
+- **三数据源 adapter（文档 3）**：`src/data-sources.ts`——`loadLiveGraph`
+  （契约端点 `GET /graph?problem_id=`，经 `/health` 解析 active 会话）、
+  `loadArtifactReplay`（memory document/JSONL）、`sampleMemory`（原样保留）。
+  `loadGraphFromApi` 不再猜测 3 个不存在的 URL；live 错误明确抛出，
+  绝不伪装成 sample 成功（有测试）。
+- **私有地址清理（文档 5）**：main.ts 的 Memgraph 默认
+  （bolt://172.25.10.2:7687 等）→ localhost + env 覆盖；vite proxy 的
+  `172.25.10.2:23456` → `VITE_BCG_API_URL`；`dashboard/.env.example` 新增。
+- **功能矩阵（文档 1、2、7）**：`dashboard/README.md` 记录矩阵与结论
+  （live/artifact/timing 迁移到 dashboard；目录导入、Memgraph 保留为
+  devtool；run control/subgraph 不在范围）；旧 `bcg_viewer/` 标记
+  deprecated（只读参考，步骤 16 窗口删除）。
+- **CI（验收）**：`make check` 与 CI 增加 `test-dashboard`（vitest）。
+- 测试/检查：Dashboard 15 tests（normalizer/layout/data-sources）；
+  make check 全绿。
+- 剩余（后续步骤）：main.ts 的 state 对象与 SVG/DOM 渲染层（~1500 行）
+  拆分；artifact replay 的 UI 文件选择器。
 
 ### 步骤 14：统一安装、构建和发布治理
 
