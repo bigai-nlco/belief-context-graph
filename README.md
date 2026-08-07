@@ -3,7 +3,6 @@
 
 # Belief Context Graph
 
-### A Belief-Native Graph Memory for LLM Agents
 
 **Probabilistic · Temporal · Explainable · Stateful**
 
