@@ -114,6 +114,25 @@ def test_healthy_graph_server_is_reused(monkeypatch) -> None:
     agent_runtime.ensure_graph_server("http://127.0.0.1:8848")
 
 
+def test_source_agent_build_precedes_an_unrelated_global_install(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "source"
+    cli = source_root / "agent-cli" / "dist" / "cli.js"
+    cli.parent.mkdir(parents=True)
+    cli.write_text("", encoding="utf-8")
+    monkeypatch.setattr(agent_runtime, "PROJECT_ROOT", tmp_path / "state")
+    monkeypatch.setattr(agent_runtime, "SOURCE_PROJECT_ROOT", source_root)
+    monkeypatch.setattr(
+        agent_runtime.shutil,
+        "which",
+        lambda name: "/usr/bin/node" if name == "node" else "/global/bcg-agent",
+    )
+
+    assert agent_runtime._resolve_agent_command() == ["/usr/bin/node", str(cli)]
+
+
 def test_unavailable_existing_graph_server_is_not_started(monkeypatch) -> None:
     monkeypatch.setenv("BCG_GRAPH_AUTOSTART", "false")
     monkeypatch.setattr(

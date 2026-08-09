@@ -318,7 +318,7 @@ def test_cli_help_describes_effective_boolean_defaults(capsys: Any) -> None:
 
     output = capsys.readouterr().out
     assert "Default: ON." in output
-    assert "Default: OFF." in output
+    assert "Default: OFF." not in output
 
 
 def test_unified_errors_keep_standard_exception_compatibility() -> None:

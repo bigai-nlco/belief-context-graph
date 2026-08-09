@@ -21,9 +21,9 @@ def _runner_defaults(settings: Any | None = None) -> dict:
     return {
         "evidence_mode": runner.get("evidence_mode", "sentence"),
         "incremental_merge": runner.get("incremental_merge", True),
-        "incremental_merge_threshold": runner.get("incremental_merge_threshold", 0.8),
-        "verify_merge": runner.get("verify_merge", False),
-        "context_chars": runner.get("context_chars", 9000),
+        "incremental_merge_threshold": runner.get("incremental_merge_threshold", 0.86),
+        "verify_merge": runner.get("verify_merge", True),
+        "context_chars": runner.get("context_chars", 100000),
         "min_content_len": runner.get("min_content_len", 0),
     }
 

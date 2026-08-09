@@ -12,6 +12,8 @@ from .llm import (
     make_client,
     parse_json_response,
     resolve_config_api_key,
+    temperature_request_value,
+    thinking_request_options,
 )
 from .prompts import build_relation_prompt
 
@@ -99,16 +101,16 @@ class QwenEdgeGenerator:
                 },
             }
         prompt = build_relation_prompt(nodes, current_node_ids)
-        extra_body = None
-        reasoning_effort = "medium"
-        if not self.config["enable_thinking"]:
-            reasoning_effort = None
-            extra_body = {"chat_template_kwargs": {"enable_thinking": False}}
+        reasoning_effort, extra_body = thinking_request_options(
+            self.model, enabled=self.config["enable_thinking"]
+        )
         raw = call_model(
             self._ensure_client(),
             self.model,
             prompt,
-            temperature=self.config["temperature"],
+            temperature=temperature_request_value(
+                self.model, self.config["temperature"]
+            ),
             max_tokens=self.config["max_tokens"],
             retries=self.config["retries"],
             usage_label=f"t{turn_index}.edges.prev{previous_turn_index}",

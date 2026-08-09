@@ -145,9 +145,10 @@ On the first launch, the setup guide asks for:
 
 1. Agent authentication: an OpenAI-compatible API key and base URL, or the interactive `/login` flow.
 2. The Agent model.
-3. The default context mode: **BCG** or **Default**.
-4. Whether BCG should manage a local Graph Construction server or connect to an existing one.
-5. For a managed server, the Graph backend: **api_based** or **light**.
+3. Optional Serper web search credentials, required for BrowseComp and used by the `web_search` tool.
+4. The default context mode: **BCG** or **Default**.
+5. Whether BCG should manage a local Graph Construction server or connect to an existing one.
+6. For a managed server, the Graph backend: **api_based** or **light**.
 
 The setup is saved under `~/.bcg` and works from every directory:
 
@@ -552,12 +553,18 @@ Then run the same selected examples in both context modes:
 ```bash
 bcg benchmark run browsecomp gaia hotpotqa mmlu_pro \
   --modes default,bcg \
+  --thinking off \
   --max-problems 100 \
   --workers 8 \
   --gaia-split validation \
   --gaia-text-only \
   --output-dir results/four-benchmark-comparison
 ```
+
+Use `--thinking medium` (or another supported level) to set the Agent's
+reasoning effort for the run. This setting is independent of the Graph
+Construction model's `pipeline.extractor.enable_thinking` and
+`pipeline.edge_generation.enable_thinking` settings.
 
 When BCG mode is requested, the command reuses a healthy Graph Construction server or starts the configured local server in the same way as `bcg`. A BCG request that falls back to raw context is marked `graph_fallback` and excluded from accuracy by default. Use `--allow-graph-fallback` only when that behavior is intentional.
 

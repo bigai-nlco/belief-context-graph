@@ -15,6 +15,7 @@ from bcg.apps.benchmark.runner import (
     RunConfig,
     _execute,
     _interleaved_work,
+    _write_agent_configuration,
     parse_agent_events,
     run_benchmarks,
     summarize_results,
@@ -32,6 +33,38 @@ from bcg.apps.benchmark.scoring import (
 def _write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value), encoding="utf-8")
+
+
+def test_benchmark_agent_thinking_is_written_to_runtime_config(tmp_path: Path) -> None:
+    config = RunConfig(
+        output_dir=tmp_path,
+        model="gpt-5.6-luna",
+        base_url="https://example.test/v1",
+        thinking="medium",
+    )
+
+    agent_dir = _write_agent_configuration(tmp_path, config, "bcg")
+    settings = json.loads((agent_dir / "settings.json").read_text(encoding="utf-8"))
+    models = json.loads((agent_dir / "models.json").read_text(encoding="utf-8"))
+
+    assert settings["defaultThinkingLevel"] == "medium"
+    assert models["providers"]["benchmark"]["models"][0]["reasoning"] is True
+
+
+def test_benchmark_gpt_56_off_is_sent_as_reasoning_none(tmp_path: Path) -> None:
+    config = RunConfig(
+        output_dir=tmp_path,
+        model="gpt-5.6-luna",
+        base_url="https://example.test/v1",
+        thinking="off",
+    )
+
+    agent_dir = _write_agent_configuration(tmp_path, config, "bcg")
+    models = json.loads((agent_dir / "models.json").read_text(encoding="utf-8"))
+    definition = models["providers"]["benchmark"]["models"][0]
+
+    assert definition["reasoning"] is True
+    assert definition["thinkingLevelMap"] == {"off": "none"}
 
 
 def test_loads_all_four_benchmark_schemas(tmp_path: Path) -> None:
@@ -266,6 +299,32 @@ def test_agent_json_events_expose_provider_error_message() -> None:
     assert parsed["error_message"] == "insufficient_quota: no credit remains"
 
 
+def test_agent_json_events_capture_graph_model_usage() -> None:
+    event = {
+        "type": "graph_usage",
+        "usage": {
+            "totals": {
+                "input_tokens": 999,
+                "output_tokens": 999,
+                "reasoning_tokens": 999,
+                "total_tokens": 1998,
+            },
+            "llm_totals": {
+                "input_tokens": 40,
+                "output_tokens": 12,
+                "reasoning_tokens": 5,
+                "total_tokens": 52,
+            },
+        },
+    }
+
+    parsed = parse_agent_events(json.dumps(event))
+
+    assert parsed["graph_usage"].input == 40
+    assert parsed["graph_usage"].reasoning == 5
+    assert parsed["graph_usage"].output == 12
+
+
 def test_runner_stops_before_starting_more_tasks_after_quota(
     tmp_path: Path,
 ) -> None:
@@ -473,6 +532,53 @@ def test_summary_counts_failed_attempts_in_primary_accuracy() -> None:
     assert summary["accuracy"] == 0.5
     assert summary["completed_only_accuracy"] == 1.0
     assert summary["category_accuracy"]["math"]["accuracy"] == 0.5
+
+
+def test_summary_separates_agent_graph_and_combined_model_tokens() -> None:
+    run_summary = summarize_results(
+        [
+            {
+                "benchmark": "mmlu_pro",
+                "mode": "bcg",
+                "status": "completed",
+                "correct": True,
+                "usage": {
+                    "input": 100,
+                    "cache_read": 20,
+                    "cache_write": 5,
+                    "output": 30,
+                    "reasoning": 12,
+                },
+                "graph_usage": {
+                    "input": 40,
+                    "output": 10,
+                    "reasoning": 4,
+                },
+                "metrics": {},
+                "metadata": {"category": "math"},
+            }
+        ]
+    )
+    summary = run_summary["benchmarks"]["mmlu_pro"]["bcg"]
+
+    assert summary["model_token_usage"] == {
+        "agent_model": {
+            "input_tokens": 125,
+            "reasoning_tokens": 12,
+            "output_tokens": 18,
+        },
+        "graph_model": {
+            "input_tokens": 40,
+            "reasoning_tokens": 4,
+            "output_tokens": 6,
+        },
+        "combined": {
+            "input_tokens": 165,
+            "reasoning_tokens": 16,
+            "output_tokens": 24,
+        },
+    }
+    assert run_summary["model_token_usage"] == summary["model_token_usage"]
 
 
 def test_runner_compares_default_and_bcg_with_fake_agent(

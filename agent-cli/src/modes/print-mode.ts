@@ -40,8 +40,13 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 	const disposeRuntime = async (): Promise<void> => {
 		if (disposed) return;
 		disposed = true;
-		unsubscribe?.();
-		await runtimeHost.dispose();
+		try {
+			// Keep the JSON listener attached while session-owned resources are
+			// finalized so the terminal graph_usage event reaches benchmark runs.
+			await runtimeHost.dispose();
+		} finally {
+			unsubscribe?.();
+		}
 	};
 
 	const registerSignalHandlers = (): void => {

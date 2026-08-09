@@ -18,6 +18,7 @@ def test_api_setup_persists_global_configuration(
             "1",  # API key authentication
             "https://agent.test/v1",
             "agent-model",
+            "2",  # disable Serper web search
             "1",  # BCG context
             "",  # two recent turns
             "1",  # managed local Graph server
@@ -38,7 +39,8 @@ def test_api_setup_persists_global_configuration(
     assert config["graph"]["serverMode"] == "managed"
     assert config["graph"]["backend"] == "api_based"
     assert config["graph"]["url"] == "http://127.0.0.1:8848"
-    assert config["graph"]["modelConfig"] == str(tmp_path / "model_config.json")
+    assert config["graph"]["modelConfig"] == str(tmp_path / "config.yaml")
+    assert setup.is_configured(config)
 
     persisted = json.loads((tmp_path / "config.json").read_text())
     assert persisted == config
@@ -46,6 +48,7 @@ def test_api_setup_persists_global_configuration(
     import yaml
 
     yaml_config = yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
+    assert yaml_config["backend"] == "api_based"
     assert yaml_config["model_key"] == "graph-model"
     assert yaml_config["models"]["graph-model"] == {
         "base_url": "https://agent.test/v1",
@@ -79,7 +82,7 @@ def test_light_config_points_every_graph_model_at_vllm() -> None:
     assert belief_graph["stance"]["local_files_only"] is False
 
 
-def test_managed_light_setup_only_asks_for_vllm_endpoint(
+def test_managed_light_setup_asks_for_generator_endpoint(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -89,6 +92,7 @@ def test_managed_light_setup_only_asks_for_vllm_endpoint(
             "1",
             "https://agent.test/v1",
             "agent-model",
+            "2",  # disable Serper web search
             "1",
             "2",
             "1",  # managed local Graph server
@@ -113,7 +117,13 @@ def test_managed_light_setup_only_asks_for_vllm_endpoint(
 
     assert config["graph"]["url"] == setup.DEFAULT_GRAPH_URL
     assert config["graph"]["modelBaseUrl"] == "http://vllm.test/v1"
-    assert any("vLLM OpenAI-compatible base URL" in prompt for prompt in prompts)
+    import yaml
+
+    yaml_config = yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
+    assert yaml_config["backend"] == "light"
+    assert any(
+        "Light generator OpenAI-compatible base URL" in prompt for prompt in prompts
+    )
     assert not any("Graph server URL" in prompt for prompt in prompts)
 
 
@@ -127,6 +137,7 @@ def test_existing_graph_server_skips_local_model_configuration(
             "1",  # API key authentication
             "https://agent.test/v1",
             "agent-model",
+            "2",  # disable Serper web search
             "2",  # default context
             "2",  # existing Graph server
             "https://graph.test",
@@ -150,6 +161,35 @@ def test_existing_graph_server_skips_local_model_configuration(
     }
     assert setup.is_configured(config)
     assert not (tmp_path / "model_config.json").exists()
+
+
+def test_setup_persists_serper_key_for_web_search(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("BCG_HOME", str(tmp_path))
+    answers = iter(
+        [
+            "1",  # API key authentication
+            "https://agent.test/v1",
+            "agent-model",
+            "1",  # configure Serper
+            "2",  # default context
+            "2",  # existing Graph server
+            "https://graph.test",
+        ]
+    )
+    secrets = iter(["agent-secret", "serper-secret"])
+
+    config = setup.run_setup(
+        input_fn=lambda _prompt: next(answers),
+        secret_fn=lambda _prompt: next(secrets),
+    )
+
+    assert config["search"] == {"provider": "serper", "configured": True}
+    credentials = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "OPENAI_API_KEY=agent-secret\n" in credentials
+    assert "SERPER_API_KEY=serper-secret\n" in credentials
 
 
 def test_apply_user_configuration_uses_global_values(

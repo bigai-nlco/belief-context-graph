@@ -68,6 +68,7 @@
         "finalized": { "type": "boolean" },
         "stream_turn_index": { "type": "integer" },
         "n_turns_ingested": { "type": "integer" },
+        "token_usage": { "type": "object" },
         "generated_at": { "type": "string" },
         "n_nodes": { "type": "integer" },
         "n_beliefs": { "type": "integer" },

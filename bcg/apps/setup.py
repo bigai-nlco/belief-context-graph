@@ -50,7 +50,13 @@ def credentials_path() -> Path:
 
 
 def model_config_path() -> Path:
+    """Legacy JSON Graph configuration path retained for fallback reads."""
     return state_root() / "model_config.json"
+
+
+def graph_config_path() -> Path:
+    """Unified YAML Graph configuration written by setup."""
+    return state_root() / "config.yaml"
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -104,6 +110,7 @@ def _write_user_yaml_config(graph_model_config: dict[str, Any]) -> None:
 
     settings_dict: dict[str, Any] = {
         "schema_version": 1,
+        "backend": ("light" if "belief_graph" in graph_model_config else "api_based"),
         # keep the default model/embedding keys aligned with what we write
         "model_key": GRAPH_MODEL_KEY,
         "embedding_key": EMBEDDING_KEY,
@@ -121,7 +128,7 @@ def _write_user_yaml_config(graph_model_config: dict[str, Any]) -> None:
 
     import yaml
 
-    dest = state_root() / "config.yaml"
+    dest = graph_config_path()
     dest.parent.mkdir(parents=True, exist_ok=True)
     yaml.safe_dump(settings_dict, dest.open("w", encoding="utf-8"), sort_keys=False)
 
@@ -486,7 +493,11 @@ def is_configured(config: dict[str, Any] | None = None) -> bool:
     return (
         value.get("version") == CONFIG_VERSION
         and value.get("setupComplete") is True
-        and (uses_existing_server or model_config_path().is_file())
+        and (
+            uses_existing_server
+            or graph_config_path().is_file()
+            or model_config_path().is_file()
+        )
     )
 
 
@@ -515,7 +526,7 @@ def apply_user_configuration(
         "BCG_GRAPH_AUTOSTART": (
             "false" if graph.get("serverMode") == "existing" else "true"
         ),
-        "BCG_GRAPH_CONFIG": str(graph.get("modelConfig") or model_config_path()),
+        "BCG_GRAPH_CONFIG": str(graph.get("modelConfig") or graph_config_path()),
         "BCG_GRAPH_MODEL_KEY": str(graph.get("modelKey") or GRAPH_MODEL_KEY),
         "BCG_GRAPH_EMBEDDING_KEY": str(graph.get("embeddingKey") or EMBEDDING_KEY),
         "BCG_RECENT_TURNS": str(context.get("recentTurns", 2)),
@@ -641,6 +652,30 @@ def run_setup(
         agent_base_url = ""
         pending_login = True
 
+    search_provider = _choose(
+        "Configure web search",
+        [
+            (
+                "serper",
+                "Serper API key (enables web_search and BrowseComp)",
+            ),
+            (
+                "disabled",
+                "Disable Serper web search",
+            ),
+        ],
+        default="serper",
+        input_fn=input_fn,
+    )
+    if search_provider == "serper":
+        credentials["SERPER_API_KEY"] = _ask_secret(
+            "Serper API key",
+            existing=credentials.get("SERPER_API_KEY"),
+            secret_fn=secret_fn,
+        )
+    else:
+        credentials.pop("SERPER_API_KEY", None)
+
     context_mode = _choose(
         "Choose the default context mode",
         [
@@ -724,7 +759,7 @@ def run_setup(
                 ),
                 (
                     "light",
-                    "Light: local vLLM plus local embedding/stance models",
+                    "Light: OpenAI-compatible generator plus local embedding/stance models",
                 ),
             ],
             default=_current_default(current, "graph", "backend", "light"),
@@ -776,17 +811,17 @@ def run_setup(
         )
     elif graph_server_mode == "managed":
         graph_base_url = _ask(
-            "Local vLLM OpenAI-compatible base URL",
+            "Light generator OpenAI-compatible base URL (local vLLM or remote API)",
             default=DEFAULT_VLLM_URL,
             input_fn=input_fn,
         )
         graph_model = _ask(
-            "Model served by vLLM",
+            "Light extraction/relation model",
             default=DEFAULT_VLLM_MODEL,
             input_fn=input_fn,
         )
         credentials["BCG_GRAPH_API_KEY"] = _ask_secret(
-            "vLLM API key (use EMPTY when authentication is disabled)",
+            "Light generator API key (use EMPTY when authentication is disabled)",
             existing=credentials.get("BCG_GRAPH_API_KEY") or "EMPTY",
             secret_fn=secret_fn,
         )
@@ -823,12 +858,16 @@ def run_setup(
             "mode": context_mode,
             "recentTurns": recent_turns,
         },
+        "search": {
+            "provider": search_provider,
+            "configured": search_provider == "serper",
+        },
         "graph": {
             "serverMode": graph_server_mode,
             "backend": graph_backend,
             "url": graph_url,
             "modelConfig": (
-                str(model_config_path()) if graph_server_mode == "managed" else ""
+                str(graph_config_path()) if graph_server_mode == "managed" else ""
             ),
             "modelKey": GRAPH_MODEL_KEY,
             "embeddingKey": EMBEDDING_KEY,
@@ -846,6 +885,10 @@ def run_setup(
         summary.add_column(style="dim")
         summary.add_column(style="cyan")
         summary.add_row("Agent", f"{agent_provider} / {agent_model}")
+        summary.add_row(
+            "Search",
+            "Serper web search" if search_provider == "serper" else "disabled",
+        )
         summary.add_row("Context", context_mode)
         summary.add_row(
             "Graph",
@@ -871,12 +914,12 @@ def run_setup(
         print(f"  Runtime:     {config_path()}")
         print(f"  Credentials: {credentials_path()}")
         if graph_server_mode == "managed":
-            print(f"  Graph model: {model_config_path()}")
+            print(f"  Graph config: {graph_config_path()}")
         else:
             print(f"  Graph server: {graph_url} (existing)")
     if graph_backend == "light":
         print(
-            "\nBefore using BCG mode, make sure the configured vLLM endpoint "
+            "\nBefore using BCG mode, make sure the configured generator endpoint "
             f"is serving {graph_model} at {graph_base_url}."
         )
     if pending_login:
@@ -924,6 +967,7 @@ __all__ = [
     "credentials_path",
     "ensure_user_setup",
     "is_configured",
+    "graph_config_path",
     "load_user_configuration",
     "mark_login_prompt_consumed",
     "model_config_path",

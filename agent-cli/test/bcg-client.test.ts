@@ -79,6 +79,41 @@ describe("BcgClient (contract-backed HTTP client, step 11)", () => {
 		expect(result).toEqual({ problem_id: "p", released: true });
 	});
 
+	it("finalizes and returns the persisted graph snapshot", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				problem_id: "p",
+				stage: "final",
+				finalized: true,
+				generated_at: "2026-08-09T00:00:00+00:00",
+				n_nodes: 1,
+				n_beliefs: 1,
+				n_decisions: 0,
+				nodes: [{ id: 1, node_type: "belief", belief: "done" }],
+				beliefs: [{ id: 1, node_type: "belief", belief: "done" }],
+				decisions: [],
+				relations: [],
+			}),
+		) as typeof globalThis.fetch;
+		const client = new BcgClient({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "p",
+			timeoutMs: 1000,
+			fetch: fetchMock,
+		});
+
+		const result = await client.finalize();
+		expect(result.finalized).toBe(true);
+		expect(result.stage).toBe("final");
+		expect(fetchMock).toHaveBeenCalledWith(
+			"http://127.0.0.1:8848/finalize",
+			expect.objectContaining({
+				method: "POST",
+				body: JSON.stringify({ problem_id: "p" }),
+			}),
+		);
+	});
+
 	it("reads the released flag from a successful release body", async () => {
 		const fetchMock = vi.fn(async () =>
 			jsonResponse({ problem_id: "p", released: false }),

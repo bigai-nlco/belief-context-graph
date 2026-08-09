@@ -154,6 +154,7 @@ export type AgentSessionEvent =
 	| { type: "entry_appended"; entry: SessionEntry }
 	| { type: "session_info_changed"; name: string | undefined }
 	| { type: "thinking_level_changed"; level: ThinkingLevel }
+	| { type: "graph_usage"; usage: Record<string, unknown> }
 	| {
 			type: "compaction_end";
 			reason: "manual" | "threshold" | "overflow";
@@ -550,6 +551,11 @@ export class AgentSession {
 		for (const l of this._eventListeners) {
 			l(event);
 		}
+	}
+
+	/** Publish finalized Graph-model usage to JSON/event-stream consumers. */
+	emitGraphUsage(usage: Record<string, unknown>): void {
+		this._emit({ type: "graph_usage", usage });
 	}
 
 	private _emitQueueUpdate(): void {

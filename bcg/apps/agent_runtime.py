@@ -320,10 +320,6 @@ def _resolve_agent_command() -> list[str]:
             raise AgentLaunchError("BCG_AGENT_COMMAND is empty.")
         return command
 
-    installed = shutil.which("bcg-agent")
-    if installed:
-        return [installed]
-
     source_candidates = [
         PROJECT_ROOT / "agent-cli" / "dist" / "cli.js",
         SOURCE_PROJECT_ROOT / "agent-cli" / "dist" / "cli.js",
@@ -333,6 +329,10 @@ def _resolve_agent_command() -> list[str]:
         for candidate in source_candidates:
             if candidate.is_file():
                 return [node, str(candidate.resolve())]
+
+    installed = shutil.which("bcg-agent")
+    if installed:
+        return [installed]
 
     raise AgentLaunchError(
         "The BCG Agent runtime is not installed. Install it with\n"

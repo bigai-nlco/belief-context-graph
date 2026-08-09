@@ -39,6 +39,8 @@ from .llm import (
     make_client,
     parse_json_response,
     resolve_config_api_key,
+    temperature_request_value,
+    thinking_request_options,
     unbind_prompt_log_path,
     unbind_usage_tracker,
 )
@@ -300,13 +302,9 @@ class QwenChunkExtractor:
             nodes_context = "[]"
 
         client = self._ensure_client()
-        # Disable Qwen3 thinking for extraction unless explicitly enabled.
-        if self.config.get("enable_thinking", False):
-            reasoning_effort: str | None = "medium"
-            extra_body: dict[str, Any] | None = None
-        else:
-            reasoning_effort = None
-            extra_body = {"chat_template_kwargs": {"enable_thinking": False}}
+        reasoning_effort, extra_body = thinking_request_options(
+            self.model, enabled=self.config.get("enable_thinking", False)
+        )
 
         turn_ctx = (
             turn_content if self.config.get("include_turn_content", False) else None
@@ -354,7 +352,9 @@ class QwenChunkExtractor:
                         client,
                         self.model,
                         request_prompt,
-                        temperature=self.config["temperature"],
+                        temperature=temperature_request_value(
+                            self.model, self.config["temperature"]
+                        ),
                         max_tokens=self.config["max_tokens"],
                         retries=self.config["retries"],
                         usage_label=request_label,

@@ -54,6 +54,24 @@ export class BcgClient {
 		return snapshot;
 	}
 
+	/** POST /finalize and return the final persisted graph snapshot. */
+	async finalize(): Promise<BcgSnapshot> {
+		const response = await this.fetchImpl(`${this.baseUrl}/finalize`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ problem_id: this.problemId }),
+			signal: AbortSignal.timeout(this.timeoutMs),
+		});
+		if (!response.ok) {
+			throw await this.httpError(response);
+		}
+		const snapshot = parseSnapshot(await response.json(), this.problemId);
+		if (!snapshot) {
+			throw new Error("BCG server returned an invalid final graph snapshot");
+		}
+		return snapshot;
+	}
+
 	/**
 	 * POST /release. Idempotent per contract: 404 (already released or unknown)
 	 * is tolerated, and the response body reports the released flag.

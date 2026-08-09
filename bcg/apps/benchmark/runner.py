@@ -54,6 +54,7 @@ class RunConfig:
     base_url: str
     api_key: str = field(default="", repr=False)
     modes: tuple[str, ...] = ("default", "bcg")
+    thinking: str = "off"
     workers: int = 4
     timeout: float = 900.0
     graph_url: str = "http://127.0.0.1:8848"
@@ -85,6 +86,7 @@ def run_benchmarks(
         "model": config.model,
         "base_url": config.base_url,
         "modes": list(config.modes),
+        "thinking": config.thinking,
         "workers": config.workers,
         "timeout_seconds": config.timeout,
         "graph_url": config.graph_url,
@@ -286,7 +288,7 @@ def _write_agent_configuration(
     settings = {
         "defaultProvider": "benchmark",
         "defaultModel": config.model,
-        "defaultThinkingLevel": "off",
+        "defaultThinkingLevel": config.thinking,
         "quietStartup": True,
         "enableInstallTelemetry": False,
         "enableAnalytics": False,
@@ -301,6 +303,16 @@ def _write_agent_configuration(
             },
         },
     }
+    is_gpt_56 = "gpt-5.6" in config.model.casefold()
+    model_definition: dict[str, Any] = {
+        "id": config.model,
+        "name": config.model,
+        "reasoning": config.thinking != "off" or is_gpt_56,
+    }
+    if is_gpt_56:
+        # GPT-5.6 defaults to reasoning when the field is omitted. Keep the
+        # model reasoning-capable and map the CLI's `off` level explicitly.
+        model_definition["thinkingLevelMap"] = {"off": "none"}
     models = {
         "providers": {
             "benchmark": {
@@ -308,7 +320,7 @@ def _write_agent_configuration(
                 "api": "openai-completions",
                 "apiKey": "$OPENAI_API_KEY",
                 "authHeader": True,
-                "models": [{"id": config.model, "name": config.model}],
+                "models": [model_definition],
             }
         }
     }
@@ -350,7 +362,7 @@ def _run_one(
             "--model",
             config.model,
             "--thinking",
-            "off",
+            config.thinking,
             "--system-prompt",
             SYSTEM_PROMPT,
             "--mode",
@@ -470,6 +482,7 @@ def _run_one(
         "metrics": score.metrics if score is not None else {},
         "wall_time_seconds": wall_time,
         "usage": parsed["usage"].as_dict(),
+        "graph_usage": parsed["graph_usage"].as_dict(),
         "tool_calls": parsed["tool_calls"],
         "search_calls": search_calls,
         "graph_fallback": graph_fallback,
@@ -573,6 +586,7 @@ def parse_agent_events(stdout: str) -> dict[str, Any]:
     stop_reason = ""
     error_message = ""
     usage = TokenUsage()
+    graph_usage = TokenUsage()
     tool_calls: Counter[str] = Counter()
     for line in stdout.splitlines():
         try:
@@ -580,6 +594,18 @@ def parse_agent_events(stdout: str) -> dict[str, Any]:
         except json.JSONDecodeError:
             continue
         if not isinstance(event, dict):
+            continue
+        if event.get("type") == "graph_usage":
+            raw_graph_usage = event.get("usage")
+            if isinstance(raw_graph_usage, dict):
+                totals = raw_graph_usage.get("llm_totals")
+                if not isinstance(totals, dict):
+                    totals = raw_graph_usage.get("totals")
+                if isinstance(totals, dict):
+                    graph_usage.input += _int(totals.get("input_tokens"))
+                    graph_usage.output += _int(totals.get("output_tokens"))
+                    graph_usage.reasoning += _int(totals.get("reasoning_tokens"))
+                    graph_usage.total += _int(totals.get("total_tokens"))
             continue
         if event.get("type") == "tool_execution_start":
             tool_calls[str(event.get("toolName") or "unknown")] += 1
@@ -607,6 +633,7 @@ def parse_agent_events(stdout: str) -> dict[str, Any]:
         "stop_reason": stop_reason,
         "error_message": error_message,
         "usage": usage,
+        "graph_usage": graph_usage,
         "tool_calls": dict(tool_calls),
     }
 
@@ -614,8 +641,9 @@ def parse_agent_events(stdout: str) -> dict[str, Any]:
 def summarize_results(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
     """Aggregate correctness, latency, tool, and directional token metrics."""
 
+    all_values = list(results)
     groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
-    for result in results:
+    for result in all_values:
         groups[(str(result["benchmark"]), str(result["mode"]))].append(result)
 
     summaries: dict[str, dict[str, Any]] = {}
@@ -646,6 +674,7 @@ def summarize_results(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
             key: sum(int(value.get("usage", {}).get(key, 0)) for value in values)
             for key in usage_keys
         }
+        model_token_usage = _model_token_usage(values)
         cost_keys = (
             "input_cost",
             "output_cost",
@@ -683,6 +712,7 @@ def summarize_results(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
                 else 0.0
             ),
             "tokens": token_totals,
+            "model_token_usage": model_token_usage,
             "cost": cost_totals,
             "search_calls_total": sum(
                 int(value.get("search_calls", 0)) for value in values
@@ -730,6 +760,7 @@ def summarize_results(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
         summaries.setdefault(benchmark, {})[mode] = summary
     return {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "model_token_usage": _model_token_usage(all_values),
         "benchmarks": summaries,
     }
 
@@ -741,6 +772,65 @@ def _mean_metric(values: list[dict[str, Any]], key: str) -> float:
         if value.get("metrics", {}).get(key) is not None
     ]
     return sum(metrics) / len(metrics) if metrics else 0.0
+
+
+def _aggregate_model_tokens(
+    values: list[dict[str, Any]],
+    *,
+    usage_key: str,
+    include_cache: bool,
+) -> dict[str, int]:
+    """Return disjoint input/reasoning/visible-output model token totals."""
+
+    input_tokens = 0
+    reasoning_tokens = 0
+    raw_output_tokens = 0
+    for value in values:
+        usage = value.get(usage_key)
+        if not isinstance(usage, dict):
+            continue
+        input_tokens += _int(usage.get("input"))
+        if include_cache:
+            input_tokens += _int(usage.get("cache_read"))
+            input_tokens += _int(usage.get("cache_write"))
+        reasoning_tokens += _int(usage.get("reasoning"))
+        raw_output_tokens += _int(usage.get("output"))
+    return {
+        "input_tokens": input_tokens,
+        "reasoning_tokens": reasoning_tokens,
+        # OpenAI-compatible APIs report reasoning as a subset of output.
+        # Subtract it so the three displayed categories do not overlap.
+        "output_tokens": max(0, raw_output_tokens - reasoning_tokens),
+    }
+
+
+def _model_token_usage(values: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    agent_model = _aggregate_model_tokens(
+        values,
+        usage_key="usage",
+        include_cache=True,
+    )
+    graph_model = _aggregate_model_tokens(
+        values,
+        usage_key="graph_usage",
+        include_cache=False,
+    )
+    combined = {
+        key: agent_model[key] + graph_model[key]
+        for key in ("input_tokens", "reasoning_tokens", "output_tokens")
+    }
+    return {
+        "agent_model": agent_model,
+        "graph_model": graph_model,
+        "combined": combined,
+    }
+
+
+def _int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _group_accuracy(
@@ -799,6 +889,7 @@ def _unexpected_failure(
         "score": None,
         "error": str(exc),
         "usage": TokenUsage().as_dict(),
+        "graph_usage": TokenUsage().as_dict(),
         "wall_time_seconds": 0.0,
         "graph_fallback": False,
         "tool_calls": {},

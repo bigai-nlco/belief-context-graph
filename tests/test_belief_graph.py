@@ -11,6 +11,7 @@ from typing import Any, TypeVar
 import pytest
 
 from bcg import BCG, BCGMemory, BCGRunner
+from bcg.construct._shared.llm import TokenUsageTracker, _coerce_usage
 from bcg.construct.api_based import BeliefGraphPipeline
 from bcg.construct.api_based.confidence import (
     init_belief_confidence,
@@ -20,7 +21,12 @@ from bcg.construct.api_based.evidence import evidence_from_excerpt, locate_excer
 from bcg.construct.api_based.graph import BeliefGraph
 from bcg.construct.api_based.online import SessionManager as ApiSessionManager
 from bcg.construct.light.extractor import ExtractedNode, QwenChunkExtractor
-from bcg.construct.light.llm import call_model, parse_json_response
+from bcg.construct.light.llm import (
+    call_model,
+    parse_json_response,
+    temperature_request_value,
+    thinking_request_options,
+)
 from bcg.construct.light.online import SessionManager as LightSessionManager
 from bcg.construct.light.split import semantic_breakpoint_chunks, split_sentences
 from bcg.construct.light.stance import StancePrediction
@@ -35,6 +41,40 @@ from bcg.core.llm import LLMResponse
 from bcg.core.runner import _bcg_from_construct, _ConstructClientAdapter
 
 T = TypeVar("T")
+
+
+def test_graph_usage_tracks_reasoning_and_excludes_embeddings_from_llm_totals() -> None:
+    usage = SimpleNamespace(
+        prompt_tokens=100,
+        completion_tokens=30,
+        total_tokens=130,
+        completion_tokens_details=SimpleNamespace(reasoning_tokens=12),
+    )
+    counts = _coerce_usage(usage)
+    tracker = TokenUsageTracker()
+    tracker.record(
+        model="graph-model",
+        prompt_tokens=counts["prompt_tokens"],
+        completion_tokens=counts["completion_tokens"],
+        reasoning_tokens=counts["reasoning_tokens"],
+        total_tokens=counts["total_tokens"],
+        label="extractor",
+    )
+    tracker.record(
+        model="embedding-model",
+        prompt_tokens=50,
+        completion_tokens=0,
+        total_tokens=50,
+        label="embedding:merge",
+    )
+
+    assert tracker.summary()["llm_totals"] == {
+        "n_calls": 1,
+        "input_tokens": 100,
+        "output_tokens": 30,
+        "reasoning_tokens": 12,
+        "total_tokens": 130,
+    }
 
 
 @pytest.mark.parametrize("manager_type", [LightSessionManager, ApiSessionManager])
@@ -88,6 +128,23 @@ def test_light_call_model_forwards_json_response_format() -> None:
 
     assert response == '{"beliefs": []}'
     assert captured["response_format"] == {"type": "json_object"}
+
+
+def test_light_non_thinking_controls_are_provider_safe() -> None:
+    assert thinking_request_options("gpt-5.6-luna", enabled=False) == (
+        "none",
+        None,
+    )
+    assert thinking_request_options("Qwen3.5-4B", enabled=False) == (
+        None,
+        {"chat_template_kwargs": {"enable_thinking": False}},
+    )
+    assert thinking_request_options("gpt-5.6-luna", enabled=True) == (
+        "medium",
+        None,
+    )
+    assert temperature_request_value("gpt-5.6-luna", 0) is None
+    assert temperature_request_value("Qwen3.5-4B", 0) == 0
 
 
 def test_light_call_model_reduces_output_budget_after_context_overflow(

@@ -9,9 +9,9 @@
   "keep_order": false,
   "evidence_mode": "sentence",
   "incremental_merge": true,
-  "incremental_merge_threshold": 0.8,
-  "verify_merge": false,
-  "context_chars": 9000,
+  "incremental_merge_threshold": 0.86,
+  "verify_merge": true,
+  "context_chars": 100000,
   "min_content_len": 0
  },
  "run_light": {
@@ -32,9 +32,9 @@
   "embedding_key": "embedding",
   "evidence_mode": "sentence",
   "incremental_merge": true,
-  "incremental_merge_threshold": 0.8,
-  "verify_merge": false,
-  "context_chars": 9000,
+  "incremental_merge_threshold": 0.86,
+  "verify_merge": true,
+  "context_chars": 100000,
   "min_content_len": 0,
   "quiet": false
  },
@@ -56,9 +56,9 @@
   "quiet": false,
   "evidence_mode": "sentence",
   "incremental_merge": true,
-  "incremental_merge_threshold": 0.8,
-  "verify_merge": false,
-  "context_chars": 9000,
+  "incremental_merge_threshold": 0.86,
+  "verify_merge": true,
+  "context_chars": 100000,
   "min_content_len": 0
  },
  "replay_light": {
@@ -74,18 +74,18 @@
   "observe_backend_override": null,
   "evidence_mode": "sentence",
   "incremental_merge": true,
-  "incremental_merge_threshold": 0.8,
-  "verify_merge": false,
-  "context_chars": 9000,
+  "incremental_merge_threshold": 0.86,
+  "verify_merge": true,
+  "context_chars": 100000,
   "io_context_chars": 6000,
   "min_content_len": 0
  },
  "api_stream_options": {
   "evidence_mode": "sentence",
   "incremental_merge": true,
-  "incremental_merge_threshold": 0.8,
-  "verify_merge": false,
-  "context_chars": 9000,
+  "incremental_merge_threshold": 0.86,
+  "verify_merge": true,
+  "context_chars": 100000,
   "min_content_len": 0
  },
  "light_stream_options": {

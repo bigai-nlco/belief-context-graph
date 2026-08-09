@@ -48,6 +48,7 @@ export interface BcgSnapshot {
 	finalized?: boolean;
 	stream_turn_index?: number;
 	n_turns_ingested?: number;
+	token_usage?: Record<string, unknown>;
 	generated_at: string;
 	n_nodes: number;
 	n_beliefs: number;

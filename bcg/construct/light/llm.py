@@ -279,7 +279,7 @@ def call_model(
     client: OpenAI,
     model: str,
     prompt: str,
-    temperature: float = 0.0,
+    temperature: float | None = 0.0,
     max_tokens: int | None = None,
     retries: int = 3,
     backoff: float = 2.0,
@@ -290,9 +290,9 @@ def call_model(
 ) -> str:
     """Call chat completions and return the response text. Retries on errors.
 
-    Note: the pipeline always calls this with temperature=0 — deterministic
-    JSON output is what makes extraction reliable, regardless of what the
-    config file says.
+    The pipeline normally calls this with temperature=0 for deterministic JSON
+    output. Providers that only accept their default temperature pass ``None``
+    so the field is omitted.
 
     ``reasoning_effort`` is sent only when not None; pass None to omit it (e.g.
     for extraction against a thinking model where reasoning is undesirable).
@@ -302,8 +302,9 @@ def call_model(
     kwargs: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": temperature,
     }
+    if temperature is not None:
+        kwargs["temperature"] = temperature
     if reasoning_effort is not None:
         kwargs["reasoning_effort"] = reasoning_effort
     if extra_body:
@@ -354,6 +355,37 @@ def call_model(
             if attempt < retries - 1:
                 time.sleep(backoff**attempt)
     raise RuntimeError(f"All retries failed: {last_err}")
+
+
+def thinking_request_options(
+    model: str, *, enabled: bool
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Return provider-safe reasoning controls for a construction request.
+
+    GPT-5.6 endpoints require ``reasoning_effort=none`` to disable reasoning;
+    omitting the field lets the provider choose its default effort. Qwen uses
+    its chat-template switch instead.
+    """
+    if enabled:
+        return "medium", None
+    if "gpt-5.6" in model.casefold():
+        return "none", None
+    if "qwen" in model.casefold():
+        return None, {"chat_template_kwargs": {"enable_thinking": False}}
+    return None, None
+
+
+def temperature_request_value(model: str, configured: float) -> float | None:
+    """Return a provider-safe construction temperature.
+
+    The configured GPT-5.6 endpoint accepts only its default temperature and
+    rejects an explicit ``temperature=0``. Omitting the field preserves that
+    provider default; local Qwen and other OpenAI-compatible models retain the
+    deterministic configured value.
+    """
+    if "gpt-5.6" in model.casefold():
+        return None
+    return configured
 
 
 def parse_json_response(text: str) -> dict[str, Any]:

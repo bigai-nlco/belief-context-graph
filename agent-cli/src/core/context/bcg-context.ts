@@ -49,6 +49,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }
 
+function compactJson(value: unknown): string {
+	if (value === null) {
+		return "null";
+	}
+	if (Array.isArray(value)) {
+		return `[${value.map((item) => compactJson(item)).join(", ")}]`;
+	}
+	if (isRecord(value)) {
+		const fields = Object.entries(value)
+			.filter(([, item]) => item !== undefined)
+			.map(([key, item]) => `${JSON.stringify(key)}: ${compactJson(item)}`);
+		return `{${fields.join(", ")}}`;
+	}
+	try {
+		return JSON.stringify(value) ?? "null";
+	} catch {
+		return JSON.stringify(String(value));
+	}
+}
+
 function contentToText(content: unknown): string {
 	if (typeof content === "string") {
 		return content;
@@ -73,15 +93,10 @@ function contentToText(content: unknown): string {
 				break;
 			case "toolCall": {
 				const name = typeof block.name === "string" ? block.name : "unknown";
-				let args = "";
-				if ("arguments" in block) {
-					try {
-						args = JSON.stringify(block.arguments);
-					} catch {
-						args = String(block.arguments);
-					}
-				}
-				parts.push(`[Tool call: ${name}]${args ? `\n${args}` : ""}`);
+				const args = "arguments" in block ? block.arguments : {};
+				parts.push(
+					`<tool_call>\n${compactJson({ name, arguments: args })}\n</tool_call>`,
+				);
 				break;
 			}
 		}
@@ -318,17 +333,27 @@ export class BcgContextManager {
 		return `${prefix}<belief_graph format="markdown">\n${this.graphText}\n</belief_graph>`;
 	}
 
-	async release(): Promise<void> {
+	async release(): Promise<Record<string, unknown> | undefined> {
 		if (!this.seeded || this.released) {
-			return;
+			return undefined;
 		}
 		this.released = true;
+		let tokenUsage: Record<string, unknown> | undefined;
+		try {
+			const snapshot = await this.client.finalize();
+			this.updateSnapshot(snapshot);
+			tokenUsage = snapshot.token_usage;
+		} catch (error) {
+			const detail = error instanceof Error ? error.message : String(error);
+			this.onWarning(`[BCG context] failed to finalize Graph session: ${detail}`);
+		}
 		try {
 			await this.client.release();
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
 			this.onWarning(`[BCG context] failed to release Graph session: ${detail}`);
 		}
+		return tokenUsage;
 	}
 
 	private resolveInitialUser(messages: AgentMessage[]): AgentMessage | undefined {

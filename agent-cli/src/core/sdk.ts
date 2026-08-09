@@ -441,7 +441,10 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		extensionsResult,
 		modelFallbackMessage,
 		dispose: async () => {
-			await bcgContextManager?.release();
+			const graphUsage = await bcgContextManager?.release();
+			if (graphUsage) {
+				session.emitGraphUsage(graphUsage);
+			}
 		},
 	};
 }

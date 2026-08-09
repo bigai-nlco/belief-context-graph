@@ -228,6 +228,7 @@ results/
 artifacts/
 archive/
 belief_graphs/
+/graphs
 prediction/
 tmp/
 

@@ -42,6 +42,32 @@ function assistant(text: string, timestamp: number): AssistantMessage {
 	};
 }
 
+function assistantToolCalls(timestamp: number): AssistantMessage {
+	return {
+		role: "assistant",
+		content: [
+			{
+				type: "toolCall",
+				id: "call-one",
+				name: "web_search",
+				arguments: { query: "first query" },
+			},
+			{
+				type: "toolCall",
+				id: "call-two",
+				name: "read",
+				arguments: { path: "notes.txt", offset: 10 },
+			},
+		],
+		api: "test-api",
+		provider: "test-provider",
+		model: "test-model",
+		usage: EMPTY_USAGE,
+		stopReason: "toolUse",
+		timestamp,
+	};
+}
+
 function tool(text: string, timestamp: number): ToolResultMessage {
 	return {
 		role: "toolResult",
@@ -127,6 +153,30 @@ describe("BCG context management", () => {
 		const transformed = await manager.transform([initial, assistant("old reasoning", 2), tool("old evidence", 3)]);
 
 		expect(transformed).toEqual([initial]);
+	});
+
+	it("serializes tool calls with XML tags while preserving Agent tool names", async () => {
+		const requests: Array<Record<string, unknown>[]> = [];
+		const initial = user("initial", 1);
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 0,
+			maxTurns: 100,
+			timeoutMs: 1000,
+			includeRelations: true,
+			getSystemPrompt: () => "system",
+			fetch: createFetch(requests),
+		});
+
+		await manager.transform([initial]);
+		await manager.transform([initial, assistantToolCalls(2)]);
+
+		expect(requests[1]).toHaveLength(1);
+		expect(requests[1][0].content).toBe(
+			'<tool_call>\n{"name": "web_search", "arguments": {"query": "first query"}}\n</tool_call>\n\n' +
+				'<tool_call>\n{"name": "read", "arguments": {"path": "notes.txt", "offset": 10}}\n</tool_call>',
+		);
 	});
 
 	it("preserves a later user input until its assistant turn exists", async () => {
@@ -217,7 +267,17 @@ describe("BCG context management", () => {
 				return new Response(
 					JSON.stringify({
 						latest: {
-							problem: { beliefs: [], relations: [] },
+							problem: {
+								beliefs: [],
+								relations: [],
+								token_usage: {
+									llm_totals: {
+										input_tokens: 20,
+										output_tokens: 7,
+										reasoning_tokens: 3,
+									},
+								},
+							},
 						},
 					}),
 					{ status: 200 },
@@ -227,10 +287,13 @@ describe("BCG context management", () => {
 
 		await manager.release();
 		await manager.transform([initial]);
-		await manager.release();
+		const usage = await manager.release();
 		await manager.release();
 
-		expect(paths).toEqual(["/turns", "/release"]);
+		expect(paths).toEqual(["/turns", "/finalize", "/release"]);
+		expect(usage).toEqual({
+			llm_totals: { input_tokens: 20, output_tokens: 7, reasoning_tokens: 3 },
+		});
 	});
 
 	it("formats relations as Markdown", () => {

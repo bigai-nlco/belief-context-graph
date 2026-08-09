@@ -34,9 +34,9 @@ bcg construct run api_based \
 |---|---:|---:|
 | `evidence_mode` | `sentence` | `sentence` |
 | `incremental_merge` | `true` | `true` |
-| `incremental_merge_threshold` | `0.8` | `0.86` |
-| `verify_merge` | `false` | enabled by batch/server layers |
-| `context_chars` | `9000` | `100000` |
+| `incremental_merge_threshold` | `0.86` | shared across SDK, batch, and server |
+| `verify_merge` | `true` | shared across SDK, batch, and server |
+| `context_chars` | `100000` | shared across SDK, batch, and server |
 | `min_content_len` | `0` | `0` |
 
 <Info>

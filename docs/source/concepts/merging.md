@@ -50,7 +50,7 @@ bcg construct run api_based \
   --no-incremental-merge
 ```
 
-The library defaults differ from some CLI defaults. `BCGRunner` defaults to threshold `0.8` and `verify_merge=False`; the batch and server command layers use their own values.
+All construction entry points use the shared defaults: threshold `0.86` and `verify_merge=True`.
 
 ## Audit trail
 

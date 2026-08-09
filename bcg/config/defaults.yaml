@@ -56,8 +56,8 @@ pipeline:
 runner:
   evidence_mode: sentence
   incremental_merge: true
-  incremental_merge_threshold: 0.8
-  verify_merge: false
-  context_chars: 9000
+  incremental_merge_threshold: 0.86
+  verify_merge: true
+  context_chars: 100000
   io_context_chars: 6000
   min_content_len: 0

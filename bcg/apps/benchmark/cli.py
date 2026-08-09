@@ -75,6 +75,12 @@ def run(
         str | None,
         typer.Option(help="Agent model (default: BCG_AGENT_MODEL/OPENAI_MODEL/MODEL)."),
     ] = None,
+    thinking: Annotated[
+        str,
+        typer.Option(
+            help="Agent thinking level: off, minimal, low, medium, high, xhigh, max."
+        ),
+    ] = "off",
     base_url: Annotated[
         str | None,
         typer.Option(help="Agent OpenAI-compatible API base URL."),
@@ -185,6 +191,16 @@ def run(
 ) -> None:
     """Run one or more benchmarks and write trajectories plus summary metrics."""
 
+    # Reuse the persistent first-run configuration just like the interactive
+    # Agent does. Explicit CLI flags and already-exported environment variables
+    # still take precedence.
+    from bcg.apps.setup import apply_user_configuration, is_configured
+    from bcg.apps.setup import load_user_configuration as load_setup_configuration
+
+    setup_config = load_setup_configuration()
+    if is_configured(setup_config):
+        apply_user_configuration(setup_config)
+
     if not benchmarks:
         raise typer.BadParameter("At least one benchmark is required.")
     try:
@@ -234,6 +250,11 @@ def run(
         )
     if not resolved_base_url:
         raise typer.BadParameter("--base-url is required (or set OPENAI_BASE_URL).")
+    valid_thinking = {"off", "minimal", "low", "medium", "high", "xhigh", "max"}
+    if thinking not in valid_thinking:
+        raise typer.BadParameter(
+            "--thinking must be one of: " + ", ".join(sorted(valid_thinking))
+        )
 
     resolved_modes = tuple(value.strip() for value in modes.split(",") if value.strip())
     invalid_modes = set(resolved_modes) - {"default", "bcg"}
@@ -261,6 +282,7 @@ def run(
         base_url=resolved_base_url,
         api_key=api_key,
         modes=resolved_modes,
+        thinking=thinking,
         workers=workers,
         timeout=timeout,
         graph_url=graph_url,
@@ -298,14 +320,19 @@ def _parse_data_files(values: list[str]) -> dict[str, Path]:
 
 
 def _print_summary(summary: dict[str, object], output_dir: Path) -> None:
-    table = Table(title="BCG benchmark summary")
-    table.add_column("Benchmark")
-    table.add_column("Mode")
-    table.add_column("Scored", justify="right")
-    table.add_column("Accuracy", justify="right")
-    table.add_column("Input tokens", justify="right")
-    table.add_column("Output tokens", justify="right")
-    table.add_column("Mean time", justify="right")
+    result_table = Table(title="BCG benchmark summary")
+    result_table.add_column("Benchmark")
+    result_table.add_column("Mode")
+    result_table.add_column("Scored", justify="right")
+    result_table.add_column("Accuracy", justify="right")
+    result_table.add_column("Mean time", justify="right")
+    token_table = Table(title="Model token usage")
+    token_table.add_column("Benchmark")
+    token_table.add_column("Mode")
+    token_table.add_column("Model scope")
+    token_table.add_column("Input (total)", justify="right")
+    token_table.add_column("Reasoning", justify="right")
+    token_table.add_column("Output (non-reasoning)", justify="right")
     benchmark_summaries = summary.get("benchmarks", {})
     if isinstance(benchmark_summaries, dict):
         for benchmark, mode_values in benchmark_summaries.items():
@@ -315,17 +342,53 @@ def _print_summary(summary: dict[str, object], output_dir: Path) -> None:
                 if not isinstance(values, dict):
                     continue
                 accuracy = values.get("accuracy")
-                tokens = values.get("tokens", {})
-                table.add_row(
+                result_table.add_row(
                     str(benchmark),
                     str(mode),
                     str(values.get("evaluated", 0)),
                     f"{float(accuracy):.2%}" if accuracy is not None else "n/a",
-                    str(tokens.get("input", 0) if isinstance(tokens, dict) else 0),
-                    str(tokens.get("output", 0) if isinstance(tokens, dict) else 0),
                     f"{float(values.get('wall_time_seconds_mean', 0)):.1f}s",
                 )
-    console.print(table)
+                model_tokens = values.get("model_token_usage")
+                if not isinstance(model_tokens, dict):
+                    continue
+                for scope, label in (
+                    ("agent_model", "Agent model"),
+                    ("graph_model", "Graph model"),
+                    ("combined", "Combined"),
+                ):
+                    tokens = model_tokens.get(scope)
+                    if not isinstance(tokens, dict):
+                        continue
+                    token_table.add_row(
+                        str(benchmark),
+                        str(mode),
+                        label,
+                        f"{int(tokens.get('input_tokens', 0)):,}",
+                        f"{int(tokens.get('reasoning_tokens', 0)):,}",
+                        f"{int(tokens.get('output_tokens', 0)):,}",
+                    )
+    overall_tokens = summary.get("model_token_usage")
+    if isinstance(overall_tokens, dict):
+        token_table.add_section()
+        for scope, label in (
+            ("agent_model", "Agent model"),
+            ("graph_model", "Graph model"),
+            ("combined", "Combined"),
+        ):
+            tokens = overall_tokens.get(scope)
+            if not isinstance(tokens, dict):
+                continue
+            token_table.add_row(
+                "ALL",
+                "all",
+                label,
+                f"{int(tokens.get('input_tokens', 0)):,}",
+                f"{int(tokens.get('reasoning_tokens', 0)):,}",
+                f"{int(tokens.get('output_tokens', 0)):,}",
+            )
+    console.print(result_table)
+    console.print(token_table)
     console.print(f"Artifacts: [bold]{output_dir}[/bold]")
 
 

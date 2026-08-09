@@ -31,9 +31,14 @@ def _estimate_tokens(text: str) -> int:
 
 
 def _coerce_usage(usage: Any) -> dict[str, int | None]:
-    """Pull prompt/completion/total token counts out of an SDK usage object."""
+    """Pull prompt/completion/reasoning/total counts from an SDK usage object."""
     if usage is None:
-        return {"prompt_tokens": None, "completion_tokens": None, "total_tokens": None}
+        return {
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "reasoning_tokens": None,
+            "total_tokens": None,
+        }
 
     def _get(name: str) -> int | None:
         v = getattr(usage, name, None)
@@ -44,6 +49,27 @@ def _coerce_usage(usage: Any) -> dict[str, int | None]:
     pt = _get("prompt_tokens")
     ct = _get("completion_tokens")
     tt = _get("total_tokens")
+    reasoning: int | None = None
+
+    details = getattr(usage, "completion_tokens_details", None)
+    if details is None and isinstance(usage, dict):
+        details = usage.get("completion_tokens_details")
+    if details is not None:
+        reasoning = getattr(details, "reasoning_tokens", None)
+        if reasoning is None and isinstance(details, dict):
+            reasoning = details.get("reasoning_tokens")
+
+    # Responses-style providers use output_tokens_details. Supporting it here
+    # keeps the graph accounting correct for compatible gateways that expose
+    # Responses usage through an otherwise Chat-Completions-shaped client.
+    if reasoning is None:
+        details = getattr(usage, "output_tokens_details", None)
+        if details is None and isinstance(usage, dict):
+            details = usage.get("output_tokens_details")
+        if details is not None:
+            reasoning = getattr(details, "reasoning_tokens", None)
+            if reasoning is None and isinstance(details, dict):
+                reasoning = details.get("reasoning_tokens")
 
     if pt is None and ct is None and tt is None:
         dump: dict[str, Any] | None = None
@@ -58,10 +84,21 @@ def _coerce_usage(usage: Any) -> dict[str, int | None]:
             pt = dump.get("prompt_tokens")
             ct = dump.get("completion_tokens")
             tt = dump.get("total_tokens")
+            completion_details = dump.get("completion_tokens_details") or {}
+            output_details = dump.get("output_tokens_details") or {}
+            if reasoning is None and isinstance(completion_details, dict):
+                reasoning = completion_details.get("reasoning_tokens")
+            if reasoning is None and isinstance(output_details, dict):
+                reasoning = output_details.get("reasoning_tokens")
 
     if tt is None and pt is not None and ct is not None:
         tt = pt + ct
-    return {"prompt_tokens": pt, "completion_tokens": ct, "total_tokens": tt}
+    return {
+        "prompt_tokens": pt,
+        "completion_tokens": ct,
+        "reasoning_tokens": reasoning,
+        "total_tokens": tt,
+    }
 
 
 class TokenUsageTracker:
@@ -99,6 +136,7 @@ class TokenUsageTracker:
         prompt_tokens: int | None,
         completion_tokens: int | None,
         total_tokens: int | None,
+        reasoning_tokens: int | None = None,
         label: str | None = None,
         estimated: bool = False,
     ) -> dict[str, Any]:
@@ -109,6 +147,7 @@ class TokenUsageTracker:
                 "model": model,
                 "input_tokens": prompt_tokens,
                 "output_tokens": completion_tokens,
+                "reasoning_tokens": reasoning_tokens,
                 "total_tokens": total_tokens,
                 "estimated": estimated,
             }
@@ -133,7 +172,29 @@ class TokenUsageTracker:
             "n_calls": self.n_calls,
             "input_tokens": _s("input_tokens"),
             "output_tokens": _s("output_tokens"),
+            "reasoning_tokens": _s("reasoning_tokens"),
             "total_tokens": _s("total_tokens"),
+        }
+
+    def llm_totals(self) -> dict[str, int]:
+        """Return chat-model usage, excluding embedding-model estimates/calls."""
+
+        records = [
+            record
+            for record in self.records
+            if not str(record.get("label") or "").startswith("embedding:")
+            and str(record.get("label") or "") != "embedding"
+        ]
+
+        def _sum(key: str) -> int:
+            return sum(int(record.get(key) or 0) for record in records)
+
+        return {
+            "n_calls": len(records),
+            "input_tokens": _sum("input_tokens"),
+            "output_tokens": _sum("output_tokens"),
+            "reasoning_tokens": _sum("reasoning_tokens"),
+            "total_tokens": _sum("total_tokens"),
         }
 
     def by_label(self) -> dict[str, dict[str, int]]:
@@ -146,12 +207,14 @@ class TokenUsageTracker:
                     "n_calls": 0,
                     "input_tokens": 0,
                     "output_tokens": 0,
+                    "reasoning_tokens": 0,
                     "total_tokens": 0,
                 },
             )
             agg["n_calls"] += 1
             agg["input_tokens"] += int(r.get("input_tokens") or 0)
             agg["output_tokens"] += int(r.get("output_tokens") or 0)
+            agg["reasoning_tokens"] += int(r.get("reasoning_tokens") or 0)
             agg["total_tokens"] += int(r.get("total_tokens") or 0)
         return out
 
@@ -174,7 +237,11 @@ class TokenUsageTracker:
         }
 
     def summary(self, pricing: dict[str, Any] | None = None) -> dict[str, Any]:
-        d: dict[str, Any] = {"totals": self.totals(), "by_label": self.by_label()}
+        d: dict[str, Any] = {
+            "totals": self.totals(),
+            "llm_totals": self.llm_totals(),
+            "by_label": self.by_label(),
+        }
         cost = self.estimate_cost(pricing)
         if cost is not None:
             d["estimated_cost"] = cost
@@ -415,6 +482,7 @@ def _record_usage(resp: Any, *, model: str, prompt: str, label: str | None) -> N
             prompt_tokens=counts["prompt_tokens"],
             completion_tokens=counts["completion_tokens"],
             total_tokens=counts["total_tokens"],
+            reasoning_tokens=counts["reasoning_tokens"],
             label=label,
             estimated=False,
         )

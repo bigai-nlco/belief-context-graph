@@ -300,6 +300,7 @@ class StreamingTrajectorySession:
                 "relations": [],
                 "merges": [],
                 "sessions": [],
+                "token_usage": self._usage_tracker.summary(self.pricing),
                 "generated_at": _now(),
             }
         return builder.graph.snapshot(
@@ -310,6 +311,7 @@ class StreamingTrajectorySession:
                 "finalized": self._finalized,
                 "stream_turn_index": max(0, self._n_ingested - 1),
                 "n_turns_ingested": self._n_ingested,
+                "token_usage": self._usage_tracker.summary(self.pricing),
             }
         )
 

@@ -70,15 +70,15 @@ class StreamOptions:
     # incremental embedding-ONLY merge after EACH turn's new nodes/edges
     # (no LLM verification by default).
     incremental_merge: bool = True
-    incremental_merge_threshold: float = 0.8
+    incremental_merge_threshold: float = 0.86
     # When True, the per-turn incremental merge additionally calls the LLM once per
     # embedding-flagged candidate group to (1) verify the merge is reasonable
     # (apply-time gate: only LLM-confirmed groups are merged) and (2) rewrite the
     # surviving node's content so it covers the full meaning of all merged nodes.
     # Needs an embedder (same as incremental_merge).
-    verify_merge: bool = False
+    verify_merge: bool = True
     # prompt budgets
-    context_chars: int = 9000  # existing-nodes context budget
+    context_chars: int = 100000  # existing-nodes context budget
     # skip turns whose content is shorter than this (0 = never skip)
     min_content_len: int = 0
     confidence_config: dict[str, Any] = field(default_factory=dict)
