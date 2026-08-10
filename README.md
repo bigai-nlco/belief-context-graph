@@ -3,7 +3,6 @@
 
 # Belief Context Graph
 
-### A Belief-Native Graph Memory for LLM Agents
 
 **Probabilistic · Temporal · Explainable · Stateful**
 
@@ -29,7 +28,7 @@ But agents executing real tasks also need to answer **belief questions**:
 > - Did the outcome prove my prior belief wrong?
 
 
-Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to **belief computation memory**. It is a probabilistic, temporal, evidence-grounded memory substrate that helps agents continuously maintain: what to believe, at what confidence, from which evidence, and whether uncertainty should block action. The result is agent memory you can query, audit, and trust.
+Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to **belief context graph**. It is a probabilistic, temporal, evidence-grounded and computational memory substrate that helps agents continuously maintain: what to believe, at what confidence, from which evidence, and whether uncertainty should block action. The result is agent memory you can query, audit, and trust.
 
 ### BCG is agent-independent
 
