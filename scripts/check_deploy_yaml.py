@@ -21,10 +21,6 @@ REQUIRED_TOP_LEVEL = ("host", "port", "data_dir", "graphs", "operations", "auth"
 
 def main() -> int:
     raw = CONFIG.read_text(encoding="utf-8")
-    if "/data/user/" in raw:
-        print(f"ERROR: {CONFIG} contains a personal absolute path", file=sys.stderr)
-        return 1
-
     doc = yaml.safe_load(raw)
     if not isinstance(doc, dict):
         print(f"ERROR: {CONFIG} must be a YAML mapping", file=sys.stderr)
@@ -40,9 +36,14 @@ def main() -> int:
         print(f"ERROR: invalid port {port!r}", file=sys.stderr)
         return 1
 
-    if "data_dir" in doc and not isinstance(doc["data_dir"], str):
-        print(f"ERROR: data_dir must be a string, got {doc['data_dir']!r}", file=sys.stderr)
-        return 1
+    if "data_dir" in doc:
+        data_dir = doc["data_dir"]
+        if not isinstance(data_dir, str):
+            print(f"ERROR: data_dir must be a string, got {data_dir!r}", file=sys.stderr)
+            return 1
+        if Path(data_dir).is_absolute():
+            print("ERROR: data_dir must be a portable relative path", file=sys.stderr)
+            return 1
 
     users = (doc.get("auth") or {}).get("users") or {}
     for user_name, user_cfg in users.items():
