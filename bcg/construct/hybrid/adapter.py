@@ -1,4 +1,4 @@
-"""BCG runner adapter for the API-based construct backend."""
+"""BCG runner adapter for the hybrid construct backend."""
 
 from __future__ import annotations
 
@@ -15,35 +15,29 @@ from .stream import StreamingBeliefBuilder, StreamOptions
 def _build_options(
     options: RunOptions,
     belief_graph_config: dict[str, Any] | None,
-) -> RunOptions:
-    del belief_graph_config
-    return options
-
-
-def _session_options(options: Any) -> Any:
-    if not isinstance(options, RunOptions):
-        return options
-    return StreamOptions(
+) -> StreamOptions:
+    stream_options = StreamOptions(
         evidence_mode=options.evidence_mode,
         incremental_merge=options.incremental_merge,
         incremental_merge_threshold=options.incremental_merge_threshold,
-        verify_merge=options.verify_merge,
         context_chars=options.context_chars,
         min_content_len=options.min_content_len,
     )
+    if belief_graph_config:
+        stream_options.apply_belief_graph_config(belief_graph_config)
+    return stream_options
+
+
+def _session_options(options: Any) -> Any:
+    return options
 
 
 def _serialize_options(options: Any) -> dict[str, Any]:
-    if isinstance(options, RunOptions):
-        return {
-            **_session_options(options).to_dict(),
-            "io_context_chars": options.io_context_chars,
-        }
     return options.to_dict() if hasattr(options, "to_dict") else {}
 
 
 BACKEND = SessionBackendAdapter(
-    name="api_based",
+    name="hybrid",
     session_cls=StreamingTrajectorySession,
     llm_module=llm,
     options_builder=_build_options,

@@ -2,7 +2,7 @@
 
 Only pure functions live here: no I/O, no LLM calls, no backend policy. The
 backend-specific initial-confidence policies remain in
-``bcg.construct.{api_based,light}.confidence``.
+``bcg.construct.{unified,hybrid}.confidence``.
 """
 
 from __future__ import annotations
@@ -44,10 +44,10 @@ def posterior_confidence(
 
 
 # ---------------------------------------------------------------------------
-# api_based initial-confidence policy, shared with the SDK memory facade.
-# Moved verbatim from ``bcg.construct.api_based.confidence`` so ``BCGMemory``
-# no longer depends on a concrete construct backend. The light backend keeps
-# its configurable policy; this hard-rule table is the legacy api_based
+# unified initial-confidence policy, shared with the SDK memory facade.
+# Moved verbatim from ``bcg.construct.unified.confidence`` so ``BCGMemory``
+# no longer depends on a concrete construct backend. The hybrid backend keeps
+# its configurable policy; this hard-rule table is the legacy unified
 # behavior (no model-supplied confidence is accepted).
 # ---------------------------------------------------------------------------
 

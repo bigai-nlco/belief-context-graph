@@ -9,7 +9,7 @@ Use `bcg construct run` for saved inputs.
 ## Basic command
 
 ```bash
-bcg construct run api_based \
+bcg construct run unified \
   --input data.json \
   --config ~/.bcg/model_config.json \
   --output-dir outputs \
@@ -32,15 +32,15 @@ bcg construct run api_based \
 ## Select one item
 
 ```bash
-bcg construct run light \
+bcg construct run hybrid \
   --input dataset.json \
   --item 3
 ```
 
-## API-based controls
+## Unified controls
 
 ```bash
-bcg construct run api_based \
+bcg construct run unified \
   --input data.json \
   --evidence-mode excerpt \
   --incremental-merge-threshold 0.86 \

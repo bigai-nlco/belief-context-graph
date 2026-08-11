@@ -5,7 +5,7 @@
 schema_version: 1
 
 # Default construct backend (bcg.construct.dispatch.DEFAULT_BACKEND).
-backend: api_based
+backend: unified
 
 # Default routing entries selected from the models mapping.
 model_key: gpt-5.5
@@ -20,8 +20,8 @@ server:
 models: {}
 
 # Graph construction pipeline settings (the former model_config.json
-# "belief_graph" section). The light backend consumes the full section;
-# api_based reads only relation-confidence propagation.
+# "belief_graph" section). The hybrid backend consumes the full section;
+# unified reads only relation-confidence propagation.
 pipeline:
   runtime:
     evidence_mode: chunk

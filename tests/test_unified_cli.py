@@ -88,12 +88,12 @@ def test_construct_commands_expose_rich_help(command, capsys) -> None:
         "bcg.online_driver",
     ],
 )
-def test_construct_legacy_flag_only_invocations_default_to_api_based(
+def test_construct_legacy_flag_only_invocations_default_to_unified(
     module_name, monkeypatch
 ) -> None:
     module = __import__(f"bcg.apps.{module_name.rsplit('.', 1)[-1]}", fromlist=["main"])
     received: list[str] = []
-    monkeypatch.setitem(module._BACKENDS, "api_based", received.extend)
+    monkeypatch.setitem(module._BACKENDS, "unified", received.extend)
 
     module.main(["--config", "model_config.json"])
 
@@ -108,27 +108,27 @@ def test_construct_legacy_flag_only_invocations_default_to_api_based(
         "bcg.online_driver",
     ],
 )
-def test_construct_explicit_light_backend_is_preserved(
+def test_construct_explicit_hybrid_backend_is_preserved(
     module_name, monkeypatch
 ) -> None:
     module = __import__(f"bcg.apps.{module_name.rsplit('.', 1)[-1]}", fromlist=["main"])
     received: list[str] = []
-    monkeypatch.setitem(module._BACKENDS, "light", received.extend)
+    monkeypatch.setitem(module._BACKENDS, "hybrid", received.extend)
 
-    module.main(["light", "--config", "model_config.json"])
+    module.main(["hybrid", "--config", "model_config.json"])
 
     assert received == ["--config", "model_config.json"]
 
 
 def test_backend_module_cli_prepends_selected_backend(monkeypatch) -> None:
-    from bcg.construct.light import cli as light_cli
+    from bcg.construct.hybrid import cli as hybrid_cli
 
     received: list[str] = []
     monkeypatch.setattr("bcg.apps.run.main", received.extend)
 
-    light_cli.main(["run", "--input", "data.json"])
+    hybrid_cli.main(["run", "--input", "data.json"])
 
-    assert received == ["light", "--input", "data.json"]
+    assert received == ["hybrid", "--input", "data.json"]
 
 
 @pytest.mark.parametrize(
@@ -139,15 +139,15 @@ def test_backend_module_cli_prepends_selected_backend(monkeypatch) -> None:
         ("replay", "bcg.apps.online_driver.main"),
     ],
 )
-def test_api_based_module_cli_prepends_backend(command, target, monkeypatch) -> None:
-    from bcg.construct.api_based import cli as api_cli
+def test_unified_module_cli_prepends_backend(command, target, monkeypatch) -> None:
+    from bcg.construct.unified import cli as unified_cli
 
     received: list[str] = []
     monkeypatch.setattr(target, received.extend)
 
-    api_cli.main([command, "--config", "model_config.json"])
+    unified_cli.main([command, "--config", "model_config.json"])
 
-    assert received == ["api_based", "--config", "model_config.json"]
+    assert received == ["unified", "--config", "model_config.json"]
 
 
 def test_config_command_shows_effective_settings(
@@ -160,7 +160,7 @@ def test_config_command_shows_effective_settings(
 
     payload = _json.loads(capsys.readouterr().out)
     assert payload["schema_version"] == 1
-    assert payload["backend"] in {"api_based", "light"}
+    assert payload["backend"] in {"unified", "hybrid"}
 
     cli.main(["config"])
     out = capsys.readouterr().out

@@ -8,6 +8,21 @@ const GRAPH_PREFIX =
 	"These are preliminary beliefs derived from prior turns and may contain errors or incomplete information. " +
 	"Use them to guide the next action, but do not treat them as verified evidence.";
 
+const GRAPH_DIALOGUE_CONTEXT_GUIDE =
+	"<context_blocks_guide>\n" +
+	"The dialogue-encoded context below holds preliminary beliefs derived from earlier turns. " +
+	"Those earlier turns have been omitted from the raw conversation context and are represented by this belief context instead. " +
+	"The beliefs may contain errors or incomplete information. Use each belief's confidence to judge how trustworthy its content is, " +
+	"and do not treat any belief as verified evidence solely because it appears here. " +
+	"Use this context to avoid repeating searches that were already performed, and do not repeatedly search for the same information.\n" +
+	"</context_blocks_guide>";
+
+const DIALOGUE_BOS = "<｜begin▁of▁sentence｜>";
+const DIALOGUE_EOS = "<｜end▁of▁sentence｜>";
+const DIALOGUE_USER = "<｜User｜>";
+const DIALOGUE_ASSISTANT = "<｜Assistant｜>";
+const DIALOGUE_VALID_ROLES = new Set(["system", "user", "assistant"]);
+
 export const BCG_TURN_LIMIT_MARKER = "BCG_TURN_LIMIT_EXCEEDED";
 
 export class BcgTurnLimitError extends Error {
@@ -236,6 +251,93 @@ export function formatBcgMarkdown(snapshot: BcgSnapshot, includeRelations = true
 	return lines.join("\n");
 }
 
+interface GraphDialogueRelation {
+	direction: "outgoing";
+	to: number;
+	type: string;
+	reason?: string;
+}
+
+interface GraphDialogueBeliefMessage {
+	id: number;
+	role: string;
+	content: string;
+	relations: GraphDialogueRelation[];
+	confidence: number | null;
+}
+
+function formatDialogueBeliefMarkdown(message: GraphDialogueBeliefMessage): string {
+	const lines = [
+		`### Belief ${message.id}`,
+		`**Content:** ${message.content}`,
+		"**Relations:**",
+	];
+	if (message.relations.length === 0) {
+		lines.push("- None");
+	} else {
+		for (const relation of message.relations) {
+			const fields = Object.entries(relation)
+				.filter(([, value]) => value !== undefined && value !== "")
+				.map(([key, value]) => `${key}=${value}`);
+			lines.push(`- ${fields.join("; ")}`);
+		}
+	}
+	lines.push(`**Confidence:** ${message.confidence ?? ""}`);
+	return lines.join("\n");
+}
+
+function beliefRole(belief: BcgSnapshot["beliefs"][number]): string {
+	const sourceRole = isRecord(belief.source) && typeof belief.source.role === "string" ? belief.source.role : undefined;
+	const role = belief.role || sourceRole || "assistant";
+	return DIALOGUE_VALID_ROLES.has(role) ? role : "user";
+}
+
+/** Encode a BCG snapshot as compact, role-marked dialogue context. */
+export function formatBcgDialogueContext(snapshot: BcgSnapshot, includeRelations = true): string {
+	const beliefs = Array.isArray(snapshot.beliefs) ? snapshot.beliefs : [];
+	if (beliefs.length === 0) {
+		return "";
+	}
+
+	const messages = new Map<number, GraphDialogueBeliefMessage>();
+	for (const belief of beliefs) {
+		messages.set(belief.id, {
+			id: belief.id,
+			role: beliefRole(belief),
+			content: belief.belief ?? "",
+			relations: [],
+			confidence: belief.confidence ?? null,
+		});
+	}
+
+	if (includeRelations) {
+		for (const relation of snapshot.relations ?? []) {
+			const outgoing = messages.get(relation.from_id);
+			if (outgoing) {
+				outgoing.relations.push({
+					direction: "outgoing",
+					to: relation.to_id,
+					type: relation.type ?? "informs",
+					...(relation.note ? { reason: relation.note } : {}),
+				});
+			}
+		}
+	}
+
+	const parts = [DIALOGUE_BOS];
+	for (const message of messages.values()) {
+		const payload = formatDialogueBeliefMarkdown(message);
+		if (message.role === "system") {
+			parts.push(payload);
+		} else if (message.role === "assistant") {
+			parts.push(`${DIALOGUE_ASSISTANT}${payload}${DIALOGUE_EOS}`);
+		} else {
+			parts.push(`${DIALOGUE_USER}${payload}`);
+		}
+	}
+	return parts.join("");
+}
+
 export class BcgContextManager {
 	private readonly baseUrl: string;
 	private readonly problemId: string;
@@ -329,8 +431,7 @@ export class BcgContextManager {
 		if (!this.requestReady || !this.graphText) {
 			return systemPrompt;
 		}
-		const prefix = systemPrompt ? `${systemPrompt}\n\n` : "";
-		return `${prefix}<belief_graph format="markdown">\n${this.graphText}\n</belief_graph>`;
+		return [systemPrompt, GRAPH_DIALOGUE_CONTEXT_GUIDE, this.graphText].filter(Boolean).join("\n\n");
 	}
 
 	async release(): Promise<Record<string, unknown> | undefined> {
@@ -401,6 +502,6 @@ export class BcgContextManager {
 	}
 
 	private updateSnapshot(snapshot: BcgSnapshot): void {
-		this.graphText = formatBcgMarkdown(snapshot, this.includeRelations);
+		this.graphText = formatBcgDialogueContext(snapshot, this.includeRelations);
 	}
 }

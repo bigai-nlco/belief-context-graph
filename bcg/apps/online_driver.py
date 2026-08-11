@@ -106,13 +106,13 @@ def _add_common_args(parser: argparse.ArgumentParser, runtime: RuntimeConfig) ->
     parser.add_argument("--quiet", "-q", action="store_true")
 
 
-def _run_light(argv: list[str]) -> None:
-    from bcg.construct.light.online import SessionManager
+def _run_hybrid(argv: list[str]) -> None:
+    from bcg.construct.hybrid.online import SessionManager
 
     runtime = resolve_runtime_config(argv)
     parser = argparse.ArgumentParser(
-        prog="bcg construct replay light",
-        description="Replay JSONL turns through the light construction backend.",
+        prog="bcg construct replay hybrid",
+        description="Replay JSONL turns through the hybrid construction backend.",
     )
     _add_common_args(parser, runtime)
     args = parser.parse_args(argv)
@@ -125,14 +125,14 @@ def _run_light(argv: list[str]) -> None:
     _run_stream(manager, args)
 
 
-def _run_api_based(argv: list[str]) -> None:
-    from bcg.construct.api_based.online import SessionManager
-    from bcg.construct.api_based.stream import StreamOptions
+def _run_unified(argv: list[str]) -> None:
+    from bcg.construct.unified.online import SessionManager
+    from bcg.construct.unified.stream import StreamOptions
 
     runtime = resolve_runtime_config(argv)
     parser = argparse.ArgumentParser(
-        prog="bcg construct replay api_based",
-        description="Replay JSONL turns through the API-based construction backend.",
+        prog="bcg construct replay unified",
+        description="Replay JSONL turns through the unified construction backend.",
     )
     _add_common_args(parser, runtime)
     add_run_options(parser, runtime.settings.runner)
@@ -165,7 +165,7 @@ def _run_stream(manager: Any, args: argparse.Namespace) -> None:
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 
-_BACKENDS = {"light": _run_light, "api_based": _run_api_based}
+_BACKENDS = {"unified": _run_unified, "hybrid": _run_hybrid}
 
 
 def main(argv: list[str] | None = None) -> None:

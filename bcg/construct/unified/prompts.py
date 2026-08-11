@@ -14,7 +14,7 @@ This version updates the prompt contract toward the new belief-graph design:
 
 Placeholders are filled via str.replace:
     <<<CONTENT>>> <<<SENTENCES>>> <<<GRAPH_NODES>>> <<<GRAPH_EDGES>>>
-    <<<CURRENT_DATE>>> <<<CANDIDATE_GROUP>>> <<<BELIEFS_LIST>>>
+    <<<CANDIDATE_GROUP>>> <<<BELIEFS_LIST>>>
 """
 
 from __future__ import annotations
@@ -25,7 +25,6 @@ CONTENT_PLACEHOLDER = "<<<CONTENT>>>"
 SENTENCES_PLACEHOLDER = "<<<SENTENCES>>>"
 GRAPH_NODES_PLACEHOLDER = "<<<GRAPH_NODES>>>"
 GRAPH_EDGES_PLACEHOLDER = "<<<GRAPH_EDGES>>>"
-CURRENT_DATE_PLACEHOLDER = "<<<CURRENT_DATE>>>"
 CANDIDATE_GROUP_PLACEHOLDER = "<<<CANDIDATE_GROUP>>>"
 BELIEFS_LIST_PLACEHOLDER = "<<<BELIEFS_LIST>>>"
 NEW_NODE_IDS_PLACEHOLDER = "<<<NEW_NODE_IDS>>>"
@@ -93,7 +92,8 @@ Do NOT include:
 - generic filler: "the content", "this turn", "the answer", "the issue", "the thing", "the result";
 - bare generic nouns: car, file, code, graph, node, edge, model, prompt, time, data, message, unless they are qualified enough to be identifiable;
 - abstract feelings or vague concepts unless the belief is specifically about that concept;
-- temporal expressions as entities; put temporal information in event_time/time_text;
+- temporal expressions as entities; preserve temporal information in the belief
+  or decision text instead (event metadata is assigned by the graph builder);
 - duplicate surface forms referring to the same entity in one belief.
 
 Use the most specific form supported by the CURRENT turn and existing graph context.
@@ -125,17 +125,6 @@ _STANCE_DEFINITION = """\
 
 NOTE: do NOT output a confidence number — confidence is assigned downstream by code
 rules based on (role, stance).
-"""
-
-_TIME_FIELDS = f"""\
-## Time attribution
-The current turn is dated: {CURRENT_DATE_PLACEHOLDER}
-For each belief, if the content states WHEN the believed fact/event happened or will happen, fill:
-  - "time_text":  the verbatim temporal phrase from the content (e.g. "March 15th", "two weeks ago").
-  - "event_time": the resolved calendar time in ISO form, ONLY when it can be resolved from the
-    phrase plus the current date (e.g. "March 15th" with a turn dated 2023/04/10 → "2023-03-15";
-    use "2023-03" if only the month is known). Use null when not confidently resolvable.
-If the belief has no explicit time attached, set both fields to null. NEVER invent dates.
 """
 
 _GRAPH_CONTEXT_BLOCK = f"""\
@@ -237,9 +226,7 @@ _OUTPUT_FORMAT_EXCERPT = """\
       "belief": "<self-contained coherent belief>",
       "entities": ["<entity mentioned in this belief>", "<another entity>"],
       "stance": "asserted | recalled | speculated | judged",
-      "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"],
-      "event_time": "<ISO time or null>",
-      "time_text": "<verbatim temporal phrase or null>"
+      "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
     }
   ],
   "decisions": [
@@ -248,9 +235,7 @@ _OUTPUT_FORMAT_EXCERPT = """\
       "decision": "<final selected answer, especially content inside \\boxed{...}>",
       "entities": ["<entity mentioned in this decision>"],
       "stance": "asserted | recalled | speculated | judged",
-      "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"],
-      "event_time": "<ISO time or null>",
-      "time_text": "<verbatim temporal phrase or null>"
+      "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
     }
   ],
   "relations": [
@@ -268,9 +253,7 @@ _OUTPUT_FORMAT_SENTENCES = """\
       "belief": "<self-contained coherent belief>",
       "entities": ["<entity mentioned in this belief>", "<another entity>"],
       "stance": "asserted | recalled | speculated | judged",
-      "supporting_sentence_indices": [0, 2],
-      "event_time": "<ISO time or null>",
-      "time_text": "<verbatim temporal phrase or null>"
+      "supporting_sentence_indices": [0, 2]
     }
   ],
   "decisions": [
@@ -279,9 +262,7 @@ _OUTPUT_FORMAT_SENTENCES = """\
       "decision": "<final selected answer, especially content inside \\boxed{...}>",
       "entities": ["<entity mentioned in this decision>"],
       "stance": "asserted | recalled | speculated | judged",
-      "supporting_sentence_indices": [3],
-      "event_time": "<ISO time or null>",
-      "time_text": "<verbatim temporal phrase or null>"
+      "supporting_sentence_indices": [3]
     }
   ],
   "relations": [
@@ -440,7 +421,6 @@ def build_update_prompt(
         _BELIEF_DEFINITION,
         guidance + "\n",
         _STANCE_DEFINITION + stance_hint + "\n",
-        _TIME_FIELDS,
         _GRAPH_CONTEXT_BLOCK,
         _FORWARD_EDGE_RULES,
     ]
@@ -459,7 +439,9 @@ def build_update_prompt(
         parts.append(f"## Current turn sentences\n{SENTENCES_PLACEHOLDER}\n")
 
     prompt = "\n".join(parts)
-    prompt = prompt.replace(CURRENT_DATE_PLACEHOLDER, current_date or "unknown")
+    # Kept in the function signature for caller compatibility. Event metadata is
+    # assigned deterministically when the graph node is created, not by the LLM.
+    _ = current_date
     prompt = prompt.replace(GRAPH_NODES_PLACEHOLDER, graph_nodes or "[]")
     prompt = prompt.replace(GRAPH_EDGES_PLACEHOLDER, graph_edges or "[]")
     if mode == "excerpt":
@@ -482,9 +464,7 @@ _OUTPUT_FORMAT_EXCERPT_NODES = """\
       "belief": "<self-contained coherent belief>",
       "entities": ["<entity mentioned in this belief>", "<another entity>"],
       "stance": "asserted | recalled | speculated | judged",
-      "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"],
-      "event_time": "<ISO time or null>",
-      "time_text": "<verbatim temporal phrase or null>"
+      "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
     }
   ],
   "decisions": [
@@ -493,9 +473,7 @@ _OUTPUT_FORMAT_EXCERPT_NODES = """\
       "decision": "<final selected answer, especially content inside \\boxed{...}>",
       "entities": ["<entity mentioned in this decision>"],
       "stance": "asserted | recalled | speculated | judged",
-      "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"],
-      "event_time": "<ISO time or null>",
-      "time_text": "<verbatim temporal phrase or null>"
+      "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
     }
   ]
 }
@@ -510,9 +488,7 @@ _OUTPUT_FORMAT_SENTENCES_NODES = """\
       "belief": "<self-contained coherent belief>",
       "entities": ["<entity mentioned in this belief>", "<another entity>"],
       "stance": "asserted | recalled | speculated | judged",
-      "supporting_sentence_indices": [0, 2],
-      "event_time": "<ISO time or null>",
-      "time_text": "<verbatim temporal phrase or null>"
+      "supporting_sentence_indices": [0, 2]
     }
   ],
   "decisions": [
@@ -521,9 +497,7 @@ _OUTPUT_FORMAT_SENTENCES_NODES = """\
       "decision": "<final selected answer, especially content inside \\boxed{...}>",
       "entities": ["<entity mentioned in this decision>"],
       "stance": "asserted | recalled | speculated | judged",
-      "supporting_sentence_indices": [3],
-      "event_time": "<ISO time or null>",
-      "time_text": "<verbatim temporal phrase or null>"
+      "supporting_sentence_indices": [3]
     }
   ]
 }
@@ -581,7 +555,6 @@ def build_node_extraction_prompt(
         _BELIEF_DEFINITION,
         guidance + "\n",
         _STANCE_DEFINITION + stance_hint + "\n",
-        _TIME_FIELDS,
         _GRAPH_CONTEXT_BLOCK,
     ]
     if mode == "excerpt":
@@ -599,7 +572,9 @@ def build_node_extraction_prompt(
         parts.append(f"## Current turn sentences\n{SENTENCES_PLACEHOLDER}\n")
 
     prompt = "\n".join(parts)
-    prompt = prompt.replace(CURRENT_DATE_PLACEHOLDER, current_date or "unknown")
+    # Kept in the function signature for caller compatibility. Event metadata is
+    # assigned deterministically when the graph node is created, not by the LLM.
+    _ = current_date
     prompt = prompt.replace(GRAPH_NODES_PLACEHOLDER, graph_nodes or "[]")
     prompt = prompt.replace(GRAPH_EDGES_PLACEHOLDER, graph_edges or "[]")
     if mode == "excerpt":

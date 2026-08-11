@@ -15,7 +15,7 @@ A practical first deployment runs:
 - persistent output volume
 
 ```bash
-bcg construct server api_based \
+bcg construct server unified \
   --config /etc/bcg/model_config.json \
   --host 0.0.0.0 \
   --port 8848 \

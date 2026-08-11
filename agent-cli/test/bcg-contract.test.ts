@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	BcgContextManager,
+	formatBcgDialogueContext,
 	formatBcgMarkdown,
 } from "../src/core/context/bcg-context.ts";
 import type { BcgTurnsResponse } from "../src/core/context/bcg-contract.types.ts";
@@ -76,5 +77,16 @@ describe("cross-language contract fixtures (step 10)", () => {
 		const markdown = formatBcgMarkdown(withRelations);
 		expect(markdown).toContain("### Relations");
 		expect(markdown).toContain("[1] → [2] (depends_on) — because");
+	});
+
+	it("formatBcgDialogueContext preserves fixture roles and confidence", () => {
+		const snapshot = turnsResponse.latest[problemId];
+		const encoded = formatBcgDialogueContext(snapshot);
+
+		expect(encoded).toContain("<｜begin▁of▁sentence｜><｜User｜>");
+		expect(encoded).toContain("### Belief 1");
+		expect(encoded).toContain("**Content:** The user asked for a summary of key beliefs.");
+		expect(encoded).toContain("**Confidence:** 0.88");
+		expect(encoded).not.toContain("<belief_graph");
 	});
 });

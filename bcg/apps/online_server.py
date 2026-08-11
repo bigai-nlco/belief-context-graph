@@ -6,8 +6,8 @@ Single dependency-free HTTP server for BOTH belief-context-graph
 construction backends. Pick one with the first positional argument, same as
 ``bcg/apps/run.py``:
 
-  python bcg/apps/online_server.py light      --config bcg/model_config.json --port 8848
-  python bcg/apps/online_server.py api_based  --config bcg/model_config.json --port 8848
+  python bcg/apps/online_server.py hybrid      --config bcg/model_config.json --port 8848
+  python bcg/apps/online_server.py unified  --config bcg/model_config.json --port 8848
 
 The HTTP request-handling code below (routing, (de)serialisation, endpoints)
 is identical for both backends — only the config wiring / SessionManager
@@ -65,10 +65,10 @@ problem_id stay strictly in arrival order.
 
 Run
 ---
-  python bcg/apps/online_server.py light --config bcg/model_config.json \\
+  python bcg/apps/online_server.py hybrid --config bcg/model_config.json \\
       --model-key gpt-5.5 --host 127.0.0.1 --port 8848 --output-dir outputs_stream
 
-  python bcg/apps/online_server.py api_based --config bcg/model_config.json \\
+  python bcg/apps/online_server.py unified --config bcg/model_config.json \\
       --model-key gpt-5.5 --host 127.0.0.1 --port 8848 --output-dir outputs_stream
 
   curl -s -X POST localhost:8848/turn -H 'content-type: application/json' \\
@@ -310,17 +310,17 @@ def _serve_forever(manager, trajectory_closed_error: type, args) -> None:
 
 
 # ---------------------------------------------------------------------------
-# light backend
+# hybrid backend
 # ---------------------------------------------------------------------------
 
 
-def _run_light(argv: list[str]) -> None:
-    from bcg.construct.light.online import SessionManager, TrajectoryClosedError
+def _run_hybrid(argv: list[str]) -> None:
+    from bcg.construct.hybrid.online import SessionManager, TrajectoryClosedError
 
     runtime = resolve_runtime_config(argv)
     p = argparse.ArgumentParser(
-        prog="bcg/apps/online_server.py light",
-        description="construct_beliefs v3 streaming HTTP server (light backend).",
+        prog="bcg/apps/online_server.py hybrid",
+        description="construct_beliefs v3 streaming HTTP server (hybrid backend).",
     )
     add_server_options(p, runtime.settings.server)
     p.add_argument("--config", "-c", default=runtime.config_path)
@@ -340,22 +340,22 @@ def _run_light(argv: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# api_based backend
+# unified backend
 # ---------------------------------------------------------------------------
 
 
-def _run_api_based(argv: list[str]) -> None:
-    from bcg.construct.api_based.online import (
+def _run_unified(argv: list[str]) -> None:
+    from bcg.construct.unified.online import (
         SessionManager,
         TrajectoryClosedError,
         resolve_dated_output_root,
     )
-    from bcg.construct.api_based.stream import StreamOptions
+    from bcg.construct.unified.stream import StreamOptions
 
     runtime = resolve_runtime_config(argv)
     p = argparse.ArgumentParser(
-        prog="bcg/apps/online_server.py api_based",
-        description="construct_beliefs v3 streaming HTTP server (api_based backend).",
+        prog="bcg/apps/online_server.py unified",
+        description="construct_beliefs v3 streaming HTTP server (unified backend).",
     )
     add_server_options(p, runtime.settings.server)
     p.add_argument("--config", "-c", default=runtime.config_path)
@@ -395,7 +395,7 @@ def _run_api_based(argv: list[str]) -> None:
     _serve_forever(manager, TrajectoryClosedError, args)
 
 
-_BACKENDS = {"light": _run_light, "api_based": _run_api_based}
+_BACKENDS = {"unified": _run_unified, "hybrid": _run_hybrid}
 
 
 def main(argv: list[str] | None = None) -> None:

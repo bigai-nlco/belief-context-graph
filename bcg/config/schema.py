@@ -40,6 +40,9 @@ class ModelEntry(_ForbidExtra):
     base_url: str | None = None
     model: str | None = None
     max_tokens: int | None = Field(default=None, ge=1)
+    reasoning_effort: (
+        Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"] | None
+    ) = None
     temperature: float | None = None
     top_p: float | None = None
     pricing: PricingSettings | None = None
@@ -186,7 +189,7 @@ class BCGSettings(_ForbidExtra):
     """Top-level unified configuration."""
 
     schema_version: int
-    backend: Literal["api_based", "light"]
+    backend: Literal["unified", "hybrid"]
     model_key: str = Field(min_length=1)
     embedding_key: str = Field(min_length=1)
     server: ServerSettings

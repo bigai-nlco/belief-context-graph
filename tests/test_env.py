@@ -5,19 +5,19 @@ from pathlib import Path
 
 import pytest
 
-from bcg.construct.api_based.llm import (
-    load_config as load_api_config,
+from bcg.construct.hybrid.edge_generation import normalize_edge_config
+from bcg.construct.hybrid.extractor import normalize_extractor_config
+from bcg.construct.hybrid.llm import (
+    load_config as load_hybrid_config,
 )
-from bcg.construct.api_based.llm import (
-    load_embedding_config as load_api_embedding_config,
+from bcg.construct.hybrid.llm import (
+    load_embedding_config as load_hybrid_embedding_config,
 )
-from bcg.construct.light.edge_generation import normalize_edge_config
-from bcg.construct.light.extractor import normalize_extractor_config
-from bcg.construct.light.llm import (
-    load_config as load_light_config,
+from bcg.construct.unified.llm import (
+    load_config as load_unified_config,
 )
-from bcg.construct.light.llm import (
-    load_embedding_config as load_light_embedding_config,
+from bcg.construct.unified.llm import (
+    load_embedding_config as load_unified_embedding_config,
 )
 from bcg.core.env import find_project_env, load_project_env, read_env_file
 
@@ -102,8 +102,8 @@ def test_construct_configs_resolve_keys_from_environment(tmp_path, monkeypatch) 
     monkeypatch.setenv("CHAT_TEST_API_KEY", "chat-secret")
     monkeypatch.setenv("EMBEDDING_TEST_API_KEY", "embedding-secret")
 
-    chat = load_api_config(str(config_file), model_key="chat-model")
-    embedding = load_api_embedding_config(str(config_file))
+    chat = load_unified_config(str(config_file), model_key="chat-model")
+    embedding = load_unified_embedding_config(str(config_file))
 
     assert chat["api_key"] == "chat-secret"
     assert embedding is not None
@@ -126,10 +126,10 @@ def test_construct_config_reports_missing_root_env_key(tmp_path, monkeypatch) ->
     monkeypatch.delenv("MISSING_TEST_API_KEY", raising=False)
 
     with pytest.raises(ValueError, match="project root .env"):
-        load_api_config(str(config_file), model_key="chat-model")
+        load_unified_config(str(config_file), model_key="chat-model")
 
 
-def test_light_configs_resolve_all_credentials_from_environment(
+def test_hybrid_configs_resolve_all_credentials_from_environment(
     tmp_path, monkeypatch
 ) -> None:
     config_file = tmp_path / "model_config.json"
@@ -154,8 +154,8 @@ def test_light_configs_resolve_all_credentials_from_environment(
     monkeypatch.setenv("LIGHT_EMBEDDING_KEY", "embedding-secret")
     monkeypatch.setenv("LIGHT_LOCAL_KEY", "local-secret")
 
-    chat = load_light_config(str(config_file), model_key="chat-model")
-    embedding = load_light_embedding_config(str(config_file))
+    chat = load_hybrid_config(str(config_file), model_key="chat-model")
+    embedding = load_hybrid_embedding_config(str(config_file))
     common_local = {
         "enabled": True,
         "provider": "openai",
@@ -198,7 +198,7 @@ def test_light_configs_resolve_all_credentials_from_environment(
     assert edge["max_previous_windows"] == 4
 
 
-def test_light_edge_config_accepts_bounded_historical_window_override(
+def test_hybrid_edge_config_accepts_bounded_historical_window_override(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("LIGHT_LOCAL_KEY", "local-secret")
@@ -220,6 +220,15 @@ def test_light_edge_config_accepts_bounded_historical_window_override(
     )
 
     assert edge["max_previous_windows"] == 7
+
+
+def test_unified_options_share_the_bounded_historical_window() -> None:
+    from bcg.construct.unified.stream import StreamOptions
+
+    options = StreamOptions()
+    options.apply_belief_graph_config({"edge_generation": {"max_previous_windows": 4}})
+
+    assert options.max_previous_windows == 4
 
 
 def test_example_model_config_contains_no_inline_api_keys() -> None:

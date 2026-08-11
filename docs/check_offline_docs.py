@@ -26,8 +26,8 @@ if "gradient(" in STYLES.read_text(encoding="utf-8").lower():
 
 architecture = (SOURCE / "architecture.md").read_text(encoding="utf-8")
 for required in (
-    "bcg.construct.api_based",
-    "bcg.construct.light",
+    "bcg.construct.unified",
+    "bcg.construct.hybrid",
     'markerWidth="7"',
     'markerHeight="7"',
 ):

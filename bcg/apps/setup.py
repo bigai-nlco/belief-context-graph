@@ -29,6 +29,7 @@ DEFAULT_VLLM_URL = "http://127.0.0.1:8001/v1"
 DEFAULT_VLLM_MODEL = "Qwen3.5-4B"
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_STANCE_MODEL = "MoritzLaurer/deberta-v3-large-zeroshot-v2.0"
+_LEGACY_GRAPH_BACKENDS = {"api_based": "unified", "light": "hybrid"}
 _CONSOLE = Console()
 
 
@@ -110,7 +111,7 @@ def _write_user_yaml_config(graph_model_config: dict[str, Any]) -> None:
 
     settings_dict: dict[str, Any] = {
         "schema_version": 1,
-        "backend": ("light" if "belief_graph" in graph_model_config else "api_based"),
+        "backend": ("hybrid" if "belief_graph" in graph_model_config else "unified"),
         # keep the default model/embedding keys aligned with what we write
         "model_key": GRAPH_MODEL_KEY,
         "embedding_key": EMBEDDING_KEY,
@@ -424,15 +425,15 @@ def build_api_graph_config(
     return config
 
 
-def _load_light_template() -> dict[str, Any]:
+def _load_hybrid_template() -> dict[str, Any]:
     path = Path(__file__).resolve().parents[1] / "model_config.example.json"
     template = _read_json(path)
     if not template:
-        raise SetupError(f"Packaged light-backend template is missing: {path}")
+        raise SetupError(f"Packaged hybrid-backend template is missing: {path}")
     return template
 
 
-def build_light_graph_config(
+def build_hybrid_graph_config(
     *,
     base_url: str,
     model: str,
@@ -440,11 +441,11 @@ def build_light_graph_config(
     embedding_model: str,
     stance_model: str,
 ) -> dict[str, Any]:
-    template = _load_light_template()
+    template = _load_hybrid_template()
     chat_entry = copy.deepcopy(template.get("gpt-5.5"))
     belief_graph = copy.deepcopy(template.get("belief_graph"))
     if not isinstance(chat_entry, dict) or not isinstance(belief_graph, dict):
-        raise SetupError("The packaged light-backend template is invalid.")
+        raise SetupError("The packaged hybrid-backend template is invalid.")
 
     chat_entry.update(
         {
@@ -481,7 +482,16 @@ def build_light_graph_config(
 
 
 def load_user_configuration() -> dict[str, Any]:
-    return _read_json(config_path())
+    config = _read_json(config_path())
+    graph = config.get("graph")
+    if isinstance(graph, dict):
+        replacement = _LEGACY_GRAPH_BACKENDS.get(graph.get("backend"))
+        if replacement is not None:
+            graph = dict(graph)
+            graph["backend"] = replacement
+            config = dict(config)
+            config["graph"] = graph
+    return config
 
 
 def is_configured(config: dict[str, Any] | None = None) -> bool:
@@ -522,7 +532,7 @@ def apply_user_configuration(
         "OPENAI_MODEL": str(agent.get("model") or ""),
         "OPENAI_BASE_URL": str(agent.get("baseUrl") or ""),
         "BELIEF_GRAPH_URL": str(graph.get("url") or DEFAULT_GRAPH_URL),
-        "BCG_GRAPH_BACKEND": str(graph.get("backend") or "light"),
+        "BCG_GRAPH_BACKEND": str(graph.get("backend") or "hybrid"),
         "BCG_GRAPH_AUTOSTART": (
             "false" if graph.get("serverMode") == "existing" else "true"
         ),
@@ -754,19 +764,19 @@ def run_setup(
             "Choose the local Graph Construction backend",
             [
                 (
-                    "api_based",
-                    "API based: one OpenAI-compatible model builds the graph",
+                    "unified",
+                    "Unified: one OpenAI-compatible model builds the graph",
                 ),
                 (
-                    "light",
-                    "Light: OpenAI-compatible generator plus local embedding/stance models",
+                    "hybrid",
+                    "Hybrid: OpenAI-compatible generator plus local embedding/stance models",
                 ),
             ],
-            default=_current_default(current, "graph", "backend", "light"),
+            default=_current_default(current, "graph", "backend", "hybrid"),
             input_fn=input_fn,
         )
 
-    if graph_server_mode == "managed" and graph_backend == "api_based":
+    if graph_server_mode == "managed" and graph_backend == "unified":
         reuse_agent = auth_method == "api_key" and _confirm(
             "Reuse the Agent API endpoint and key for graph construction?",
             default=True,
@@ -811,17 +821,17 @@ def run_setup(
         )
     elif graph_server_mode == "managed":
         graph_base_url = _ask(
-            "Light generator OpenAI-compatible base URL (local vLLM or remote API)",
+            "Hybrid generator OpenAI-compatible base URL (local vLLM or remote API)",
             default=DEFAULT_VLLM_URL,
             input_fn=input_fn,
         )
         graph_model = _ask(
-            "Light extraction/relation model",
+            "Hybrid extraction/relation model",
             default=DEFAULT_VLLM_MODEL,
             input_fn=input_fn,
         )
         credentials["BCG_GRAPH_API_KEY"] = _ask_secret(
-            "Light generator API key (use EMPTY when authentication is disabled)",
+            "Hybrid generator API key (use EMPTY when authentication is disabled)",
             existing=credentials.get("BCG_GRAPH_API_KEY") or "EMPTY",
             secret_fn=secret_fn,
         )
@@ -835,7 +845,7 @@ def run_setup(
             default=DEFAULT_STANCE_MODEL,
             input_fn=input_fn,
         )
-        graph_model_config = build_light_graph_config(
+        graph_model_config = build_hybrid_graph_config(
             base_url=graph_base_url,
             model=graph_model,
             api_key_env="BCG_GRAPH_API_KEY",
@@ -917,7 +927,7 @@ def run_setup(
             print(f"  Graph config: {graph_config_path()}")
         else:
             print(f"  Graph server: {graph_url} (existing)")
-    if graph_backend == "light":
+    if graph_backend == "hybrid":
         print(
             "\nBefore using BCG mode, make sure the configured generator endpoint "
             f"is serving {graph_model} at {graph_base_url}."
@@ -962,7 +972,7 @@ __all__ = [
     "SetupError",
     "apply_user_configuration",
     "build_api_graph_config",
-    "build_light_graph_config",
+    "build_hybrid_graph_config",
     "config_path",
     "credentials_path",
     "ensure_user_setup",

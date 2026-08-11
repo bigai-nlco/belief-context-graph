@@ -8,11 +8,13 @@ but yields no nodes; function == tool). For every non-skipped turn, one LLM call
 extracts new belief nodes and new decision nodes. Relation extraction then runs
 on the current-turn / prior-turn edge window; if the nearest prior turn cannot
 yield a cross-turn edge, the window walks backward one turn at a time until a
-current-to-prior edge is added or no earlier active turn remains.
+current-to-prior edge is added, no earlier active turn remains, or
+``max_previous_windows`` non-empty windows have been inspected.
 
 Node schema additions:
   * node_type: "belief" | "decision"
   * entities: list[str]
+  * event_time: UTC node-creation timestamp assigned by the graph builder
   * evidence_ids: list[int]
   * confidence / initial_confidence / evidence_confidence / factor_confidence
 
@@ -79,6 +81,12 @@ class StreamOptions:
     verify_merge: bool = True
     # prompt budgets
     context_chars: int = 100000  # existing-nodes context budget
+    # Maximum number of non-empty historical turn windows inspected while
+    # looking for a current-to-prior relation.
+    max_previous_windows: int = 4
+    # None selects the model-aware default (GPT-5.6-Luna -> none; otherwise
+    # medium). A configured value is forwarded to every graph-model call.
+    reasoning_effort: str | None = None
     # skip turns whose content is shorter than this (0 = never skip)
     min_content_len: int = 0
     confidence_config: dict[str, Any] = field(default_factory=dict)
@@ -92,6 +100,12 @@ class StreamOptions:
             self.confidence_config = normalize_confidence_config(conf_cfg)
         else:
             self.confidence_config = normalize_confidence_config(self.confidence_config)
+        edge_cfg = cfg.get("edge_generation") or {}
+        if (
+            isinstance(edge_cfg, dict)
+            and edge_cfg.get("max_previous_windows") is not None
+        ):
+            self.max_previous_windows = max(1, int(edge_cfg["max_previous_windows"]))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -100,6 +114,8 @@ class StreamOptions:
             "incremental_merge_threshold": self.incremental_merge_threshold,
             "verify_merge": self.verify_merge,
             "context_chars": self.context_chars,
+            "max_previous_windows": self.max_previous_windows,
+            "reasoning_effort": self.reasoning_effort,
             "min_content_len": self.min_content_len,
             "confidence_config": normalize_confidence_config(self.confidence_config),
         }
@@ -124,6 +140,12 @@ class StreamingBeliefBuilder:
         self.item_meta = item_meta or {}
         self.max_tokens = max_tokens
         self.options = options or StreamOptions()
+        self.options.max_previous_windows = max(
+            1, int(self.options.max_previous_windows)
+        )
+        self.options.reasoning_effort = llm.resolve_reasoning_effort(
+            model, self.options.reasoning_effort
+        )
         self.options.confidence_config = normalize_confidence_config(
             self.options.confidence_config
         )
@@ -271,6 +293,9 @@ class StreamingBeliefBuilder:
                 "edge_linked_previous_trajectory_index": report.get(
                     "edge_linked_previous_trajectory_index"
                 ),
+                "edge_window_limit_reached": report.get(
+                    "edge_window_limit_reached", False
+                ),
                 "edge_skip_reason": report.get("edge_skip_reason"),
                 "incremental_merge": report.get("incremental_merge"),
                 "timing": report.get("timing"),
@@ -347,6 +372,7 @@ class StreamingBeliefBuilder:
             graph_edges_str=graph_edges_str,
             current_date=date,
             max_tokens=self.max_tokens,
+            reasoning_effort=opt.reasoning_effort,
         )
         timing["node_generation"] = time.perf_counter() - _t_nodes
         report["raw_output"] = node_res.get("raw_output")
@@ -392,6 +418,7 @@ class StreamingBeliefBuilder:
                 pass_label=f"turn_{turn_idx}",
                 log_dir=(self.logs_dir if verify_merge else None),
                 exclude_node_ids=decision_ids,
+                reasoning_effort=opt.reasoning_effort,
             )
             # embedding candidate time -> merging; LLM verify time -> llm_check.
             # Present even when the pass is internally skipped (defaults to 0).
@@ -437,6 +464,7 @@ class StreamingBeliefBuilder:
         if surviving_new_ids:
             tried_prior_window = False
             linked_prior_turn = None
+            attempted_windows = 0
 
             for candidate_idx in range(flat_idx - 1, -1, -1):
                 previous_node_ids = self._node_ids_from_trajectory_index(
@@ -454,6 +482,11 @@ class StreamingBeliefBuilder:
                         }
                     )
                     continue
+
+                if attempted_windows >= opt.max_previous_windows:
+                    report["edge_window_limit_reached"] = True
+                    break
+                attempted_windows += 1
 
                 tried_prior_window = True
                 _t_edge = time.perf_counter()
@@ -558,6 +591,7 @@ class StreamingBeliefBuilder:
             new_node_ids=surviving_new_ids,
             current_date=date,
             max_tokens=self.max_tokens,
+            reasoning_effort=self.options.reasoning_effort,
         )
 
         resolved = self._resolve_relations(
@@ -775,8 +809,9 @@ class StreamingBeliefBuilder:
             "stance": cleaned["stance"],
             "role": role,
             "entities": list(cleaned.get("entities") or []),
-            "event_time": cleaned.get("event_time"),
-            "time_text": cleaned.get("time_text"),
+            # Match the hybrid backend: event_time records graph-node creation
+            # time and is never accepted from model output.
+            "event_time": datetime.now(UTC).isoformat(),
             "source": dict(src),
             "evidence_ids": evidence_ids,
             "supporting_excerpts": [ev["text"] for ev in evid if ev.get("text")],

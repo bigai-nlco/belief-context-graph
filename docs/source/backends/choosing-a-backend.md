@@ -1,6 +1,6 @@
 ---
 title: "Choosing a Backend"
-description: "Select `api_based` or `light` based on infrastructure and control requirements."
+description: "Select `unified` or `hybrid` based on infrastructure and control requirements."
 icon: "route"
 ---
 
@@ -8,12 +8,12 @@ Both backends produce the same conceptual BCG graph and support batch, replay, H
 
 | Choose | When |
 |---|---|
-| `api_based` | You have an OpenAI-compatible model endpoint and want the simplest deployment |
-| `light` | You want local embeddings, local stance classification, local NER, and a smaller generative model |
+| `unified` | You have an OpenAI-compatible model endpoint and want the simplest deployment |
+| `hybrid` | You want local embeddings, local stance classification, local NER, and a smaller generative model |
 
 ## Comparison
 
-| Capability | api_based | light |
+| Capability | unified | hybrid |
 |---|---|---|
 | Default backend | Yes | No |
 | Generative model | One compatible chat model | Small model via compatible endpoint |
@@ -28,15 +28,15 @@ Both backends produce the same conceptual BCG graph and support batch, replay, H
 ## Same public commands
 
 ```bash
-bcg construct run api_based --input data.json
-bcg construct run light --input data.json
+bcg construct run unified --input data.json
+bcg construct run hybrid --input data.json
 
-bcg construct server api_based --port 8848
-bcg construct server light --port 8848
+bcg construct server unified --port 8848
+bcg construct server hybrid --port 8848
 ```
 
-If the backend positional argument is omitted and the first token is a flag, BCG selects `api_based` for compatibility.
+If the backend positional argument is omitted and the first token is a flag, BCG selects `unified` for compatibility.
 
 ## Recommendation
 
-Start with `api_based`. Move to `light` when local model control, local classification, or infrastructure separation matters enough to justify the additional configuration.
+Start with `unified`. Move to `hybrid` when local model control, local classification, or infrastructure separation matters enough to justify the additional configuration.

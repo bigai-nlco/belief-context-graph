@@ -1,4 +1,4 @@
-"""Public SDK orchestration backed by :mod:`bcg.construct` (api_based or light)."""
+"""Public SDK orchestration backed by :mod:`bcg.construct` (unified or hybrid)."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ class BCGRunner:
     memory: BCGMemory
     llm: Any
     output_root: str | Path = ".bcg/runs"
-    backend: str = "api_based"
+    backend: str = "unified"
     backend_adapter: ConstructBackend | None = field(default=None, repr=False)
     graph: BCG | None = field(default=None, init=False, repr=False)
     run_id: str | None = field(default=None, init=False)
@@ -43,7 +43,7 @@ class BCGRunner:
     max_tokens: int | None = field(default=None, init=False, repr=False)
     scenario: str = field(default="research", init=False)
     item_id: str = field(default="trajectory", init=False)
-    # Either a BeliefGraphOptions (api_based) or a light StreamOptions,
+    # Either a BeliefGraphOptions (unified) or a hybrid StreamOptions,
     # depending on which backend built this run.
     options: Any = field(default=None, init=False, repr=False)
     embedder: Any | None = field(default=None, init=False, repr=False)
@@ -122,7 +122,7 @@ class BCGRunner:
         scenario: str = "research",
         item_id: str = "trajectory",
         backend: str | None = None,
-        # --- api_based-only knobs, mapped onto BeliefGraphOptions ---
+        # --- unified-only knobs, mapped onto BeliefGraphOptions ---
         evidence_mode: str = "sentence",
         incremental_merge: bool = True,
         incremental_merge_threshold: float = 0.86,
@@ -130,7 +130,7 @@ class BCGRunner:
         context_chars: int = 100000,
         io_context_chars: int = 6000,
         min_content_len: int = 0,
-        # --- light-only knob: the `belief_graph` section of model_config.json
+        # --- hybrid-only knob: the `belief_graph` section of model_config.json
         # (see bcg/model_config.example.json), applied via StreamOptions
         # .apply_belief_graph_config(). Omit it to fall back to that
         # StreamOptions' own built-in defaults.

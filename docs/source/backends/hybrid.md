@@ -1,10 +1,10 @@
 ---
-title: "Light Backend"
+title: "Hybrid Backend"
 description: "A locally controlled pipeline with small-model extraction, embeddings, stance, and NER."
 icon: "feather"
 ---
 
-The `light` backend decomposes construction into local or separately served components.
+The `hybrid` backend decomposes construction into local or separately served components.
 
 ## Components
 
@@ -30,7 +30,7 @@ For a normal installation, run `bcg setup`; BCG stores graph model routing in `~
 ## Run
 
 ```bash
-bcg construct run light \
+bcg construct run hybrid \
   --input trajectory.json \
   --config ~/.bcg/model_config.json \
   --model-key graph-model \
@@ -58,7 +58,7 @@ The `belief_graph` block contains:
 
 ## When to use
 
-Use `light` when:
+Use `hybrid` when:
 
 - embeddings must remain local
 - stance classification needs a dedicated model

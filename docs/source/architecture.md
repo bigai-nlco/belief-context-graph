@@ -4,13 +4,13 @@ description: "How trajectories become canonical, confidence-bearing belief graph
 icon: "diagram-project"
 ---
 
-BCG separates public interfaces from its two core construction engines: `bcg.construct.api_based` and `bcg.construct.light`.
+BCG separates public interfaces from its two core construction engines: `bcg.construct.unified` and `bcg.construct.hybrid`.
 
 
 <div class="arch-diagram" aria-label="BCG architecture overview">
   <svg role="img" viewBox="0 0 1040 560" aria-labelledby="archTitle archDesc">
     <title id="archTitle">BCG architecture overview</title>
-    <desc id="archDesc">Public interfaces feed BCGRunner or SessionManager, then converge on the selected bcg.construct api_based or light StreamingTrajectorySession, which executes split, extract, confidence, merge, relation, and audit stages.</desc>
+    <desc id="archDesc">Public interfaces feed BCGRunner or SessionManager, then converge on the selected bcg.construct unified or hybrid StreamingTrajectorySession, which executes split, extract, confidence, merge, relation, and audit stages.</desc>
     <defs>
       <marker id="archArrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
         <path d="M1 1 L11 6 L1 11 Z" class="arch-arrowhead"></path>
@@ -43,7 +43,7 @@ BCG separates public interfaces from its two core construction engines: `bcg.con
 
     <rect class="arch-card arch-card-center" x="320" y="288" width="400" height="78" rx="20"></rect>
     <text class="arch-text" x="520" y="320" text-anchor="middle">StreamingTrajectorySession</text>
-    <text class="arch-subtext" x="520" y="345" text-anchor="middle">bcg.construct.api_based · bcg.construct.light</text>
+    <text class="arch-subtext" x="520" y="345" text-anchor="middle">bcg.construct.unified · bcg.construct.hybrid</text>
 
     <line class="arch-link" x1="520" y1="366" x2="520" y2="392" marker-end="url(#archArrow)"></line>
 
@@ -72,7 +72,7 @@ BCG separates public interfaces from its two core construction engines: `bcg.con
     <rect class="arch-card arch-card-bottom" x="336" y="492" width="368" height="52" rx="16"></rect>
     <text class="arch-text" x="520" y="523" text-anchor="middle">BCG graph + run artifacts</text>
   </svg>
-  <p class="arch-caption">The public entry paths converge on the selected backend session. The core stage implementations live in <code>bcg.construct.api_based</code> and <code>bcg.construct.light</code>; the surrounding SDK, HTTP, and CLI layers select and orchestrate one of them.</p>
+  <p class="arch-caption">The public entry paths converge on the selected backend session. The core stage implementations live in <code>bcg.construct.unified</code> and <code>bcg.construct.hybrid</code>; the surrounding SDK, HTTP, and CLI layers select and orchestrate one of them.</p>
 </div>
 
 
@@ -98,7 +98,7 @@ BCG separates public interfaces from its two core construction engines: `bcg.con
 
 ### Construction lifecycle
 
-`BCGRunner` owns one run at a time, selects either `bcg.construct.api_based` or `bcg.construct.light`, synchronizes snapshots into the public `BCG` model, tracks sessions, and writes compatibility artifacts. The split, extraction, confidence, merge, and relation logic remains inside the selected `bcg.construct` package.
+`BCGRunner` owns one run at a time, selects either `bcg.construct.unified` or `bcg.construct.hybrid`, synchronizes snapshots into the public `BCG` model, tracks sessions, and writes compatibility artifacts. The split, extraction, confidence, merge, and relation logic remains inside the selected `bcg.construct` package.
 
 ### CLI and HTTP
 
@@ -110,7 +110,7 @@ The `bcg construct` command family wraps the same construction backends for batc
 
 <Step title="Segment the turn">
 
-`api_based` uses sentence-oriented evidence or free excerpts. `light` can use semantic breakpoint chunking and isolates tool calls.
+`unified` uses sentence-oriented evidence or free excerpts. `hybrid` can use semantic breakpoint chunking and isolates tool calls.
 
 </Step>
 
@@ -154,9 +154,9 @@ The final graph, per-turn snapshots, audit logs, timing, token usage, and merge 
 
 ## Backend boundary
 
-The core construction logic is implemented in the sibling packages `bcg.construct.api_based` and `bcg.construct.light`. They implement the same graph contract but make different infrastructure tradeoffs:
+The core construction logic is implemented in the sibling packages `bcg.construct.unified` and `bcg.construct.hybrid`. They implement the same graph contract but make different infrastructure tradeoffs:
 
-| Area | api_based | light |
+| Area | unified | hybrid |
 |---|---|---|
 | Node and relation generation | One OpenAI-compatible chat model | Small generative model via compatible endpoint |
 | Embeddings | Configured embedding endpoint or local provider | Local sentence-transformers |

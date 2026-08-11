@@ -33,6 +33,7 @@ from .llm import (
     load_embedding_config,
     make_client,
     make_embedder,
+    resolve_reasoning_effort,
 )
 from .stream import StreamingBeliefBuilder, StreamOptions
 
@@ -89,9 +90,12 @@ def run_input(
 
     cfg = load_config(config_path, model_key=model_key)
     bg_cfg = load_belief_graph_config(config_path, model_key=model_key)
-    if bg_cfg:
+    if bg_cfg or cfg.get("reasoning_effort") is not None:
         options = copy.deepcopy(options)
+    if bg_cfg:
         options.apply_belief_graph_config(bg_cfg)
+    if cfg.get("reasoning_effort") is not None:
+        options.reasoning_effort = str(cfg["reasoning_effort"])
     client = make_client(cfg)
     model = cfg.get("model") or cfg.get("model_name") or "gpt-4o-mini"
     max_tokens = cfg.get("max_tokens")
@@ -99,8 +103,10 @@ def run_input(
 
     masked = cfg.get("api_key", "") or ""
     masked = (masked[:6] + "…" + masked[-3:]) if len(masked) > 10 else "***"
+    effective_reasoning = resolve_reasoning_effort(model, options.reasoning_effort)
     print(
         f"[info] model={model}  base_url={cfg['base_url']}  api_key={masked}"
+        f"  reasoning_effort={effective_reasoning}"
         + (f"  max_tokens={max_tokens}" if max_tokens else "")
     )
 

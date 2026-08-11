@@ -8,7 +8,18 @@ from pathlib import Path
 from bcg.apps import setup
 
 
-def test_api_setup_persists_global_configuration(
+def test_persisted_setup_backend_name_is_migrated(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("BCG_HOME", str(tmp_path))
+    (tmp_path / "config.json").write_text(
+        json.dumps({"graph": {"backend": "light"}}), encoding="utf-8"
+    )
+
+    config = setup.load_user_configuration()
+
+    assert config["graph"]["backend"] == "hybrid"
+
+
+def test_unified_setup_persists_global_configuration(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -22,7 +33,7 @@ def test_api_setup_persists_global_configuration(
             "1",  # BCG context
             "",  # two recent turns
             "1",  # managed local Graph server
-            "1",  # API-based Graph backend
+            "1",  # Unified Graph backend
             "",  # reuse Agent endpoint
             "none",  # no local embedding model
         ]
@@ -37,7 +48,7 @@ def test_api_setup_persists_global_configuration(
     assert config["agent"]["provider"] == "bcg"
     assert config["context"] == {"mode": "bcg", "recentTurns": 2}
     assert config["graph"]["serverMode"] == "managed"
-    assert config["graph"]["backend"] == "api_based"
+    assert config["graph"]["backend"] == "unified"
     assert config["graph"]["url"] == "http://127.0.0.1:8848"
     assert config["graph"]["modelConfig"] == str(tmp_path / "config.yaml")
     assert setup.is_configured(config)
@@ -48,7 +59,7 @@ def test_api_setup_persists_global_configuration(
     import yaml
 
     yaml_config = yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
-    assert yaml_config["backend"] == "api_based"
+    assert yaml_config["backend"] == "unified"
     assert yaml_config["model_key"] == "graph-model"
     assert yaml_config["models"]["graph-model"] == {
         "base_url": "https://agent.test/v1",
@@ -63,8 +74,8 @@ def test_api_setup_persists_global_configuration(
     assert stat.S_IMODE((tmp_path / ".env").stat().st_mode) == 0o600
 
 
-def test_light_config_points_every_graph_model_at_vllm() -> None:
-    config = setup.build_light_graph_config(
+def test_hybrid_config_points_every_graph_model_at_vllm() -> None:
+    config = setup.build_hybrid_graph_config(
         base_url="http://vllm.test/v1",
         model="Qwen-test",
         api_key_env="BCG_GRAPH_API_KEY",
@@ -82,7 +93,7 @@ def test_light_config_points_every_graph_model_at_vllm() -> None:
     assert belief_graph["stance"]["local_files_only"] is False
 
 
-def test_managed_light_setup_asks_for_generator_endpoint(
+def test_managed_hybrid_setup_asks_for_generator_endpoint(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -96,7 +107,7 @@ def test_managed_light_setup_asks_for_generator_endpoint(
             "1",
             "2",
             "1",  # managed local Graph server
-            "2",  # light backend
+            "2",  # hybrid backend
             "http://vllm.test/v1",
             "Qwen-test",
             "embedding-test",
@@ -120,9 +131,9 @@ def test_managed_light_setup_asks_for_generator_endpoint(
     import yaml
 
     yaml_config = yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
-    assert yaml_config["backend"] == "light"
+    assert yaml_config["backend"] == "hybrid"
     assert any(
-        "Light generator OpenAI-compatible base URL" in prompt for prompt in prompts
+        "Hybrid generator OpenAI-compatible base URL" in prompt for prompt in prompts
     )
     assert not any("Graph server URL" in prompt for prompt in prompts)
 
@@ -222,7 +233,7 @@ def test_apply_user_configuration_uses_global_values(
         "context": {"mode": "default", "recentTurns": 2},
         "graph": {
             "serverMode": "existing",
-            "backend": "api_based",
+            "backend": "unified",
             "url": "http://127.0.0.1:8848",
             "modelConfig": str(tmp_path / "model_config.json"),
             "modelKey": "graph-model",
@@ -235,5 +246,5 @@ def test_apply_user_configuration_uses_global_values(
     assert os.environ["OPENAI_API_KEY"] == "global-secret"
     assert os.environ["OPENAI_MODEL"] == "agent-model"
     assert os.environ["BCG_CONTEXT_MODE"] == "default"
-    assert os.environ["BCG_GRAPH_BACKEND"] == "api_based"
+    assert os.environ["BCG_GRAPH_BACKEND"] == "unified"
     assert os.environ["BCG_GRAPH_AUTOSTART"] == "false"

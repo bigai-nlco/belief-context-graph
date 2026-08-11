@@ -58,7 +58,7 @@ MINIMAL_RELATION = {
 def test_minimal_memory_document_validates() -> None:
     document = {
         "schema": "bcg.memory.v2",
-        "engine": "api_based",
+        "engine": "unified",
         "run_id": "run-1",
         "mode": "stream",
         "trajectory": [{"role": "user", "content": "hi"}],
@@ -72,7 +72,7 @@ def test_minimal_memory_document_validates() -> None:
 def test_memory_document_rejects_wrong_schema_marker() -> None:
     document = {
         "schema": "bcg.memory.v1",
-        "engine": "api_based",
+        "engine": "unified",
         "run_id": "run-1",
         "mode": "stream",
         "trajectory": [],

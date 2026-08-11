@@ -15,7 +15,7 @@ BCGRunner(
     memory=memory,
     llm=llm,
     output_root=".bcg/runs",
-    backend="api_based",
+    backend="unified",
 )
 ```
 

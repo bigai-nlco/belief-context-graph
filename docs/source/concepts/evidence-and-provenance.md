@@ -35,7 +35,7 @@ Supported provenance fields include:
 
 <Tab title="Sentence">
 
-The `api_based` backend uses whole-sentence evidence with offsets. This is the CLI default.
+The `unified` backend uses whole-sentence evidence with offsets. This is the CLI default.
 
 </Tab>
 
@@ -44,7 +44,7 @@ The `api_based` backend uses whole-sentence evidence with offsets. This is the C
 The model quotes a free span verbatim. Use:
 
 ```bash
-bcg construct run api_based \
+bcg construct run unified \
   --input trajectory.json \
   --evidence-mode excerpt
 ```
@@ -53,7 +53,7 @@ bcg construct run api_based \
 
 <Tab title="Semantic chunk">
 
-The `light` backend can use embedding-distance semantic chunks and isolate tool calls before extraction.
+The `hybrid` backend can use embedding-distance semantic chunks and isolate tool calls before extraction.
 
 </Tab>
 

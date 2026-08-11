@@ -10,9 +10,12 @@ import pytest
 from bcg.config.runtime import load_construct_config, resolve_runtime_config
 
 
-def test_no_config_keeps_legacy_fallback_path(tmp_path: Path) -> None:
+def test_no_config_keeps_legacy_fallback_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Without any YAML file the resolver points at the legacy JSON path
     (fallback window); loading it with no file is loud."""
+    monkeypatch.setenv("HOME", str(tmp_path))
     runtime = resolve_runtime_config([])
     assert runtime.uses_yaml is False
     assert runtime.config_path == "bcg/model_config.json"

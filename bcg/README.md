@@ -14,10 +14,10 @@ flat, role-tagged stream of turns.
 Two independent backends implement this, side by side, under
 `bcg/construct/`:
 
-- **`light`** — local models only: a small generative model (Qwen) extracts
+- **`hybrid`** — local models only: a small generative model (Qwen) extracts
   nodes, a local classifier assigns stance, local NER assigns entities, and a
   second small model draws relations.
-- **`api_based`** — one large API-based chat model does node extraction and
+- **`unified`** — one general-purpose graph LLM does node extraction and
   relation extraction (as two separate calls), returning stance and entities
   together with the nodes.
 
@@ -51,21 +51,21 @@ You can drive either backend two ways:
 
 ## How the two backends build a graph
 
-| | `bcg.construct.light` | `bcg.construct.api_based` |
+| | `bcg.construct.hybrid` | `bcg.construct.unified` |
 |---|---|---|
-| Node extraction | Small generative model (Qwen), one concurrent call **per semantic chunk** | One large API-based chat model, one call **per turn** (returns nodes + stance + entities together) |
+| Node extraction | Small generative model (Qwen), one concurrent call **per semantic chunk** | One general-purpose graph LLM, one call **per turn** (returns nodes + stance + entities together) |
 | Chunking | Semantic breakpoint chunking (adjacent-window embedding distance) + `<think>`/`<tool_call>`/`<tool_response>` isolation | Whole-turn sentence splitting (no chunking) |
 | Stance | Local DeBERTa zero-shot 4-class classifier, run on every extracted node's text | Returned directly by the node-extraction call |
 | Entities | Local spaCy NER (or HF token-classification), run **after** that turn's merge is complete | Returned directly by the node-extraction call |
 | Relations | Separate non-thinking Qwen model; backward window is either the immediately-previous turn only (`search_previous_turns: false`) or a full backward walk (`true`, the example config's default) | Same model, always a full backward walk: current turn vs. the immediately-previous turn's surviving nodes, walking further back one turn at a time until a cross-turn edge lands (or no turn remains) |
 | Evidence granularity | Whole semantic chunk (exact offsets) | Whole sentence (exact offsets, default) or model-quoted excerpt (`--evidence-mode excerpt`, located by a 3-stage exact→normalised→fuzzy matcher) |
-| Confidence policy | `api_based`: hardcoded `(role, stance)` table; `light`: config-driven prior — both plus evidence + relation factor confidence in `confidence.py` | Role/stance prior table plus the same evidence and relation factor confidence fields in `confidence.py` |
+| Confidence policy | `unified`: hardcoded `(role, stance)` table; `hybrid`: config-driven prior — both plus evidence + relation factor confidence in `confidence.py` | Role/stance prior table plus the same evidence and relation factor confidence fields in `confidence.py` |
 | Merge | Incremental, embedding-only (**no** LLM verify step) | Incremental embedding merge, **optionally** LLM-verified + rewritten (`--verify-merge`, default off) |
-| Runtime tuning | Almost entirely via `model_config.json`'s `belief_graph` block — `bcg/run.py light` exposes no backend-specific CLI flags | Via CLI flags on `bcg/run.py` / `bcg/online_server.py` (`--evidence-mode`, `--incremental-merge*`, `--verify-merge`, `--context-chars`, `--min-content-len`) |
-| API key | Same mechanism as `api_based` — see [Configuration](#configuration) | `api_key_env` resolved from a project-root `.env` via `bcg.core.env` |
+| Runtime tuning | Almost entirely via `model_config.json`'s `belief_graph` block — `bcg/run.py hybrid` exposes no backend-specific CLI flags | Via CLI flags on `bcg/run.py` / `bcg/online_server.py` (`--evidence-mode`, `--incremental-merge*`, `--verify-merge`, `--context-chars`, `--min-content-len`) |
+| API key | Same mechanism as `unified` — see [Configuration](#configuration) | `api_key_env` resolved from a project-root `.env` via `bcg.core.env` |
 
 
-### `api_based`, in more detail
+### `unified`, in more detail
 
 Each non-skipped turn (`extract.py` + `stream.py`) runs:
 
@@ -113,7 +113,7 @@ relation endpoint pointing at them is rewired to the canonical id.
 `llm_check` (LLM verify; `0` under `--no-verify-merge`), `edge_generation`
 (summed over any backward-walk calls), plus `turn_total`.
 
-### `light`, in more detail
+### `hybrid`, in more detail
 
 Each non-skipped turn (`stream.py`, four phases):
 
@@ -143,7 +143,7 @@ Each non-skipped turn (`stream.py`, four phases):
    (`edge_generation.py: QwenEdgeGenerator`) links the turn's surviving
    node identities to a prior turn's nodes. `edge_generation.
    search_previous_turns` controls the window: `true` (the example config's
-   default) walks backward turn-by-turn exactly like `api_based`, stopping
+   default) walks backward turn-by-turn exactly like `unified`, stopping
    at the first cross-turn edge; `false` restricts the attempt to only the
    immediately-previous turn (the "conservative two-turn window").
 
@@ -152,8 +152,8 @@ produced a node (exact offsets) — there's no sentence/excerpt toggle; the
 `belief_graph.runtime.evidence_mode` config value ("chunk") is recorded but
 not branched on anywhere.
 
-**Confidence** uses the same logit/sigmoid posterior form as `api_based`.
-For `light`, source reliability per role, stance quality per label, aggregation
+**Confidence** uses the same logit/sigmoid posterior form as `unified`.
+For `hybrid`, source reliability per role, stance quality per label, aggregation
 method, relation default weight, relation activation threshold, propagation
 delta threshold, and maximum propagation iterations all come from
 `belief_graph.confidence` in `model_config.json`.
@@ -162,8 +162,8 @@ delta threshold, and maximum propagation iterations all come from
 `entity_extraction`, `edge_generation`, plus `turn_total` — no `llm_check`
 step exists for this backend (there is no merge-verify LLM call).
 
-**Runtime tuning is config-only.** `bcg/run.py light` /
-`bcg/online_server.py light` expose no chunking/extractor/merge/entity/edge
+**Runtime tuning is config-only.** `bcg/run.py hybrid` /
+`bcg/online_server.py hybrid` expose no chunking/extractor/merge/entity/edge
 flags — every one of those knobs lives in `model_config.json`'s
 `belief_graph` block (see [Configuration](#configuration)) and is applied
 via `StreamOptions.apply_belief_graph_config()`.
@@ -174,17 +174,17 @@ via `StreamOptions.apply_belief_graph_config()`.
 
 - **Both backends need:** `openai` (chat + optional OpenAI-compatible
   embeddings), `sentence-transformers` (local embeddings, used for merge
-  candidate scoring and, for `light`, semantic chunking), `numpy`, and
+  candidate scoring and, for `hybrid`, semantic chunking), `numpy`, and
   `rich` (used by `bcg/cli_help.py`'s `RichArgumentParser` for the
   Typer-style `--help` output on `bcg/run.py`, `bcg/online_server.py`, and
   each backend's `python -m bcg.construct.<backend>` entry).
-- **`light` additionally needs:** `torch`, `transformers`, `spacy` (plus
+- **`hybrid` additionally needs:** `torch`, `transformers`, `spacy` (plus
   `python -m spacy download en_core_web_sm` for the default NER model,
   and, if you set `entities.method: "huggingface"`, whatever token-
   classification checkpoint you point it at — `dslim/bert-base-NER` in the
   example config).
 
-If you're serving `light`'s small extractor / edge-generation models
+If you're serving `hybrid`'s small extractor / edge-generation models
 yourself, serve them with vLLM (OpenAI-compatible):
 
 ```bash
@@ -214,14 +214,14 @@ entries (e.g. `"gpt-5.5"`), plus two reserved keys:
   - **`"local"`** — load the weights **in-process** via
     `sentence-transformers`; no server needed. Requires only `model` (an HF
     repo id or local weights directory) — the example config uses this.
-  Used by both backends for merge-candidate scoring, and by `light` for
+  Used by both backends for merge-candidate scoring, and by `hybrid` for
   semantic chunking. If this entry is absent, incremental merge (and, for
-  `light`, chunking) is skipped with a warning rather than an error.
-- **`"belief_graph"`** — **`light`-only.** `extractor` / `stance` /
+  `hybrid`, chunking) is skipped with a warning rather than an error.
+- **`"belief_graph"`** — **`hybrid`-only.** `extractor` / `stance` /
   `edge_generation` / `entities` / `confidence` / `chunking` / `runtime` /
   `incremental_merge` settings, loaded by `load_belief_graph_config()` from
   (in merge order) the top-level `belief_graph` key, then the selected
-  chat-model entry's own `belief_graph` override if present. `api_based`
+  chat-model entry's own `belief_graph` override if present. `unified`
   never reads this section at all.
 
 **API keys**: both backends resolve them identically, through the shared
@@ -240,7 +240,7 @@ For a given config entry, `resolve_config_api_key()` then:
 
 1. reads `api_key_env` off that entry (falling back to a caller-chosen
    default — `OPENAI_API_KEY` for chat entries, `EMBEDDING_API_KEY` for the
-   embedding entry, `BELIEF_GRAPH_LOCAL_API_KEY` for `light`'s `extractor`
+   embedding entry, `BELIEF_GRAPH_LOCAL_API_KEY` for `hybrid`'s `extractor`
    / `edge_generation` blocks — if `api_key_env` is missing);
 2. looks up that variable in `os.environ`;
 3. if it's unset or empty, **falls back to a literal `api_key` field already
@@ -306,34 +306,34 @@ Every field under `belief_graph`'s sub-sections is **required** — each
 normaliser (`normalize_extractor_config`, `normalize_edge_config`, ...)
 raises `ValueError` listing exactly which key is missing, so copy from
 `model_config.example.json` rather than writing a section from scratch.
-`api_based` reads `belief_graph.confidence` for relation-confidence propagation so batch `run.py` and `online_server.py` use the same thresholds; the rest of the `belief_graph` block is light-only.
+`unified` reads `belief_graph.confidence` for relation-confidence propagation so batch `run.py` and `online_server.py` use the same thresholds; the rest of the `belief_graph` block is hybrid-only.
 
 ---
 
 ## Usage: batch (`bcg/run.py`)
 
-Both entry points take the **backend name** (`light` or `api_based`) as the
+Both entry points take the **backend name** (`hybrid` or `unified`) as the
 first positional argument. If you omit it — either no arguments at all, or
 the first token starts with `-` — `bcg/construct/dispatch.py` silently
-selects the default backend, **`api_based`**, for compatibility with
+selects the default backend, **`unified`**, for compatibility with
 command lines written before the two backends were combined. A positional
 token that *isn't* a flag must be an exact backend name, or it errors with
-`unknown backend '...'; choose one of: light, api_based` rather than being
+`unknown backend '...'; choose one of: hybrid, unified` rather than being
 swallowed as an argument.
 
 ```bash
-python bcg/run.py light     --input data.json --model-key gpt-5.5 --embedding-key embedding
+python bcg/run.py hybrid     --input data.json --model-key gpt-5.5 --embedding-key embedding
 
-python bcg/run.py api_based --input data.json --model-key gpt-5.5 --embedding-key embedding
+python bcg/run.py unified --input data.json --model-key gpt-5.5 --embedding-key embedding
 
-# api_based: free-span evidence (model quotes excerpts verbatim, no sentence splitting)
-python bcg/run.py api_based --input data.json --evidence-mode excerpt
+# unified: free-span evidence (model quotes excerpts verbatim, no sentence splitting)
+python bcg/run.py unified --input data.json --evidence-mode excerpt
 
-# api_based: turn off the per-turn incremental merge entirely
-python bcg/run.py api_based --input data.json --no-incremental-merge
+# unified: turn off the per-turn incremental merge entirely
+python bcg/run.py unified --input data.json --no-incremental-merge
 
 # process only one item out of a multi-item file (by id or 0-based index)
-python bcg/run.py light --input data.json --item 3
+python bcg/run.py hybrid --input data.json --item 3
 ```
 
 **Flags common to both backends** (`_add_common_args` in `run.py`):
@@ -348,7 +348,7 @@ python bcg/run.py light --input data.json --item 3
 | `--item` | all | Process only this item (id or 0-based index) |
 | `--keep-order` | off | For multi-session inputs, keep input array order instead of date-sorting |
 
-**`api_based`-only flags** (`_run_api_based` in `run.py`):
+**`unified`-only flags** (`_run_unified` in `run.py`):
 
 | Flag | Default | Meaning |
 |---|---|---|
@@ -362,7 +362,7 @@ python bcg/run.py light --input data.json --item 3
 These CLI defaults and the SDK defaults share the same values. Layered YAML
 settings can override them; an explicit CLI flag takes precedence.
 
-**`light`-only flags:** none. Everything beyond the common flags above
+**`hybrid`-only flags:** none. Everything beyond the common flags above
 comes from `model_config.json`'s `belief_graph` block (see
 [Configuration](#configuration)).
 
@@ -377,22 +377,22 @@ one shared handler; only the config wiring and backend-specific flags
 differ.
 
 ```bash
-python bcg/online_server.py light     --config bcg/model_config.json --port 8848
-python bcg/online_server.py api_based --config bcg/model_config.json --port 8848
+python bcg/online_server.py hybrid     --config bcg/model_config.json --port 8848
+python bcg/online_server.py unified --config bcg/model_config.json --port 8848
 ```
 
 `--host` defaults to `127.0.0.1` (local access only); pass `--host 0.0.0.0`
 to listen on all interfaces. `--output-dir` defaults to `outputs_stream` here (batch's
 default is `outputs`).
 
-`api_based`'s server exposes the same merge/evidence flags as
+`unified`'s server exposes the same merge/evidence flags as
 `run.py`:
 `--evidence-mode`, `--incremental-merge`/`--no-incremental-merge`,
 `--incremental-merge-threshold`, `--verify-merge`/`--no-verify-merge`,
 `--context-chars`, `--min-content-len`. It also supports a self-rolling
 dated `--output-dir`: a value like `outputs_7_6` or `outputs_{Y}_{m}_{d}`
 is re-resolved to *today's* date each time a new session starts (plain
-values like `outputs_stream` are left as-is). `light`'s server exposes no
+values like `outputs_stream` are left as-is). `hybrid`'s server exposes no
 extra flags, same as its batch driver.
 
 ### Endpoints (identical for both backends)
@@ -452,8 +452,8 @@ the server):
 | `logs/timing.csv` | Per-turn + summary timing, wide table, seconds |
 
 
-`light`'s `result.json` additionally carries a `turn_chunks` array (each
-turn's chunk boundaries and text) that `api_based`'s does not.
+`hybrid`'s `result.json` additionally carries a `turn_chunks` array (each
+turn's chunk boundaries and text) that `unified`'s does not.
 
 ---
 
@@ -467,21 +467,21 @@ bcg/
   env.py                    # find_project_env / load_project_env / resolve_config_api_key
   utils.py                  # get_random_uuid / utc_now
   cli_help.py               # RichArgumentParser (Typer-style --help via `rich`)
-  run.py                    # unified batch entry point (light | api_based subcommand)
-  online_server.py          # unified HTTP entry point  (light | api_based subcommand)
+  run.py                    # unified batch entry point (hybrid | unified subcommand)
+  online_server.py          # unified HTTP entry point  (hybrid | unified subcommand)
   online_driver.py          # replay driver behind `python -m bcg.construct.<backend> replay` (not read in this pass)
   model_config.json          # shared config (copy from model_config.example.json)
   construct/
     __init__.py
-    dispatch.py             # DEFAULT_BACKEND="api_based", BACKENDS, split_backend_args(argv)
+    dispatch.py             # DEFAULT_BACKEND="unified", BACKENDS, split_backend_args(argv)
     _backend_cli.py         # backend_main(name, argv) — the run/server/replay forwarder below each backend's cli.py
-    light/
+    hybrid/
       __init__.py  __main__.py  cli.py
       pipeline.py  stream.py  online.py
       extractor.py  edge_generation.py  stance.py  named_entities.py
       merge.py  evidence.py  confidence.py  graph.py  constants.py
       split.py  loaders.py  llm.py  prompts.py
-    api_based/
+    unified/
       __init__.py  __main__.py  cli.py
       pipeline.py  stream.py  online.py
       extract.py  merge.py  evidence.py  confidence.py  graph.py  constants.py

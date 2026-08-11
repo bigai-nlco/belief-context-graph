@@ -14,7 +14,7 @@ Replay accepts one turn object per line.
 ## From a file
 
 ```bash
-bcg construct replay api_based \
+bcg construct replay unified \
   --input turns.jsonl \
   --config bcg/model_config.json \
   --output-dir outputs_stream
@@ -23,7 +23,7 @@ bcg construct replay api_based \
 ## From standard input
 
 ```bash
-cat turns.jsonl | bcg construct replay light
+cat turns.jsonl | bcg construct replay hybrid
 ```
 
 ## End-of-file finalization
