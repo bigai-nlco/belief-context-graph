@@ -7,7 +7,7 @@ from collections.abc import Collection, Sequence
 from bcg.config.loader import defaults_dict
 
 DEFAULT_BACKEND = str(defaults_dict()["backend"])
-BACKENDS = ("light", "api_based")
+BACKENDS = ("unified", "hybrid")
 
 
 def split_backend_args(
@@ -20,7 +20,7 @@ def split_backend_args(
 
     Before the two construction implementations were combined, command lines
     started directly with flags. Preserve those invocations by selecting the
-    API-based implementation when the first token is an option. A positional
+    unified implementation when the first token is an option. A positional
     token still has to be an explicit valid backend, so misspellings fail
     instead of being silently treated as backend arguments.
     """

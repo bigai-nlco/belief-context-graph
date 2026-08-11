@@ -294,13 +294,13 @@ def test_threading_http_server_processes_different_ids_concurrently() -> None:
         server.server_close()
 
 
-@pytest.mark.parametrize("backend", ["api_based", "light"])
+@pytest.mark.parametrize("backend", ["unified", "hybrid"])
 def test_session_manager_creates_one_session_under_same_id_race(
     backend: str,
     tmp_path: Path,
 ) -> None:
-    if backend == "api_based":
-        from bcg.construct.api_based.online import SessionManager
+    if backend == "unified":
+        from bcg.construct.unified.online import SessionManager
 
         manager = SessionManager(
             client=None,
@@ -309,8 +309,8 @@ def test_session_manager_creates_one_session_under_same_id_race(
             output_root=tmp_path / backend,
         )
     else:
-        from bcg.construct.light.online import SessionManager
-        from bcg.construct.light.stream import StreamOptions
+        from bcg.construct.hybrid.online import SessionManager
+        from bcg.construct.hybrid.stream import StreamOptions
 
         manager = SessionManager(
             client=None,
@@ -333,14 +333,14 @@ def test_session_manager_creates_one_session_under_same_id_race(
     assert manager.all_problem_ids() == ["shared"]
 
 
-@pytest.mark.parametrize("backend", ["api_based", "light"])
+@pytest.mark.parametrize("backend", ["unified", "hybrid"])
 def test_push_many_parallelizes_ids_and_preserves_per_id_order(
     backend: str,
 ) -> None:
-    if backend == "api_based":
-        from bcg.construct.api_based.online import SessionManager
+    if backend == "unified":
+        from bcg.construct.unified.online import SessionManager
     else:
-        from bcg.construct.light.online import SessionManager
+        from bcg.construct.hybrid.online import SessionManager
 
     barrier = threading.Barrier(2)
 

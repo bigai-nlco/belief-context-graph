@@ -1,9 +1,10 @@
 {
-  "_comment": "Copy this file to model_config.json and fill in real values. Top-level keys are model names (model-key); any key starting with 'embedding' is reserved and never used as the default chat model. Shared by BOTH backends (construct.light and construct.api_based). See README.md > Configuration.",
+  "_comment": "Copy this file to model_config.json and fill in real values. Top-level keys are model names (model-key); any key starting with 'embedding' is reserved and never used as the default chat model. Shared by BOTH backends (construct.hybrid and construct.unified). See README.md > Configuration.",
   "_comment_api_key": "Both backends resolve API keys through api_key_env names loaded from the project-root .env. Do not place secrets in this JSON file.",
   "gpt-5.5": {
     "api_key_env": "OPENAI_API_KEY",
     "base_url": "https://litellm.mybigai.ac.cn/v1",
+    "_comment_reasoning_effort": "Optional model setting: none, minimal, low, medium, high, xhigh, or max. GPT-5.6-Luna defaults to none when omitted; other models default to medium.",
     "max_tokens": 100000,
     "temperature": 1,
     "top_p": 0.95,
@@ -25,7 +26,7 @@
     "model_kwargs": {}
   },
   "belief_graph": {
-    "_comment": "Shared construct settings. The light backend reads the full section; the api_based backend reads confidence.relation_propagation so run.py and online_server.py use the same relation-confidence propagation parameters.",
+    "_comment": "Shared construct settings. The hybrid backend reads the full section; the unified backend reads confidence.relation_propagation so run.py and online_server.py use the same relation-confidence propagation parameters.",
     "extractor": {
       "_comment": "Generative node extractor: a small model (Qwen) behind an OpenAI-compatible endpoint (e.g. vLLM). Every semantic chunk of a turn is extracted concurrently into zero or more belief/decision nodes. Replaces the former local DistilBART summarizer. Stance, entities, and event_time are NOT produced here (handled by the stance classifier, post-merge NER, and the graph builder).",
       "enabled": true,

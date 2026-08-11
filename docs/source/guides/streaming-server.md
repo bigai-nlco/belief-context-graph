@@ -7,7 +7,7 @@ icon: "server"
 Start the server:
 
 ```bash
-bcg construct server api_based \
+bcg construct server unified \
   --config bcg/model_config.json \
   --host 127.0.0.1 \
   --port 8848 \

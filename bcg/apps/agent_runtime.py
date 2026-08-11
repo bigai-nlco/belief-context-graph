@@ -18,7 +18,7 @@ from urllib.request import urlopen
 from bcg.core.env import PROJECT_ROOT, SOURCE_PROJECT_ROOT
 
 DEFAULT_GRAPH_URL = "http://127.0.0.1:8848"
-DEFAULT_GRAPH_BACKEND = "light"
+DEFAULT_GRAPH_BACKEND = "hybrid"
 DEFAULT_RECENT_TURNS = 2
 DEFAULT_GRAPH_MAX_TURNS = 300
 DEFAULT_GRAPH_TIMEOUT_MS = 300_000
@@ -237,9 +237,9 @@ def ensure_graph_server(graph_url: str) -> None:
     host, port = _local_server_address(graph_url)
     config_path = _resolve_graph_config()
     backend = os.environ.get("BCG_GRAPH_BACKEND", DEFAULT_GRAPH_BACKEND).strip()
-    if backend not in {"light", "api_based"}:
+    if backend not in {"hybrid", "unified"}:
         raise AgentLaunchError(
-            "BCG_GRAPH_BACKEND must be either 'light' or 'api_based'."
+            "BCG_GRAPH_BACKEND must be either 'hybrid' or 'unified'."
         )
 
     state_root = _state_root()

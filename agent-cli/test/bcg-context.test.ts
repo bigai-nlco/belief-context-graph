@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	BcgContextManager,
 	BcgTurnLimitError,
+	formatBcgDialogueContext,
 	formatBcgMarkdown,
 	splitBcgTurns,
 } from "../src/core/context/bcg-context.ts";
@@ -130,7 +131,13 @@ describe("BCG context management", () => {
 		]);
 
 		const effectiveSystem = manager.augmentSystemPrompt("base system");
-		expect(effectiveSystem).toContain('<belief_graph format="markdown">');
+		expect(effectiveSystem).toContain("<context_blocks_guide>");
+		expect(effectiveSystem).toContain("<｜begin▁of▁sentence｜>");
+		expect(effectiveSystem).toContain("<｜Assistant｜>");
+		expect(effectiveSystem).not.toContain("<belief_graph");
+		expect(effectiveSystem).toContain("earlier turns have been omitted from the raw conversation context");
+		expect(effectiveSystem).toContain("confidence to judge how trustworthy its content is");
+		expect(effectiveSystem).toContain("avoid repeating searches that were already performed");
 		expect(effectiveSystem).toContain("graph version 2");
 		expect(effectiveSystem?.match(/base system/g)).toHaveLength(1);
 	});
@@ -306,6 +313,49 @@ describe("BCG context management", () => {
 				relations: [{ from_id: 1, to_id: 2, type: "supports", note: "evidence" }],
 			}),
 		).toContain("- [1] → [2] (supports) — evidence");
+	});
+
+	it("encodes graph beliefs as Markdown with the generic dialogue context template", () => {
+		const encoded = formatBcgDialogueContext({
+			beliefs: [
+				{ id: 1, belief: "user belief", role: "user", confidence: 0.9 },
+				{ id: 2, belief: "assistant belief", role: "assistant", confidence: 0.8 },
+				{ id: 3, belief: "tool belief", role: "tool" },
+			],
+			relations: [{ from_id: 1, to_id: 2, type: "depends_on", note: "because" }],
+		});
+
+		expect(encoded).toBe(
+			"<｜begin▁of▁sentence｜><｜User｜>### Belief 1\n" +
+				"**Content:** user belief\n" +
+				"**Relations:**\n" +
+				"- direction=outgoing; to=2; type=depends_on; reason=because\n" +
+				"**Confidence:** 0.9" +
+				"<｜Assistant｜>### Belief 2\n" +
+				"**Content:** assistant belief\n" +
+				"**Relations:**\n" +
+				"- None\n" +
+				"**Confidence:** 0.8<｜end▁of▁sentence｜>" +
+				"<｜User｜>### Belief 3\n" +
+				"**Content:** tool belief\n" +
+				"**Relations:**\n" +
+				"- None\n" +
+				"**Confidence:** ",
+		);
+	});
+
+	it("records each relation only once on its source belief", () => {
+		const encoded = formatBcgDialogueContext({
+			beliefs: [
+				{ id: 1, belief: "source", role: "user" },
+				{ id: 2, belief: "target", role: "assistant" },
+			],
+			relations: [{ from_id: 1, to_id: 2, type: "supplements", note: "one edge" }],
+		});
+
+		expect(encoded.match(/type=supplements/g)).toHaveLength(1);
+		expect(encoded).toContain("direction=outgoing; to=2; type=supplements; reason=one edge");
+		expect(encoded).not.toContain("direction=incoming");
 	});
 
 	it("resolves BCG settings and supports -1 as an unbounded raw context", () => {

@@ -32,10 +32,10 @@ generate new relations
 
 ## Incremental merge controls
 
-For `api_based`:
+For `unified`:
 
 ```bash
-bcg construct run api_based \
+bcg construct run unified \
   --input trajectory.json \
   --incremental-merge \
   --incremental-merge-threshold 0.86 \
@@ -45,7 +45,7 @@ bcg construct run api_based \
 Disable candidate merging:
 
 ```bash
-bcg construct run api_based \
+bcg construct run unified \
   --input trajectory.json \
   --no-incremental-merge
 ```

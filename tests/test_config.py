@@ -27,7 +27,7 @@ def _write(tmp_path: Path, name: str, body: str) -> Path:
 def test_defaults_load_and_validate() -> None:
     settings, sources = load_settings(home=Path("/nonexistent-home"))
     assert settings.schema_version == 1
-    assert settings.backend in {"api_based", "light"}
+    assert settings.backend in {"unified", "hybrid"}
     assert settings.server.port == 8848
     assert settings.model_key == "gpt-5.5"
     assert settings.runner.incremental_merge_threshold == 0.86
@@ -38,9 +38,7 @@ def test_defaults_load_and_validate() -> None:
 
 
 def test_schema_rejects_unknown_fields(tmp_path: Path) -> None:
-    bad = _write(
-        tmp_path, "bad.yaml", "schema_version: 1\nbackend: api_based\nnope: 1\n"
-    )
+    bad = _write(tmp_path, "bad.yaml", "schema_version: 1\nbackend: unified\nnope: 1\n")
     with pytest.raises(Exception, match="nope"):
         load_settings(explicit=str(bad), home=Path("/nonexistent-home"))
 
@@ -61,6 +59,18 @@ def test_schema_rejects_type_and_range_errors(tmp_path: Path) -> None:
         load_settings(explicit=str(bad_runtime), home=Path("/nonexistent-home"))
 
 
+@pytest.mark.parametrize(
+    ("legacy_name", "current_name"),
+    [("api_based", "unified"), ("light", "hybrid")],
+)
+def test_persisted_backend_names_are_migrated(
+    tmp_path: Path, legacy_name: str, current_name: str
+) -> None:
+    config = _write(tmp_path, "legacy.yaml", f"backend: {legacy_name}\n")
+    settings, _ = load_settings(explicit=str(config), home=Path("/nonexistent-home"))
+    assert settings.backend == current_name
+
+
 def test_schema_version_mismatch_is_rejected(tmp_path: Path) -> None:
     bad = _write(tmp_path, "version.yaml", "schema_version: 999\n")
     with pytest.raises(Exception, match="schema_version"):
@@ -75,7 +85,7 @@ def test_schema_version_mismatch_is_rejected(tmp_path: Path) -> None:
 def test_precedence_explicit_beats_env_beats_project_beats_user(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _write(tmp_path, "user.yaml", "server:\n  port: 1111\nbackend: light\n")
+    _write(tmp_path, "user.yaml", "server:\n  port: 1111\nbackend: hybrid\n")
     project = _write(tmp_path, "project.yaml", "server:\n  port: 2222\n")
     env_cfg = _write(tmp_path, "env.yaml", "server:\n  port: 3333\n")
     explicit = _write(tmp_path, "explicit.yaml", "server:\n  port: 4444\n")
@@ -193,10 +203,10 @@ def test_missing_explicit_or_env_config_fails_fast(
 def test_generic_config_yaml_is_not_auto_discovered(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _write(tmp_path, "config.yaml", "backend: light\n")
+    _write(tmp_path, "config.yaml", "backend: hybrid\n")
     monkeypatch.chdir(tmp_path)
     settings, _ = load_settings(home=tmp_path / "missing-home")
-    assert settings.backend == "api_based"
+    assert settings.backend == "unified"
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +258,7 @@ def test_yaml_settings_are_consumed_by_both_backend_loaders(
             "    api_key_env: TEST_GRAPH_KEY\n"
             "    base_url: https://models.example/v1\n"
             "    model: graph-runtime\n"
+            "    reasoning_effort: none\n"
             "  vectors:\n"
             "    provider: local\n"
             "    model: /models/vectors\n"
@@ -258,16 +269,17 @@ def test_yaml_settings_are_consumed_by_both_backend_loaders(
     )
     monkeypatch.setenv("TEST_GRAPH_KEY", "secret-from-env")
 
-    from bcg.construct.api_based import llm as api_llm
-    from bcg.construct.light import llm as light_llm
+    from bcg.construct.hybrid import llm as hybrid_llm
+    from bcg.construct.unified import llm as unified_llm
 
-    for module in (api_llm, light_llm):
+    for module in (unified_llm, hybrid_llm):
         model = module.load_config(str(config), model_key="graph-model")
         embedding = module.load_embedding_config(str(config), embedding_key="vectors")
         pipeline = module.load_belief_graph_config(str(config))
 
         assert model["base_url"] == "https://models.example/v1"
         assert model["api_key"] == "secret-from-env"
+        assert model["reasoning_effort"] == "none"
         assert embedding["provider"] == "local"
         assert embedding["model"] == "/models/vectors"
         assert pipeline["runtime"]["context_chars"] == 4321
@@ -298,7 +310,7 @@ def test_project_yaml_drives_construct_cli_defaults(
     monkeypatch.chdir(tmp_path)
 
     from bcg.apps import run
-    from bcg.construct.api_based import pipeline as api_pipeline
+    from bcg.construct.unified import pipeline as unified_pipeline
 
     captured: dict[str, Any] = {}
 
@@ -306,8 +318,8 @@ def test_project_yaml_drives_construct_cli_defaults(
         captured.update(kwargs)
         captured["config_path"] = args[1]
 
-    monkeypatch.setattr(api_pipeline, "run_input", capture)
-    run._run_api_based(["--input", "input.json"])
+    monkeypatch.setattr(unified_pipeline, "run_input", capture)
+    run._run_unified(["--input", "input.json"])
 
     assert captured["config_path"] is None
     assert captured["model_key"] == "custom-model"

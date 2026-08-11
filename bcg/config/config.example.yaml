@@ -5,8 +5,8 @@
 # that exist in your .env file.
 schema_version: 1
 
-# Default construct backend: api_based | light
-backend: api_based
+# Default construct backend: unified | hybrid
+backend: unified
 model_key: graph-model
 embedding_key: embedding
 
@@ -20,6 +20,8 @@ models:
   graph-model:
     api_key_env: OPENAI_API_KEY
     base_url: https://api.openai.com/v1
+    # Optional. GPT-5.6-Luna defaults to none; other models default to medium.
+    # reasoning_effort: none
     max_tokens: 100000
     temperature: 1
     top_p: 0.95
@@ -35,8 +37,8 @@ models:
     trust_remote_code: true
     input_prefix: "Document: "
 
-# Graph construction pipeline settings (light backend consumes the full
-# section; api_based reads only confidence.relation_propagation).
+# Graph construction pipeline settings (hybrid backend consumes the full
+# section; unified reads only confidence.relation_propagation).
 pipeline:
   extractor:
     enabled: true

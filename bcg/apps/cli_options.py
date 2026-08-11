@@ -43,7 +43,7 @@ def _on_off(value: bool) -> str:
 def add_run_options(
     parser: argparse.ArgumentParser, settings: Any | None = None
 ) -> None:
-    """Add the shared api_based run knobs (evidence mode / merge / context)."""
+    """Add the shared unified run knobs (evidence mode / merge / context)."""
     defaults = _runner_defaults(settings)
 
     parser.add_argument(

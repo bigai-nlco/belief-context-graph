@@ -3,8 +3,8 @@
 Extracted verbatim from the two backends' former ``llm.py`` copies: token
 usage tracking, prompt/embedding audit logging, the OpenAI-compatible
 ``EmbeddingClient`` with its in-memory cache, and pairwise cosine similarity.
-Modules here must not import from ``bcg.construct.api_based`` or
-``bcg.construct.light``; backend-specific config loading and model calls stay
+Modules here must not import from ``bcg.construct.unified`` or
+``bcg.construct.hybrid``; backend-specific config loading and model calls stay
 in each backend's ``llm.py``.
 """
 

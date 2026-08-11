@@ -147,7 +147,7 @@ On the first launch, the setup guide asks for:
 3. Optional Serper web search credentials, required for BrowseComp and used by the `web_search` tool.
 4. The default context mode: **BCG** or **Default**.
 5. Whether BCG should manage a local Graph Construction server or connect to an existing one.
-6. For a managed server, the Graph backend: **api_based** or **light**.
+6. For a managed server, the Graph backend: **unified** or **hybrid**.
 
 The setup is saved under `~/.bcg` and works from every directory:
 
@@ -183,7 +183,7 @@ The terminal exposes the following commands:
 
 Context mode is fixed after the first user message. Use `/new` to start a session with another mode:
 
-- **BCG** permanently retains the initial user input and keeps the latest two completed turns as raw messages. On the first request, the system prompt and initial user input seed the Graph. Messages leaving the two-turn raw window are then added incrementally. The current Markdown Graph is wrapped in `<belief_graph format="markdown">...</belief_graph>` and appended to the system prompt. Traditional compaction is disabled.
+- **BCG** permanently retains the initial user input and keeps the latest two completed turns as raw messages. On the first request, the system prompt and initial user input seed the Graph. Messages leaving the two-turn raw window are then added incrementally. The current Graph is encoded with a dialogue context template (`<｜begin▁of▁sentence｜>`, `<｜User｜>`, and `<｜Assistant｜>` markers with Markdown belief payloads) and appended to the system prompt. Traditional compaction is disabled.
 - **Default** uses the full normal Agent conversation with automatic compaction. Graph context is not injected.
 
 Use `/mode` for the selector, or `/mode bcg` and `/mode default` directly. `BCG_RECENT_TURNS` can override the default raw window of `2`.
@@ -192,14 +192,14 @@ Use `/mode` for the selector, or `/mode bcg` and `/mode default` directly. `BCG_
 
 BCG supports two construction backends. In normal Agent use, you choose one during `bcg setup` and `bcg` starts or reuses the Graph Construction HTTP server automatically. The commands below are also provided for independent deployment and debugging.
 
-#### Option A: `api_based`
+#### Option A: `unified`
 
-`api_based` uses one OpenAI-compatible model for graph node and relation generation. During setup, it can reuse the Agent model endpoint and API key or use a separate endpoint:
+`unified` uses one OpenAI-compatible model for graph node and relation generation. During setup, it can reuse the Agent model endpoint and API key or use a separate endpoint:
 
 ```bash
 bcg setup
 # Graph server: Start and manage a local Graph server automatically
-# Graph backend: API based
+# Graph backend: Unified
 
 bcg
 ```
@@ -209,7 +209,7 @@ No vLLM process is required when the configured API endpoint is already availabl
 The equivalent manual Graph server command is:
 
 ```bash
-bcg construct server api_based \
+bcg construct server unified \
   --config ~/.bcg/config.yaml \
   --model-key graph-model \
   --embedding-key embedding \
@@ -220,9 +220,9 @@ bcg construct server api_based \
 
 If that server is already healthy, a later `bcg` invocation reuses it.
 
-#### Option B: `light`
+#### Option B: `hybrid`
 
-`light` uses:
+`hybrid` uses:
 
 - a small generative model served through an OpenAI-compatible vLLM endpoint;
 - a local sentence-transformers embedding model;
@@ -253,7 +253,7 @@ Then configure BCG with:
 
 ```text
 Graph server: Start and manage a local Graph server automatically
-Graph backend: Light
+Graph backend: Hybrid
 vLLM base URL: http://127.0.0.1:8001/v1
 Model served by vLLM: <MODEL_NAME>
 vLLM API key: EMPTY
@@ -265,10 +265,10 @@ vLLM API key: EMPTY
 bcg
 ```
 
-BCG starts the light Graph Construction server at `127.0.0.1:8848`; it does not start the vLLM process. To start Graph Construction manually instead:
+BCG starts the hybrid Graph Construction server at `127.0.0.1:8848`; it does not start the vLLM process. To start Graph Construction manually instead:
 
 ```bash
-bcg construct server light \
+bcg construct server hybrid \
   --config ~/.bcg/config.yaml \
   --model-key graph-model \
   --embedding-key embedding \
@@ -288,12 +288,12 @@ If Graph Construction is already hosted elsewhere, run `bcg setup`, choose **Con
 The same two backends can process saved trajectories:
 
 ```bash
-bcg construct run api_based \
+bcg construct run unified \
   --input data.json \
   --config ~/.bcg/config.yaml \
   --model-key graph-model
 
-bcg construct replay light \
+bcg construct replay hybrid \
   --input stream.jsonl \
   --config ~/.bcg/config.yaml \
   --model-key graph-model
@@ -311,7 +311,7 @@ The Python SDK exposes the graph data model, memory operations, construction lif
 |---|---|
 | `BCG` | The in-memory Belief Context Graph. It stores typed belief nodes, relation edges, evidence, merge history, sessions, and graph metadata. Use it to inspect, serialize, or modify a graph directly. |
 | `BCGMemory` | The application-facing memory wrapper around a `BCG` graph. It supports manual belief insertion with `observe()`, substring lookup with `believe()`/`search()`, and task-context assembly with `context()`. Manual `observe()` treats the supplied content as one asserted belief; it does not call an LLM. |
-| `BCGRunner` | The graph-construction orchestrator. It sends complete trajectories or individual turns through the `api_based` or `light` construction backend, synchronizes the resulting graph into `BCGMemory`, tracks sessions, and writes run artifacts. |
+| `BCGRunner` | The graph-construction orchestrator. It sends complete trajectories or individual turns through the `unified` or `hybrid` construction backend, synchronizes the resulting graph into `BCGMemory`, tracks sessions, and writes run artifacts. |
 | `LLMClient` | The asynchronous OpenAI-compatible model client used by `BCGRunner`. It reads `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` from the environment or BCG configuration, and records model token usage. |
 
 `BCG`, `BCGMemory`, and `BCGRunner` are exported directly from `bcg`. `LLMClient` and its explicit `LLMConfig` are available from `bcg.llm`.
@@ -364,7 +364,7 @@ async def main() -> None:
     runner = BCGRunner(
         memory=memory,
         llm=LLMClient(),
-        backend="api_based",  # use "light" for the light construction backend
+        backend="unified",  # use "hybrid" for the hybrid construction backend
     )
 
     result = await runner.observe_trajectory(
@@ -456,11 +456,11 @@ Turn input ──▶ Split / chunk ──▶ Extract nodes + initialize confiden
 
 | Stage | Actual implementation | Description |
 |---|---|---|
-| **Segmentation** | `bcg.construct.api_based.split.split_sentences` / `bcg.construct.light.split.semantic_chunks_isolating_tool_calls` | Splits a turn into sentence evidence (`api_based`) or optional semantic chunks with isolated tool calls (`light`) |
-| **Extraction** | `bcg.construct.api_based.extract.extract_nodes` / `bcg.construct.light.extractor.QwenChunkExtractor.extract_turn` | Extracts belief and decision nodes from the current turn |
-| **Confidence** | `bcg.construct.api_based.confidence.init_belief_confidence` / `bcg.construct.light.confidence.init_belief_confidence` | Initializes `initial_confidence` from source role and stance; later merged evidence updates `evidence_confidence`, and active relations update `factor_confidence` |
-| **Merge** | `bcg.construct.api_based.merge.run_merge_pass` / `bcg.construct.light.merge.run_merge_pass` | Deduplicates belief nodes before relation generation and rewires existing relation endpoints |
-| **Linking** | `bcg.construct.api_based.extract.extract_relations` / `bcg.construct.light.edge_generation.QwenEdgeGenerator.generate_window` | Generates, validates, and adds typed relations between surviving nodes; confidence-carrying edges include `weight` and `activated_condition`, while `supplements` keeps both fields as `null` |
+| **Segmentation** | `bcg.construct.unified.split.split_sentences` / `bcg.construct.hybrid.split.semantic_chunks_isolating_tool_calls` | Splits a turn into sentence evidence (`unified`) or optional semantic chunks with isolated tool calls (`hybrid`) |
+| **Extraction** | `bcg.construct.unified.extract.extract_nodes` / `bcg.construct.hybrid.extractor.QwenChunkExtractor.extract_turn` | Extracts belief and decision nodes from the current turn |
+| **Confidence** | `bcg.construct.unified.confidence.init_belief_confidence` / `bcg.construct.hybrid.confidence.init_belief_confidence` | Initializes `initial_confidence` from source role and stance; later merged evidence updates `evidence_confidence`, and active relations update `factor_confidence` |
+| **Merge** | `bcg.construct.unified.merge.run_merge_pass` / `bcg.construct.hybrid.merge.run_merge_pass` | Deduplicates belief nodes before relation generation and rewires existing relation endpoints |
+| **Linking** | `bcg.construct.unified.extract.extract_relations` / `bcg.construct.hybrid.edge_generation.QwenEdgeGenerator.generate_window` | Generates, validates, and adds typed relations between surviving nodes; confidence-carrying edges include `weight` and `activated_condition`, while `supplements` keeps both fields as `null` |
 
 `BCGRunner` is the public orchestration layer. It delegates each run to the selected backend's `StreamingTrajectorySession`, whose `StreamingBeliefBuilder` executes the stages above. `BCGMemory` is the user-facing memory facade for manually observing already-formed beliefs and reading or searching the resulting graph; it does not implement the construction stages itself. Context budgets, merge strategy, run IDs, and output paths are configured explicitly through `BCGRunner` and backend options.
 
@@ -605,7 +605,7 @@ The following experiments compare the built-in Agent's normal context management
 
 - **Agent model:** GPT-5.6-luna with no thinking.
 - **Sampling:** BrowseComp was deterministically shuffled with seed 42 and truncated to 100 of 1,266 questions. MMLU-Pro and HotPotQA were deterministically shuffled and truncated to 500 questions. The base seed was 42; because they were passed as `mmlu_pro hotpotqa` in one invocation, their effective seeds were 42 and 43 respectively (`seed + benchmark index`). GAIA uses all 100 text-only questions in the 2023 validation split after applying `--gaia-text-only`, so no post-filter subsampling was required.
-- **BCG setup:** Light Graph Construction backend using `Qwen3.5-4B` (thinking disabled), `all-MiniLM-L6-v2` embeddings, and `deberta-v3-large-zeroshot-v2.0` stance classification.
+- **BCG setup:** Hybrid Graph Construction backend using `Qwen3.5-4B` (thinking disabled), `all-MiniLM-L6-v2` embeddings, and `deberta-v3-large-zeroshot-v2.0` stance classification.
 
 <table>
   <thead>

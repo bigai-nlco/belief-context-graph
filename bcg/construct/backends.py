@@ -72,8 +72,8 @@ class SessionBackendAdapter:
 
 
 _BACKEND_MODULES = {
-    "api_based": "bcg.construct.api_based.adapter",
-    "light": "bcg.construct.light.adapter",
+    "unified": "bcg.construct.unified.adapter",
+    "hybrid": "bcg.construct.hybrid.adapter",
 }
 _BACKENDS: dict[str, ConstructBackend] = {}
 

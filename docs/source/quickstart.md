@@ -4,7 +4,7 @@ description: "Build and inspect a belief graph in a few minutes."
 icon: "rocket"
 ---
 
-This quick start uses the `api_based` backend through the Python SDK.
+This quick start uses the `unified` backend through the Python SDK.
 
 ## 1. Configure the model endpoint
 
@@ -28,7 +28,7 @@ async def main():
     runner = BCGRunner(
         memory=memory,
         llm=LLMClient(),
-        backend="api_based",
+        backend="unified",
     )
 
     result = await runner.observe_trajectory(
@@ -90,5 +90,5 @@ bcg construct visualize \
 <Card title="Understand confidence" icon="gauge-high" href="/concepts/confidence" />
 <Card title="Stream turns over HTTP" icon="server" href="/guides/streaming-server" />
 <Card title="Use explicit sessions" icon="clock" href="/guides/python-sdk#stream-turns-explicitly" />
-<Card title="Choose the light backend" icon="feather" href="/backends/light" />
+<Card title="Choose the hybrid backend" icon="feather" href="/backends/hybrid" />
 </CardGroup>

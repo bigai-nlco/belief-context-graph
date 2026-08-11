@@ -28,20 +28,20 @@ bcg construct visualize <input> [--output path]
 
 Backends:
 
-- `api_based`
-- `light`
+- `unified`
+- `hybrid`
 
-When omitted from batch, server, or replay and the first remaining token is an option, the backend defaults to `api_based`.
+When omitted from batch, server, or replay and the first remaining token is an option, the backend defaults to `unified`.
 
 ## Discover exact flags
 
 ```bash
 bcg --help
 bcg construct --help
-bcg construct run api_based --help
-bcg construct run light --help
-bcg construct server api_based --help
-bcg construct replay api_based --help
+bcg construct run unified --help
+bcg construct run hybrid --help
+bcg construct server unified --help
+bcg construct replay unified --help
 bcg benchmark run --help
 ```
 

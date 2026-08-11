@@ -30,7 +30,7 @@ async def build() -> None:
     runner = BCGRunner(
         memory=memory,
         llm=LLMClient(),
-        backend="api_based",
+        backend="unified",
         output_root=".bcg/runs",
     )
 
@@ -60,7 +60,7 @@ asyncio.run(build())
 ```python
 runner.begin_belief_run(
     run_id="long-running-investigation",
-    backend="api_based",
+    backend="unified",
     evidence_mode="sentence",
     incremental_merge=True,
     incremental_merge_threshold=0.84,

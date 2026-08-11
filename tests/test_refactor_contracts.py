@@ -15,13 +15,13 @@ import pytest
 
 import bcg
 from bcg.apps import online_driver, online_server, run
-from bcg.construct.api_based import online as api_online
-from bcg.construct.api_based import pipeline as api_pipeline
-from bcg.construct.api_based.stream import StreamOptions as ApiStreamOptions
 from bcg.construct.dispatch import DEFAULT_BACKEND
-from bcg.construct.light import online as light_online
-from bcg.construct.light import pipeline as light_pipeline
-from bcg.construct.light.stream import StreamOptions as LightStreamOptions
+from bcg.construct.hybrid import online as hybrid_online
+from bcg.construct.hybrid import pipeline as hybrid_pipeline
+from bcg.construct.hybrid.stream import StreamOptions as HybridStreamOptions
+from bcg.construct.unified import online as unified_online
+from bcg.construct.unified import pipeline as unified_pipeline
+from bcg.construct.unified.stream import StreamOptions as UnifiedStreamOptions
 from bcg.core.runner import BCGRunner
 
 FIXTURES = Path(__file__).parent / "fixtures" / "refactor"
@@ -44,28 +44,28 @@ def _capture_current_defaults(
         return parsed
 
     monkeypatch.setattr(argparse.ArgumentParser, "parse_args", capture_parse_args)
-    monkeypatch.setattr(api_pipeline, "run_input", lambda *args, **kwargs: None)
-    monkeypatch.setattr(light_pipeline, "run_input", lambda *args, **kwargs: None)
-    monkeypatch.setattr(api_online, "SessionManager", lambda **kwargs: object())
-    monkeypatch.setattr(light_online, "SessionManager", lambda **kwargs: object())
+    monkeypatch.setattr(unified_pipeline, "run_input", lambda *args, **kwargs: None)
+    monkeypatch.setattr(hybrid_pipeline, "run_input", lambda *args, **kwargs: None)
+    monkeypatch.setattr(unified_online, "SessionManager", lambda **kwargs: object())
+    monkeypatch.setattr(hybrid_online, "SessionManager", lambda **kwargs: object())
     monkeypatch.setattr(online_server, "_serve_forever", lambda *args, **kwargs: None)
     monkeypatch.setattr(online_driver, "_run_stream", lambda *args, **kwargs: None)
 
-    run._run_api_based(["--input", "input.json"])
-    run._run_light(["--input", "input.json"])
-    online_server._run_api_based([])
-    online_server._run_light([])
-    online_driver._run_api_based([])
-    online_driver._run_light([])
+    run._run_unified(["--input", "input.json"])
+    run._run_hybrid(["--input", "input.json"])
+    online_server._run_unified([])
+    online_server._run_hybrid([])
+    online_driver._run_unified([])
+    online_driver._run_hybrid([])
     capsys.readouterr()
 
     entrypoint_names = (
-        "run_api_based",
-        "run_light",
-        "server_api_based",
-        "server_light",
-        "replay_api_based",
-        "replay_light",
+        "run_unified",
+        "run_hybrid",
+        "server_unified",
+        "server_hybrid",
+        "replay_unified",
+        "replay_hybrid",
     )
     defaults = dict(zip(entrypoint_names, captured, strict=True))
 
@@ -88,9 +88,9 @@ def _capture_current_defaults(
         },
     }
 
-    api_options = ApiStreamOptions()
-    defaults["api_stream_options"] = {
-        name: getattr(api_options, name)
+    unified_options = UnifiedStreamOptions()
+    defaults["unified_stream_options"] = {
+        name: getattr(unified_options, name)
         for name in (
             "evidence_mode",
             "incremental_merge",
@@ -101,9 +101,9 @@ def _capture_current_defaults(
         )
     }
 
-    light_options = LightStreamOptions()
-    defaults["light_stream_options"] = {
-        name: getattr(light_options, name)
+    hybrid_options = HybridStreamOptions()
+    defaults["hybrid_stream_options"] = {
+        name: getattr(hybrid_options, name)
         for name in (
             "evidence_mode",
             "incremental_merge",
@@ -119,7 +119,9 @@ def _capture_current_defaults(
 def test_current_entrypoint_defaults_match_step0_contract(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
 ) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
     expected = json.loads(
         (FIXTURES / "entrypoint_defaults.json").read_text(encoding="utf-8")
     )
@@ -148,8 +150,8 @@ def test_import_bcg_does_not_load_apps_or_concrete_backends() -> None:
             (
                 "import bcg, sys; "
                 "print(any(m.startswith('bcg.apps') for m in sys.modules)); "
-                "print(any(m.startswith('bcg.construct.api_based') for m in sys.modules)); "
-                "print(any(m.startswith('bcg.construct.light') for m in sys.modules))"
+                "print(any(m.startswith('bcg.construct.unified') for m in sys.modules)); "
+                "print(any(m.startswith('bcg.construct.hybrid') for m in sys.modules))"
             ),
         ],
         cwd=project_root,
@@ -189,9 +191,9 @@ def test_public_module_paths_remain_importable(
 @pytest.mark.parametrize(
     ("module_name", "arguments", "expected_option"),
     [
-        ("bcg.apps.run", ["api_based", "--help"], "--incremental-merge-threshold"),
-        ("bcg.apps.online_server", ["api_based", "--help"], "--port"),
-        ("bcg.apps.online_driver", ["api_based", "--help"], "--input"),
+        ("bcg.apps.run", ["unified", "--help"], "--incremental-merge-threshold"),
+        ("bcg.apps.online_server", ["unified", "--help"], "--port"),
+        ("bcg.apps.online_driver", ["unified", "--help"], "--input"),
         ("bcg.apps.visualize_beliefs_graph", ["--help"], "--output"),
     ],
 )
@@ -314,7 +316,7 @@ def test_apps_do_not_mutate_sys_path() -> None:
 
 def test_cli_help_describes_effective_boolean_defaults(capsys: Any) -> None:
     with pytest.raises(SystemExit):
-        run._run_api_based(["--help"])
+        run._run_unified(["--help"])
 
     output = capsys.readouterr().out
     assert "Default: ON." in output
@@ -358,15 +360,15 @@ def test_step1_dependency_direction_has_no_concrete_backend_imports() -> None:
         project_root / "bcg" / "construct" / "backends.py"
     )
     pipeline_imports = _imported_modules(
-        project_root / "bcg" / "construct" / "api_based" / "pipeline.py"
+        project_root / "bcg" / "construct" / "unified" / "pipeline.py"
     )
     core_imports: set[str] = set()
     for module_path in (project_root / "bcg" / "core").glob("*.py"):
         core_imports.update(_imported_modules(module_path))
 
     concrete_prefixes = (
-        "bcg.construct.api_based",
-        "bcg.construct.light",
+        "bcg.construct.unified",
+        "bcg.construct.hybrid",
     )
     assert not any(module.startswith(concrete_prefixes) for module in runner_imports)
     assert not any(module.startswith(concrete_prefixes) for module in registry_imports)
@@ -378,7 +380,7 @@ def test_step1_dependency_direction_has_no_concrete_backend_imports() -> None:
 
 
 def test_step1_legacy_dtos_are_core_contracts() -> None:
-    from bcg.construct.api_based.pipeline import (
+    from bcg.construct.unified.pipeline import (
         BeliefGraphOptions,
         BeliefGraphRunPaths,
         BeliefGraphRunResult,
@@ -394,8 +396,8 @@ def test_step1_registry_backends_implement_protocol() -> None:
     from bcg.construct.backends import resolve_backend
     from bcg.core.contracts import ConstructBackend
 
-    assert isinstance(resolve_backend("api_based"), ConstructBackend)
-    assert isinstance(resolve_backend("light"), ConstructBackend)
+    assert isinstance(resolve_backend("unified"), ConstructBackend)
+    assert isinstance(resolve_backend("hybrid"), ConstructBackend)
 
 
 # ---------------------------------------------------------------------------
@@ -407,11 +409,13 @@ def test_step3_backends_share_one_session_class() -> None:
     from bcg.construct._shared.session import (
         StreamingTrajectorySession as SharedSession,
     )
-    from bcg.construct.api_based.online import StreamingTrajectorySession as ApiSession
-    from bcg.construct.light.online import StreamingTrajectorySession as LightSession
+    from bcg.construct.hybrid.online import StreamingTrajectorySession as HybridSession
+    from bcg.construct.unified.online import (
+        StreamingTrajectorySession as UnifiedSession,
+    )
 
-    assert ApiSession is SharedSession
-    assert LightSession is SharedSession
+    assert UnifiedSession is SharedSession
+    assert HybridSession is SharedSession
 
 
 def test_step3_resolve_dated_output_root_keeps_plain_paths(tmp_path: Path) -> None:

@@ -628,6 +628,7 @@ def run_merge_pass(
     incremental_new_ids: set[int] | None = None,
     exclude_node_ids: set[int] | None = None,
     max_verify_workers: int = 8,
+    reasoning_effort: str | None = None,
 ) -> dict[str, Any]:
     """Run one merge pass over the active graph. Returns a report dict.
 
@@ -806,6 +807,7 @@ def run_merge_pass(
                             prompt,
                             temperature=0.0,
                             max_tokens=max_tokens,
+                            reasoning_effort=reasoning_effort,
                         )
                         return g_ids, raw, None
                     except Exception as e:
@@ -873,7 +875,12 @@ def run_merge_pass(
         _t_verify = time.perf_counter()
         try:
             raw = llm.call_model(
-                client, model, prompt, temperature=0.0, max_tokens=max_tokens
+                client,
+                model,
+                prompt,
+                temperature=0.0,
+                max_tokens=max_tokens,
+                reasoning_effort=reasoning_effort,
             )
             confirmed = _parse_merge_groups(raw, allowed_ids, used_ids, by_id)
             log["llm_full"] = {"raw_output": raw, "accepted_groups": confirmed}

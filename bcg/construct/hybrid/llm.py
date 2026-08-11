@@ -165,7 +165,7 @@ def resolve_config_api_key(
     default_env: str,
     config_path: str,
 ) -> None:
-    """Resolve a light-backend runtime credential from the root ``.env``."""
+    """Resolve a hybrid-backend runtime credential from the root ``.env``."""
 
     resolve_project_api_key(
         cfg,

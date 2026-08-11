@@ -31,6 +31,19 @@ DEFAULTS_PATH = Path(__file__).parent / "defaults.yaml"
 # Deliberately avoid the generic ``config.yaml`` name: repositories commonly
 # use it for unrelated tools, and silently consuming one is unsafe.
 PROJECT_CONFIG_NAMES = ("bcg.yaml",)
+_LEGACY_BACKEND_NAMES = {"api_based": "unified", "light": "hybrid"}
+
+
+def _normalize_backend_name(config: dict[str, Any]) -> dict[str, Any]:
+    """Translate persisted pre-rename backend values without exposing CLI aliases."""
+
+    backend = config.get("backend")
+    replacement = _LEGACY_BACKEND_NAMES.get(backend)
+    if replacement is None:
+        return config
+    normalized = dict(config)
+    normalized["backend"] = replacement
+    return normalized
 
 
 def _load_yaml_file(path: Path) -> dict[str, Any]:
@@ -162,7 +175,7 @@ def load_settings(
             source="cli",
             sources=sources,
         )
-    return BCGSettings.model_validate(merged), sources
+    return BCGSettings.model_validate(_normalize_backend_name(merged)), sources
 
 
 __all__ = [

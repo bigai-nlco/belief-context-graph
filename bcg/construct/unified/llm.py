@@ -231,6 +231,39 @@ def _normalize_temperature_for_model(
     return temperature
 
 
+REASONING_EFFORTS = {
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+}
+
+
+def resolve_reasoning_effort(
+    model: str,
+    configured: str | None = None,
+) -> str:
+    """Resolve the unified construction model's reasoning effort.
+
+    Explicit configuration always wins.  GPT-5.6-Luna defaults to ``none``
+    because graph extraction/linking is structured JSON work where hidden
+    reasoning adds latency and cost without improving the wire contract.
+    Other models retain the unified backend's historical ``medium`` default.
+    """
+    if configured is None or not str(configured).strip():
+        return "none" if "gpt-5.6-luna" in str(model).casefold() else "medium"
+    value = str(configured).strip().casefold()
+    if value not in REASONING_EFFORTS:
+        choices = ", ".join(sorted(REASONING_EFFORTS))
+        raise ValueError(
+            f"Unsupported reasoning_effort {configured!r}; choose one of: {choices}"
+        )
+    return value
+
+
 def call_model(
     client: OpenAI,
     model: str,
@@ -240,6 +273,7 @@ def call_model(
     retries: int = 3,
     backoff: float = 2.0,
     usage_label: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> str:
     """Call chat completions and return the response text. Retries on errors.
 
@@ -248,10 +282,11 @@ def call_model(
     config file says.
     """
     temperature = _normalize_temperature_for_model(model, temperature)
+    effective_reasoning_effort = resolve_reasoning_effort(model, reasoning_effort)
     kwargs: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
-        "reasoning_effort": "medium",
+        "reasoning_effort": effective_reasoning_effort,
     }
     if temperature is not None:
         kwargs["temperature"] = temperature
@@ -270,6 +305,7 @@ def call_model(
                 "model": model,
                 "label": usage_label,
                 "max_tokens": max_tokens,
+                "reasoning_effort": effective_reasoning_effort,
                 "prompt_len": len(prompt) if prompt is not None else 0,
                 "prompt": prompt,
             }

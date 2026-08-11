@@ -18,7 +18,7 @@ The setup guide asks for:
 2. Agent model
 3. Default context mode: `BCG` or `Default`
 4. Managed local graph server or an existing server
-5. `api_based` or `light` when BCG manages the server
+5. `unified` or `hybrid` when BCG manages the server
 
 Configuration is stored under `~/.bcg`:
 
@@ -50,16 +50,20 @@ BCG mode:
 - permanently retains the initial user input
 - keeps the latest two completed turns as raw messages by default
 - sends messages leaving that window to graph construction
-- injects the current Markdown graph into the system prompt
+- injects the current graph into the system prompt using a role-marked dialogue context template
 - disables traditional conversation compaction
 
-The graph is wrapped in:
+The graph is encoded as dialogue-like context:
 
-```xml
-<belief_graph format="markdown">
-...
-</belief_graph>
+```text
+<｜begin▁of▁sentence｜><｜User｜>### Belief 1
+**Content:** The user is looking for a specific person.
+**Relations:**
+- None
+**Confidence:** 0.9
 ```
+
+The guide explains that earlier turns were omitted from raw context, confidence indicates how much to trust each belief, and repeated searches should be avoided. The graph is appended directly to the system prompt without `<belief_graph>` wrapper tags.
 
 </Tab>
 

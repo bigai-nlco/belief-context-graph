@@ -1,5 +1,5 @@
 {
-  "engine": "bcg.construct.light",
+  "engine": "bcg.construct.hybrid",
   "counts": {
     "backward_relations": 0,
     "beliefs": 1,

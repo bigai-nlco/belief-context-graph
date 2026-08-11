@@ -12,24 +12,32 @@ import pytest
 
 from bcg import BCG, BCGMemory, BCGRunner
 from bcg.construct._shared.llm import TokenUsageTracker, _coerce_usage
-from bcg.construct.api_based import BeliefGraphPipeline
-from bcg.construct.api_based.confidence import (
-    init_belief_confidence,
-    initial_confidence,
-)
-from bcg.construct.api_based.evidence import evidence_from_excerpt, locate_excerpt
-from bcg.construct.api_based.graph import BeliefGraph
-from bcg.construct.api_based.online import SessionManager as ApiSessionManager
-from bcg.construct.light.extractor import ExtractedNode, QwenChunkExtractor
-from bcg.construct.light.llm import (
+from bcg.construct.hybrid.extractor import ExtractedNode, QwenChunkExtractor
+from bcg.construct.hybrid.llm import (
     call_model,
     parse_json_response,
     temperature_request_value,
     thinking_request_options,
 )
-from bcg.construct.light.online import SessionManager as LightSessionManager
-from bcg.construct.light.split import semantic_breakpoint_chunks, split_sentences
-from bcg.construct.light.stance import StancePrediction
+from bcg.construct.hybrid.online import SessionManager as HybridSessionManager
+from bcg.construct.hybrid.split import semantic_breakpoint_chunks, split_sentences
+from bcg.construct.hybrid.stance import StancePrediction
+from bcg.construct.unified import BeliefGraphPipeline
+from bcg.construct.unified.confidence import (
+    init_belief_confidence,
+    initial_confidence,
+)
+from bcg.construct.unified.evidence import evidence_from_excerpt, locate_excerpt
+from bcg.construct.unified.graph import BeliefGraph
+from bcg.construct.unified.llm import call_model as call_api_model
+from bcg.construct.unified.online import SessionManager as UnifiedSessionManager
+from bcg.construct.unified.prompts import build_node_extraction_prompt
+from bcg.construct.unified.stream import (
+    StreamingBeliefBuilder as UnifiedStreamingBeliefBuilder,
+)
+from bcg.construct.unified.stream import (
+    StreamOptions as UnifiedStreamOptions,
+)
 from bcg.core.graph import (
     BCGEdge,
     BCGNode,
@@ -77,7 +85,7 @@ def test_graph_usage_tracks_reasoning_and_excludes_embeddings_from_llm_totals() 
     }
 
 
-@pytest.mark.parametrize("manager_type", [LightSessionManager, ApiSessionManager])
+@pytest.mark.parametrize("manager_type", [HybridSessionManager, UnifiedSessionManager])
 def test_online_manager_releases_session_memory(manager_type: type[Any]) -> None:
     manager = object.__new__(manager_type)
     manager._sessions = {"problem": object()}
@@ -94,7 +102,7 @@ def test_online_manager_releases_session_memory(manager_type: type[Any]) -> None
     assert manager._sessions == {}
 
 
-def test_light_parser_accepts_one_json_object_with_trailing_brace() -> None:
+def test_hybrid_parser_accepts_one_json_object_with_trailing_brace() -> None:
     response = '{"beliefs": ["A"], "decisions": []}\n}'
 
     assert parse_json_response(response) == {
@@ -103,7 +111,7 @@ def test_light_parser_accepts_one_json_object_with_trailing_brace() -> None:
     }
 
 
-def test_light_call_model_forwards_json_response_format() -> None:
+def test_hybrid_call_model_forwards_json_response_format() -> None:
     captured: dict[str, Any] = {}
 
     class Completions:
@@ -130,7 +138,7 @@ def test_light_call_model_forwards_json_response_format() -> None:
     assert captured["response_format"] == {"type": "json_object"}
 
 
-def test_light_non_thinking_controls_are_provider_safe() -> None:
+def test_hybrid_non_thinking_controls_are_provider_safe() -> None:
     assert thinking_request_options("gpt-5.6-luna", enabled=False) == (
         "none",
         None,
@@ -147,7 +155,140 @@ def test_light_non_thinking_controls_are_provider_safe() -> None:
     assert temperature_request_value("Qwen3.5-4B", 0) == 0
 
 
-def test_light_call_model_reduces_output_budget_after_context_overflow(
+@pytest.mark.parametrize(
+    ("model", "configured", "expected"),
+    [
+        ("gpt-5.6-luna", None, "none"),
+        ("gpt-5.6-luna", "low", "low"),
+        ("gpt-5.5", None, "medium"),
+    ],
+)
+def test_unified_reasoning_effort_is_model_aware_and_configurable(
+    model: str,
+    configured: str | None,
+    expected: str,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class Completions:
+        def create(self, **kwargs: Any) -> Any:
+            captured.update(kwargs)
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(message=SimpleNamespace(content='{"beliefs": []}'))
+                ],
+                usage=None,
+            )
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    call_api_model(
+        client,
+        model,
+        "Return JSON.",
+        retries=1,
+        reasoning_effort=configured,
+    )
+
+    assert captured["reasoning_effort"] == expected
+
+
+def test_unified_event_time_is_assigned_by_graph_builder(tmp_path: Path) -> None:
+    prompt = build_node_extraction_prompt(
+        "user",
+        mode="sentences",
+        sentences_block="[0] The event happened yesterday.",
+        current_date="2026-08-11",
+    )
+    assert prompt is not None
+    assert '"event_time"' not in prompt
+    assert '"time_text"' not in prompt
+    assert "The current turn is dated" not in prompt
+
+    builder = UnifiedStreamingBeliefBuilder(
+        client=object(),
+        model="gpt-5.6-luna",
+        item_id="code-owned-event-time",
+        out_dir=tmp_path,
+    )
+    node = builder._make_node(
+        {
+            "node_type": "belief",
+            "belief": "The event happened yesterday.",
+            "stance": "asserted",
+            "entities": [],
+            # Model-provided temporal metadata must never win.
+            "event_time": "1900-01-01T00:00:00Z",
+            "time_text": "yesterday",
+        },
+        {"turn_id": 0, "item_id": "code-owned-event-time"},
+        [],
+        "user",
+    )
+
+    assert node["event_time"] != "1900-01-01T00:00:00Z"
+    assert node["event_time"].endswith("+00:00")
+    assert "time_text" not in node
+
+
+def test_unified_relation_search_stops_after_four_non_empty_windows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    relation_calls: list[str] = []
+
+    def fake_extract_nodes(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args
+        content = str(kwargs["content"])
+        return {
+            "nodes": [
+                {
+                    "tmp_id": "n0",
+                    "node_type": "belief",
+                    "belief": content,
+                    "stance": "asserted",
+                    "entities": [],
+                    "event_time": None,
+                    "time_text": None,
+                    "supporting_sentence_indices": [0],
+                }
+            ],
+            "raw_output": "{}",
+            "skipped": False,
+        }
+
+    def fake_extract_relations(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args
+        relation_calls.append(str(kwargs["graph_nodes_str"]))
+        return {"relations": [], "raw_output": "{}", "skipped": False}
+
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_nodes", fake_extract_nodes
+    )
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_relations", fake_extract_relations
+    )
+    builder = UnifiedStreamingBeliefBuilder(
+        client=object(),
+        model="gpt-5.6-luna",
+        item_id="bounded-history",
+        out_dir=tmp_path,
+        options=UnifiedStreamOptions(
+            incremental_merge=False,
+            max_previous_windows=4,
+        ),
+    )
+
+    for index in range(5):
+        builder.ingest_turn("user", f"Historical statement {index}.")
+    relation_calls.clear()
+    event = builder.ingest_turn("user", "Current statement.")
+
+    assert len(relation_calls) == 4
+    assert len(event["edge_attempts"]) == 4
+    assert event["edge_window_limit_reached"] is True
+
+
+def test_hybrid_call_model_reduces_output_budget_after_context_overflow(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     max_token_calls: list[int] = []
@@ -169,7 +310,7 @@ def test_light_call_model_reduces_output_budget_after_context_overflow(
                 usage=None,
             )
 
-    monkeypatch.setattr("bcg.construct.light.llm.time.sleep", lambda _: None)
+    monkeypatch.setattr("bcg.construct.hybrid.llm.time.sleep", lambda _: None)
     client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
 
     response = call_model(
@@ -185,7 +326,7 @@ def test_light_call_model_reduces_output_budget_after_context_overflow(
     assert max_token_calls == [2048, 1024]
 
 
-def test_light_extractor_retries_overflow_without_historical_nodes(
+def test_hybrid_extractor_retries_overflow_without_historical_nodes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     prompts: list[str] = []
@@ -206,7 +347,7 @@ def test_light_extractor_retries_overflow_without_historical_nodes(
             )
         return '{"beliefs": [{"belief": "The tool reports a current fact."}]}'
 
-    monkeypatch.setattr("bcg.construct.light.extractor.call_model", fake_call_model)
+    monkeypatch.setattr("bcg.construct.hybrid.extractor.call_model", fake_call_model)
     extractor = QwenChunkExtractor(
         {
             "enabled": True,
@@ -347,7 +488,7 @@ def fake_construct_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
             }
         )
 
-    monkeypatch.setattr("bcg.construct.api_based.llm.call_model", fake_call_model)
+    monkeypatch.setattr("bcg.construct.unified.llm.call_model", fake_call_model)
     return prompts
 
 
@@ -520,7 +661,7 @@ def test_pipeline_writes_sdk_and_native_outputs(
     assert result.output_paths.final_graph.exists()
     assert result.output_paths.graph_stream.exists()
     assert result.output_paths.segments.parent.name == "artifacts"
-    assert result.memory["engine"] == "bcg.construct.api_based"
+    assert result.memory["engine"] == "bcg.construct.unified"
 
 
 def test_memory_manual_observe_uses_construct_confidence() -> None:
@@ -550,7 +691,7 @@ def test_runner_incremental_session_methods(
     assert fake_construct_calls
     assert result.counts["sessions"] == 1
     assert result.memory["trajectory"][0]["session_id"] == "chat-1"
-    assert result.graph.metadata["engine"] == "bcg.construct.api_based"
+    assert result.graph.metadata["engine"] == "bcg.construct.unified"
 
 
 def test_async_public_llm_adapter_forwards_model_and_usage() -> None:
@@ -567,8 +708,8 @@ def test_async_public_llm_adapter_forwards_model_and_usage() -> None:
     assert llm.models == ["custom-model"]
 
 
-def light_belief_graph_config() -> dict[str, Any]:
-    """Minimal-but-complete belief_graph section for the light backend.
+def hybrid_belief_graph_config() -> dict[str, Any]:
+    """Minimal-but-complete belief_graph section for the hybrid backend.
 
     Chunking / incremental_merge / edge_generation are all turned off so the
     test doesn't need a real embedder or a real Qwen edge-generator endpoint;
@@ -668,7 +809,7 @@ def light_belief_graph_config() -> dict[str, Any]:
     }
 
 
-class FakeLightExtractor:
+class FakeHybridExtractor:
     """Stand-in for QwenChunkExtractor: no HTTP calls, scripted node output."""
 
     def extract_turn(
@@ -696,12 +837,12 @@ class FakeLightExtractor:
             )
         else:
             return [[] for _ in chunks]
-        # Chunking is disabled in light_belief_graph_config(), so there is
+        # Chunking is disabled in hybrid_belief_graph_config(), so there is
         # always exactly one chunk per turn; attach the node to it.
         return [[node]] + [[] for _ in chunks[1:]]
 
 
-class FakeLightStanceClassifier:
+class FakeHybridStanceClassifier:
     """Stand-in for LocalZeroShotStanceClassifier: always 'asserted'."""
 
     def classify_texts(self, texts: list[str]) -> list[StancePrediction]:
@@ -721,7 +862,7 @@ class FakeLightStanceClassifier:
         ]
 
 
-class FakeLightEntityRecognizer:
+class FakeHybridEntityRecognizer:
     """Stand-in for NamedEntityRecognizer: no spaCy/HF model loading."""
 
     load_errors: list[Any] | None = None
@@ -735,41 +876,41 @@ class FakeLightEntityRecognizer:
 
 
 @pytest.fixture
-def fake_light_construct(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Replace the light backend's heavy components (HTTP extractor, local
+def fake_hybrid_construct(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replace the hybrid backend's heavy components (HTTP extractor, local
     stance model, local NER model) with lightweight fakes. Patched on
-    bcg.construct.light.stream because that module imports these names
+    bcg.construct.hybrid.stream because that module imports these names
     directly (``from .extractor import get_extractor`` etc.), so patching the
     defining modules would not affect stream.py's own bound references."""
 
     monkeypatch.setattr(
-        "bcg.construct.light.stream.get_extractor",
-        lambda config: FakeLightExtractor(),
+        "bcg.construct.hybrid.stream.get_extractor",
+        lambda config: FakeHybridExtractor(),
     )
     monkeypatch.setattr(
-        "bcg.construct.light.stream.get_stance_classifier",
-        lambda config: FakeLightStanceClassifier(),
+        "bcg.construct.hybrid.stream.get_stance_classifier",
+        lambda config: FakeHybridStanceClassifier(),
     )
     monkeypatch.setattr(
-        "bcg.construct.light.stream.NamedEntityRecognizer",
-        FakeLightEntityRecognizer,
+        "bcg.construct.hybrid.stream.NamedEntityRecognizer",
+        FakeHybridEntityRecognizer,
     )
 
 
-def test_runner_incremental_session_methods_light_backend(
+def test_runner_incremental_session_methods_hybrid_backend(
     tmp_path: Path,
-    fake_light_construct: None,
+    fake_hybrid_construct: None,
 ) -> None:
     memory = BCGMemory(graph=BCG())
     runner = BCGRunner(
         memory=memory,
         llm=DummyLLM(),
         output_root=tmp_path / ".bcg" / "runs",
-        backend="light",
+        backend="hybrid",
     )
     runner.begin_belief_run(
-        run_id="incremental-run-light",
-        belief_graph_config=light_belief_graph_config(),
+        run_id="incremental-run-hybrid",
+        belief_graph_config=hybrid_belief_graph_config(),
     )
     runner.start_session("chat-1", "2024-01-01")
     run(runner.observe_turn("user", "Alice likes tea."))
@@ -779,7 +920,7 @@ def test_runner_incremental_session_methods_light_backend(
     assert result.counts["sessions"] == 1
     assert result.counts["beliefs"] == 1
     assert result.memory["trajectory"][0]["session_id"] == "chat-1"
-    assert result.graph.metadata["engine"] == "bcg.construct.light"
+    assert result.graph.metadata["engine"] == "bcg.construct.hybrid"
     belief = result.memory["beliefs"][0]
     assert belief["belief"] == "The user states Alice likes tea."
 
@@ -823,14 +964,14 @@ def _normalized_backend_contract(result: Any) -> dict[str, Any]:
     }
 
 
-@pytest.mark.parametrize("backend", ["api_based", "light"])
+@pytest.mark.parametrize("backend", ["unified", "hybrid"])
 def test_backend_normalized_artifact_contract(
     backend: str,
     tmp_path: Path,
     fake_construct_calls: list[str],
-    fake_light_construct: None,
+    fake_hybrid_construct: None,
 ) -> None:
-    del fake_construct_calls, fake_light_construct
+    del fake_construct_calls, fake_hybrid_construct
     runner = BCGRunner(
         memory=BCGMemory(graph=BCG()),
         llm=DummyLLM(),
@@ -838,8 +979,8 @@ def test_backend_normalized_artifact_contract(
         backend=backend,
     )
     begin_options: dict[str, Any] = {"run_id": f"contract-{backend}"}
-    if backend == "light":
-        begin_options["belief_graph_config"] = light_belief_graph_config()
+    if backend == "hybrid":
+        begin_options["belief_graph_config"] = hybrid_belief_graph_config()
     runner.begin_belief_run(**begin_options)
     runner.start_session("chat-1", "2024-01-01")
     run(runner.observe_turn("user", "Alice likes tea."))

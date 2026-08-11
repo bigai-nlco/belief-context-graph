@@ -69,9 +69,9 @@ and put that named key in `~/.bcg/.env`.
 
 | Section | Used for |
 |---|---|
-| `extractor` | Light node generation |
+| `extractor` | Hybrid node generation |
 | `stance` | Four-class local stance model |
-| `edge_generation` | Light relation generation |
+| `edge_generation` | Hybrid relation generation |
 | `runtime` | Evidence mode and context budgets |
 | `incremental_merge` | Candidate threshold and text policy |
 | `entities` | NER method and fallbacks |
@@ -92,5 +92,5 @@ Key fields include:
 - maximum propagation iterations
 
 <Warning>
-The light backend normalizers require complete sections. Copy the YAML template and modify values rather than deleting fields. Legacy `model_config.json` files can still be read during the compatibility window, but new setup runs write YAML.
+The hybrid backend normalizers require complete sections. Copy the YAML template and modify values rather than deleting fields. Legacy `model_config.json` files can still be read during the compatibility window, but new setup runs write YAML.
 </Warning>

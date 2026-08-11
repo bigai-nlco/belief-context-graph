@@ -5,20 +5,20 @@ bcg/apps/run.py
 Single command-line driver for BOTH belief-context-graph construction
 backends. Pick one with the first positional argument:
 
-  python bcg/apps/run.py light      --input data.json [...]
-  python bcg/apps/run.py api_based  --input data.json [...]
+  python bcg/apps/run.py hybrid      --input data.json [...]
+  python bcg/apps/run.py unified  --input data.json [...]
 
 Each subcommand mirrors the CLI of its original standalone project exactly
 (same flags, same defaults) — only the dispatch is new. Run with
-``light -h`` / ``api_based -h`` to see each backend's full option list.
+``hybrid -h`` / ``unified -h`` to see each backend's full option list.
 
 Examples
 --------
-  # light backend: local embeddings + small generative model
-  python bcg/apps/run.py light --input data.json --model-key gpt-5.5 --embedding-key embedding
+  # hybrid backend: local embeddings + small generative model
+  python bcg/apps/run.py hybrid --input data.json --model-key gpt-5.5 --embedding-key embedding
 
-  # api_based backend: one large API-based chat model does extraction + relations
-  python bcg/apps/run.py api_based --input data.json \\
+  # unified backend: one general-purpose graph LLM does extraction + relations
+  python bcg/apps/run.py unified --input data.json \\
       --evidence-mode sentence --incremental-merge --incremental-merge-threshold 0.8
 """
 
@@ -85,13 +85,13 @@ def _add_common_args(p: argparse.ArgumentParser, runtime: RuntimeConfig) -> None
     )
 
 
-def _run_light(argv: list[str]) -> None:
-    from bcg.construct.light.pipeline import run_input
+def _run_hybrid(argv: list[str]) -> None:
+    from bcg.construct.hybrid.pipeline import run_input
 
     runtime = resolve_runtime_config(argv)
     p = argparse.ArgumentParser(
-        prog="bcg/apps/run.py light",
-        description="construct_beliefs v3 streaming pipeline driver (light backend: "
+        prog="bcg/apps/run.py hybrid",
+        description="construct_beliefs v3 streaming pipeline driver (hybrid backend: "
         "local embeddings + small generative model).",
     )
     _add_common_args(p, runtime)
@@ -108,15 +108,15 @@ def _run_light(argv: list[str]) -> None:
     )
 
 
-def _run_api_based(argv: list[str]) -> None:
-    from bcg.construct.api_based.pipeline import run_input
-    from bcg.construct.api_based.stream import StreamOptions
+def _run_unified(argv: list[str]) -> None:
+    from bcg.construct.unified.pipeline import run_input
+    from bcg.construct.unified.stream import StreamOptions
 
     runtime = resolve_runtime_config(argv)
     p = argparse.ArgumentParser(
-        prog="bcg/apps/run.py api_based",
-        description="construct_beliefs v3 streaming pipeline driver (api_based backend: "
-        "one large API-based chat model).",
+        prog="bcg/apps/run.py unified",
+        description="construct_beliefs v3 streaming pipeline driver (unified backend: "
+        "one general-purpose graph LLM).",
     )
     _add_common_args(p, runtime)
 
@@ -145,7 +145,7 @@ def _run_api_based(argv: list[str]) -> None:
     )
 
 
-_BACKENDS = {"light": _run_light, "api_based": _run_api_based}
+_BACKENDS = {"unified": _run_unified, "hybrid": _run_hybrid}
 
 
 def main(argv: list[str] | None = None) -> None:

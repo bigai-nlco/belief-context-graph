@@ -92,8 +92,6 @@ def _clean_node(
         primary_text_key: text.strip(),
         "stance": stance,
         "entities": _clean_entities(raw.get("entities")),
-        "event_time": _clean_str(raw.get("event_time")),
-        "time_text": _clean_str(raw.get("time_text")),
     }
 
     if mode != "excerpt":
@@ -235,6 +233,7 @@ def update_graph(
     current_date: str | None = None,
     temperature: float = 0.0,
     max_tokens: int | None = None,
+    reasoning_effort: str | None = None,
 ) -> dict[str, Any]:
     """
     One LLM call. Returns cleaned unresolved nodes and typed relations:
@@ -283,7 +282,12 @@ def update_graph(
 
     try:
         raw = llm.call_model(
-            client, model, prompt, temperature=temperature, max_tokens=max_tokens
+            client,
+            model,
+            prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
         )
     except Exception as e:
         return {
@@ -357,6 +361,7 @@ def extract_nodes(
     current_date: str | None = None,
     temperature: float = 0.0,
     max_tokens: int | None = None,
+    reasoning_effort: str | None = None,
 ) -> dict[str, Any]:
     """Phase 1: one LLM call to extract beliefs + decisions only (no relations)."""
     n_sentences = len(sentences or [])
@@ -397,7 +402,12 @@ def extract_nodes(
 
     try:
         raw = llm.call_model(
-            client, model, prompt, temperature=temperature, max_tokens=max_tokens
+            client,
+            model,
+            prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
         )
     except Exception as e:
         return {
@@ -461,6 +471,7 @@ def extract_relations(
     current_date: str | None = None,
     temperature: float = 0.0,
     max_tokens: int | None = None,
+    reasoning_effort: str | None = None,
 ) -> dict[str, Any]:
     """Phase 2: one LLM call to extract relations on the post-merge graph."""
     import json as _json
@@ -476,7 +487,12 @@ def extract_relations(
 
     try:
         raw = llm.call_model(
-            client, model, prompt, temperature=temperature, max_tokens=max_tokens
+            client,
+            model,
+            prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
         )
     except Exception as e:
         return {"relations": [], "raw_output": f"[ERROR] {e}", "skipped": True}

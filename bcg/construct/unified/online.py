@@ -74,6 +74,7 @@ from .llm import (
     load_embedding_config,
     make_client,
     make_embedder,
+    resolve_reasoning_effort,
 )
 from .stream import StreamingBeliefBuilder, StreamOptions
 
@@ -140,13 +141,19 @@ class SessionManager:
             self.options.apply_belief_graph_config(bg_cfg)
         self.client = make_client(cfg)
         self.model = cfg.get("model") or cfg.get("model_name") or "gpt-4o-mini"
+        if cfg.get("reasoning_effort") is not None:
+            self.options.reasoning_effort = str(cfg["reasoning_effort"])
         self.max_tokens = cfg.get("max_tokens")
         if self.pricing is None:
             self.pricing = cfg.get("pricing")
         masked = cfg.get("api_key", "") or ""
         masked = (masked[:6] + "…" + masked[-3:]) if len(masked) > 10 else "***"
+        effective_reasoning = resolve_reasoning_effort(
+            self.model, self.options.reasoning_effort
+        )
         print(
             f"[online] model={self.model}  base_url={cfg['base_url']}  api_key={masked}"
+            f"  reasoning_effort={effective_reasoning}"
             + (f"  max_tokens={self.max_tokens}" if self.max_tokens else "")
         )
 

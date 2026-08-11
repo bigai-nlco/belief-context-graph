@@ -1,5 +1,5 @@
 {
- "run_api_based": {
+ "run_unified": {
   "input": "input.json",
   "config": "bcg/model_config.json",
   "output_dir": "outputs",
@@ -14,7 +14,7 @@
   "context_chars": 100000,
   "min_content_len": 0
  },
- "run_light": {
+ "run_hybrid": {
   "input": "input.json",
   "config": "bcg/model_config.json",
   "output_dir": "outputs",
@@ -23,7 +23,7 @@
   "item": null,
   "keep_order": false
  },
- "server_api_based": {
+ "server_unified": {
   "host": "127.0.0.1",
   "port": 8848,
   "config": "bcg/model_config.json",
@@ -38,7 +38,7 @@
   "min_content_len": 0,
   "quiet": false
  },
- "server_light": {
+ "server_hybrid": {
   "host": "127.0.0.1",
   "port": 8848,
   "config": "bcg/model_config.json",
@@ -47,7 +47,7 @@
   "embedding_key": "embedding",
   "quiet": false
  },
- "replay_api_based": {
+ "replay_unified": {
   "input": null,
   "config": "bcg/model_config.json",
   "output_dir": "outputs_stream",
@@ -61,7 +61,7 @@
   "context_chars": 100000,
   "min_content_len": 0
  },
- "replay_light": {
+ "replay_hybrid": {
   "input": null,
   "config": "bcg/model_config.json",
   "output_dir": "outputs_stream",
@@ -70,7 +70,7 @@
   "quiet": false
  },
  "sdk_runner": {
-  "instance_backend": "api_based",
+  "instance_backend": "unified",
   "observe_backend_override": null,
   "evidence_mode": "sentence",
   "incremental_merge": true,
@@ -80,7 +80,7 @@
   "io_context_chars": 6000,
   "min_content_len": 0
  },
- "api_stream_options": {
+ "unified_stream_options": {
   "evidence_mode": "sentence",
   "incremental_merge": true,
   "incremental_merge_threshold": 0.86,
@@ -88,12 +88,12 @@
   "context_chars": 100000,
   "min_content_len": 0
  },
- "light_stream_options": {
+ "hybrid_stream_options": {
   "evidence_mode": null,
   "incremental_merge": null,
   "incremental_merge_threshold": null,
   "context_chars": null,
   "min_content_len": null
  },
- "construct_default_backend": "api_based"
+ "construct_default_backend": "unified"
 }

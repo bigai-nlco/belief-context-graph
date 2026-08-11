@@ -21,8 +21,8 @@ tail -f ~/.bcg/logs/graph-server.log
 Confirm model endpoints, credentials, config paths, and local model assets.
 </Accordion>
 
-<Accordion title="The light backend fails during configuration">
-Copy the full `bcg/model_config.example.json`. Light configuration normalizers require complete sections and report missing keys.
+<Accordion title="The hybrid backend fails during configuration">
+Copy the full `bcg/model_config.example.json`. Hybrid configuration normalizers require complete sections and report missing keys.
 </Accordion>
 
 <Accordion title="No beliefs are extracted">

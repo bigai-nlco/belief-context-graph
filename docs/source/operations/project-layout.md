@@ -18,8 +18,8 @@ belief-context-graph/
 │   ├── visualize_beliefs_graph.py
 │   ├── benchmark/
 │   └── construct/             # core graph-construction engines
-│       ├── api_based/         # API-driven implementation
-│       └── light/             # modular local/small-model implementation
+│       ├── unified/         # API-driven implementation
+│       └── hybrid/             # modular local/small-model implementation
 ├── agent-cli/                 # bundled terminal Agent runtime
 ├── dashboard/
 │   ├── bcg_viewer/            # live stream viewer and server
@@ -40,7 +40,7 @@ The root package exports:
 from bcg import BCG, BCGMemory, BCGRunner
 ```
 
-The stable public entry points are `BCG`, `BCGMemory`, and `BCGRunner`. The core graph-construction logic lives in the sibling packages `bcg.construct.api_based` and `bcg.construct.light`; `BCGRunner` and the HTTP/CLI layers select and orchestrate one backend.
+The stable public entry points are `BCG`, `BCGMemory`, and `BCGRunner`. The core graph-construction logic lives in the sibling packages `bcg.construct.unified` and `bcg.construct.hybrid`; `BCGRunner` and the HTTP/CLI layers select and orchestrate one backend.
 
 ## Documentation source
 
