@@ -80,7 +80,7 @@ check-repository:
 	@scripts/check_repository_hygiene.sh
 
 check-release:
-	@$(UV) run python scripts/release-manifest.py --check
+	@python3 scripts/release-manifest.py --check
 	@bash scripts/test_install_smoke.sh
 
 check-contracts:

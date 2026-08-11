@@ -91,9 +91,6 @@ jobs:
       - name: Build Dashboard
         run: npm --prefix dashboard run build
 
-      - name: Release manifest check
-        run: make check-release
-
       - name: Test Dashboard
         run: npm --prefix dashboard test
 
@@ -119,6 +116,8 @@ jobs:
       - dashboard
       - repository
     runs-on: ubuntu-latest
+    env:
+      RELEASE_VENV: ${{ runner.temp }}/bcg-release-smoke
 
     steps:
       - name: Checkout
@@ -147,8 +146,17 @@ jobs:
       - name: Install Agent dependencies
         run: npm --prefix agent-cli ci
 
-      - name: Build Agent package
-        run: npm --prefix agent-cli run build
+      - name: Install release CLIs
+        run: |
+          uv venv "$RELEASE_VENV"
+          uv pip install --python "$RELEASE_VENV/bin/python" --no-deps dist/bcg-*.whl
+          uv pip install --python "$RELEASE_VENV/bin/python" "openai>=2.40.0" "pyyaml>=6.0" "typer>=0.16"
+          npm --prefix agent-cli run build
+          npm install -g ./agent-cli
+          echo "$RELEASE_VENV/bin" >> "$GITHUB_PATH"
 
       - name: Inspect Agent package
         run: npm pack ./agent-cli --dry-run
+
+      - name: Release manifest and install smoke checks
+        run: make check-release
