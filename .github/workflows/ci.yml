@@ -116,8 +116,6 @@ jobs:
       - dashboard
       - repository
     runs-on: ubuntu-latest
-    env:
-      RELEASE_VENV: ${{ runner.temp }}/bcg-release-smoke
 
     steps:
       - name: Checkout
@@ -148,12 +146,13 @@ jobs:
 
       - name: Install release CLIs
         run: |
-          uv venv "$RELEASE_VENV"
-          uv pip install --python "$RELEASE_VENV/bin/python" --no-deps dist/bcg-*.whl
-          uv pip install --python "$RELEASE_VENV/bin/python" "openai>=2.40.0" "pyyaml>=6.0" "typer>=0.16"
+          release_venv="$RUNNER_TEMP/bcg-release-smoke"
+          uv venv "$release_venv"
+          uv pip install --python "$release_venv/bin/python" --no-deps dist/bcg-*.whl
+          uv pip install --python "$release_venv/bin/python" "openai>=2.40.0" "pyyaml>=6.0" "typer>=0.16"
           npm --prefix agent-cli run build
           npm install -g ./agent-cli
-          echo "$RELEASE_VENV/bin" >> "$GITHUB_PATH"
+          echo "$release_venv/bin" >> "$GITHUB_PATH"
 
       - name: Inspect Agent package
         run: npm pack ./agent-cli --dry-run
