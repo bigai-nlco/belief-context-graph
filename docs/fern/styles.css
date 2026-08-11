@@ -1,0 +1,339 @@
+/*
+ * BCG Fern theme
+ * --------------
+ * This stylesheet intentionally ports the visual language from the original
+ * docs/assets/styles.css instead of treating Fern's accent color as the brand.
+ */
+
+:root,
+.light {
+  --bcg-bg: #faf7f2;
+  --bcg-panel: #ffffff;
+  --bcg-ink: #1a1a1a;
+  --bcg-soft: #555555;
+  --bcg-faint: #8a8276;
+  --bcg-rule: #e8e2d8;
+  --bcg-rule-strong: #d7cec1;
+
+  --bcg-brick: #b8442f;
+  --bcg-brick-dark: #92331f;
+  --bcg-brick-soft: #fbf0ec;
+
+  --bcg-teal: #0f766e;
+  --bcg-teal-soft: #eef8f6;
+
+  --bcg-user: #1e5a9c;
+  --bcg-user-soft: #e0ecfa;
+  --bcg-assistant: #8b2c5b;
+  --bcg-assistant-soft: #fbe3ee;
+  --bcg-tool: #2e6e3a;
+  --bcg-tool-soft: #e1f0e4;
+  --bcg-decision: #7c3aed;
+  --bcg-decision-soft: #efe6fd;
+  --bcg-warning: #b3500e;
+  --bcg-warning-soft: #fff3e8;
+
+  --bcg-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --bcg-serif: Georgia, "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+  --bcg-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.dark {
+  --bcg-bg: #171513;
+  --bcg-panel: #1e1a17;
+  --bcg-ink: #f3ece7;
+  --bcg-soft: #c7beb7;
+  --bcg-faint: #9f9389;
+  --bcg-rule: #3b332c;
+  --bcg-rule-strong: #584a3f;
+
+  --bcg-brick: #e58b79;
+  --bcg-brick-dark: #f0a895;
+  --bcg-brick-soft: #35231f;
+
+  --bcg-teal: #6bc7bd;
+  --bcg-teal-soft: #18302d;
+
+  --bcg-user: #83b6ef;
+  --bcg-user-soft: #1b2d43;
+  --bcg-assistant: #e99abb;
+  --bcg-assistant-soft: #3a2130;
+  --bcg-tool: #8ec898;
+  --bcg-tool-soft: #1e3323;
+  --bcg-decision: #b99af8;
+  --bcg-decision-soft: #2b2340;
+  --bcg-warning: #e7a66c;
+  --bcg-warning-soft: #3b291c;
+}
+
+/* ---------- whole-site feel ---------- */
+html,
+body {
+  font-family: var(--bcg-sans);
+}
+
+body {
+  background: var(--bcg-bg);
+  color: var(--bcg-ink);
+}
+
+::selection {
+  background: #ffd23f;
+  color: #1a1a1a;
+}
+
+/* Fern supports named site colors; CSS gives us the original details. */
+.fern-header {
+  background: color-mix(in srgb, var(--bcg-panel) 96%, transparent) !important;
+  border-bottom: 1px solid var(--bcg-rule);
+  backdrop-filter: blur(12px);
+}
+
+.fern-header-tabs {
+  background: transparent !important;
+}
+
+/* Underlined header tabs instead of Fern "bubble" pills. */
+.fern-header-tabs a,
+.fern-header-tabs button {
+  font-family: var(--bcg-sans);
+  font-weight: 600;
+}
+
+
+.fern-header-logo-container {
+  font-family: var(--bcg-serif) !important;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--bcg-ink);
+}
+
+/* ---------- typography ---------- */
+.fern-page-heading,
+article h1,
+article h2,
+article h3 {
+  font-family: var(--bcg-serif) !important;
+  color: var(--bcg-ink);
+  letter-spacing: -0.018em;
+}
+
+.fern-page-heading,
+article h1 {
+  font-weight: 700 !important;
+}
+
+article h2 {
+  margin-top: 2.4rem;
+}
+
+article h2::after {
+  content: "";
+  display: block;
+  width: 30px;
+  border-top: 2px solid var(--bcg-brick);
+  margin-top: 0.45rem;
+}
+
+article p,
+article li {
+  color: var(--bcg-soft);
+  line-height: 1.75;
+}
+
+.fern-breadcrumb-item {
+  color: var(--bcg-faint) !important;
+}
+
+.fern-breadcrumb-item:hover {
+  color: var(--bcg-brick) !important;
+}
+
+.fern-mdx-link,
+article a:not(.fern-button) {
+  color: var(--bcg-brick);
+  text-decoration-color: color-mix(in srgb, var(--bcg-brick) 35%, transparent);
+  text-underline-offset: 3px;
+}
+
+.fern-mdx-link:hover,
+article a:not(.fern-button):hover {
+  color: var(--bcg-brick-dark);
+}
+
+/* ---------- sidebar: original BCG teal selection ---------- */
+.fern-sidebar-heading {
+  margin-top: 0.5rem;
+  margin-bottom: 0.15rem;
+}
+
+.fern-sidebar-heading-content {
+  font-family: var(--bcg-sans) !important;
+  font-weight: 750 !important;
+  color: var(--bcg-ink);
+  letter-spacing: 0.005em;
+}
+
+.fern-sidebar-link {
+  color: var(--bcg-soft) !important;
+  border-radius: 6px !important;
+  line-height: 1.35;
+}
+
+.fern-sidebar-link:hover {
+  color: var(--bcg-ink) !important;
+  background: #fcfaf6 !important;
+}
+
+.dark .fern-sidebar-link:hover {
+  background: #241f1b !important;
+}
+
+.fern-sidebar-link[data-state="active"] {
+  color: var(--bcg-teal) !important;
+  background: var(--bcg-teal-soft) !important;
+  font-weight: 650 !important;
+  box-shadow: inset 2px 0 0 var(--bcg-teal);
+}
+
+.fern-sidebar-group .fern-sidebar-group {
+  border-left-color: var(--bcg-rule);
+}
+
+/* ---------- content / cards ---------- */
+.fern-layout-guide,
+.fern-layout-overview,
+.fern-layout-page {
+  color: var(--bcg-ink);
+}
+
+.fern-card,
+.fern-card-root,
+[class*="fern-card"] {
+  border-color: var(--bcg-rule) !important;
+}
+
+.fern-card:hover,
+.fern-card-root:hover {
+  border-color: var(--bcg-rule-strong) !important;
+}
+
+.fern-table-root {
+  border-color: var(--bcg-rule) !important;
+  background: var(--bcg-panel) !important;
+  border-radius: 8px !important;
+}
+
+.fern-table thead tr th {
+  background: #fcfaf6 !important;
+  color: var(--bcg-faint) !important;
+  font-family: var(--bcg-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dark .fern-table thead tr th {
+  background: #241f1b !important;
+}
+
+/* ---------- code ---------- */
+pre,
+.fern-code-block,
+[class*="code-block"] {
+  font-family: var(--bcg-mono) !important;
+}
+
+article :not(pre) > code {
+  border: 1px solid var(--bcg-rule);
+  background: #f6f1e9;
+  color: #7d2f22;
+  border-radius: 4px;
+  padding: 0.1rem 0.28rem;
+}
+
+.dark article :not(pre) > code {
+  background: #29231f;
+  color: #f0aa98;
+}
+
+/* ---------- callouts: keep semantic colors, not one accent ---------- */
+.fern-callout {
+  background: var(--bcg-panel) !important;
+  border-color: var(--bcg-rule) !important;
+  border-left: 3px solid var(--bcg-brick) !important;
+  border-radius: 7px !important;
+}
+
+/* Fern uses semantic variants internally; these attribute selectors are
+   intentionally additive and safely fall back to the brick border. */
+.fern-callout[data-intent="info"],
+.fern-callout.info {
+  border-left-color: var(--bcg-user) !important;
+}
+
+.fern-callout[data-intent="tip"],
+.fern-callout.tip {
+  border-left-color: var(--bcg-tool) !important;
+}
+
+.fern-callout[data-intent="warning"],
+.fern-callout.warning {
+  border-left-color: var(--bcg-warning) !important;
+}
+
+/* ---------- API reference: Fern behavior, BCG visual language ---------- */
+.fern-layout-reference {
+  color: var(--bcg-ink);
+}
+
+/* Generated request/response panels should read like the old BCG code shell. */
+.fern-layout-reference pre,
+.fern-layout-reference [class*="code"],
+.fern-layout-reference [class*="Code"] {
+  border-color: var(--bcg-rule);
+}
+
+/* Keep HTTP verbs semantic instead of recoloring everything to brick. */
+.fern-docs-badge[data-badge-type="http-method"] {
+  font-family: var(--bcg-mono) !important;
+  border-radius: 5px !important;
+}
+
+/* Status badges keep their semantic color, while neutral borders stay warm. */
+.fern-docs-badge[data-badge-type="status-code"] {
+  font-family: var(--bcg-mono) !important;
+}
+
+/* API "Try it" and primary controls use brick; selected navigation remains teal. */
+.fern-button.primary,
+.fern-layout-reference .fern-button.primary {
+  background: var(--bcg-brick) !important;
+  border-color: var(--bcg-brick) !important;
+}
+
+.fern-button.primary:hover,
+.fern-layout-reference .fern-button.primary:hover {
+  background: var(--bcg-brick-dark) !important;
+}
+
+/* ---------- small refinements ---------- */
+.fern-anchor-icon:not(.copied) {
+  background: var(--bcg-panel) !important;
+  border-color: var(--bcg-rule) !important;
+}
+
+.fern-steps {
+  border-left-color: var(--bcg-rule) !important;
+}
+
+@media (min-width: 1024px) {
+  .fern-sidebar-link {
+    font-size: 13.5px !important;
+    padding-top: 0.44rem !important;
+    padding-bottom: 0.44rem !important;
+  }
+
+  .fern-sidebar-heading-content {
+    font-size: 13.5px !important;
+  }
+}

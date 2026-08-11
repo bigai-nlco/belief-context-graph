@@ -1,0 +1,108 @@
+---
+title: Data Model and Input Formats
+description: Reference graph payloads together with the complete-input shapes accepted
+  by construction.
+icon: table-list
+---
+
+## Data model
+
+The application-facing graph is `BCG`.
+
+## Graph
+
+```python
+BCG(
+    nodes=[],
+    edges=[],
+    merges=[],
+    sessions=[],
+    evidence=[],
+    factors=[],
+    metadata={},
+)
+```
+
+## Knowledge payload
+
+`BeliefPayload` represents both beliefs and decisions. Important fields include:
+
+- `id`;
+- `node_type`: `belief` or `decision`;
+- `belief` / `decision`;
+- `confidence`;
+- `stance`;
+- `role`;
+- `layer`;
+- `source`;
+- `evidence_ids`;
+- `factor_ids`;
+- `supporting_excerpts`;
+- `merged_from`;
+- `confidence_history`.
+
+## Relations
+
+Current primary relation types:
+
+```text
+depends_on
+supplements
+contradicts
+```
+
+Legacy-readable values include:
+
+```text
+informs
+confirms
+extends
+```
+
+See [Graph data types](/sdk/config/settings-types) for Python names and [HTTP API](/api) for the wire representation.
+
+## Input formats
+
+Complete-input construction accepts several common shapes.
+
+## One trajectory
+
+```json
+{
+  "trajectory": [
+    {"role": "user", "content": "Hello"},
+    {"role": "assistant", "content": "Hi"}
+  ]
+}
+```
+
+## One `messages` object
+
+```json
+{
+  "messages": [
+    {"role": "user", "content": "Hello"}
+  ]
+}
+```
+
+## Bare message list
+
+```json
+[
+  {"role": "user", "content": "Hello"},
+  {"role": "assistant", "content": "Hi"}
+]
+```
+
+## Multi-session datasets
+
+Dataset-style records can provide multiple sessions plus session IDs/dates. The shared loader flattens them into turns. If all dates parse, chronological order is used unless `keep_order` is requested.
+
+## Select one item
+
+The CLI/server loader can select an item by its explicit item ID or by zero-based index where that option is exposed.
+
+<Note>
+The current shared loader chooses behavior from the input shape. It does not use a scenario name to select a parser.
+</Note>

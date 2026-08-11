@@ -1,0 +1,66 @@
+---
+title: Generate Text, JSON, and Image Responses
+description: Use the model client for structured messages, plain text, JSON, image
+  analysis, and lifecycle cleanup.
+icon: wand-magic-sparkles
+---
+
+## Structured messages
+
+```python
+response = await client.generate([
+    {"role": "user", "content": "Summarize the incident."}
+])
+print(response.text)
+```
+
+```python
+await client.generate(
+    messages: Sequence[dict[str, Any]],
+    *,
+    tools: Sequence[dict[str, Any]] | None = None,
+    tool_runner: ToolRunner | None = None,
+    model: str | None = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    response_format: dict[str, Any] | None = None,
+    reasoning_effort: str | None = "medium",
+) -> LLMResponse
+```
+
+## Plain text
+
+```python
+text = await client.generate_text(
+    "Summarize the incident in one paragraph.",
+    system="Be precise and evidence-focused.",
+)
+```
+
+## JSON
+
+```python
+data = await client.generate_json(
+    "Return an object with keys severity and reason."
+)
+```
+
+## Image analysis
+
+```python
+from pathlib import Path
+
+image_bytes = Path("screenshot.png").read_bytes()
+response = await client.image(
+    image_bytes,
+    prompt="Describe the important UI state.",
+)
+```
+
+## Close
+
+```python
+await client.close()
+```
+
+Use `close()` when the client lifecycle ends and you want to release network resources.

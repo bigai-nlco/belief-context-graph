@@ -1,0 +1,60 @@
+---
+title: API Model Construction
+description: Use an OpenAI-compatible model endpoint to construct graph nodes and
+  relationships.
+icon: cloud
+---
+
+The code identifier for this backend is:
+
+```text
+api_based
+```
+
+Use it when an OpenAI-compatible model endpoint is already available.
+
+## Server
+
+```bash
+bcg construct server api_based \
+  --config ~/.bcg/config.yaml \
+  --model-key graph-model \
+  --embedding-key embedding \
+  --host 127.0.0.1 \
+  --port 8848 \
+  --output-dir ~/.bcg/graphs
+```
+
+## Python
+
+```python
+runner = BCGRunner(
+    memory=memory,
+    llm=llm,
+    backend="api_based",
+)
+```
+
+Relevant runner controls include:
+
+```python
+evidence_mode="sentence"
+incremental_merge=True
+incremental_merge_threshold=0.86
+verify_merge=True
+context_chars=100000
+io_context_chars=6000
+min_content_len=0
+```
+
+These are exposed by `observe_trajectory()` / `begin_belief_run()` and may also be configured through the unified YAML settings.
+
+## Configuration
+
+Model and embedding endpoint definitions live in the unified `config.yaml` model registry. Use:
+
+```bash
+bcg config
+```
+
+to confirm which values are actually active.

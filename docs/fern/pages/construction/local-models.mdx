@@ -1,0 +1,53 @@
+---
+title: Local Model Construction
+description: Use the light backend with a vLLM generation endpoint and local processing
+  components.
+icon: server
+---
+
+The code identifier for this backend is:
+
+```text
+light
+```
+
+The current pipeline uses:
+
+- a small generative model through an OpenAI-compatible vLLM endpoint;
+- a local sentence-transformers embedding model;
+- a local/Hugging Face stance classifier;
+- spaCy for local language processing and entity extraction.
+
+## Start vLLM separately
+
+BCG does not install or manage the external vLLM GPU service for you.
+
+Example source setup:
+
+```bash
+uv venv ~/.bcg/vllm --python 3.11
+uv pip install --python ~/.bcg/vllm/bin/python vllm
+
+~/.bcg/vllm/bin/vllm serve <MODEL_OR_LOCAL_PATH> \
+  --served-model-name <MODEL_NAME> \
+  --host 127.0.0.1 \
+  --port 8001 \
+  --max-model-len 10000 \
+  --max-num-seqs 8
+```
+
+Then configure the matching endpoint/model in `~/.bcg/config.yaml` and run:
+
+```bash
+bcg construct server light \
+  --config ~/.bcg/config.yaml \
+  --model-key graph-model \
+  --embedding-key embedding \
+  --host 127.0.0.1 \
+  --port 8848 \
+  --output-dir ~/.bcg/graphs
+```
+
+<Info>
+The light CLI intentionally exposes fewer one-off run flags than the API-model path. Treat the unified YAML pipeline settings as the source for full backend configuration.
+</Info>

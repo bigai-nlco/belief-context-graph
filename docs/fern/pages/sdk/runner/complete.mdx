@@ -1,0 +1,41 @@
+---
+title: Process a Complete Trajectory
+description: Construct and finalize a graph from an in-memory list of turns.
+icon: play
+---
+
+```python
+result = await runner.observe_trajectory(
+    [
+        {"role": "user", "content": "The checkout failed twice."},
+        {"role": "assistant", "content": "We should inspect payment errors."},
+    ],
+    run_id="checkout-review",
+)
+```
+
+```python
+await runner.observe_trajectory(
+    trajectory: list[dict[str, Any]],
+    *,
+    run_id: str | None = None,
+    model: str | None = None,
+    max_tokens: int | None = None,
+    scenario: str = "research",
+    item_id: str = "trajectory",
+    backend: str | None = None,
+    evidence_mode: str = "sentence",
+    incremental_merge: bool = True,
+    incremental_merge_threshold: float = 0.86,
+    verify_merge: bool = True,
+    context_chars: int = 100000,
+    io_context_chars: int = 6000,
+    min_content_len: int = 0,
+    belief_graph_config: dict[str, Any] | None = None,
+    embedder: Any | None = None,
+    metadata: dict[str, Any] | None = None,
+    options: Any | None = None,
+) -> BeliefGraphRunResult
+```
+
+This convenience path begins a run, pushes the trajectory through the selected backend, finalizes construction, synchronizes the public graph, and writes compatibility artifacts.

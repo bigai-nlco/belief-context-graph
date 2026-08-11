@@ -1,0 +1,42 @@
+---
+title: Configure the Model Client
+description: Create an OpenAI-compatible LLM client explicitly or use environment-backed
+  defaults.
+icon: gear
+---
+
+Recommended import:
+
+```python
+from bcg import LLMClient
+```
+
+Explicit configuration:
+
+```python
+from bcg.core.llm import LLMConfig
+
+client = LLMClient(
+    LLMConfig(
+        model="gpt-4.1-mini",
+        api_key="...",
+        base_url="https://api.openai.com/v1",
+        timeout=60,
+        max_retries=3,
+    )
+)
+```
+
+Environment-backed defaults commonly use:
+
+```text
+OPENAI_API_KEY
+OPENAI_BASE_URL
+OPENAI_MODEL
+OPENAI_TIMEOUT
+OPENAI_MAX_RETRIES
+```
+
+<Note>
+The package exports `LLMClient` from `bcg`. The current source tree does not contain a `bcg.llm` module.
+</Note>

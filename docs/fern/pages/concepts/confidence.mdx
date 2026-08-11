@@ -1,0 +1,38 @@
+---
+title: How Confidence Is Calculated
+description: Understand the inspectable confidence state stored on each node.
+icon: gauge-high
+---
+
+Confidence is not only a model-written score. BCG keeps the components used to produce the current value.
+
+The core compatibility calculation is:
+
+```text
+confidence = sigmoid(
+  logit(initial_confidence)
+  + evidence_confidence
+  + factor_confidence
+)
+```
+
+This separation makes it possible to inspect how confidence changed instead of treating the final number as an opaque label.
+
+## What can change confidence?
+
+- **Initial confidence** — derived when the node is created.
+- **Evidence contribution** — accumulated from supporting evidence.
+- **Graph factors** — changes activated by graph relationships and construction logic.
+- **History** — updates may be retained in `confidence_history`.
+
+## Relation behavior
+
+The active construction vocabulary includes:
+
+- `depends_on` — a dependency that can participate in confidence propagation;
+- `supplements` — adds context but does not itself propagate confidence;
+- `contradicts` — represents conflict and can reduce confidence when its activation condition is met.
+
+<Warning>
+Do not hard-code application behavior solely from a confidence number until you have evaluated calibration on your own task. BCG makes confidence inspectable; your application still owns the action threshold.
+</Warning>

@@ -1,0 +1,73 @@
+---
+title: Stream Turns Through a Run
+description: Open a run and send sessions and turns incrementally.
+icon: timeline
+---
+
+A streamed lifecycle is:
+
+```text
+begin_belief_run()
+  └─ start_session()
+       ├─ observe_turn()
+       ├─ observe_turn()
+       └─ end_session()
+  └─ finalize()
+```
+
+## Begin
+
+```python
+run_id = runner.begin_belief_run(
+    run_id="case-42",
+    evidence_mode="sentence",
+)
+```
+
+```python
+runner.begin_belief_run(...) -> str
+```
+
+A runner cannot own two active runs at once.
+
+## Start a session
+
+```python
+runner.start_session("support-chat", date="2026-08-11")
+```
+
+```python
+runner.start_session(session_id: str, date: str | None = None) -> None
+```
+
+## Observe a turn
+
+```python
+snapshot = await runner.observe_turn(
+    "user",
+    "The customer reports repeated timeouts.",
+    date="2026-08-11T10:00:00",
+)
+```
+
+```python
+await runner.observe_turn(
+    role: str,
+    content: str,
+    *,
+    date: str | None = None,
+    has_answer: bool | None = None,
+) -> dict[str, Any]
+```
+
+If no explicit session is open, the runner creates an implicit session.
+
+## End the session
+
+```python
+summary = await runner.end_session()
+```
+
+```python
+await runner.end_session() -> dict[str, Any] | None
+```

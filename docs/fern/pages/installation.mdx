@@ -1,0 +1,61 @@
+---
+title: Installation
+description: Install BCG globally or work from a source checkout.
+icon: download
+---
+
+## Option 1: install the released command
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/bigai-nlco/belief-context-graph/main/install.sh | sh
+bcg --version
+```
+
+The installer installs the Python and Agent runtimes from their lockfiles. The repository README requires Node.js 22.19 or newer for the Node-side Agent tooling.
+
+## Option 2: develop from source
+
+```bash
+git clone https://github.com/bigai-nlco/belief-context-graph.git
+cd belief-context-graph
+make install
+uv run bcg --version
+```
+
+`make install` runs the locked Python install, installs Agent and Dashboard dependencies, and builds the Agent workspace.
+
+To expose the current checkout as the global command:
+
+```bash
+make install-tool
+bcg --version
+```
+
+<Info>
+The Dashboard is a separate Vite application in `dashboard/`. Source developers install its dependencies through `make install`; production deployment is separate from the `bcg` command.
+</Info>
+
+## Python compatibility
+
+The Python package declares:
+
+```text
+Python >= 3.11, < 3.14
+```
+
+## Configure BCG
+
+Interactive setup:
+
+```bash
+bcg setup
+```
+
+Inspect the effective merged configuration and where every value came from:
+
+```bash
+bcg config
+bcg config --json
+```
+
+Configuration precedence is documented in [Configuration](/reference/configuration).

@@ -1,0 +1,256 @@
+# yaml-language-server: $schema=https://schema.buildwithfern.dev/docs-yml.json
+instances:
+- url: belief-context-graph.docs.buildwithfern.com
+title: Belief Context Graph
+tabs:
+  docs:
+    display-name: Documentation
+    icon: book-open
+    skip-slug: true
+  sdk:
+    display-name: SDK Reference
+    icon: code
+    slug: sdk
+  api:
+    display-name: HTTP API
+    icon: server
+    slug: api
+theme:
+  sidebar: default
+  body: default
+  tabs:
+    style: default
+    alignment: left
+    placement: header
+  page-actions: toolbar
+  footer-nav: minimal
+navigation:
+- tab: docs
+  layout:
+  - section: Start here
+    skip-slug: true
+    collapsed: open-by-default
+    contents:
+    - page: Overview
+      path: ./pages/overview.mdx
+      slug: overview
+    - page: Quickstart
+      path: ./pages/quickstart.mdx
+      slug: quickstart
+    - page: Installation
+      path: ./pages/installation.mdx
+      slug: installation
+    - page: Choose an integration
+      path: ./pages/choose-an-integration.mdx
+      slug: choose-an-integration
+    - page: Understand your first graph
+      path: ./pages/first-graph.mdx
+      slug: first-graph
+  - section: Understand BCG
+    slug: concepts
+    collapsed: true
+    contents:
+    - page: Key concepts
+      path: ./pages/concepts/overview.mdx
+      slug: overview
+    - page: Knowledge, decisions, and sources
+      path: ./pages/concepts/knowledge-and-sources.mdx
+      slug: knowledge-and-sources
+    - page: How confidence is calculated
+      path: ./pages/concepts/confidence.mdx
+      slug: confidence
+    - page: Relationships and duplicate handling
+      path: ./pages/concepts/relationships-and-change.mdx
+      slug: relationships-and-change
+    - page: Conversation history and context
+      path: ./pages/concepts/history-and-context.mdx
+      slug: history-and-context
+  - section: Build and integrate
+    slug: guides
+    collapsed: true
+    contents:
+    - page: Python integration
+      path: ./pages/guides/python.mdx
+      slug: python
+    - page: HTTP streaming
+      path: ./pages/guides/http-streaming.mdx
+      slug: http-streaming
+    - page: Batch construction
+      path: ./pages/guides/batch.mdx
+      slug: batch
+    - page: Add known facts
+      path: ./pages/guides/known-facts.mdx
+      slug: known-facts
+    - page: Choose a construction mode
+      path: ./pages/construction/compare.mdx
+      slug: construction-modes
+    - page: API model construction
+      path: ./pages/construction/api-model.mdx
+      slug: api-model
+    - page: Local model construction
+      path: ./pages/construction/local-models.mdx
+      slug: local-models
+    - page: Reference terminal Agent
+      path: ./pages/reference-agent.mdx
+      slug: reference-agent
+  - section: Inspect and operate
+    slug: operate
+    collapsed: true
+    contents:
+    - page: Inspect a live graph
+      path: ./pages/guides/dashboard.mdx
+      slug: dashboard
+    - page: Export an HTML graph
+      path: ./pages/guides/static-view.mdx
+      slug: static-view
+    - page: Audit and trace a run
+      path: ./pages/guides/audit-and-trace.mdx
+      slug: audit-and-trace
+    - page: Deploy and secure BCG
+      path: ./pages/operations/deploy-secure.mdx
+      slug: deploy-secure
+    - page: Troubleshooting
+      path: ./pages/operations/troubleshooting.mdx
+      slug: troubleshooting
+  - section: Reference
+    slug: reference
+    collapsed: true
+    contents:
+    - page: Configuration
+      path: ./pages/reference/configuration.mdx
+      slug: configuration
+    - page: Data model and input formats
+      path: ./pages/reference/data-and-inputs.mdx
+      slug: data-and-inputs
+    - page: CLI and environment
+      path: ./pages/reference/cli-and-environment.mdx
+      slug: cli-and-environment
+    - page: Generated files
+      path: ./pages/reference/generated-files.mdx
+      slug: generated-files
+    - page: Project layout and glossary
+      path: ./pages/reference/project-and-glossary.mdx
+      slug: project-and-glossary
+- tab: sdk
+  layout:
+  - section: SDK Reference
+    skip-slug: true
+    collapsed: open-by-default
+    contents:
+    - page: Overview
+      path: ./pages/sdk/overview.mdx
+      slug: overview
+  - section: Graph
+    slug: graph
+    collapsed: true
+    contents:
+    - page: Overview
+      path: ./pages/sdk/graph/overview.mdx
+      slug: overview
+    - page: Create and update knowledge
+      path: ./pages/sdk/graph/create-update.mdx
+      slug: create-update
+    - page: Read and serialize graph state
+      path: ./pages/sdk/graph/read.mdx
+      slug: read
+    - page: Connections and maintenance
+      path: ./pages/sdk/graph/connections.mdx
+      slug: connections
+    - page: Low-level graph operations
+      path: ./pages/sdk/graph/low-level.mdx
+      slug: low-level
+  - section: Memory
+    slug: memory
+    collapsed: true
+    contents:
+    - page: Overview
+      path: ./pages/sdk/memory/overview.mdx
+      slug: overview
+    - page: Store and find knowledge
+      path: ./pages/sdk/memory/store-find.mdx
+      slug: store-find
+    - page: Build context and search
+      path: ./pages/sdk/memory/context-search.mdx
+      slug: context-search
+  - section: Runner
+    slug: runner
+    collapsed: true
+    contents:
+    - page: Overview
+      path: ./pages/sdk/runner/overview.mdx
+      slug: overview
+    - page: Process a complete trajectory
+      path: ./pages/sdk/runner/complete.mdx
+      slug: complete
+    - page: Stream turns through a run
+      path: ./pages/sdk/runner/stream.mdx
+      slug: stream
+    - page: Finalize and read the result
+      path: ./pages/sdk/runner/finalize-result.mdx
+      slug: finalize-result
+  - section: Model client
+    slug: model-client
+    collapsed: true
+    contents:
+    - page: Overview
+      path: ./pages/sdk/model-client/overview.mdx
+      slug: overview
+    - page: Configure
+      path: ./pages/sdk/model-client/configure.mdx
+      slug: configure
+    - page: Generate responses
+      path: ./pages/sdk/model-client/generate-all.mdx
+      slug: generate
+  - section: Configuration and types
+    slug: config
+    collapsed: true
+    contents:
+    - page: Settings and data types
+      path: ./pages/sdk/config/settings-types.mdx
+      slug: settings-types
+- tab: api
+  layout:
+  - api: HTTP API
+    summary: ./pages/api/overview.mdx
+    paginated: true
+    skip-slug: true
+    tag-description-pages: true
+    display-errors: true
+navbar-links:
+- type: minimal
+  text: GitHub
+  url: https://github.com/bigai-nlco/belief-context-graph
+logo:
+  light: ./assets/favicon.svg
+  dark: ./assets/favicon.svg
+  right-text: Belief Context Graph
+  height: 29
+  href: https://github.com/bigai-nlco/belief-context-graph
+colors:
+  accent-primary:
+    light: '#b8442f'
+    dark: '#e58b79'
+  background:
+    light: '#faf7f2'
+    dark: '#171513'
+  border:
+    light: '#e8e2d8'
+    dark: '#3b332c'
+  sidebar-background:
+    light: '#ffffff'
+    dark: '#1e1a17'
+  header-background:
+    light: '#ffffff'
+    dark: '#1e1a17'
+  card-background:
+    light: '#ffffff'
+    dark: '#211c19'
+favicon: ./assets/favicon.svg
+css: styles.css
+layout:
+  content-alignment: center
+  mobile-toc: true
+settings:
+  search-text: Search BCG docs...
+  dark-mode-code: false
+  http-snippets: true

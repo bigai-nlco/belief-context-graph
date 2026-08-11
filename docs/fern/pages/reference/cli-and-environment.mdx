@@ -1,0 +1,82 @@
+---
+title: CLI and Environment
+description: Find commands and the environment variables used by the model client,
+  config loader, Agent, and Dashboard.
+icon: terminal
+---
+
+## CLI
+
+## Top-level
+
+```text
+bcg                 Open the terminal Agent
+bcg agent           Explicit Agent alias
+bcg construct       Graph construction tools
+bcg benchmark       Agent benchmark tools
+bcg setup           Interactive configuration
+bcg config          Show effective configuration
+bcg --version       Show package version
+```
+
+## Graph construction
+
+```text
+bcg construct run
+bcg construct server
+bcg construct replay
+bcg construct visualize
+```
+
+The `run`, `server`, and `replay` commands dispatch to a construction backend such as `api_based` or `light`.
+
+## Discover backend-specific flags
+
+```bash
+bcg construct run --help
+bcg construct server --help
+bcg construct replay --help
+```
+
+<Info>
+The unified Typer entry point forwards backend-specific arguments to the relevant construction command, so the exact options can differ by backend.
+</Info>
+
+## Environment variables
+
+The exact environment variables depend on which BCG surface you use.
+
+## Root-level model client defaults
+
+`LLMConfig` reads common OpenAI-compatible values including:
+
+```text
+OPENAI_API_KEY
+OPENAI_BASE_URL
+OPENAI_MODEL
+OPENAI_TIMEOUT
+OPENAI_MAX_RETRIES
+```
+
+## Unified config selection
+
+```text
+BCG_CONFIG
+```
+
+points the configuration loader at an additional YAML file in the documented precedence chain.
+
+## Dashboard development
+
+```text
+VITE_BCG_API_URL
+VITE_BCG_PROBLEM_ID
+VITE_MEMGRAPH_URI
+VITE_MEMGRAPH_LAB_URL
+```
+
+Only the first two are required for normal live BCG graph selection; Memgraph variables are devtool wiring.
+
+<Tip>
+Prefer `bcg config` over guessing which source supplied a model or backend value.
+</Tip>

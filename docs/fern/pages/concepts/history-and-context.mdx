@@ -1,0 +1,72 @@
+---
+title: Conversation History and Context
+description: Understand sessions, time, and what graph state is returned to the next
+  model call.
+icon: clock
+---
+
+BCG can span multiple turns and sessions. The same graph can then be filtered into structured context for the next task.
+
+## Conversation history and time
+
+A graph can span more than one turn and more than one logical session.
+
+## Turn
+
+A turn is one message-like unit with a role and content. HTTP turns use roles:
+
+```text
+user | assistant | system | tool
+```
+
+## Session
+
+A session groups related turns inside one run. In the Python runner you can create explicit sessions:
+
+```python
+runner.start_session("session-1", date="2026-08-11")
+await runner.observe_turn("user", "...")
+await runner.end_session()
+```
+
+If you call `observe_turn()` without first opening a session, the runner creates an implicit session.
+
+## Multi-session input
+
+The shared construction loader can flatten supported multi-session inputs. When all provided dates are parseable, sessions are sorted chronologically unless `keep_order` is requested.
+
+<Note>
+The loader does not use “scenario” as an input-shape concept. `BCGRunner` still accepts a `scenario` value as run metadata for compatibility.
+</Note>
+
+## What the agent sees
+
+`BCGMemory.context()` selects stored graph state for another task.
+
+```python
+context = memory.context(
+    task="Plan the next action",
+    focal_entities=["Acme"],
+    max_variables=100,
+)
+```
+
+Current return shape:
+
+```python
+{
+    "task": "Plan the next action",
+    "namespace": "default",
+    "beliefs": [
+        # JSON-compatible belief/decision dictionaries
+    ],
+}
+```
+
+Results are ordered by descending confidence. `focal_entities`, when supplied, filter by case-insensitive substring match against node text.
+
+<Warning>
+The current `include_conflicts` and `include_missing_evidence` parameters are accepted for compatibility but are not yet used to change the result. Do not document them as active filtering behavior.
+</Warning>
+
+For exact behavior and signature, see [`BCGMemory.context()`](/sdk/memory/context-search).

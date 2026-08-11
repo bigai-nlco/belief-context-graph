@@ -1,0 +1,44 @@
+---
+title: Reference Terminal Agent
+description: Use the bundled Agent as a ready-made example of BCG integration.
+icon: terminal
+---
+
+The terminal Agent is optional. It is useful for trying BCG and for seeing how graph context can be wired into an agent runtime.
+
+## Start
+
+Global installation:
+
+```bash
+bcg
+```
+
+Source checkout:
+
+```bash
+uv run bcg
+```
+
+`bcg agent` is an explicit alias.
+
+## Configure
+
+```bash
+bcg setup
+```
+
+Current setup state is stored under `~/.bcg`, including:
+
+```text
+~/.bcg/config.json
+~/.bcg/.env
+~/.bcg/config.yaml
+~/.bcg/agent/
+```
+
+When configured to manage the graph server, the Agent checks the local health endpoint, reuses or starts the selected construction backend, writes graph artifacts under `~/.bcg/graphs/`, and then opens the terminal UI.
+
+<Note>
+The Agent is a reference integration, not a requirement for the Python SDK or HTTP construction service.
+</Note>

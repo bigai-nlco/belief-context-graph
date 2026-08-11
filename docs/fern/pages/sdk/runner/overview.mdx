@@ -1,0 +1,21 @@
+---
+title: Runner
+description: Reference for graph-construction lifecycle orchestration.
+icon: play
+---
+
+```python
+from bcg import BCGRunner
+```
+
+A runner owns one graph-construction lifecycle at a time.
+
+<CardGroup cols={2}>
+  <Card title="Process a complete trajectory" href="/sdk/runner/complete" />
+  <Card title="Stream turns through a run" href="/sdk/runner/stream" />
+  <Card title="Finalize and read the result" href="/sdk/runner/finalize-result" />
+</CardGroup>
+
+<Info>
+A runner cannot own two active runs at once, and a finalized run cannot be finalized again.
+</Info>

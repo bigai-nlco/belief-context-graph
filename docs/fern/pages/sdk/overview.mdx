@@ -1,0 +1,43 @@
+---
+title: Python SDK Reference
+description: Look up BCG by the object you already have in your Python code.
+icon: code
+---
+
+BCG's Python SDK is an **in-process library API**. It is not a generated wrapper around the HTTP construction service, so this reference is organized around Python objects rather than HTTP verbs.
+
+<CardGroup cols={2}>
+  <Card title="Graph" icon="circle-nodes" href="/sdk/graph/overview">
+    Create, read, connect, and serialize graph state.
+  </Card>
+  <Card title="Memory" icon="brain" href="/sdk/memory/overview">
+    Store trusted knowledge, find beliefs, search, and assemble context.
+  </Card>
+  <Card title="Runner" icon="play" href="/sdk/runner/overview">
+    Build graphs from complete trajectories or streamed turns.
+  </Card>
+  <Card title="Model client" icon="microchip" href="/sdk/model-client/overview">
+    Call an OpenAI-compatible model through BCG's thin client.
+  </Card>
+</CardGroup>
+
+## Recommended imports
+
+```python
+from bcg import (
+    BCG,
+    BCGMemory,
+    BCGRunner,
+    BCGSettings,
+    LLMClient,
+    load_settings,
+)
+```
+
+## SDK Reference vs HTTP API
+
+Use **SDK Reference** when your Python process directly imports BCG.
+
+Use **HTTP API** when another process or another language talks to a running BCG construction service over `/turn`, `/graph`, `/finalize`, and related endpoints.
+
+The sidebars intentionally look similar—resource heading, then child operations—but the contract being documented is different.

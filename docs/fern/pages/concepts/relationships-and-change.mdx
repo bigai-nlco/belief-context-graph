@@ -1,0 +1,57 @@
+---
+title: Relationships and Duplicate Handling
+description: See how knowledge depends on, adds context to, conflicts with, or merges
+  into other knowledge.
+icon: share-nodes
+---
+
+After you know what the graph stores, the next useful question is how pieces of knowledge affect one another and how repeated statements are kept from filling the graph with duplicates.
+
+## Relationships
+
+Connections are directional relations between graph nodes.
+
+| Relation | Read it as | Confidence role |
+|---|---|---|
+| `depends_on` | “A depends on B” | Can support propagation when active |
+| `supplements` | “A is enriched by B” | Context only |
+| `contradicts` | “A conflicts with B” | Can reduce confidence when active |
+
+The graph can also read legacy relation names (`informs`, `extends`, `confirms`) during compatibility migration.
+
+```python
+for relation in graph.relations():
+    print(relation.from_id, relation.type, relation.to_id)
+```
+
+<Tip>
+In user-facing UI, prefer verbs such as **depends on**, **adds context**, and **conflicts with**. Reserve raw enum names for code samples and debugging.
+</Tip>
+
+## Duplicate handling
+
+Repeated conversations often restate the same idea. BCG can merge semantically duplicate nodes before later graph linking.
+
+A merge can:
+
+- choose a canonical node;
+- preserve lineage in merge metadata;
+- combine or preserve supporting information;
+- rewire relations from removed IDs to the canonical ID;
+- avoid self-relations or duplicate edges created by rewiring.
+
+## Why merge before linking?
+
+If equivalent nodes are linked independently first, the graph can accumulate redundant edges and misleading confidence paths. Canonicalizing earlier keeps downstream structure smaller and easier to audit.
+
+## Construction control
+
+The API-model runner exposes:
+
+```python
+incremental_merge=True
+incremental_merge_threshold=0.86
+verify_merge=True
+```
+
+These options apply to the relevant construction backend. See [API model construction](/guides/api-model).

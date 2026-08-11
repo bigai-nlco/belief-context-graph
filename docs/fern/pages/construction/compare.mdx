@@ -1,0 +1,25 @@
+---
+title: Choose a Construction Mode
+description: Choose between API-hosted models and the local-model pipeline.
+icon: sliders
+---
+
+BCG currently exposes two construction backends. The user-facing names below describe *how you operate them*; the code identifiers remain unchanged.
+
+| User-facing name | Code value | Best when |
+|---|---|---|
+| **API model construction** | `api_based` | You already have an OpenAI-compatible model endpoint and want the simplest setup |
+| **Local model construction** | `light` | You want a smaller/local pipeline with a separate vLLM generation endpoint and local NLP/classification components |
+
+<CardGroup cols={2}>
+  <Card title="API model construction" icon="cloud" href="/guides/api-model">
+    One OpenAI-compatible model drives node and relation generation.
+  </Card>
+  <Card title="Local model construction" icon="server" href="/guides/local-models">
+    vLLM generation plus local embeddings, classifier, and spaCy components.
+  </Card>
+</CardGroup>
+
+<Note>
+The raw backend strings `api_based` and `light` are still part of CLI and SDK contracts, so code samples use those exact values.
+</Note>

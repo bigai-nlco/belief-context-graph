@@ -1,0 +1,30 @@
+{
+  "status": "pass",
+  "manual_routes": 45,
+  "authored_mdx_pages": 46,
+  "http_endpoints": 8,
+  "top_tabs": [
+    "docs",
+    "sdk",
+    "api"
+  ],
+  "documentation_sections": [
+    "Start here",
+    "Understand BCG",
+    "Build and integrate",
+    "Inspect and operate",
+    "Reference"
+  ],
+  "sdk_sections": [
+    "SDK Reference",
+    "Graph",
+    "Memory",
+    "Runner",
+    "Model client",
+    "Configuration and types"
+  ],
+  "missing_navigation_files": [],
+  "broken_internal_links": [],
+  "bad_openapi_refs": [],
+  "css_brace_balance": 0
+}
