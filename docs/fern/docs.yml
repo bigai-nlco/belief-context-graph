@@ -34,18 +34,18 @@ navigation:
     - page: Overview
       path: ./pages/overview.mdx
       slug: overview
-    - page: Quickstart
-      path: ./pages/quickstart.mdx
-      slug: quickstart
     - page: Installation
       path: ./pages/installation.mdx
       slug: installation
-    - page: Choose an integration
-      path: ./pages/choose-an-integration.mdx
-      slug: choose-an-integration
+    - page: Quickstart
+      path: ./pages/quickstart.mdx
+      slug: quickstart
     - page: Understand your first graph
       path: ./pages/first-graph.mdx
       slug: first-graph
+    - page: Choose an integration
+      path: ./pages/choose-an-integration.mdx
+      slug: choose-an-integration
   - section: Understand BCG
     slug: concepts
     collapsed: true

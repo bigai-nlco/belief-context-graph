@@ -20,24 +20,87 @@ Source checkout:
 uv run bcg
 ```
 
-`bcg agent` is an explicit alias.
+`bcg agent` is an explicit alias for the same terminal interface.
 
-## Configure
+## First-time setup
 
-```bash
-bcg setup
-```
+On first launch, the setup guide asks for:
 
-Current setup state is stored under `~/.bcg`, including:
+<Steps>
+  <Step title="Agent authentication">
+    An OpenAI-compatible API key and base URL, or the interactive `/login` flow.
+  </Step>
+  <Step title="Agent model">
+    The model used for the terminal Agent's own reasoning.
+  </Step>
+  <Step title="Web search credentials (optional)">
+    Serper credentials, required for BrowseComp and used by the `web_search` tool.
+  </Step>
+  <Step title="Default context mode">
+    **BCG** or **Default** — see [Context modes](#context-modes-bcg-vs-default) below.
+  </Step>
+  <Step title="Graph server ownership">
+    Whether BCG should manage a local Graph Construction server or connect to an existing one.
+  </Step>
+  <Step title="Graph backend">
+    For a managed server: [API model construction](/guides/api-model) (`api_based`) or [Local model construction](/guides/local-models) (`light`).
+  </Step>
+</Steps>
 
-```text
-~/.bcg/config.json
-~/.bcg/.env
-~/.bcg/config.yaml
-~/.bcg/agent/
-```
+Run `bcg setup` at any time to change these settings.
 
-When configured to manage the graph server, the Agent checks the local health endpoint, reuses or starts the selected construction backend, writes graph artifacts under `~/.bcg/graphs/`, and then opens the terminal UI.
+## Where settings are stored
+
+| Path | Contents |
+|---|---|
+| `~/.bcg/config.json` | Agent, context, and Graph runtime choices |
+| `~/.bcg/.env` | API keys and credentials, written with `0600` permissions |
+| `~/.bcg/config.yaml` | Unified YAML settings for models, pipeline, and runner — see [Configuration](/reference/configuration) |
+| `~/.bcg/agent/` | Agent settings, authentication, and sessions |
+
+## Managed Graph Construction
+
+When a managed Graph backend is selected, `bcg` automatically:
+
+<Steps>
+  <Step title="Check health">
+    Calls `http://127.0.0.1:8848/health`.
+  </Step>
+  <Step title="Reuse or start">
+    Reuses a healthy Graph Construction server, or starts one with the selected backend and `~/.bcg/config.yaml`.
+  </Step>
+  <Step title="Write logs and artifacts">
+    Logs to `~/.bcg/logs/graph-server.log`; graph artifacts go to `~/.bcg/graphs/`.
+  </Step>
+  <Step title="Open the terminal Agent">
+    Once the Graph server reports healthy.
+  </Step>
+</Steps>
+
+To connect to Graph Construction hosted elsewhere instead of managing a local server, run `bcg setup`, choose **Connect to an existing Graph server**, and enter its URL — BCG checks and reuses that endpoint but does not start or manage it. See [Choose a construction mode](/guides/construction-modes).
+
+## Terminal commands
+
+| Command | Purpose |
+| --- | --- |
+| `/help` | Show commands and essential keyboard controls |
+| `/model` | Select the inference model |
+| `/mode` | Choose Default or BCG context before the session's first message |
+| `/login` / `/logout` | Configure or remove the model API key |
+| `/new` / `/resume` | Start or restore a BCG session |
+| `/graph` | Check Graph connectivity and context policy |
+| `/exit` | Exit BCG |
+
+## Context modes: BCG vs Default
+
+Context mode is fixed after the first user message. Use `/new` to start a session with another mode, or select one directly with `/mode bcg` / `/mode default`.
+
+- **BCG** permanently retains the initial user input and keeps the latest two completed turns as raw messages. On the first request, the system prompt and initial user input seed the Graph. Messages leaving the two-turn raw window are then added incrementally, and the current Graph is encoded into the system prompt as context. Traditional compaction is disabled in this mode.
+- **Default** uses the full normal Agent conversation with automatic compaction. Graph context is not injected.
+
+<Info>
+`BCG_RECENT_TURNS` overrides the default raw window of `2`. See [CLI and environment](/reference/cli-and-environment).
+</Info>
 
 <Note>
 The Agent is a reference integration, not a requirement for the Python SDK or HTTP construction service.

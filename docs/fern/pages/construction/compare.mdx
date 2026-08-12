@@ -23,3 +23,11 @@ BCG currently exposes two construction backends. The user-facing names below des
 <Note>
 The raw backend strings `api_based` and `light` are still part of CLI and SDK contracts, so code samples use those exact values.
 </Note>
+
+## Selecting a backend for the terminal Agent
+
+In normal Agent use, you choose a backend once during `bcg setup`, and `bcg` starts or reuses the Graph Construction HTTP server for you automatically. The manual server commands on the [API model construction](/guides/api-model) and [Local model construction](/guides/local-models) pages are for independent deployment, debugging, or running Graph Construction without the Agent.
+
+## Connect to an existing Graph server
+
+If Graph Construction is already hosted elsewhere, backend selection does not apply. Run `bcg setup`, choose **Connect to an existing Graph server**, and enter its URL. In this mode BCG checks and reuses that endpoint but does not start or manage it.

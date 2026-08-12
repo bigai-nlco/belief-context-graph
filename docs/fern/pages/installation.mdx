@@ -4,35 +4,53 @@ description: Install BCG globally or work from a source checkout.
 icon: download
 ---
 
-## Option 1: install the released command
+Core BCG — the SDK and Graph Construction — runs on Python and `uv`. The optional reference terminal Agent runs on an isolated Node.js 22.19+ runtime that is installed alongside it.
+
+BCG offers two supported installation paths, kept in lockstep with `install.sh` and the `Makefile`:
+
+| Path | Audience | Locked deps | Command |
+|---|---|---|---|
+| `install.sh` (release) | end users | `uv.lock` + `package-lock.json` | `curl .../install.sh \| sh` |
+| `make install` (source) | developers | `uv.lock` + both `package-lock.json` | `make install` |
+
+<Info>
+See ADR-0001 for the release versioning policy and the release manifest behind these two paths.
+</Info>
+
+## Option 1: install globally with curl (release)
 
 ```bash
 curl -LsSf https://raw.githubusercontent.com/bigai-nlco/belief-context-graph/main/install.sh | sh
 bcg --version
 ```
 
-The installer installs the Python and Agent runtimes from their lockfiles. The repository README requires Node.js 22.19 or newer for the Node-side Agent tooling.
+The installer requires `curl`, `tar`, npm, and Node.js 22.19 or newer. It installs `uv` when necessary, downloads the repository into a temporary directory, installs the Python and Node runtimes from their lockfiles, and then removes the temporary source.
 
-## Option 2: develop from source
+<Note>
+Download failures abort before any install step. Partial installs are detected and PATH guidance is printed.
+</Note>
+
+## Option 2: clone and run from source (development)
 
 ```bash
 git clone https://github.com/bigai-nlco/belief-context-graph.git
 cd belief-context-graph
-make install
+make install          # uv sync --locked --all-groups + agent/dashboard npm ci + agent build
+
 uv run bcg --version
 ```
 
-`make install` runs the locked Python install, installs Agent and Dashboard dependencies, and builds the Agent workspace.
-
-To expose the current checkout as the global command:
+Run the source checkout with `uv run bcg`. Optionally expose the current checkout as the global `bcg` command:
 
 ```bash
-make install-tool
+make install-tool     # uv tool install . + agent build + npm install -g ./agent-cli
 bcg --version
 ```
 
+The Node package provides the internal `bcg-agent` executable launched by `bcg`; users normally do not invoke it directly.
+
 <Info>
-The Dashboard is a separate Vite application in `dashboard/`. Source developers install its dependencies through `make install`; production deployment is separate from the `bcg` command.
+The Dashboard is a separately deployed release artifact and is not part of either install path. Source developers install its dependencies through `make install`; see `dashboard/README.md` for production deployment.
 </Info>
 
 ## Python compatibility
@@ -59,3 +77,14 @@ bcg config --json
 ```
 
 Configuration precedence is documented in [Configuration](/reference/configuration).
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Build a graph with the SDK" icon="rocket" href="/quickstart">
+    Write a few lines of Python and construct your first graph.
+  </Card>
+  <Card title="Try the reference terminal Agent" icon="terminal" href="/guides/reference-agent">
+    Launch the bundled Agent and talk to it right away.
+  </Card>
+</CardGroup>

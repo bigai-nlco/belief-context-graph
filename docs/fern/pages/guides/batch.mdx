@@ -37,16 +37,29 @@ Supported dataset-style inputs can provide `sessions` with parallel session IDs 
 
 ## CLI
 
+Process a complete saved trajectory or dataset file:
+
 ```bash
 bcg construct run api_based \
   --input data.json \
-  --config ~/.bcg/config.yaml
+  --config ~/.bcg/config.yaml \
+  --model-key graph-model
+```
+
+Replay a stream of individual turns, as if they arrived live:
+
+```bash
+bcg construct replay light \
+  --input stream.jsonl \
+  --config ~/.bcg/config.yaml \
+  --model-key graph-model
 ```
 
 Use the CLI help for backend-specific flags:
 
 ```bash
 bcg construct run --help
+bcg construct replay --help
 ```
 
 <Note>
