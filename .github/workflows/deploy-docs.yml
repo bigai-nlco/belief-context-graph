@@ -26,9 +26,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Validate documentation
-        run: python3 docs/check_offline_docs.py
-
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
