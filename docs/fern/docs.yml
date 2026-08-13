@@ -105,6 +105,9 @@ navigation:
     - page: Audit and trace a run
       path: ./pages/guides/audit-and-trace.mdx
       slug: audit-and-trace
+    - page: Evaluate with benchmarks
+      path: ./pages/guides/benchmarking.mdx
+      slug: benchmarking
     - page: Deploy and secure BCG
       path: ./pages/operations/deploy-secure.mdx
       slug: deploy-secure

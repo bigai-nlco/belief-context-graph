@@ -19,6 +19,8 @@ bcg config          Show effective configuration
 bcg --version       Show package version
 ```
 
+See [Evaluate with benchmarks](/operate/benchmarking) for `bcg benchmark run`.
+
 ## Graph construction
 
 ```text
@@ -73,6 +75,14 @@ BCG_RECENT_TURNS
 ```
 
 Overrides the number of most-recent completed turns the terminal Agent keeps as raw messages in BCG context mode. Defaults to `2`. See [Reference Terminal Agent](/guides/reference-agent).
+
+## Web search and benchmarking
+
+```text
+SERPER_API_KEY
+```
+
+Required for BrowseComp, used by HotpotQA and online GAIA research, and used by the Agent's `web_search` tool. See [Evaluate with benchmarks](/operate/benchmarking).
 
 ## Dashboard development
 
