@@ -48,6 +48,7 @@ from bcg.core.confidence import (  # noqa: F401 - compat re-exports for legacy i
     initial_confidence,
     logit,
     posterior_confidence,
+    select_independent_evidence,
     sigmoid,
     source_reliability,
     stance_quality,
@@ -149,29 +150,54 @@ def additional_evidence_from_node(
     node: dict[str, Any],
     evidence_by_id: dict[int, dict[str, Any]],
 ) -> tuple[list[int], list[dict[str, Any]]]:
-    """Return additional evidence for a node, excluding evidence_ids[0].
+    """Return independently sourced evidence added after node creation.
 
-    By design, evidence_ids[0] is the provenance evidence that created the
-    canonical belief/decision itself. It is not scored again. Every later
-    evidence id is treated as additional evidence and contributes to
-    evidence_confidence.
+    Every excerpt/sentence attached from the node's own source turn is
+    provenance for that single observation, not an independent corroboration.
+    Excluding only ``evidence_ids[0]`` made a multi-line search response count
+    as dozens of supporting observations and drove unverified snippets to
+    confidence 1.0.  Evidence from a different item/turn (normally introduced
+    when a later duplicate is merged) remains scoreable.
+
+    Old in-memory nodes may lack a usable source identity.  For those, retain
+    the historical first-id exclusion as a conservative compatibility fallback.
     """
     evidence_ids = node.get("evidence_ids") or []
-    if len(evidence_ids) <= 1:
+    if not evidence_ids:
         return [], []
+
+    node_source = node.get("source") or {}
+    node_item_id = node_source.get("item_id")
+    node_turn_id = node_source.get("turn_id")
+    has_source_identity = node_item_id is not None and node_turn_id is not None
 
     out_ids: list[int] = []
     out_records: list[dict[str, Any]] = []
-    for raw_eid in evidence_ids[1:]:
+    for index, raw_eid in enumerate(evidence_ids):
         try:
             eid = int(raw_eid)
         except (TypeError, ValueError):
             continue
         ev = evidence_by_id.get(eid)
-        if isinstance(ev, dict):
-            out_ids.append(eid)
-            out_records.append(ev)
-    return out_ids, out_records
+        if not isinstance(ev, dict):
+            continue
+
+        if has_source_identity:
+            evidence_source = ev.get("source") or {}
+            if (
+                evidence_source.get("item_id") == node_item_id
+                and evidence_source.get("turn_id") == node_turn_id
+            ):
+                continue
+        elif index == 0:
+            continue
+
+        out_ids.append(eid)
+        out_records.append(ev)
+    return select_independent_evidence(
+        zip(out_ids, out_records, strict=False),
+        contribution=evidence_contribution,
+    )
 
 
 def recompute_evidence_confidence_from_node(
@@ -221,9 +247,9 @@ def record_evidence_merge_confidence(
     """Record posterior update caused by additional evidence during a merge.
 
     The canonical node keeps its own initial_confidence as P_prior. After a
-    merge, evidence_confidence is recomputed from canonical.evidence_ids[1:] so
-    the first provenance evidence is excluded and all additional evidence is
-    included exactly once.
+    merge, evidence_confidence is recomputed from evidence whose source turn
+    differs from the canonical node's creation turn, so all creation-time
+    provenance is excluded and later independent evidence is included once.
     """
     old = float(canonical.get("confidence") or 0.0)
     old_ev_score = float(canonical.get("evidence_confidence") or 0.0)
@@ -236,9 +262,12 @@ def record_evidence_merge_confidence(
     else:
         # Backward-compatible fallback for older callers. New merge code passes
         # evidence_by_id so this branch should rarely be used.
-        scored_evidence_ids = list(added_evidence_ids)
+        scored_evidence_ids, scored_records = select_independent_evidence(
+            zip(added_evidence_ids, added_evidence_records, strict=False),
+            contribution=evidence_contribution,
+        )
         new_ev_score = round(
-            old_ev_score + sum_evidence_contributions(added_evidence_records), 6
+            old_ev_score + sum_evidence_contributions(scored_records), 6
         )
 
     canonical["evidence_confidence"] = new_ev_score

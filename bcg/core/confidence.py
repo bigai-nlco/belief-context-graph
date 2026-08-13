@@ -8,6 +8,7 @@ backend-specific initial-confidence policies remain in
 from __future__ import annotations
 
 import math
+from collections.abc import Callable, Iterable
 from typing import Any
 
 CONF_FLOOR = 0.001
@@ -40,7 +41,62 @@ def posterior_confidence(
     factor_score: float = 0.0,
 ) -> float:
     """Posterior from initial prior plus evidence and relation factor terms."""
-    return round(sigmoid(logit(initial) + evidence_score + factor_score), 3)
+    posterior = sigmoid(logit(initial) + evidence_score + factor_score)
+    # Keep the stored value inside the same representable open interval used by
+    # logit(). Rounding a value such as 0.9997 directly to three decimals used
+    # to produce an unjustified exact confidence of 1.0.
+    return round(clamp_confidence(posterior), 3)
+
+
+def select_independent_evidence(
+    evidence_items: Iterable[tuple[int, dict[str, Any]]],
+    *,
+    contribution: Callable[[dict[str, Any]], float],
+) -> tuple[list[int], list[dict[str, Any]]]:
+    """Select at most one confidence contribution per source observation.
+
+    Sentence/excerpt splitting can create many evidence records from one Agent
+    or tool turn. Those records are provenance fragments of one observation,
+    not independent corroboration. Group records by ``(item_id, turn_id)`` and
+    retain the strongest representative. Records without a complete source
+    identity keep legacy one-record-per-observation behavior.
+    """
+
+    selected: dict[
+        tuple[str, str, str] | tuple[str, int], tuple[int, dict[str, Any], float]
+    ] = {}
+    for raw_evidence_id, record in evidence_items:
+        if not isinstance(record, dict):
+            continue
+        try:
+            evidence_id = int(raw_evidence_id)
+        except (TypeError, ValueError):
+            continue
+        source = record.get("source") or {}
+        item_id = source.get("item_id") if isinstance(source, dict) else None
+        turn_id = source.get("turn_id") if isinstance(source, dict) else None
+        key: tuple[str, str, str] | tuple[str, int]
+        if item_id is not None and turn_id is not None:
+            key = ("source_turn", str(item_id), str(turn_id))
+        else:
+            key = ("evidence", evidence_id)
+        try:
+            score = float(contribution(record))
+        except (TypeError, ValueError):
+            score = 0.0
+        current = selected.get(key)
+        if (
+            current is None
+            or score > current[2]
+            or (score == current[2] and evidence_id < current[0])
+        ):
+            selected[key] = (evidence_id, record, score)
+
+    representatives = sorted(selected.values(), key=lambda value: value[0])
+    return (
+        [evidence_id for evidence_id, _, _ in representatives],
+        [record for _, record, _ in representatives],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +235,7 @@ __all__ = [
     "initial_confidence",
     "logit",
     "posterior_confidence",
+    "select_independent_evidence",
     "sigmoid",
     "source_reliability",
     "stance_quality",

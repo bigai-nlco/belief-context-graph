@@ -27,6 +27,15 @@ pipeline:
     evidence_mode: chunk
     context_chars: 12000
     min_content_len: 0
+    # llm preserves the canonical extraction/linking path. token_efficient is
+    # an opt-in deterministic path for tool messages and provenance edges.
+    construction_mode: llm
+  token_efficient:
+    max_search_results: 10
+    max_snippet_chars: 240
+    semantic_tool_results: true
+    max_facts: 3
+    max_semantic_calls: 12
   incremental_merge:
     enabled: true
     threshold: 0.76

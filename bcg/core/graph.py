@@ -127,6 +127,12 @@ class BeliefPayload(BaseModel):
     node_type: Literal["belief", "decision"] = "belief"
     belief: str = Field(..., min_length=1)
     decision: str | None = None
+    tool_name: str | None = None
+    query: str | None = None
+    tool_arguments: dict[str, Any] | None = None
+    tool_call_index: int | None = None
+    tool_call_id: str | None = None
+    extraction_method: str | None = None
     stance: BeliefStance = "asserted"
     layer: BeliefLayer
     role: str | None = None

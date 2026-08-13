@@ -129,7 +129,7 @@ BeliefGraphRunResult = RunResult
 
 # HTTP contract version (contracts/http.schema.json is the normative source;
 # contract tests assert this constant matches the file's schema_version).
-HTTP_SCHEMA_VERSION = 1
+HTTP_SCHEMA_VERSION = 2
 
 
 __all__ = [

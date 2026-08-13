@@ -113,6 +113,15 @@ class RuntimeSettings(_ForbidExtra):
     evidence_mode: Literal["sentence", "excerpt", "chunk"]
     context_chars: int = Field(ge=0)
     min_content_len: int = Field(ge=0)
+    construction_mode: Literal["llm", "token_efficient"] = "llm"
+
+
+class TokenEfficientSettings(_ForbidExtra):
+    max_search_results: int = Field(default=10, ge=1)
+    max_snippet_chars: int = Field(default=240, ge=40)
+    semantic_tool_results: bool = True
+    max_facts: int = Field(default=3, ge=1)
+    max_semantic_calls: int = Field(default=12, ge=0)
 
 
 class IncrementalMergeSettings(_ForbidExtra):
@@ -167,6 +176,7 @@ class PipelineSettings(_ForbidExtra):
     stance: StanceSettings | None = None
     edge_generation: EdgeGenerationSettings | None = None
     runtime: RuntimeSettings | None = None
+    token_efficient: TokenEfficientSettings | None = None
     incremental_merge: IncrementalMergeSettings | None = None
     entities: EntitySettings | None = None
     confidence: ConfidenceSettings | None = None

@@ -130,11 +130,20 @@ def run(
                 "system and user messages."
             ),
         ),
-    ] = 300,
+    ] = 160,
     recent_turns: Annotated[
         int,
         typer.Option(min=-1, help="Completed turns retained verbatim in BCG mode."),
     ] = 2,
+    graph_view: Annotated[
+        str,
+        typer.Option(
+            help=(
+                "Graph injection view: full preserves the original per-belief "
+                "dialogue; compact injects a bounded search ledger and evidence view."
+            )
+        ),
+    ] = "full",
     allow_graph_fallback: Annotated[
         bool,
         typer.Option(help="Score BCG tasks even when Graph falls back to raw context."),
@@ -255,6 +264,8 @@ def run(
         raise typer.BadParameter(
             "--thinking must be one of: " + ", ".join(sorted(valid_thinking))
         )
+    if graph_view not in {"full", "compact"}:
+        raise typer.BadParameter("--graph-view must be `full` or `compact`.")
 
     resolved_modes = tuple(value.strip() for value in modes.split(",") if value.strip())
     invalid_modes = set(resolved_modes) - {"default", "bcg"}
@@ -263,7 +274,7 @@ def run(
     destination = output_dir or Path("results") / "benchmarks" / time.strftime(
         "%Y%m%d-%H%M%S"
     )
-    uses_judge = "browsecomp" in canonical
+    uses_judge = bool({"browsecomp", "browsecomp_zh"} & set(canonical))
     judge = None
     if uses_judge:
         judge = LLMJudge(
@@ -289,6 +300,7 @@ def run(
         graph_timeout_ms=graph_timeout_ms,
         graph_max_turns=graph_max_turns,
         recent_turns=recent_turns,
+        graph_view=graph_view,
         allow_graph_fallback=allow_graph_fallback,
         allow_no_search=allow_no_search,
         overwrite=overwrite,

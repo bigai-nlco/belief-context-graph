@@ -9,10 +9,15 @@
 [![Python 3.11–3.13](https://img.shields.io/badge/python-3.11--3.13-blue.svg?style=flat-square)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![uv](https://img.shields.io/badge/uv-managed-6E4BF9.svg?style=flat-square)](https://docs.astral.sh/uv/)
+[![Documentation](https://img.shields.io/badge/documentation-online-0F766E.svg?style=flat-square&logo=readthedocs&logoColor=white)](https://belief-context-graph.docs.buildwithfern.com/)
 
 </div>
 
----
+<p align="center">
+  <img src="assert/benchmark_browsecomp.svg" width="49%" alt="BrowseComp full-dataset dual-axis comparison of accuracy and mean token cost per task">
+  <img src="assert/benchmark_browsecomp_zh.svg" width="49%" alt="BrowseComp-ZH full-dataset dual-axis comparison of accuracy and mean token cost per task">
+</p>
+
 ## **Why Belief Context Graph**
 **Current agent memory systems fall short.** Conversation memory preserves history. Vector memory retrieves similar fragments. GraphRAG extracts entities and relations. Trace memory records tool calls. Temporal KGs track facts over time.
 
@@ -30,11 +35,42 @@ But agents executing real tasks also need to answer **belief questions**:
 
 Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to **belief context graph**. It is a probabilistic, temporal, evidence-grounded and computational memory substrate that helps agents continuously maintain: what to believe, at what confidence, from which evidence, and whether uncertainty should block action. The result is agent memory you can query, audit, and trust.
 
-### BCG is agent-independent
+---
 
-BCG is not bound to the Agent included in this repository, or to any particular agent framework, model provider, or runtime. The graph data model, construction backends, Python SDK, and HTTP interface can be integrated into an existing agent or used to build a different one.
+<p align="center">
+  <strong><a href="#live-demo">Live Demo</a></strong> &nbsp;·&nbsp;
+  <strong><a href="#core-capabilities">Core Capabilities</a></strong> &nbsp;·&nbsp;
+  <strong><a href="#quick-start">Quick Start</a></strong> &nbsp;·&nbsp;
+  <strong><a href="#architecture">Architecture</a></strong> &nbsp;·&nbsp;
+  <strong><a href="#core-concepts">Core Concepts</a></strong> &nbsp;·&nbsp;
+  <strong><a href="#benchmarking-results">Benchmark Results</a></strong> &nbsp;·&nbsp;
+  <strong><a href="#comparison-with-existing-memory-solutions">Comparison</a></strong> &nbsp;·&nbsp;
+  <strong><a href="#contributing">Contributing</a></strong>
+</p>
 
-This repository includes a simple terminal Agent as a reference integration. It exists to give users the shortest path to testing and experiencing graph-backed context management; it is not a required part of BCG and does not define how BCG must be used. Applications may call BCG directly and keep their own agent loop, tools, UI, and context policy.
+---
+## Live Demo
+
+<div align="center">
+
+<img
+  src="assert/live_demo.gif"
+  alt="Belief Context Graph live demo"
+  width="900"
+/>
+
+</div>
+
+## Token cost across the task horizon
+
+<p align="center">
+  <a href="assert/readme_token_cost.png">
+    <img src="assert/readme_token_cost.png" width="100%" alt="Cumulative token cost">
+  </a>
+</p>
+
+- **Model calls.** The number of model calls (assistant turns) a task has made so far. Moving right means progressing deeper into the task horizon. The full-horizon figure shows the overall trend, while the accompanying zoomed-in figure focuses on the first 20 calls to make the early-phase behavior and crossover easier to see.
+- **Mean cumulative tokens per task.** Tokens summed from the first call up to and including call *k*, then averaged over all 1,200 trajectories in that mode.
 
 ## **Core capabilities:**
 
@@ -43,36 +79,6 @@ This repository includes a simple terminal Agent as a reference integration. It 
 - **Evidence Provenance:** Every belief carries exact-offset source references back to the originating conversation turn
 - **Temporal Awareness:** Run-based lifecycle with sessions and timestamps — know when each belief was formed and how it evolved
 - **Relation Linking:** Forward and backward relationship edges between beliefs, forming a casual decision graph/trace.
-
----
-
-**[Live Demo](#live-demo)** &nbsp;·&nbsp;**[Quick Start](#quick-start)** &nbsp;·&nbsp; **[Architecture](#architecture)** &nbsp;·&nbsp; **[Core Concepts](#core-concepts)** &nbsp;·&nbsp; **[Benchmarking](#benchmarking-results)** &nbsp;·&nbsp; **[Comparison](#comparison-with-existing-memory-solutions)** &nbsp;·&nbsp; **[Configuration](#configuration)** &nbsp;·&nbsp;  **[Contributing](#contributing)**
-
----
-## Live Demo
-
-<div align="center">
-
-<img
-  src="live_demo.gif"
-  alt="Belief Context Graph live demo"
-  width="900"
-/>
-
-</div>
-
-### Token cost across the task horizon
-
-<p align="center">
-  <a href="readme_token_cost.png">
-    <img src="readme_token_cost.png" width="100%" alt="Cumulative token cost">
-  </a>
-</p>
-
-- **Model calls.** The number of model calls (assistant turns) a task has made so far. Moving right means progressing deeper into the task horizon. The full-horizon figure shows the overall trend, while the accompanying zoomed-in figure focuses on the first 20 calls to make the early-phase behavior and crossover easier to see.
-- **Mean cumulative tokens per task.** Tokens summed from the first call up
-  to and including call *k*, then averaged over all 1,200 trajectories in that mode.
-
 
 ## Quick Start
 
@@ -202,6 +208,33 @@ bcg construct server unified \
 ```
 
 If that server is already healthy, a later `bcg` invocation reuses it.
+
+The `unified` backend provides two switchable construction modes under `pipeline.runtime.construction_mode` in `~/.bcg/config.yaml`:
+
+```yaml
+pipeline:
+  runtime:
+    construction_mode: llm  # canonical/default implementation
+  token_efficient:
+    max_search_results: 10
+    max_snippet_chars: 240
+    semantic_tool_results: true
+    max_facts: 3
+    max_semantic_calls: 12
+```
+
+Set the mode to `token_efficient` to parse canonical Agent tool calls and tool results in code, distill a bounded number of non-empty tool results with a short current-query-only prompt, create provenance edges deterministically, and use embedding-only merge without LLM verification. Raw tool output remains attached as evidence. After `max_semantic_calls`, later tool results automatically use the zero-LLM rule path; set `semantic_tool_results: false` to use that path from the start. Set `construction_mode` back to `llm` and restart the Graph server to restore the canonical model-extraction and model-linking implementation.
+
+The Agent graph presentation is independently switchable. `full` preserves the complete belief-and-relation dialogue view. `compact` keeps the same chat markers and selects whole beliefs under a fixed character budget. It omits the duplicated initial question but never rewrites belief text, synthesizes query/result mappings, or introduces renderer-only node concepts:
+
+```bash
+bcg benchmark run browsecomp \
+  --modes bcg \
+  --graph-view compact \
+  --recent-turns 2
+```
+
+For interactive use, set `BCG_GRAPH_VIEW=compact`; unset it or use `full` to restore the complete graph rendering.
 
 #### Option B: `hybrid`
 
@@ -386,6 +419,7 @@ OPENAI_BASE_URL=https://your-openai-compatible-server/v1
 OPENAI_API_KEY=...
 OPENAI_MODEL=your-agent-model
 SERPER_API_KEY=...  # BrowseComp, HotpotQA, and online GAIA research
+SERPER_MAX_CALLS=20 # Hard web_search budget per Agent session
 ```
 
 Then run the same selected examples in both context modes:
@@ -401,10 +435,9 @@ bcg benchmark run browsecomp gaia hotpotqa mmlu_pro \
   --output-dir results/four-benchmark-comparison
 ```
 
-Use `--thinking medium` (or another supported level) to set the Agent's
-reasoning effort for the run. This setting is independent of the Graph
-Construction model's `pipeline.extractor.enable_thinking` and
-`pipeline.edge_generation.enable_thinking` settings.
+Use `--graph-view compact` in BCG mode to inject the low-token belief projection while retaining the dialogue-style chat markers. The default is `full`, so existing runs keep the complete graph rendering unless this option is selected explicitly.
+
+Use `--thinking medium` (or another supported level) to set the Agent's reasoning effort for the run. This setting is independent of the Graph Construction model's `pipeline.extractor.enable_thinking` and `pipeline.edge_generation.enable_thinking` settings.
 
 When BCG mode is requested, the command reuses a healthy Graph Construction server or starts the configured local server in the same way as `bcg`. A BCG request that falls back to raw context is marked `graph_fallback` and excluded from accuracy by default. Use `--allow-graph-fallback` only when that behavior is intentional.
 
@@ -427,8 +460,11 @@ Every task runs in an isolated working directory. Artifacts are resumable and co
 ├── summary.json
 └── <benchmark>/<mode>/
     ├── tasks/<task-id>.json
-    └── trajectories/<task-id>.jsonl
+    ├── trajectories/<task-id>.jsonl
+    └── graph-contexts/<task-id>.jsonl  # BCG mode: exact graph text injected per request
 ```
+
+Each BCG task record links to its graph-context trace. The JSONL entries include the renderer (`full` or `compact`), graph size, character count, stream position, and exact role-marked text, making it possible to align graph injection with the following Agent action during trajectory audits.
 
 Dataset files and benchmark results are ignored by Git because task artifacts contain plaintext questions, model responses, and reference answers. Do not publish them unless the dataset's license and benchmark policy explicitly allow it.
 
@@ -444,100 +480,64 @@ The following experiments compare the built-in Agent's normal context management
 
 ### Evaluation setup
 
-- **Agent model:** GPT-5.6-luna with no thinking.
-- **Sampling:** BrowseComp was deterministically shuffled with seed 42 and truncated to 100 of 1,266 questions. MMLU-Pro and HotPotQA were deterministically shuffled and truncated to 500 questions. The base seed was 42; because they were passed as `mmlu_pro hotpotqa` in one invocation, their effective seeds were 42 and 43 respectively (`seed + benchmark index`). GAIA uses all 100 text-only questions in the 2023 validation split after applying `--gaia-text-only`, so no post-filter subsampling was required.
-- **BCG setup:** Hybrid Graph Construction backend using `Qwen3.5-4B` (thinking disabled), `all-MiniLM-L6-v2` embeddings, and `deberta-v3-large-zeroshot-v2.0` stance classification.
+- **Agent model:** GPT-5.6-luna with `thinking=low`.
+- **Datasets:** Full BrowseComp (1,266 tasks) and full BrowseComp-ZH (289 tasks); both modes evaluate the same tasks.
+- **BCG setup:** Compact Graph Context injected into the system prompt, two recent completed turns retained verbatim, GPT-5.6-luna Graph Construction with reasoning disabled, token-efficient construction, and local `all-MiniLM-L6-v2` embeddings.
 
 <table>
   <thead>
     <tr>
       <th>Benchmark</th>
-      <th>Long-horizon depth</th>
       <th>Mode</th>
       <th>Evaluated</th>
       <th>Accuracy</th>
-      <th>Agent running mean time / task</th>
-      <th>Total tokens</th>
-      <th>Mean tokens / model call</th>
+      <th>Mean Agent tokens / task</th>
+      <th>Mean Graph tokens / task</th>
+      <th>Mean total tokens / task</th>
+      <th>Token change</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td rowspan="2"><strong>MMLU-Pro</strong></td>
-      <td rowspan="2">Shallow</td>
-      <td>Default</td>
-      <td>500</td>
-      <td><strong>84.20%</strong></td>
-      <td>3.91 s</td>
-      <td>292,934</td>
-      <td>586</td>
-    </tr>
-    <tr>
-      <td>BCG</td>
-      <td>500</td>
-      <td><strong>83.60%</strong></td>
-      <td>3.88 s</td>
-      <td>348,715</td>
-      <td>697</td>
-    </tr>
-    <tr>
-      <td rowspan="2"><strong>HotPotQA</strong></td>
-      <td rowspan="2">Medium</td>
-      <td>Default</td>
-      <td>500</td>
-      <td><strong>52.20%</strong></td>
-      <td>16.31 s</td>
-      <td>7,917,922</td>
-      <td>3,859</td>
-    </tr>
-    <tr>
-      <td>BCG</td>
-      <td>500</td>
-      <td><strong>52.20%</strong></td>
-      <td>17.34 s</td>
-      <td><strong>7,299,939 (−7.80%)</strong></td>
-      <td><strong>3,370 (−12.66%)</strong></td>
-    </tr>
-    <tr>
-      <td rowspan="2"><strong>GAIA</strong></td>
-      <td rowspan="2">Medium</td>
-      <td>Default</td>
-      <td>100</td>
-      <td><strong>72.00%</strong></td>
-      <td>39.91 s</td>
-      <td>3,221,525</td>
-      <td>4,964</td>
-    </tr>
-    <tr>
-      <td>BCG</td>
-      <td>100</td>
-      <td><strong>70.00%</strong></td>
-      <td>35.95 s</td>
-      <td><strong>2,685,508 (-16.64%)</strong></td>
-      <td><strong>4,119 (−17.02%)</strong></td>
-    </tr>
-    <tr>
       <td rowspan="2"><strong>BrowseComp</strong></td>
-      <td rowspan="2">Deep</td>
       <td>Default</td>
-      <td>100</td>
-      <td><strong>57.00%</strong></td>
-      <td>114.48 s</td>
-      <td>62,084,839</td>
-      <td>35,477</td>
+      <td>1,266</td>
+      <td>33.33%</td>
+      <td>35.39K</td>
+      <td>—</td>
+      <td>35.39K</td>
+      <td>Baseline</td>
     </tr>
     <tr>
       <td>BCG</td>
-      <td>100</td>
-      <td><strong>63.00%</strong></td>
-      <td>130.81 s</td>
-      <td><strong>32,521,112 (−47.62%)</strong></td>
-      <td><strong>14,544 (−59.00%)</strong></td>
+      <td>1,266</td>
+      <td><strong>37.12%</strong></td>
+      <td>22.55K</td>
+      <td>7.10K</td>
+      <td><strong>29.64K</strong></td>
+      <td><strong>−16.23%</strong></td>
+    </tr>
+    <tr>
+      <td rowspan="2"><strong>BrowseComp-ZH</strong></td>
+      <td>Default</td>
+      <td>289</td>
+      <td>49.48%</td>
+      <td>30.84K</td>
+      <td>—</td>
+      <td>30.84K</td>
+      <td>Baseline</td>
+    </tr>
+    <tr>
+      <td>BCG</td>
+      <td>289</td>
+      <td><strong>59.17%</strong></td>
+      <td>21.55K</td>
+      <td>6.35K</td>
+      <td><strong>27.90K</strong></td>
+      <td><strong>−9.53%</strong></td>
     </tr>
   </tbody>
 </table>
-
-Long-horizon depth is the observed mean number of Agent model calls per evaluated task: `Shallow` is at most 3 calls, `Medium` is 4–10 calls, and `Deep` is more than 10 calls. `Mean tokens / model call` is total Agent tokens divided by the number of completed assistant model calls recorded in the trajectories.
 
 
 ## Comparison with Existing Memory Solutions

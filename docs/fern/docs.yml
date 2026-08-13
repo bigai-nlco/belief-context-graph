@@ -92,6 +92,9 @@ navigation:
     - page: Reference terminal Agent
       path: ./pages/reference-agent.mdx
       slug: reference-agent
+    - page: Benchmark the reference Agent
+      path: ./pages/guides/benchmarking.mdx
+      slug: benchmarking
   - section: Inspect and operate
     slug: operate
     collapsed: true

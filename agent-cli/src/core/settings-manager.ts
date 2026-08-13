@@ -15,13 +15,15 @@ export interface CompactionSettings {
 }
 
 export type ContextManagementProvider = "default" | "bcg";
+export type BcgGraphView = "full" | "compact";
 
 export interface BcgContextSettings {
 	url?: string; // default: BELIEF_GRAPH_URL or http://127.0.0.1:8848
 	recentTurns?: number; // default: 2; -1 keeps all raw turns
-	maxTurns?: number; // default: 300 Graph messages, including the system/user seed
+	maxTurns?: number; // default: 160 Graph messages, including the system/user seed
 	timeoutMs?: number; // default: 300000
 	includeRelations?: boolean; // default: true
+	graphView?: BcgGraphView; // default: "full"; compact is the low-token search-ledger view
 }
 
 export interface ContextManagementSettings {
@@ -36,7 +38,8 @@ export interface ResolvedContextManagementSettings {
 			recentTurns: number;
 			maxTurns: number;
 			timeoutMs: number;
-		includeRelations: boolean;
+			includeRelations: boolean;
+			graphView: BcgGraphView;
 	};
 }
 
@@ -836,7 +839,7 @@ export class SettingsManager {
 		const maxTurns =
 			typeof configuredMaxTurns === "number" && Number.isFinite(configuredMaxTurns)
 				? Math.max(1, Math.trunc(configuredMaxTurns))
-				: 300;
+				: 160;
 
 		return {
 			provider: settings?.provider === "bcg" ? "bcg" : "default",
@@ -846,6 +849,7 @@ export class SettingsManager {
 				maxTurns,
 				timeoutMs,
 				includeRelations: settings?.bcg?.includeRelations ?? true,
+				graphView: settings?.bcg?.graphView === "compact" ? "compact" : "full",
 			},
 		};
 	}

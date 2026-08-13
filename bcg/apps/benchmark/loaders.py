@@ -14,6 +14,7 @@ from bcg.apps.benchmark.models import BenchmarkTask
 
 BENCHMARKS = (
     "browsecomp",
+    "browsecomp_zh",
     "gaia",
     "hotpotqa",
     "mmlu_pro",
@@ -21,6 +22,7 @@ BENCHMARKS = (
 
 _DIRECTORY_CANDIDATES = {
     "browsecomp": ("browsecomp", "browse_comp", "BrowseComp"),
+    "browsecomp_zh": ("browsecomp_zh", "BrowseComp-ZH"),
     "gaia": ("gaia", "GAIA"),
     "hotpotqa": ("hotpotqa", "hotpot_qa", "HotpotQA"),
     "mmlu_pro": ("mmlu_pro", "MMLU-Pro", "MMLU_Pro"),
@@ -75,6 +77,7 @@ def load_benchmark(
     rows = _read_rows(source, split=split)
     loader = {
         "browsecomp": _load_browsecomp_rows,
+        "browsecomp_zh": _load_browsecomp_zh_rows,
         "hotpotqa": _load_hotpotqa_rows,
         "mmlu_pro": _load_mmlu_pro_rows,
     }[canonical]
@@ -218,18 +221,39 @@ def _task_id(row: dict[str, Any], prefix: str, index: int) -> str:
 
 
 def _load_browsecomp_rows(rows: list[dict[str, Any]]) -> list[BenchmarkTask]:
+    return _load_browsecomp_like_rows(rows, benchmark="browsecomp")
+
+
+def _load_browsecomp_zh_rows(rows: list[dict[str, Any]]) -> list[BenchmarkTask]:
+    return _load_browsecomp_like_rows(rows, benchmark="browsecomp_zh")
+
+
+def _load_browsecomp_like_rows(
+    rows: list[dict[str, Any]], *, benchmark: str
+) -> list[BenchmarkTask]:
     tasks = []
     for index, row in enumerate(rows):
-        question = _first(row, ("input", "question", "query", "problem"))
+        question = _first(
+            row, ("input", "question", "Question", "query", "problem")
+        )
         answers = _answers(
-            _first(row, ("ground_truth_answer", "answer", "target", "reference_answer"))
+            _first(
+                row,
+                (
+                    "ground_truth_answer",
+                    "answer",
+                    "Answer",
+                    "target",
+                    "reference_answer",
+                ),
+            )
         )
         if question is None or not answers:
             continue
         tasks.append(
             BenchmarkTask(
-                benchmark="browsecomp",
-                task_id=_task_id(row, "browsecomp", index),
+                benchmark=benchmark,
+                task_id=_task_id(row, benchmark, index),
                 question=str(question).strip(),
                 answers=answers,
                 metadata=_without(
@@ -237,10 +261,12 @@ def _load_browsecomp_rows(rows: list[dict[str, Any]]) -> list[BenchmarkTask]:
                     {
                         "input",
                         "question",
+                        "Question",
                         "query",
                         "problem",
                         "ground_truth_answer",
                         "answer",
+                        "Answer",
                         "target",
                         "reference_answer",
                     },

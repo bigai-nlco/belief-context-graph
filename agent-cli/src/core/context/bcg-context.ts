@@ -1,6 +1,7 @@
 import type { AgentMessage } from "@bigai-nlco/bcg-agent-core";
 import { BcgClient, type BcgTurnPayload } from "./bcg-client.ts";
 import type { BcgSnapshot, BcgTurn } from "./bcg-contract.types.ts";
+import type { BcgGraphView } from "../settings-manager.ts";
 import { bashExecutionToText } from "../messages.ts";
 
 const GRAPH_PREFIX =
@@ -15,6 +16,16 @@ const GRAPH_DIALOGUE_CONTEXT_GUIDE =
 	"The beliefs may contain errors or incomplete information. Use each belief's confidence to judge how trustworthy its content is, " +
 	"and do not treat any belief as verified evidence solely because it appears here. " +
 	"Use this context to avoid repeating searches that were already performed, and do not repeatedly search for the same information.\n" +
+	"</context_blocks_guide>";
+
+const COMPACT_GRAPH_DIALOGUE_CONTEXT_GUIDE =
+	"<context_blocks_guide>\n" +
+	"Earlier raw turns are omitted below. All displayed beliefs and relations come from the graph. " +
+	"Confidence ranks factual beliefs only; search-action and no-result beliefs are history, not evidence. " +
+	"`A depends_on B` means A relies on B; `supplements` is compatible context; `contradicts` is a conflict. " +
+	"Trace the leading answer through its relations. Resolve an answer-changing conflict; otherwise search only for the exact missing or lowest-confidence pivotal fact. " +
+	"Reuse recorded searches, never repeat settled or irrelevant work, and prefer a query that distinguishes candidates. " +
+	"Answer once the strongest candidate has direct support and no decisive contradiction. Preserve the exact supported value; never add unsupported precision.\n" +
 	"</context_blocks_guide>";
 
 const DIALOGUE_BOS = "<｜begin▁of▁sentence｜>";
@@ -48,10 +59,22 @@ export interface BcgContextManagerOptions {
 	maxTurns: number;
 	timeoutMs: number;
 	includeRelations: boolean;
+	graphView?: BcgGraphView;
 	getSystemPrompt: () => string;
 	getInitialUserMessage?: () => AgentMessage | undefined;
 	fetch?: typeof globalThis.fetch;
 	onWarning?: (message: string) => void;
+	onGraphContext?: (trace: BcgGraphContextTrace) => void;
+}
+
+export interface BcgGraphContextTrace {
+	view: BcgGraphView;
+	streamTurnIndex?: number;
+	nTurnsIngested?: number;
+	nNodes: number;
+	nRelations: number;
+	chars: number;
+	text: string;
 }
 
 interface SerializedMessage {
@@ -236,6 +259,15 @@ export function formatBcgMarkdown(snapshot: BcgSnapshot, includeRelations = true
 	const lines = ["## Belief Graph", "", GRAPH_PREFIX, ""];
 	for (const belief of beliefs) {
 		lines.push(`- **[${belief.id ?? "?"}]** ${belief.belief ?? ""}`);
+		if (belief.tool_name) {
+			lines.push(`  - Tool: ${belief.tool_name ?? "tool"}`);
+		}
+		if (belief.query) {
+			lines.push(`  - Query: ${belief.query}`);
+		}
+		if (belief.tool_arguments) {
+			lines.push(`  - Arguments: ${compactJson(belief.tool_arguments)}`);
+		}
 	}
 
 	const relations = includeRelations ? (snapshot.relations ?? []) : [];
@@ -262,16 +294,165 @@ interface GraphDialogueBeliefMessage {
 	id: number;
 	role: string;
 	content: string;
+	toolName: string | null;
+	query: string | null;
+	toolArguments: Record<string, unknown> | null;
 	relations: GraphDialogueRelation[];
 	confidence: number | null;
+}
+
+const COMPACT_GRAPH_CHAR_BUDGET = 8_000;
+const COMPACT_FACT_CHAR_BUDGET = 4_900;
+const COMPACT_SEARCH_CHAR_BUDGET = 1_700;
+
+function compactConfidence(belief: BcgSnapshot["beliefs"][number]): string {
+	return typeof belief.confidence === "number" ? ` (confidence ${belief.confidence.toFixed(2)})` : "";
+}
+
+function compactSourceTurn(belief: BcgSnapshot["beliefs"][number]): number {
+	return isRecord(belief.source) && typeof belief.source.turn_id === "number"
+		? belief.source.turn_id
+		: -1;
+}
+
+function isCompactSearchHistoryBelief(belief: BcgSnapshot["beliefs"][number]): boolean {
+	return (
+		belief.extraction_method === "rule_tool_call" ||
+		typeof belief.query === "string" ||
+		/^The (?:web_search|\S+ tool) (?:tool )?returned no results\.?$/i.test(belief.belief ?? "")
+	);
+}
+
+function compactFactPriority(belief: BcgSnapshot["beliefs"][number]): number {
+	const confidence = typeof belief.confidence === "number" ? belief.confidence : 0;
+	const semanticBonus = belief.extraction_method === "compact_llm_tool_result" ? 100 : 0;
+	const rawResultPenalty = belief.extraction_method === "rule_tool_result" ? -100 : 0;
+	return confidence * 1_000 + semanticBonus + rawResultPenalty;
+}
+
+function addCompactBeliefsWithinBudget(
+	ordered: BcgSnapshot["beliefs"],
+	selected: Map<number, BcgSnapshot["beliefs"][number]>,
+	lines: string[],
+	charBudget: number,
+	includeConfidence: boolean,
+): void {
+	let usedChars = 0;
+	for (const belief of ordered) {
+		if (selected.has(belief.id) || !belief.belief) continue;
+		const confidence = includeConfidence ? compactConfidence(belief) : "";
+		const line = `- [B${belief.id}] ${belief.belief}${confidence}`;
+		if (usedChars + line.length + 1 > charBudget) continue;
+		selected.set(belief.id, belief);
+		lines.push(line);
+		usedChars += line.length + 1;
+	}
+}
+
+/**
+ * Render a bounded historical-dialogue memory view without mutating the graph.
+ *
+ * This renderer is selection-only: it may omit beliefs to stay within budget,
+ * but never rewrites belief text, derives query/result mappings, summarizes
+ * tool-result metadata, or emits relations under a new label. Every displayed
+ * graph item is copied from an existing belief.
+ */
+export function formatCompactBcgDialogueContext(snapshot: BcgSnapshot, includeRelations = true): string {
+	const beliefs = Array.isArray(snapshot.beliefs) ? snapshot.beliefs : [];
+	if (beliefs.length === 0) {
+		return "";
+	}
+
+	const retained = beliefs.filter((belief) => {
+		const sourceTurn = compactSourceTurn(belief);
+		// The initial system/user seed remains verbatim in every Agent request.
+		return sourceTurn < 0 || sourceTurn > 1;
+	});
+	if (retained.length === 0) {
+		return "";
+	}
+	const facts = retained
+		.filter((belief) => !isCompactSearchHistoryBelief(belief))
+		.sort(
+			(left, right) =>
+				compactFactPriority(right) - compactFactPriority(left) ||
+				compactSourceTurn(right) - compactSourceTurn(left) ||
+				right.id - left.id,
+		);
+	const searchHistory = retained
+		.filter(isCompactSearchHistoryBelief)
+		.sort(
+			(left, right) =>
+				compactSourceTurn(right) - compactSourceTurn(left) || right.id - left.id,
+		);
+
+	const heading = "### Earlier investigation memory";
+	const selected = new Map<number, BcgSnapshot["beliefs"][number]>();
+	const lines: string[] = [];
+	if (facts.length > 0) {
+		lines.push("#### Factual beliefs");
+		addCompactBeliefsWithinBudget(
+			facts,
+			selected,
+			lines,
+			COMPACT_FACT_CHAR_BUDGET,
+			true,
+		);
+	}
+	if (searchHistory.length > 0) {
+		lines.push("", "#### Search-history beliefs");
+		addCompactBeliefsWithinBudget(
+			searchHistory,
+			selected,
+			lines,
+			COMPACT_SEARCH_CHAR_BUDGET,
+			false,
+		);
+	}
+	if (selected.size === 0) {
+		return "";
+	}
+	if (includeRelations) {
+		const selectedIds = new Set(selected.keys());
+		const relationLines = (snapshot.relations ?? [])
+			.filter((relation) => selectedIds.has(relation.from_id) && selectedIds.has(relation.to_id))
+			.sort((left, right) => left.id - right.id)
+			.map((relation) => `- [B${relation.from_id}] ${relation.type} [B${relation.to_id}]`);
+		if (relationLines.length > 0) {
+			lines.push("", "#### Retained relations");
+			let totalChars = heading.length + 1 + lines.join("\n").length;
+			for (const line of relationLines) {
+				if (totalChars + line.length + 1 > COMPACT_GRAPH_CHAR_BUDGET) break;
+				lines.push(line);
+				totalChars += line.length + 1;
+			}
+		}
+	}
+	const payload = `${heading}\n\n${lines.join("\n")}`;
+	return (
+		DIALOGUE_BOS +
+		DIALOGUE_USER +
+		payload +
+		DIALOGUE_ASSISTANT +
+		DIALOGUE_EOS
+	);
 }
 
 function formatDialogueBeliefMarkdown(message: GraphDialogueBeliefMessage): string {
 	const lines = [
 		`### Belief ${message.id}`,
 		`**Content:** ${message.content}`,
-		"**Relations:**",
 	];
+	if (message.query !== null) {
+		lines.push(`**Tool:** ${message.toolName ?? "tool"}`);
+		lines.push(`**Query:** ${message.query}`);
+	} else if (message.toolName !== null) {
+		lines.push(`**Tool:** ${message.toolName}`);
+	}
+	if (message.toolArguments !== null) {
+		lines.push(`**Arguments:** ${compactJson(message.toolArguments)}`);
+	}
+	lines.push("**Relations:**");
 	if (message.relations.length === 0) {
 		lines.push("- None");
 	} else {
@@ -305,6 +486,9 @@ export function formatBcgDialogueContext(snapshot: BcgSnapshot, includeRelations
 			id: belief.id,
 			role: beliefRole(belief),
 			content: belief.belief ?? "",
+			toolName: belief.tool_name ?? null,
+			query: belief.query ?? null,
+			toolArguments: belief.tool_arguments ?? null,
 			relations: [],
 			confidence: belief.confidence ?? null,
 		});
@@ -345,16 +529,19 @@ export class BcgContextManager {
 	private readonly maxTurns: number;
 	private readonly timeoutMs: number;
 	private readonly includeRelations: boolean;
+	private readonly graphView: BcgGraphView;
 	private readonly getSystemPrompt: () => string;
 	private readonly getInitialUserMessage?: () => AgentMessage | undefined;
 	private readonly client: BcgClient;
 	private readonly onWarning: (message: string) => void;
+	private readonly onGraphContext?: (trace: BcgGraphContextTrace) => void;
 	private readonly sentMessages = new WeakSet<object>();
 	private seeded = false;
 	private released = false;
 	private submittedTurns = 0;
 	private warned = false;
 	private graphText = "";
+	private reportableTokenUsage: Record<string, unknown> | undefined;
 	private requestReady = false;
 	private initialUserMessage: AgentMessage | undefined;
 
@@ -365,10 +552,12 @@ export class BcgContextManager {
 		this.maxTurns = Math.max(1, Math.trunc(options.maxTurns));
 		this.timeoutMs = Math.max(1, Math.trunc(options.timeoutMs));
 		this.includeRelations = options.includeRelations;
+		this.graphView = options.graphView ?? "full";
 		this.getSystemPrompt = options.getSystemPrompt;
 		this.getInitialUserMessage = options.getInitialUserMessage;
 		this.client = new BcgClient({ baseUrl: options.baseUrl, problemId: options.problemId, timeoutMs: options.timeoutMs, fetch: options.fetch });
 		this.onWarning = options.onWarning ?? ((message) => console.warn(message));
+		this.onGraphContext = options.onGraphContext;
 	}
 
 	async transform(messages: AgentMessage[], signal?: AbortSignal): Promise<AgentMessage[]> {
@@ -431,19 +620,53 @@ export class BcgContextManager {
 		if (!this.requestReady || !this.graphText) {
 			return systemPrompt;
 		}
-		return [systemPrompt, GRAPH_DIALOGUE_CONTEXT_GUIDE, this.graphText].filter(Boolean).join("\n\n");
+		const guide =
+			this.graphView === "compact" ? COMPACT_GRAPH_DIALOGUE_CONTEXT_GUIDE : GRAPH_DIALOGUE_CONTEXT_GUIDE;
+		return [systemPrompt, guide, this.graphText].filter(Boolean).join("\n\n");
 	}
 
-	async release(): Promise<Record<string, unknown> | undefined> {
+	async release(messages: AgentMessage[] = []): Promise<Record<string, unknown> | undefined> {
 		if (!this.seeded || this.released) {
 			return undefined;
 		}
 		this.released = true;
-		let tokenUsage: Record<string, unknown> | undefined;
+		// Only report construction work that could affect an Agent request. The
+		// final unsent-message ingest below exists to complete the persisted Graph
+		// (for example, by recording the final decision), but the Agent never sees
+		// that update. Its model usage therefore must not be charged to benchmark
+		// graph_usage totals.
+		const tokenUsage = this.reportableTokenUsage;
+		if (messages.length > 0) {
+			try {
+				const initialUser = this.resolveInitialUser(messages);
+				const initialKey = initialUser ? messageKey(initialUser) : undefined;
+				let removedInitial = false;
+				const unsent = messages
+					.filter((message) => {
+						if (!removedInitial && initialKey !== undefined && messageKey(message) === initialKey) {
+							removedInitial = true;
+							return false;
+						}
+						return true;
+					})
+					.map((message) => this.serialize(message))
+					.filter((message) => !this.sentMessages.has(message.message));
+				const payloads = unsent.flatMap((message) => (message.payload ? [message.payload] : []));
+				if (payloads.length > 0) {
+					const snapshot = await this.postTurns(payloads);
+					this.updateSnapshot(snapshot, false);
+				}
+				for (const message of unsent) {
+					this.sentMessages.add(message.message);
+				}
+			} catch (error) {
+				const detail = error instanceof Error ? error.message : String(error);
+				this.onWarning(`[BCG context] failed to ingest final unsent messages: ${detail}`);
+			}
+		}
 		try {
 			const snapshot = await this.client.finalize();
-			this.updateSnapshot(snapshot);
-			tokenUsage = snapshot.token_usage;
+			this.updateSnapshot(snapshot, false);
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
 			this.onWarning(`[BCG context] failed to finalize Graph session: ${detail}`);
@@ -501,7 +724,22 @@ export class BcgContextManager {
 		return snapshot;
 	}
 
-	private updateSnapshot(snapshot: BcgSnapshot): void {
-		this.graphText = formatBcgDialogueContext(snapshot, this.includeRelations);
+	private updateSnapshot(snapshot: BcgSnapshot, recordTokenUsage = true): void {
+		if (recordTokenUsage && snapshot.token_usage) {
+			this.reportableTokenUsage = snapshot.token_usage;
+		}
+		this.graphText =
+			this.graphView === "compact"
+				? formatCompactBcgDialogueContext(snapshot, this.includeRelations)
+				: formatBcgDialogueContext(snapshot, this.includeRelations);
+		this.onGraphContext?.({
+			view: this.graphView,
+			streamTurnIndex: snapshot.stream_turn_index,
+			nTurnsIngested: snapshot.n_turns_ingested,
+			nNodes: snapshot.n_nodes,
+			nRelations: snapshot.relations?.length ?? 0,
+			chars: this.graphText.length,
+			text: this.graphText,
+		});
 	}
 }
