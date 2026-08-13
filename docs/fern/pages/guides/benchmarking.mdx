@@ -1,10 +1,10 @@
 ---
 title: Evaluate with Benchmarks
-description: Run BrowseComp, GAIA, HotpotQA, and MMLU-Pro against the reference Agent in Default and BCG context modes.
+description: Run BrowseComp and BrowseComp (ZH) against the reference Agent in Default and BCG context modes.
 icon: chart-line
 ---
 
-The reference Agent can evaluate **BrowseComp**, **GAIA**, **HotpotQA**, and **MMLU-Pro** in Default mode, BCG mode, or both. The same Agent model, prompt, tool policy, task selection, and scorer are used for both modes; only context management changes. This isolates the effect of graph-backed context from every other variable.
+The reference Agent can evaluate **BrowseComp** and its Chinese-language counterpart, **BrowseComp (ZH)**, in Default mode, BCG mode, or both. The same Agent model, prompt, tool policy, task selection, and scorer are used for both modes; only context management changes. This isolates the effect of graph-backed context from every other variable.
 
 <Note>
 Benchmarking runs the bundled reference Agent, not the Python SDK or HTTP construction service directly. It is a way to evaluate BCG's effect on that Agent, not a required step for integrating BCG.
@@ -17,9 +17,7 @@ Place dataset files under one root:
 ```text
 datasets/
 ├── browse_comp/data.json
-├── gaia/2023/validation/metadata.jsonl
-├── hotpotqa/data.json
-└── mmlu_pro/data.json
+└── browse_comp_zh/data.json
 ```
 
 JSON, JSONL, and CSV are supported without extra packages. Parquet input requires:
@@ -28,7 +26,11 @@ JSON, JSONL, and CSV are supported without extra packages. Parquet input require
 uv sync --extra benchmarks
 ```
 
-Each path may instead be supplied explicitly with a repeatable `--data-file BENCHMARK=PATH` option. The loader accepts the native field names used by the official datasets, including GAIA attachments, HotpotQA `_id`, and MMLU-Pro's A–J options.
+Each path may instead be supplied explicitly with a repeatable `--data-file BENCHMARK=PATH` option.
+
+<Info>
+The official BrowseComp dataset encrypts each question and answer behind a canary string, precisely so it can be used to detect contamination in training data. Treat both variants accordingly — see the Git warning under [Output artifacts](#output-artifacts).
+</Info>
 
 ## 2. Configure the Agent and web search
 
@@ -38,23 +40,21 @@ Benchmarking reuses the same credentials as the terminal Agent. Set them in `~/.
 OPENAI_BASE_URL=https://your-openai-compatible-server/v1
 OPENAI_API_KEY=...
 OPENAI_MODEL=your-agent-model
-SERPER_API_KEY=...  # BrowseComp, HotpotQA, and online GAIA research
+SERPER_API_KEY=...  # required for BrowseComp and BrowseComp (ZH)
 ```
 
 ## 3. Run a comparison
 
 ```bash
-bcg benchmark run browsecomp gaia hotpotqa mmlu_pro \
+bcg benchmark run browsecomp browsecomp_zh \
   --modes default,bcg \
   --thinking off \
   --max-problems 100 \
   --workers 8 \
-  --gaia-split validation \
-  --gaia-text-only \
-  --output-dir results/four-benchmark-comparison
+  --output-dir results/browsecomp-comparison
 ```
 
-This runs the same selected examples in both context modes. `--gaia-split` and `--gaia-text-only` are GAIA-specific; other benchmarks ignore them.
+This runs the same selected examples in both context modes.
 
 <Info>
 Use `--thinking medium` (or another supported level) to set the Agent's reasoning effort for the run. This setting is independent of the Graph Construction model's `pipeline.extractor.enable_thinking` and `pipeline.edge_generation.enable_thinking` settings — see [Configuration](/reference/configuration).
@@ -70,16 +70,14 @@ A BCG request that falls back to raw context is marked `graph_fallback` and excl
 
 ## Scoring
 
-Scoring follows each benchmark's answer protocol:
+Both variants are scored the same way:
 
 | Benchmark | Scoring |
 | --- | --- |
 | BrowseComp | Official-style binary LLM judge |
-| GAIA validation | Normalized exact match; test is unscored because references are private |
-| HotpotQA | Answer exact match and token F1 |
-| MMLU-Pro | Exact A–J option accuracy |
+| BrowseComp (ZH) | Official-style binary LLM judge, Chinese-language questions and answers |
 
-BrowseComp uses the Agent model and endpoint as the judge by default. Override it with `--judge-model`, `--judge-base-url`, and `--judge-api-key-env`.
+Both use the Agent model and endpoint as the judge by default. Override it with `--judge-model`, `--judge-base-url`, and `--judge-api-key-env`.
 
 ## Output artifacts
 
@@ -108,7 +106,7 @@ Dataset files and benchmark results are ignored by Git because task artifacts co
 - status counts;
 - benchmark-specific metrics.
 
-Timeout, max-token, Agent error, and judge failure attempts count as incorrect in the primary accuracy; Graph fallbacks and splits without public references are excluded. A separate completed-only accuracy is retained for diagnosis.
+Timeout, max-token, Agent error, and judge failure attempts count as incorrect in the primary accuracy; Graph fallbacks are excluded. A separate completed-only accuracy is retained for diagnosis.
 
 <Info>
 See every option with `bcg benchmark run --help`. Published results from this Agent/backend setup are in the top-level [README](https://github.com/bigai-nlco/belief-context-graph#benchmarking-results).
