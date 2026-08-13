@@ -46,7 +46,6 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
   <strong><a href="#core-capabilities">Core Capabilities</a></strong> &nbsp;·&nbsp;
   <strong><a href="#quick-start">Quick Start</a></strong> &nbsp;·&nbsp;
   <strong><a href="#architecture">Architecture</a></strong> &nbsp;·&nbsp;
-  <strong><a href="#core-concepts">Core Concepts</a></strong> &nbsp;·&nbsp;
   <strong><a href="#case-study-turning-graph-uncertainty-into-a-targeted-search">Case Study</a></strong> &nbsp;·&nbsp;
   <strong><a href="#comparison-with-existing-memory-solutions">Comparison</a></strong> &nbsp;·&nbsp;
   <strong><a href="#contributing">Contributing</a></strong>
@@ -84,24 +83,10 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 - **Temporal Awareness:** Run-based lifecycle with sessions and timestamps — know when each belief was formed and how it evolved
 - **Relation Linking:** Forward and backward relationship edges between beliefs, forming a casual decision graph/trace.
 
+
 ## Quick Start
 
-Core BCG uses Python/`uv` for the SDK and Graph Construction. The optional reference terminal Agent uses Node.js 22.19+.
-
-### 1. Install BCG
-
-Choose one install path.
-
-#### Option A: install globally with curl (release)
-
-```bash
-curl -LsSf https://raw.githubusercontent.com/bigai-nlco/belief-context-graph/main/install.sh | sh
-bcg --version
-```
-
-Requires `curl`, `tar`, npm, and Node.js 22.19+. The installer uses the repository lockfiles and installs `uv` when needed.
-
-#### Option B: clone and run from source (development)
+Requires Python 3.11–3.13. The optional reference terminal Agent additionally requires Node.js 22.19+.
 
 ```bash
 git clone https://github.com/bigai-nlco/belief-context-graph.git
@@ -110,216 +95,13 @@ make install
 uv run bcg --version
 ```
 
-Optional: expose the checkout as a global command.
-
-```bash
-make install-tool
-bcg --version
-```
-
-### 2. Start the reference BCG Agent
-
-This step is optional. It launches the bundled reference Agent so you can test BCG immediately; integrating BCG into another Agent does not require using this CLI.
-
-For a curl or global installation:
-
-```bash
-bcg
-```
-
-From a source checkout:
+Launch the bundled reference Agent to try BCG immediately — integrating BCG into your own Agent does not require this CLI:
 
 ```bash
 uv run bcg
 ```
 
-On the first launch, the setup guide asks for:
-
-1. Agent authentication: an OpenAI-compatible API key and base URL, or the interactive `/login` flow.
-2. The Agent model.
-3. Optional Serper web search credentials, required for BrowseComp and used by the `web_search` tool.
-4. The default context mode: **BCG** or **Default**.
-5. Whether BCG should manage a local Graph Construction server or connect to an existing one.
-6. For a managed server, the Graph backend: **unified** or **hybrid**.
-
-The setup is saved under `~/.bcg` and works from every directory:
-
-```text
-~/.bcg/config.json        # Agent, context, and Graph runtime choices
-~/.bcg/.env               # API keys and credentials; mode 0600
-~/.bcg/config.yaml        # Unified YAML settings: models, pipeline, runner (see bcg/config/config.example.yaml)
-~/.bcg/agent/             # Agent settings, authentication, and sessions
-```
-
-Run `bcg setup` at any time to change these settings.
-
-When a managed Graph backend is selected, `bcg` automatically:
-
-1. Checks `http://127.0.0.1:8848/health`.
-2. Reuses a healthy Graph Construction server or starts one with the selected backend and `~/.bcg/config.yaml`.
-3. Writes its log to `~/.bcg/logs/graph-server.log` and graph artifacts to `~/.bcg/graphs/`.
-4. Opens the terminal Agent after the Graph server is ready.
-
-`bcg agent` is an explicit alias for the same terminal interface.
-
-The terminal exposes the following commands:
-
-| Command | Purpose |
-| --- | --- |
-| `/help` | Show commands and essential keyboard controls |
-| `/model` | Select the inference model |
-| `/mode` | Choose Default or BCG context before the session's first message |
-| `/login` / `/logout` | Configure or remove the model API key |
-| `/new` / `/resume` | Start or restore a BCG session |
-| `/graph` | Check Graph connectivity and context policy |
-| `/exit` | Exit BCG |
-
-Context mode is fixed after the first user message. Use `/new` to start a session with another mode:
-
-- **BCG** permanently retains the initial user input and keeps the latest two completed turns as raw messages. On the first request, the system prompt and initial user input seed the Graph. Messages leaving the two-turn raw window are then added incrementally. The current Graph is encoded with a dialogue context template (`<｜begin▁of▁sentence｜>`, `<｜User｜>`, and `<｜Assistant｜>` markers with Markdown belief payloads) and appended to the system prompt. Traditional compaction is disabled.
-- **Default** uses the full normal Agent conversation with automatic compaction. Graph context is not injected.
-
-Use `/mode` for the selector, or `/mode bcg` and `/mode default` directly. `BCG_RECENT_TURNS` can override the default raw window of `2`.
-
-### 3. Configure and Start Graph Construction
-
-BCG supports two construction backends. In normal Agent use, you choose one during `bcg setup` and `bcg` starts or reuses the Graph Construction HTTP server automatically. The commands below are also provided for independent deployment and debugging.
-
-#### Option A: `unified`
-
-`unified` uses one OpenAI-compatible model for graph node and relation generation. During setup, it can reuse the Agent model endpoint and API key or use a separate endpoint:
-
-```bash
-bcg setup
-# Graph server: Start and manage a local Graph server automatically
-# Graph backend: Unified
-
-bcg
-```
-
-No vLLM process is required when the configured API endpoint is already available.
-
-The equivalent manual Graph server command is:
-
-```bash
-bcg construct server unified \
-  --config ~/.bcg/config.yaml \
-  --model-key graph-model \
-  --embedding-key embedding \
-  --host 127.0.0.1 \
-  --port 8848 \
-  --output-dir ~/.bcg/graphs
-```
-
-If that server is already healthy, a later `bcg` invocation reuses it.
-
-The `unified` backend provides two switchable construction modes under `pipeline.runtime.construction_mode` in `~/.bcg/config.yaml`:
-
-```yaml
-pipeline:
-  runtime:
-    construction_mode: llm  # canonical/default implementation
-  token_efficient:
-    max_search_results: 10
-    max_snippet_chars: 240
-    semantic_tool_results: true
-    max_facts: 3
-    max_semantic_calls: 12
-```
-
-Set the mode to `token_efficient` to parse canonical Agent tool calls and tool results in code, distill a bounded number of non-empty tool results with a short current-query-only prompt, create provenance edges deterministically, and use embedding-only merge without LLM verification. Raw tool output remains attached as evidence. After `max_semantic_calls`, later tool results automatically use the zero-LLM rule path; set `semantic_tool_results: false` to use that path from the start. Set `construction_mode` back to `llm` and restart the Graph server to restore the canonical model-extraction and model-linking implementation.
-
-The Agent graph presentation is independently switchable. `full` preserves the complete belief-and-relation dialogue view. `compact` keeps the same chat markers and selects whole beliefs under a fixed character budget. It omits the duplicated initial question but never rewrites belief text, synthesizes query/result mappings, or introduces renderer-only node concepts:
-
-```bash
-bcg benchmark run browsecomp \
-  --modes bcg \
-  --graph-view compact \
-  --recent-turns 2
-```
-
-For interactive use, set `BCG_GRAPH_VIEW=compact`; unset it or use `full` to restore the complete graph rendering.
-
-#### Option B: `hybrid`
-
-`hybrid` uses:
-
-- a small generative model served through an OpenAI-compatible vLLM endpoint;
-- a local sentence-transformers embedding model;
-- a local/Hugging Face stance classifier;
-- spaCy for local language processing and entity extraction.
-
-The BCG Python installation contains the Graph-side dependencies, but it does not install or manage the separate vLLM GPU service.
-
-First create a dedicated vLLM environment:
-
-```bash
-uv venv ~/.bcg/vllm --python 3.11
-uv pip install --python ~/.bcg/vllm/bin/python vllm
-```
-
-Start vLLM in another terminal or a persistent service such as tmux:
-
-```bash
-~/.bcg/vllm/bin/vllm serve <MODEL_OR_LOCAL_PATH> \
-  --served-model-name <MODEL_NAME> \
-  --host 127.0.0.1 \
-  --port 8001 \
-  --max-model-len 10000 \
-  --max-num-seqs 8
-```
-
-Then configure BCG with:
-
-```text
-Graph server: Start and manage a local Graph server automatically
-Graph backend: Hybrid
-vLLM base URL: http://127.0.0.1:8001/v1
-Model served by vLLM: <MODEL_NAME>
-vLLM API key: EMPTY
-```
-
-`<MODEL_NAME>` must match the value passed to `--served-model-name`. After vLLM is ready, launch the Agent:
-
-```bash
-bcg
-```
-
-BCG starts the hybrid Graph Construction server at `127.0.0.1:8848`; it does not start the vLLM process. To start Graph Construction manually instead:
-
-```bash
-bcg construct server hybrid \
-  --config ~/.bcg/config.yaml \
-  --model-key graph-model \
-  --embedding-key embedding \
-  --host 127.0.0.1 \
-  --port 8848 \
-  --output-dir ~/.bcg/graphs
-```
-
-For source development, `scripts/start_vllm.sh` is also available, but it reads `VLLM_*` values from the checkout's root `.env` or explicit command-line arguments; it does not read `~/.bcg/config.yaml`.
-
-#### Connect to an existing Graph server
-
-If Graph Construction is already hosted elsewhere, run `bcg setup`, choose **Connect to an existing Graph server**, and enter its URL. In this mode BCG checks and reuses that endpoint but does not start or manage it.
-
-### 4. Run Graph Construction Without the Agent
-
-The same two backends can process saved trajectories:
-
-```bash
-bcg construct run unified \
-  --input data.json \
-  --config ~/.bcg/config.yaml \
-  --model-key graph-model
-
-bcg construct replay hybrid \
-  --input stream.jsonl \
-  --config ~/.bcg/config.yaml \
-  --model-key graph-model
-```
-
-See [bcg/README.md](bcg/README.md) for input formats, HTTP endpoints, output artifacts, and Python APIs.
+The first run walks you through model credentials, context mode, and Graph Construction backend, and saves your choices under `~/.bcg`. See the [documentation](https://belief-context-graph.docs.buildwithfern.com/) for everything else.
 
 
 ---
@@ -336,139 +118,21 @@ BCG is an optional context layer between an Agent and its model. In BCG mode, th
 
 ---
 
-## Core Concepts
-
-### Belief
-
-A belief is the fundamental unit of knowledge in BCG. Each belief carries:
-
-- **Typed payload** — structured data describing what the agent believes (facts, tool call response, reasoning steps, etc.)
-- **Confidence score** — deterministic posterior computed from the node prior, merged evidence contribution, and relation-propagated factor contribution
-- **Evidence provenance** — exact character-offset references back to the source turn
-- **Temporal metadata** — session ID, turn index, and timestamp of formation
-
-### Confidence Assessment
-
-Belief confidence is **deterministic and auditable**. The current design recomputes confidence from explicit graph fields:
-
-```text
-confidence = sigmoid(
-  logit(initial_confidence)
-  + evidence_confidence
-  + factor_confidence
-)
-```
-
-| Component | What It Measures |
-|---|---|
-| `initial_confidence` | The node prior derived from source reliability and stance quality |
-| `evidence_confidence` | Additional evidence contribution accumulated when duplicate evidence is merged into a canonical node |
-| `factor_confidence` | Relation-propagated support or contradiction from active `depends_on` and `contradicts` edges |
-
-`depends_on` relations contribute positive factor confidence, `contradicts` relations contribute negative factor confidence, and `supplements` relations are semantic-only and do not propagate confidence. Confidence propagation is controlled by relation `weight`, `activated_condition.input_conf_threshold`, `propagation_min_confidence_delta`, and `max_propagation_iterations` in the model config. No model-generated confidence score is accepted directly into the graph.
-
-### Evidence
-
-Every belief links to its source via **exact character-offset provenance** (`bcg.belief_graph.evidence`). You can trace any belief back to the precise span of text in the original conversation that produced it.
-
-### Relations
-
-Beliefs connect through typed, directed edges:
-
-- **Forward relations** — a belief implies, causes, or supports another
-- **Backward relations** — a belief is implied by, caused by, or supported by another
-
-Relations are validated during linking to ensure graph consistency.
-
-### Run Lifecycle
-
-A **run** (`BCGRunner`) is the top-level lifecycle orchestrator. Each run contains one or more **sessions**, and each session contains a sequence of **turns** (user/assistant messages). The runner tracks run IDs, session boundaries, and output paths — giving you full temporal and structural context for every belief.
-
----
-
 ## Benchmark Adapter
 
-The reference Agent can evaluate **BrowseComp**, **GAIA**, **HotpotQA**, and **MMLU-Pro** in Default mode, BCG mode, or both. The same Agent model, prompt, tool policy, task selection, and scorer are used for both modes; only context management changes.
-
-Prepare the data under one root:
-
-```text
-datasets/
-├── browse_comp/data.json
-├── gaia/2023/validation/metadata.jsonl
-├── hotpotqa/data.json
-└── mmlu_pro/data.json
-```
-
-JSON, JSONL, and CSV are supported without extra packages. Parquet input requires:
+The reference Agent can be evaluated head-to-head in Default mode vs. BCG mode against **BrowseComp** and **BrowseComp (ZH)**, using the same Agent model, prompt, and scorer in both modes — isolating the effect of graph-backed context from every other variable.
 
 ```bash
-uv sync --extra benchmarks
+bcg benchmark run browsecomp browsecomp_zh --modes default,bcg \
+    --thinking off \
+    --max-problems 100 \
+    --workers 8 \
+    --output-dir results/browsecomp-comparison
 ```
 
-Each path may instead be supplied explicitly with a repeatable `--data-file BENCHMARK=PATH` option. The loader accepts the native field names used by the official datasets, including GAIA attachments, HotpotQA `_id`, and MMLU-Pro's A–J options.
+See [Evaluate with benchmarks](https://belief-context-graph.docs.buildwithfern.com/operate/benchmarking) in the documentation for dataset setup, scoring, output artifacts, and every `bcg benchmark run` option.
 
-Configure the Agent and web search in `~/.bcg/.env` or the current environment:
-
-```bash
-OPENAI_BASE_URL=https://your-openai-compatible-server/v1
-OPENAI_API_KEY=...
-OPENAI_MODEL=your-agent-model
-SERPER_API_KEY=...  # BrowseComp, HotpotQA, and online GAIA research
-SERPER_MAX_CALLS=20 # Hard web_search budget per Agent session
-```
-
-Then run the same selected examples in both context modes:
-
-```bash
-bcg benchmark run browsecomp gaia hotpotqa mmlu_pro \
-  --modes default,bcg \
-  --thinking off \
-  --max-problems 100 \
-  --workers 8 \
-  --gaia-split validation \
-  --gaia-text-only \
-  --output-dir results/four-benchmark-comparison
-```
-
-Use `--graph-view compact` in BCG mode to inject the low-token belief projection while retaining the dialogue-style chat markers. The default is `full`, so existing runs keep the complete graph rendering unless this option is selected explicitly.
-
-Use `--thinking medium` (or another supported level) to set the Agent's reasoning effort for the run. This setting is independent of the Graph Construction model's `pipeline.extractor.enable_thinking` and `pipeline.edge_generation.enable_thinking` settings.
-
-When BCG mode is requested, the command reuses a healthy Graph Construction server or starts the configured local server in the same way as `bcg`. A BCG request that falls back to raw context is marked `graph_fallback` and excluded from accuracy by default. Use `--allow-graph-fallback` only when that behavior is intentional.
-
-Scoring follows each benchmark's answer protocol:
-
-| Benchmark | Scoring |
-| --- | --- |
-| BrowseComp | Official-style binary LLM judge |
-| GAIA validation | Normalized exact match; test is unscored because references are private |
-| HotpotQA | Answer exact match and token F1 |
-| MMLU-Pro | Exact A–J option accuracy |
-
-BrowseComp uses the Agent model and endpoint as the judge by default. Override it with `--judge-model`, `--judge-base-url`, and `--judge-api-key-env`.
-
-Every task runs in an isolated working directory. Artifacts are resumable and contain:
-
-```text
-<output-dir>/
-├── run.json
-├── summary.json
-└── <benchmark>/<mode>/
-    ├── tasks/<task-id>.json
-    ├── trajectories/<task-id>.jsonl
-    └── graph-contexts/<task-id>.jsonl  # BCG mode: exact graph text injected per request
-```
-
-Each BCG task record links to its graph-context trace. The JSONL entries include the renderer (`full` or `compact`), graph size, character count, stream position, and exact role-marked text, making it possible to align graph injection with the following Agent action during trajectory audits.
-
-Dataset files and benchmark results are ignored by Git because task artifacts contain plaintext questions, model responses, and reference answers. Do not publish them unless the dataset's license and benchmark policy explicitly allow it.
-
-`summary.json` separates Agent input, output, cache-read, cache-write, reasoning, and total tokens. Judge input/output tokens are reported separately when the judge endpoint returns usage. It also records wall time, tool/search calls, model-reported Agent cost, status counts, and benchmark-specific metrics. Timeout, max-token, Agent error, and judge failure attempts count as incorrect in the primary accuracy; Graph fallbacks and splits without public references are excluded. A separate completed-only accuracy is retained for diagnosis. See every option with:
-
-```bash
-bcg benchmark run --help
-```
+---
 
 ## Case Study: Turning graph uncertainty into a targeted search
 
