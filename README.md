@@ -47,6 +47,7 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
   <strong><a href="#quick-start">Quick Start</a></strong> &nbsp;·&nbsp;
   <strong><a href="#architecture">Architecture</a></strong> &nbsp;·&nbsp;
   <strong><a href="#core-concepts">Core Concepts</a></strong> &nbsp;·&nbsp;
+  <strong><a href="#case-study-turning-graph-uncertainty-into-a-targeted-search">Case Study</a></strong> &nbsp;·&nbsp;
   <strong><a href="#comparison-with-existing-memory-solutions">Comparison</a></strong> &nbsp;·&nbsp;
   <strong><a href="#contributing">Contributing</a></strong>
 </p>
@@ -325,21 +326,13 @@ See [bcg/README.md](bcg/README.md) for input formats, HTTP endpoints, output art
 
 ## Architecture
 
-The belief graph construction pipeline processes each conversation turn incrementally. Merge runs before relation linking so edges are created against the surviving canonical nodes:
+BCG is an optional context layer between an Agent and its model. In BCG mode, the initial user input and recent completed turns remain in the raw context, while older completed turns stream into Graph Construction; the resulting belief snapshot is then injected into the system prompt. Both the HTTP service and the Python SDK use the same backend registry, construction pipeline, confidence semantics, and graph artifacts.
 
-```text
-Turn input ──▶ Split / chunk ──▶ Extract nodes + initialize confidence ──▶ Merge ──▶ Link relations ──▶ Propagate relation confidence ──▶ BCG graph
-```
-
-| Stage | Actual implementation | Description |
-|---|---|---|
-| **Segmentation** | `bcg.construct.unified.split.split_sentences` / `bcg.construct.hybrid.split.semantic_chunks_isolating_tool_calls` | Splits a turn into sentence evidence (`unified`) or optional semantic chunks with isolated tool calls (`hybrid`) |
-| **Extraction** | `bcg.construct.unified.extract.extract_nodes` / `bcg.construct.hybrid.extractor.QwenChunkExtractor.extract_turn` | Extracts belief and decision nodes from the current turn |
-| **Confidence** | `bcg.construct.unified.confidence.init_belief_confidence` / `bcg.construct.hybrid.confidence.init_belief_confidence` | Initializes `initial_confidence` from source role and stance; later merged evidence updates `evidence_confidence`, and active relations update `factor_confidence` |
-| **Merge** | `bcg.construct.unified.merge.run_merge_pass` / `bcg.construct.hybrid.merge.run_merge_pass` | Deduplicates belief nodes before relation generation and rewires existing relation endpoints |
-| **Linking** | `bcg.construct.unified.extract.extract_relations` / `bcg.construct.hybrid.edge_generation.QwenEdgeGenerator.generate_window` | Generates, validates, and adds typed relations between surviving nodes; confidence-carrying edges include `weight` and `activated_condition`, while `supplements` keeps both fields as `null` |
-
-`BCGRunner` is the public orchestration layer. It delegates each run to the selected backend's `StreamingTrajectorySession`, whose `StreamingBeliefBuilder` executes the stages above. `BCGMemory` is the user-facing memory facade for manually observing already-formed beliefs and reading or searching the resulting graph; it does not implement the construction stages itself. Context budgets, merge strategy, run IDs, and output paths are configured explicitly through `BCGRunner` and backend options.
+<p align="center">
+  <a href="assert/architecture.svg">
+    <img src="assert/architecture.svg" width="100%" alt="BCG architecture: Agent context management and Python SDK feed unified or hybrid Graph Construction backends, which share an incremental belief graph pipeline and return Graph snapshots to the Agent system prompt">
+  </a>
+</p>
 
 ---
 
@@ -476,6 +469,45 @@ Dataset files and benchmark results are ignored by Git because task artifacts co
 ```bash
 bcg benchmark run --help
 ```
+
+## Case Study: Turning graph uncertainty into a targeted search
+
+This BrowseComp case shows how BCG can influence an Agent's next action, rather than simply supplying retrieved text.
+
+> **Task**
+>
+> Identify a 1940s short story from clues involving a man in sandals, a stamp collector, and a 64-page magazine published by a company whose name contains *Pendulum*.
+
+> **Graph state**
+>
+> After several searches, the Agent's system context contained two high-confidence beliefs pointing toward a candidate, but neither belief directly established the distinctive plot connection:
+>
+> ```text
+> [B72] A 1946 pulp-fiction listing identifies "White Mouse" as by Thornton Ayre, the pen name associated with John Russell Fearn. (confidence 0.98)
+>
+> [B73] A search result for The Multi-Man by John Russell Fearn mentions a white mouse being given the correct treatment. (confidence 0.98)
+> ```
+
+> **Agent decision**
+>
+> Graph decision: The leading candidate is “White Mouse” (B72/B73), while the plot evidence is indirect; I’ll search the distinctive breath/death wording to test that candidate against alternatives.
+>
+> **Tool call**
+>
+> ```json
+> {
+>   "name": "web_search",
+>   "arguments": {"query": "\"stamp collector's breath\" story"}
+> }
+> ```
+
+**What BCG contributed**
+
+The Agent did not treat `confidence 0.98` as proof that the candidate was correct. It separated confidence in the recorded metadata from confidence in the missing plot-level connection, cited the beliefs behind its current hypothesis, and searched for the exact evidence needed to distinguish that hypothesis from alternatives. The resulting Graph-to-action path is explicit and auditable.
+
+The displayed statement is a concise decision summary emitted for this case study, not the model's private chain-of-thought.
+
+<sub>This diagnostic trace demonstrates observability rather than answer quality; the task's final answer was incorrect.</sub>
 
 ## Comparison with Existing Memory Solutions
 
