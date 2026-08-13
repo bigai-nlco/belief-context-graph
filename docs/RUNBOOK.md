@@ -15,6 +15,7 @@ Edit:
 ```text
 docs/fern/pages/**/*.mdx
 docs/fern/openapi.yml
+docs/fern/apis/sdk-reference/openapi.yml
 docs/fern/docs.yml
 docs/fern/styles.css
 ```
@@ -63,6 +64,30 @@ fern/openapi.yml
 ```
 
 The HTTP API pages are generated from that specification.
+
+### Change SDK Reference content
+
+Update:
+
+```text
+fern/apis/sdk-reference/openapi.yml
+```
+
+The SDK Reference tab is generated from this specification, not from hand-authored
+MDX. Each Python method is modeled as a synthetic endpoint (for example `POST
+/graph/add-node` for `BCG.add_node`) with an `x-bcg-python-symbol` annotation and
+an `x-fern-examples` Python code sample. `x-fern-explorer: false` keeps the
+"Try it" playground disabled, since these are not real network endpoints.
+
+<Warning>
+`fern/pages/sdk/` no longer exists. It held the previous hand-authored SDK
+pages (Graph / Memory / Runner / Model client / Configuration overviews and
+sub-pages) and was removed once `docs.yml` switched the `sdk` tab over to the
+generated `sdk-reference` API. Do not recreate files under that path — edit
+`fern/apis/sdk-reference/openapi.yml` instead, and update the matching
+`layout` entries under the `sdk` tab in `fern/docs.yml` if you add or rename
+an endpoint/section.
+</Warning>
 
 ## Run BCG while viewing live graph docs examples
 

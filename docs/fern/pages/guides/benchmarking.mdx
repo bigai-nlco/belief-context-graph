@@ -1,72 +1,115 @@
 ---
-title: Benchmark the reference Agent
-description: Compare Default and BCG context modes with reproducible task, token, latency, and graph traces.
-icon: gauge
+title: Evaluate with Benchmarks
+description: Run BrowseComp, GAIA, HotpotQA, and MMLU-Pro against the reference Agent in Default and BCG context modes.
+icon: chart-line
 ---
 
-The benchmark adapter runs supported datasets through the bundled Agent and writes resumable task records, trajectories, Graph context traces, and aggregate metrics.
+The reference Agent can evaluate **BrowseComp**, **GAIA**, **HotpotQA**, and **MMLU-Pro** in Default mode, BCG mode, or both. The same Agent model, prompt, tool policy, task selection, and scorer are used for both modes; only context management changes. This isolates the effect of graph-backed context from every other variable.
 
-## Basic command
+<Note>
+Benchmarking runs the bundled reference Agent, not the Python SDK or HTTP construction service directly. It is a way to evaluate BCG's effect on that Agent, not a required step for integrating BCG.
+</Note>
+
+## 1. Prepare the datasets
+
+Place dataset files under one root:
+
+```text
+datasets/
+├── browse_comp/data.json
+├── gaia/2023/validation/metadata.jsonl
+├── hotpotqa/data.json
+└── mmlu_pro/data.json
+```
+
+JSON, JSONL, and CSV are supported without extra packages. Parquet input requires:
 
 ```bash
-bcg benchmark run hotpotqa \
-  --data-root datasets \
+uv sync --extra benchmarks
+```
+
+Each path may instead be supplied explicitly with a repeatable `--data-file BENCHMARK=PATH` option. The loader accepts the native field names used by the official datasets, including GAIA attachments, HotpotQA `_id`, and MMLU-Pro's A–J options.
+
+## 2. Configure the Agent and web search
+
+Benchmarking reuses the same credentials as the terminal Agent. Set them in `~/.bcg/.env` (written by `bcg setup`) or the current environment:
+
+```bash
+OPENAI_BASE_URL=https://your-openai-compatible-server/v1
+OPENAI_API_KEY=...
+OPENAI_MODEL=your-agent-model
+SERPER_API_KEY=...  # BrowseComp, HotpotQA, and online GAIA research
+```
+
+## 3. Run a comparison
+
+```bash
+bcg benchmark run browsecomp gaia hotpotqa mmlu_pro \
   --modes default,bcg \
-  --model "$OPENAI_MODEL" \
-  --base-url "$OPENAI_BASE_URL" \
-  --output-dir results/hotpotqa-comparison
+  --thinking off \
+  --max-problems 100 \
+  --workers 8 \
+  --gaia-split validation \
+  --gaia-text-only \
+  --output-dir results/four-benchmark-comparison
 ```
 
-The exact benchmark names and options are exposed by:
+This runs the same selected examples in both context modes. `--gaia-split` and `--gaia-text-only` are GAIA-specific; other benchmarks ignore them.
 
-```bash
-bcg benchmark run --help
-```
+<Info>
+Use `--thinking medium` (or another supported level) to set the Agent's reasoning effort for the run. This setting is independent of the Graph Construction model's `pipeline.extractor.enable_thinking` and `pipeline.edge_generation.enable_thinking` settings — see [Configuration](/reference/configuration).
+</Info>
 
-## Important controls
+## How BCG mode reaches the Graph server
 
-| Option | Purpose |
-|---|---|
-| `--modes` | Comma-separated `default,bcg` |
-| `--max-problems` | Limit examples; `0` means all |
-| `--task-ids` | Select exact task IDs |
-| `--shuffle` / `--no-shuffle` | Control selection order before truncation |
-| `--workers` | Concurrent Agent processes |
-| `--timeout` | Per-task timeout; `0` disables it |
-| `--graph-url` | Graph server used in BCG mode |
-| `--graph-max-turns` | Maximum Agent messages in a task |
-| `--recent-turns` | Completed raw turns retained in BCG mode |
-| `--graph-view` | `full` Graph dialogue or bounded `compact` belief projection |
-| `--allow-graph-fallback` | Score tasks that fell back to raw context |
-| `--overwrite` | Rerun existing task artifacts |
+When BCG mode is requested, the command reuses a healthy Graph Construction server or starts the configured local server the same way `bcg` does — see [Managed Graph Construction](/guides/reference-agent#managed-graph-construction).
 
-## Compare modes fairly
+<Warning>
+A BCG request that falls back to raw context is marked `graph_fallback` and excluded from accuracy by default. Use `--allow-graph-fallback` only when that behavior is intentional; otherwise a struggling Graph server will silently understate BCG's effect rather than fail loudly.
+</Warning>
 
-Keep the Agent model, endpoint, tools, selected tasks, timeout, reasoning effort, and judge model constant. Change only the context mode and the BCG policy being evaluated.
+## Scoring
 
-```bash
-bcg benchmark run browsecomp \
-  --modes default,bcg \
-  --graph-view compact \
-  --recent-turns 2 \
-  --workers 4 \
-  --output-dir results/browsecomp-comparison
-```
+Scoring follows each benchmark's answer protocol:
 
-`compact` retains whole beliefs under a fixed character budget. It does not rewrite belief text or introduce renderer-only graph concepts. `full` remains the default for backward-compatible runs.
+| Benchmark | Scoring |
+| --- | --- |
+| BrowseComp | Official-style binary LLM judge |
+| GAIA validation | Normalized exact match; test is unscored because references are private |
+| HotpotQA | Answer exact match and token F1 |
+| MMLU-Pro | Exact A–J option accuracy |
+
+BrowseComp uses the Agent model and endpoint as the judge by default. Override it with `--judge-model`, `--judge-base-url`, and `--judge-api-key-env`.
 
 ## Output artifacts
 
+Every task runs in an isolated working directory. Artifacts are resumable and contain:
+
 ```text
-results/<run>/
+<output-dir>/
 ├── run.json
 ├── summary.json
 └── <benchmark>/<mode>/
     ├── tasks/<task-id>.json
-    ├── trajectories/<task-id>.jsonl
-    └── graph-contexts/<task-id>.jsonl
+    └── trajectories/<task-id>.jsonl
 ```
 
-BCG Graph context traces record the renderer, Graph size, character count, stream position, and exact role-marked text injected into each model request. Align them with the Agent trajectory to audit whether later actions used information retained from evicted turns.
+<Warning>
+Dataset files and benchmark results are ignored by Git because task artifacts contain plaintext questions, model responses, and reference answers. Do not publish them unless the dataset's license and benchmark policy explicitly allow it.
+</Warning>
 
-Measure accuracy together with cumulative token use, latency, Graph construction cost, Graph fallback rate, search calls, contradiction and merge behavior, decision traces, and evidence grounding.
+## Reading `summary.json`
+
+`summary.json` separates Agent input, output, cache-read, cache-write, reasoning, and total tokens. Judge input/output tokens are reported separately when the judge endpoint returns usage. It also records:
+
+- wall time;
+- tool/search call counts;
+- model-reported Agent cost;
+- status counts;
+- benchmark-specific metrics.
+
+Timeout, max-token, Agent error, and judge failure attempts count as incorrect in the primary accuracy; Graph fallbacks and splits without public references are excluded. A separate completed-only accuracy is retained for diagnosis.
+
+<Info>
+See every option with `bcg benchmark run --help`. Published results from this Agent/backend setup are in the top-level [README](https://github.com/bigai-nlco/belief-context-graph#benchmarking-results).
+</Info>

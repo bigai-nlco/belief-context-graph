@@ -1,57 +1,69 @@
 ---
-title: HTTP API
-description: Use BCG as a language-neutral graph construction service.
-icon: server
+title: Belief Context Graph
+description: Turn agent trajectories into inspectable knowledge, decisions, evidence,
+  confidence, and relationships.
+icon: brain
 ---
 
-The HTTP service keeps one active construction session per `problem_id` and exposes graph construction, graph access, and lifecycle operations.
+BCG adds an **auditable belief layer** to an agent or application. It converts a trajectory into structured knowledge that can be inspected, queried, updated, and traced back to its source.
 
-## Local base URL
+Most memory systems are optimized for retrieval: *what was said, what is similar, what is related?* BCG focuses on the next questions:
 
-```text
-http://127.0.0.1:8848
-```
+- What does the system currently believe?
+- How confident is it?
+- Which source text supports it?
+- What depends on or contradicts it?
+- Which conclusion or decision did the agent reach?
+- What should be passed back into the next model call?
 
-## Typical lifecycle
+<CardGroup cols={2}>
+  <Card title="Get a graph in minutes" icon="rocket" href="/quickstart">
+    Install BCG, configure a model, and construct your first graph.
+  </Card>
+  <Card title="Choose how to integrate" icon="route" href="/choose-an-integration">
+    Use Python, the HTTP service, saved inputs, or the reference Agent.
+  </Card>
+  <Card title="Learn the data model" icon="circle-nodes" href="/concepts/overview">
+    Understand stored knowledge, confidence, evidence, connections, and time.
+  </Card>
+  <Card title="Look up a method" icon="code" href="/sdk">
+    Jump directly to one Python SDK class or method.
+  </Card>
+</CardGroup>
+
+## What BCG produces
+
+A completed run can contain:
+
+- **knowledge nodes** for beliefs and decisions;
+- **source information** that links a node back to the trajectory;
+- **confidence state and history**;
+- **typed connections** between nodes;
+- **merge history** for duplicate or near-duplicate knowledge;
+- **session and timing metadata**;
+- **JSON and JSONL artifacts** for inspection, replay, or downstream processing.
+
+<Note>
+BCG is not an agent framework and does not require the bundled terminal Agent. You can use the Python SDK or HTTP service beneath your own runtime.
+</Note>
+
+## Pick the shortest path
 
 <Steps>
-  <Step title="Check health">
-    Call `GET /health` and verify `schema_version`.
+  <Step title="Install">
+    Start with [Installation](/installation).
   </Step>
-  <Step title="Send input">
-    Use `POST /turn` for one turn, `POST /turns` for a batch/NDJSON stream, or `POST /input` for a complete supported input.
+  <Step title="Build one graph">
+    Follow [Quickstart](/quickstart) with the API-model construction mode.
   </Step>
-  <Step title="Read the current graph">
-    Call `GET /graph?problem_id=...`.
+  <Step title="Inspect the result">
+    Read [Understand your first graph](/first-graph) or generate an HTML visualization.
   </Step>
-  <Step title="Finalize">
-    Call `POST /finalize` when the trajectory is complete.
-  </Step>
-  <Step title="Release memory when appropriate">
-    Call `POST /release` to remove the in-process session. Persisted output files are not deleted.
+  <Step title="Integrate">
+    Choose [Python](/guides/python), [HTTP streaming](/guides/http-streaming), or [batch input](/guides/batch).
   </Step>
 </Steps>
 
-## Contract
+## Project boundaries
 
-The current wire contract uses:
-
-```text
-schema_version: 1
-```
-
-Turn roles are:
-
-```text
-assistant | system | tool | user
-```
-
-Common error bodies use:
-
-```json
-{"error": "description"}
-```
-
-<Info>
-The endpoint pages in this tab are generated from `fern/openapi.yml`, which was reconstructed from the repository's `contracts/http.schema.json` and `bcg/apps/online_server.py`.
-</Info>
+BCG persists run artifacts to files and keeps active HTTP construction sessions in process memory. The repository does not provide a production graph-database adapter, distributed session coordinator, or hosted control plane. Add those infrastructure concerns around BCG when your deployment needs them.

@@ -7,7 +7,8 @@ icon: python
 The usual in-process stack is:
 
 ```python
-from bcg import BCG, BCGMemory, BCGRunner, LLMClient
+from bcg import BCG, BCGMemory, BCGRunner
+from bcg.core.llm import LLMClient
 
 memory = BCGMemory(graph=BCG())
 runner = BCGRunner(
@@ -52,8 +53,8 @@ context = result.graph.to_memory_dict()
 ```
 
 <CardGroup cols={2}>
-  <Card title="Runner lifecycle" href="/sdk/runner/overview" icon="play" />
-  <Card title="Memory methods" href="/sdk/memory/overview" icon="brain" />
-  <Card title="Graph methods" href="/sdk/graph/overview" icon="circle-nodes" />
-  <Card title="Model client" href="/sdk/model-client/overview" icon="microchip" />
+  <Card title="Runner lifecycle" href="/sdk/construction/start-run" icon="play" />
+  <Card title="Memory methods" href="/sdk/memory/observe-belief" icon="brain" />
+  <Card title="Graph methods" href="/sdk/graph/add-node" icon="circle-nodes" />
+  <Card title="Model client" href="/sdk/model/generate-response" icon="microchip" />
 </CardGroup>

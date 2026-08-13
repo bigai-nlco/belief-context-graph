@@ -98,10 +98,6 @@ Context mode is fixed after the first user message. Use `/new` to start a sessio
 - **BCG** permanently retains the initial user input and keeps the latest two completed turns as raw messages. On the first request, the system prompt and initial user input seed the Graph. Messages leaving the two-turn raw window are then added incrementally, and the current Graph is encoded into the system prompt as context. Traditional compaction is disabled in this mode.
 - **Default** uses the full normal Agent conversation with automatic compaction. Graph context is not injected.
 
-The default `full` Graph view renders the complete belief-and-relation dialogue using role-marked chat tokens. Set `BCG_GRAPH_VIEW=compact` for a bounded projection that preserves the same dialogue markers, copies selected belief text and confidence directly from the Graph, and omits the initial question because that user message is already retained verbatim. Compact rendering does not synthesize query/result mappings or introduce renderer-only node types.
-
-Benchmark runs can select the same presentation explicitly with `--graph-view full` or `--graph-view compact`. See [Benchmark the reference Agent](/guides/benchmarking).
-
 <Info>
 `BCG_RECENT_TURNS` overrides the default raw window of `2`. See [CLI and environment](/reference/cli-and-environment).
 </Info>
@@ -109,3 +105,7 @@ Benchmark runs can select the same presentation explicitly with `--graph-view fu
 <Note>
 The Agent is a reference integration, not a requirement for the Python SDK or HTTP construction service.
 </Note>
+
+## See also
+
+[Evaluate with benchmarks](/operate/benchmarking) runs this same terminal Agent against BrowseComp, GAIA, HotpotQA, and MMLU-Pro to measure BCG mode against Default mode.

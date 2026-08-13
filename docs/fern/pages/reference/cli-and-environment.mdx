@@ -19,6 +19,8 @@ bcg config          Show effective configuration
 bcg --version       Show package version
 ```
 
+See [Evaluate with benchmarks](/operate/benchmarking) for `bcg benchmark run`.
+
 ## Graph construction
 
 ```text
@@ -28,7 +30,7 @@ bcg construct replay
 bcg construct visualize
 ```
 
-The `run`, `server`, and `replay` commands dispatch to the `unified` or `hybrid` construction backend.
+The `run`, `server`, and `replay` commands dispatch to a construction backend such as `unified` or `hybrid`.
 
 ## Discover backend-specific flags
 
@@ -74,21 +76,13 @@ BCG_RECENT_TURNS
 
 Overrides the number of most-recent completed turns the terminal Agent keeps as raw messages in BCG context mode. Defaults to `2`. See [Reference Terminal Agent](/guides/reference-agent).
 
-```text
-BCG_GRAPH_VIEW
-```
-
-Selects the Graph renderer injected into the Agent system prompt: `full` (default) or bounded `compact`.
-
-## Agent and search configuration
+## Web search and benchmarking
 
 ```text
-BCG_AGENT_MODEL
 SERPER_API_KEY
-SERPER_MAX_CALLS
 ```
 
-`BCG_AGENT_MODEL` overrides the model used by benchmark/reference Agent runs. `SERPER_API_KEY` enables the `web_search` tool. `SERPER_MAX_CALLS` sets its hard per-session call budget and defaults to `20`.
+Required for BrowseComp, used by HotpotQA and online GAIA research, and used by the Agent's `web_search` tool. See [Evaluate with benchmarks](/operate/benchmarking).
 
 ## Dashboard development
 
