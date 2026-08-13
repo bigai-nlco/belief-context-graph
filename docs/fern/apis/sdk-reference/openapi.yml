@@ -1,0 +1,4844 @@
+openapi: 3.1.0
+x-fern-explorer: false
+info:
+  title: Python SDK Reference
+  version: 1.0.0
+  description: Python methods for working with graphs, memory, construction, models, and configuration.
+tags:
+- name: Graph
+- name: Memory
+- name: Construction
+- name: Model
+- name: Configuration
+paths:
+  /graph/add-node:
+    post:
+      tags:
+      - Graph
+      operationId: sdk_BCG_add_node
+      summary: Add node
+      description: Add an existing graph node to the in-memory graph.
+      x-bcg-python-symbol: BCG.add_node
+      x-bcg-python-kind: async method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "import asyncio\n\nfrom bcg import BCG\nfrom bcg.core.graph import BCGNode\n\n\nasync def main() -> None:\n\
+            \    graph = BCG()\n    node = BCGNode(name=\"Manual graph node\")\n    await graph.add_node(node)\n\n    print(graph.nodes[0].name)\n\
+            \n\nasyncio.run(main())\n"
+      responses:
+        '204':
+          description: Added
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                node:
+                  type: object
+                  additionalProperties: true
+                  description: A fully constructed `BCGNode`.
+              additionalProperties: false
+              required:
+              - node
+  /graph/add-edge:
+    post:
+      tags:
+      - Graph
+      operationId: sdk_BCG_add_edge
+      summary: Add edge
+      description: Add an existing graph edge to the in-memory graph.
+      x-bcg-python-symbol: BCG.add_edge
+      x-bcg-python-kind: async method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "import asyncio\n\nfrom bcg import BCG\nfrom bcg.core.graph import BCGEdge, BCGNode\n\n\nasync def main()\
+            \ -> None:\n    graph = BCG()\n    source = BCGNode(name=\"Source\")\n    target = BCGNode(name=\"Target\")\n\n\
+            \    await graph.add_node(source)\n    await graph.add_node(target)\n    await graph.add_edge(\n        BCGEdge(source=source.uuid,\
+            \ target=target.uuid)\n    )\n\n    print(len(graph.edges))\n\n\nasyncio.run(main())\n"
+      responses:
+        '204':
+          description: Added
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                edge:
+                  type: object
+                  additionalProperties: true
+                  description: A fully constructed `BCGEdge`.
+              additionalProperties: false
+              required:
+              - edge
+  /graph/add-belief:
+    post:
+      tags:
+      - Graph
+      operationId: sdk_BCG_add_belief
+      summary: Add belief
+      description: Add a typed belief payload and create its graph node.
+      x-bcg-python-symbol: BCG.add_belief
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "from bcg import BCG\nfrom bcg.core.graph import BeliefPayload, BeliefSource\n\ngraph = BCG()\nsource = BeliefSource(\n\
+            \    type=\"message\",\n    role=\"user\",\n    trajectory_index=0,\n    segment_index=0,\n    segment_type=\"\
+            message\",\n)\n\nbelief = BeliefPayload(\n    id=graph.allocate_belief_id(),\n    belief=\"Acme is at churn risk.\"\
+            ,\n    layer=\"io\",\n    source=source,\n)\n\nnode = graph.add_belief(belief)\nprint(node.name)\n"
+      responses:
+        '200':
+          description: Added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BCGNode'
+              examples:
+                success:
+                  summary: Added
+                  value:
+                    uuid: 11111111-1111-4111-8111-111111111111
+                    name: Acme is at churn risk.
+                    kind: belief
+                    probability: 1.0
+                    belief:
+                      id: 0
+                      node_type: belief
+                      belief: Acme is at churn risk.
+                      decision: null
+                      stance: asserted
+                      layer: io
+                      role: null
+                      entities: []
+                      source:
+                        type: message
+                        role: user
+                        trajectory_index: 0
+                        segment_index: 0
+                        segment_type: message
+                        scenario: null
+                        item_id: null
+                        session_id: null
+                        session_index: null
+                        session_date: null
+                        turn_index: null
+                        segment_start: null
+                        segment_end: null
+                        has_answer: null
+                      evidence_ids: []
+                      factor_ids: []
+                      supporting_excerpts: []
+                      evidence: []
+                      event_time: null
+                      time_text: null
+                      merged_from: []
+                      belief_original: null
+                      confidence: 1.0
+                      confidence_dimensions: {}
+                      initial_confidence: null
+                      evidence_confidence: 0.0
+                      factor_confidence: 0.0
+                      confidence_history: []
+                      decision_history: []
+                      metadata: {}
+                    payload:
+                      id: 0
+                      node_type: belief
+                      belief: Acme is at churn risk.
+                      decision: null
+                      stance: asserted
+                      layer: io
+                      role: null
+                      entities: []
+                      source:
+                        type: message
+                        role: user
+                        trajectory_index: 0
+                        segment_index: 0
+                        segment_type: message
+                        scenario: null
+                        item_id: null
+                        session_id: null
+                        session_index: null
+                        session_date: null
+                        turn_index: null
+                        segment_start: null
+                        segment_end: null
+                        has_answer: null
+                      evidence_ids: []
+                      factor_ids: []
+                      supporting_excerpts: []
+                      evidence: []
+                      event_time: null
+                      time_text: null
+                      merged_from: []
+                      belief_original: null
+                      confidence: 1.0
+                      confidence_dimensions: {}
+                      initial_confidence: null
+                      evidence_confidence: 0.0
+                      factor_confidence: 0.0
+                      confidence_history: []
+                      decision_history: []
+                      metadata: {}
+                    created_at: '2026-06-12T10:00:00Z'
+                    updated_at: '2026-06-12T10:00:00Z'
+                    metadata:
+                      belief_id: 0
+                      source_type: message
+                      layer: io
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                belief:
+                  type: object
+                  additionalProperties: true
+                  description: Typed `BeliefPayload` to insert.
+              additionalProperties: false
+              required:
+              - belief
+  /graph/next-belief-id:
+    get:
+      tags:
+      - Graph
+      operationId: sdk_BCG_next_belief_id
+      summary: Get next belief ID
+      description: Read the next available belief identifier without reserving it.
+      x-bcg-python-symbol: BCG.next_belief_id
+      x-bcg-python-kind: property
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: 'from bcg import BCG
+
+
+            graph = BCG()
+
+            print(graph.next_belief_id)
+
+            '
+      responses:
+        '200':
+          description: Retrieved
+          content:
+            application/json:
+              schema:
+                type: integer
+              examples:
+                success:
+                  summary: Retrieved
+                  value: 0
+  /graph/allocate-belief-id:
+    post:
+      tags:
+      - Graph
+      operationId: sdk_BCG_allocate_belief_id
+      summary: Allocate belief ID
+      description: Reserve and return the next belief identifier.
+      x-bcg-python-symbol: BCG.allocate_belief_id
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: 'from bcg import BCG
+
+
+            graph = BCG()
+
+
+            belief_id = graph.allocate_belief_id()
+
+            print(belief_id)
+
+            print(graph.next_belief_id)
+
+            '
+      responses:
+        '200':
+          description: Allocated
+          content:
+            application/json:
+              schema:
+                type: integer
+              examples:
+                success:
+                  summary: Allocated
+                  value: 0
+  /graph/add-relation:
+    post:
+      tags:
+      - Graph
+      operationId: sdk_BCG_add_relation
+      summary: Add relation
+      description: Add a typed relation between two graph nodes.
+      x-bcg-python-symbol: BCG.add_relation
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "from bcg import BCG\nfrom bcg.core.graph import BeliefPayload, BeliefSource\n\ngraph = BCG()\nsource = BeliefSource(\n\
+            \    type=\"message\",\n    role=\"user\",\n    trajectory_index=0,\n    segment_index=0,\n    segment_type=\"\
+            message\",\n)\n\nfirst = graph.add_belief(\n    BeliefPayload(\n        id=graph.allocate_belief_id(),\n     \
+            \   belief=\"Acme experienced repeated outages.\",\n        layer=\"io\",\n        source=source,\n    )\n)\n\
+            second = graph.add_belief(\n    BeliefPayload(\n        id=graph.allocate_belief_id(),\n        belief=\"Acme\
+            \ is at churn risk.\",\n        layer=\"reasoning\",\n        source=source,\n    )\n)\n\nfrom bcg.core.graph\
+            \ import RelationPayload\n\nedge = graph.add_relation(\n    RelationPayload(\n        from_id=first.belief.id,\n\
+            \        to_id=second.belief.id,\n        type=\"depends_on\",\n        note=\"Churn risk depends on the outage\
+            \ history.\",\n    ),\n    source_uuid=first.uuid,\n    target_uuid=second.uuid,\n)\n\nprint(edge.relation.type)\n"
+      responses:
+        '200':
+          description: Added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BCGEdge'
+              examples:
+                success:
+                  summary: Added
+                  value:
+                    uuid: 33333333-3333-4333-8333-333333333333
+                    source: 11111111-1111-4111-8111-111111111111
+                    target: 22222222-2222-4222-8222-222222222222
+                    weight: 0.5
+                    relation:
+                      from_id: 0
+                      to_id: 1
+                      type: depends_on
+                      note: Churn risk depends on the outage history.
+                      weight: 0.5
+                      activated_condition:
+                        input_conf_threshold: 0.8
+                    created_at: '2026-06-12T10:01:00Z'
+                    updated_at: '2026-06-12T10:01:00Z'
+                    metadata:
+                      relation_type: depends_on
+                    payload:
+                      from_id: 0
+                      to_id: 1
+                      type: depends_on
+                      note: Churn risk depends on the outage history.
+                      weight: 0.5
+                      activated_condition:
+                        input_conf_threshold: 0.8
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                relation:
+                  type: object
+                  additionalProperties: true
+                  description: Typed `RelationPayload`.
+                source_uuid:
+                  type: string
+                  description: UUID of the source `BCGNode`.
+                target_uuid:
+                  type: string
+                  description: UUID of the target `BCGNode`.
+              additionalProperties: false
+              required:
+              - relation
+              - source_uuid
+              - target_uuid
+  /graph/add-relation-by-ids:
+    post:
+      tags:
+      - Graph
+      operationId: sdk_BCG_add_relation_by_ids
+      summary: Add relation by belief IDs
+      description: Add a relation by resolving its source and target belief IDs.
+      x-bcg-python-symbol: BCG.add_relation_by_ids
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "from bcg import BCG\nfrom bcg.core.graph import BeliefPayload, BeliefSource\n\ngraph = BCG()\nsource = BeliefSource(\n\
+            \    type=\"message\",\n    role=\"user\",\n    trajectory_index=0,\n    segment_index=0,\n    segment_type=\"\
+            message\",\n)\n\nfirst = graph.add_belief(\n    BeliefPayload(\n        id=graph.allocate_belief_id(),\n     \
+            \   belief=\"Acme experienced repeated outages.\",\n        layer=\"io\",\n        source=source,\n    )\n)\n\
+            second = graph.add_belief(\n    BeliefPayload(\n        id=graph.allocate_belief_id(),\n        belief=\"Acme\
+            \ is at churn risk.\",\n        layer=\"reasoning\",\n        source=source,\n    )\n)\n\nfrom bcg.core.graph\
+            \ import RelationPayload\n\nedge = graph.add_relation_by_ids(\n    RelationPayload(\n        from_id=first.belief.id,\n\
+            \        to_id=second.belief.id,\n        type=\"depends_on\",\n        note=\"Churn risk depends on the outage\
+            \ history.\",\n    )\n)\n\nprint(edge is not None)\n"
+      responses:
+        '200':
+          description: Added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BCGEdge'
+              examples:
+                success:
+                  summary: Added
+                  value:
+                    uuid: 33333333-3333-4333-8333-333333333333
+                    source: 11111111-1111-4111-8111-111111111111
+                    target: 22222222-2222-4222-8222-222222222222
+                    weight: 0.5
+                    relation:
+                      from_id: 0
+                      to_id: 1
+                      type: depends_on
+                      note: Churn risk depends on the outage history.
+                      weight: 0.5
+                      activated_condition:
+                        input_conf_threshold: 0.8
+                    created_at: '2026-06-12T10:01:00Z'
+                    updated_at: '2026-06-12T10:01:00Z'
+                    metadata:
+                      relation_type: depends_on
+                    payload:
+                      from_id: 0
+                      to_id: 1
+                      type: depends_on
+                      note: Churn risk depends on the outage history.
+                      weight: 0.5
+                      activated_condition:
+                        input_conf_threshold: 0.8
+        '404':
+          description: Belief endpoint not found
+          content:
+            application/json:
+              schema:
+                type: 'null'
+              examples:
+                missingEndpoint:
+                  summary: Source or target belief ID is missing
+                  value: null
+        '409':
+          description: Relation already exists
+          content:
+            application/json:
+              schema:
+                type: 'null'
+              examples:
+                duplicateRelation:
+                  summary: Duplicate relation
+                  value: null
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                relation:
+                  type: object
+                  additionalProperties: true
+                  description: Typed `RelationPayload` whose IDs already exist in the graph.
+              additionalProperties: false
+              required:
+              - relation
+  /graph/add-relations:
+    post:
+      tags:
+      - Graph
+      operationId: sdk_BCG_add_relations
+      summary: Add relations
+      description: Validate and add multiple relation records.
+      x-bcg-python-symbol: BCG.add_relations
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "from bcg import BCG\nfrom bcg.core.graph import BeliefPayload, BeliefSource\n\ngraph = BCG()\nsource = BeliefSource(\n\
+            \    type=\"message\",\n    role=\"user\",\n    trajectory_index=0,\n    segment_index=0,\n    segment_type=\"\
+            message\",\n)\n\nfirst = graph.add_belief(\n    BeliefPayload(\n        id=graph.allocate_belief_id(),\n     \
+            \   belief=\"Acme experienced repeated outages.\",\n        layer=\"io\",\n        source=source,\n    )\n)\n\
+            second = graph.add_belief(\n    BeliefPayload(\n        id=graph.allocate_belief_id(),\n        belief=\"Acme\
+            \ is at churn risk.\",\n        layer=\"reasoning\",\n        source=source,\n    )\n)\n\nadded = graph.add_relations(\n\
+            \    [\n        {\n            \"from_id\": first.belief.id,\n            \"to_id\": second.belief.id,\n     \
+            \       \"type\": \"depends_on\",\n            \"note\": \"Churn risk depends on the outage history.\",\n    \
+            \    }\n    ]\n)\n\nprint(added)\n"
+      responses:
+        '200':
+          description: Processed
+          content:
+            application/json:
+              schema:
+                type: integer
+              examples:
+                relationsAdded:
+                  summary: Relations added
+                  value: 1
+                nothingAdded:
+                  summary: No new relation added
+                  value: 0
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                invalidRelation:
+                  summary: Invalid relation payload
+                  value:
+                    exception: ValidationError
+                    message: RelationPayload validation failed for one relation dictionary.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                relations:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+                  description: Relation dictionaries accepted by `RelationPayload.model_validate()`.
+              additionalProperties: false
+              required:
+              - relations
+  /graph/belief-nodes:
+    get:
+      tags:
+      - Graph
+      operationId: sdk_BCG_belief_nodes
+      summary: Get belief nodes
+      description: Return graph nodes that contain belief payloads.
+      x-bcg-python-symbol: BCG.belief_nodes
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "from bcg import BCG, BCGMemory\n\ngraph = BCG()\nmemory = BCGMemory(graph=graph)\nobservation = memory.observe(\n\
+            \    source_type=\"message\",\n    content=\"Acme is threatening to churn after repeated outages.\",\n)\n\nnodes\
+            \ = graph.belief_nodes()\nprint(nodes[0].name)\n"
+      responses:
+        '200':
+          description: Retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BCGNode'
+              examples:
+                withResults:
+                  summary: Belief nodes found
+                  value:
+                  - uuid: 11111111-1111-4111-8111-111111111111
+                    name: Acme is at churn risk.
+                    kind: belief
+                    probability: 1.0
+                    belief:
+                      id: 0
+                      node_type: belief
+                      belief: Acme is at churn risk.
+                      decision: null
+                      stance: asserted
+                      layer: io
+                      role: null
+                      entities: []
+                      source:
+                        type: message
+                        role: user
+                        trajectory_index: 0
+                        segment_index: 0
+                        segment_type: message
+                        scenario: null
+                        item_id: null
+                        session_id: null
+                        session_index: null
+                        session_date: null
+                        turn_index: null
+                        segment_start: null
+                        segment_end: null
+                        has_answer: null
+                      evidence_ids: []
+                      factor_ids: []
+                      supporting_excerpts: []
+                      evidence: []
+                      event_time: null
+                      time_text: null
+                      merged_from: []
+                      belief_original: null
+                      confidence: 1.0
+                      confidence_dimensions: {}
+                      initial_confidence: null
+                      evidence_confidence: 0.0
+                      factor_confidence: 0.0
+                      confidence_history: []
+                      decision_history: []
+                      metadata: {}
+                    payload:
+                      id: 0
+                      node_type: belief
+                      belief: Acme is at churn risk.
+                      decision: null
+                      stance: asserted
+                      layer: io
+                      role: null
+                      entities: []
+                      source:
+                        type: message
+                        role: user
+                        trajectory_index: 0
+                        segment_index: 0
+                        segment_type: message
+                        scenario: null
+                        item_id: null
+                        session_id: null
+                        session_index: null
+                        session_date: null
+                        turn_index: null
+                        segment_start: null
+                        segment_end: null
+                        has_answer: null
+                      evidence_ids: []
+                      factor_ids: []
+                      supporting_excerpts: []
+                      evidence: []
+                      event_time: null
+                      time_text: null
+                      merged_from: []
+                      belief_original: null
+                      confidence: 1.0
+                      confidence_dimensions: {}
+                      initial_confidence: null
+                      evidence_confidence: 0.0
+                      factor_confidence: 0.0
+                      confidence_history: []
+                      decision_history: []
+                      metadata: {}
+                    created_at: '2026-06-12T10:00:00Z'
+                    updated_at: '2026-06-12T10:00:00Z'
+                    metadata:
+                      belief_id: 0
+                      source_type: message
+                      layer: io
+                empty:
+                  summary: No belief nodes
+                  value: []
+  /graph/beliefs:
+    get:
+      tags:
+      - Graph
+      operationId: sdk_BCG_beliefs
+      summary: Get beliefs
+      description: Return typed belief and decision payloads.
+      x-bcg-python-symbol: BCG.beliefs
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "from bcg import BCG, BCGMemory\n\ngraph = BCG()\nmemory = BCGMemory(graph=graph)\nobservation = memory.observe(\n\
+            \    source_type=\"message\",\n    content=\"Acme is threatening to churn after repeated outages.\",\n)\n\nbeliefs\
+            \ = graph.beliefs()\nprint(beliefs[0].id)\nprint(beliefs[0].belief)\n"
+      responses:
+        '200':
+          description: Retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BeliefPayload'
+              examples:
+                withResults:
+                  summary: Beliefs found
+                  value:
+                  - id: 0
+                    node_type: belief
+                    belief: Acme is at churn risk.
+                    decision: null
+                    stance: asserted
+                    layer: io
+                    role: null
+                    entities: []
+                    source:
+                      type: message
+                      role: user
+                      trajectory_index: 0
+                      segment_index: 0
+                      segment_type: message
+                      scenario: null
+                      item_id: null
+                      session_id: null
+                      session_index: null
+                      session_date: null
+                      turn_index: null
+                      segment_start: null
+                      segment_end: null
+                      has_answer: null
+                    evidence_ids: []
+                    factor_ids: []
+                    supporting_excerpts: []
+                    evidence: []
+                    event_time: null
+                    time_text: null
+                    merged_from: []
+                    belief_original: null
+                    confidence: 1.0
+                    confidence_dimensions: {}
+                    initial_confidence: null
+                    evidence_confidence: 0.0
+                    factor_confidence: 0.0
+                    confidence_history: []
+                    decision_history: []
+                    metadata: {}
+                empty:
+                  summary: No beliefs
+                  value: []
+  /graph/belief-dictionaries:
+    get:
+      tags:
+      - Graph
+      operationId: sdk_BCG_belief_dicts
+      summary: Get belief dictionaries
+      description: Return active beliefs as JSON-compatible dictionaries.
+      x-bcg-python-symbol: BCG.belief_dicts
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "from bcg import BCG, BCGMemory\n\ngraph = BCG()\nmemory = BCGMemory(graph=graph)\nobservation = memory.observe(\n\
+            \    source_type=\"message\",\n    content=\"Acme is threatening to churn after repeated outages.\",\n)\n\nitems\
+            \ = graph.belief_dicts()\nprint(items[0][\"belief\"])\n"
+      responses:
+        '200':
+          description: Retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BeliefPayload'
+              examples:
+                withResults:
+                  summary: Belief dictionaries found
+                  value:
+                  - id: 0
+                    node_type: belief
+                    belief: Acme is at churn risk.
+                    decision: null
+                    stance: asserted
+                    layer: io
+                    role: null
+                    entities: []
+                    source:
+                      type: message
+                      role: user
+                      trajectory_index: 0
+                      segment_index: 0
+                      segment_type: message
+                      scenario: null
+                      item_id: null
+                      session_id: null
+                      session_index: null
+                      session_date: null
+                      turn_index: null
+                      segment_start: null
+                      segment_end: null
+                      has_answer: null
+                    evidence_ids: []
+                    factor_ids: []
+                    supporting_excerpts: []
+                    evidence: []
+                    event_time: null
+                    time_text: null
+                    merged_from: []
+                    belief_original: null
+                    confidence: 1.0
+                    confidence_dimensions: {}
+                    initial_confidence: null
+                    evidence_confidence: 0.0
+                    factor_confidence: 0.0
+                    confidence_history: []
+                    decision_history: []
+                    metadata: {}
+                empty:
+                  summary: No beliefs
+                  value: []
+  /graph/relations:
+    get:
+      tags:
+      - Graph
+      operationId: sdk_BCG_relations
+      summary: Get relations
+      description: Return typed relations, optionally filtered by relation type.
+      x-bcg-python-symbol: BCG.relations
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "from bcg import BCG\nfrom bcg.core.graph import BeliefPayload, BeliefSource\n\ngraph = BCG()\nsource = BeliefSource(\n\
+            \    type=\"message\",\n    role=\"user\",\n    trajectory_index=0,\n    segment_index=0,\n    segment_type=\"\
+            message\",\n)\n\nfirst = graph.add_belief(\n    BeliefPayload(\n        id=graph.allocate_belief_id(),\n     \
+            \   belief=\"Acme experienced repeated outages.\",\n        layer=\"io\",\n        source=source,\n    )\n)\n\
+            second = graph.add_belief(\n    BeliefPayload(\n        id=graph.allocate_belief_id(),\n        belief=\"Acme\
+            \ is at churn risk.\",\n        layer=\"reasoning\",\n        source=source,\n    )\n)\n\nfrom bcg.core.graph\
+            \ import RelationPayload\n\ngraph.add_relation_by_ids(\n    RelationPayload(\n        from_id=first.belief.id,\n\
+            \        to_id=second.belief.id,\n        type=\"depends_on\",\n    )\n)\n\nrelations = graph.relations(\"depends_on\"\
+            )\nprint(relations[0].type)\n"
+      responses:
+        '200':
+          description: Retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RelationPayload'
+              examples:
+                withResults:
+                  summary: Relations found
+                  value:
+                  - from_id: 0
+                    to_id: 1
+                    type: depends_on
+                    note: Churn risk depends on the outage history.
+                    weight: 0.5
+                    activated_condition:
+                      input_conf_threshold: 0.8
+                empty:
+                  summary: No matching relations
+                  value: []
+      parameters:
+      - name: relation_type
+        in: query
+        required: false
+        description: Optional relation type, for example `depends_on`, `supplements`, or `contradicts`.
+        schema:
+          type: string
+  /graph/node-by-belief-id:
+    get:
+      tags:
+      - Graph
+      operationId: sdk_BCG_node_for_belief_id
+      summary: Get node by belief ID
+      description: Find the graph node for a belief ID.
+      x-bcg-python-symbol: BCG.node_for_belief_id
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "from bcg import BCG, BCGMemory\n\ngraph = BCG()\nmemory = BCGMemory(graph=graph)\nobservation = memory.observe(\n\
+            \    source_type=\"message\",\n    content=\"Acme is threatening to churn after repeated outages.\",\n)\n\nnode\
+            \ = graph.node_for_belief_id(observation.belief.id)\nprint(node.name if node else None)\n"
+      responses:
+        '200':
+          description: Retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BCGNode'
+              examples:
+                success:
+                  summary: Retrieved
+                  value:
+                    uuid: 11111111-1111-4111-8111-111111111111
+                    name: Acme is at churn risk.
+                    kind: belief
+                    probability: 1.0
+                    belief:
+                      id: 0
+                      node_type: belief
+                      belief: Acme is at churn risk.
+                      decision: null
+                      stance: asserted
+                      layer: io
+                      role: null
+                      entities: []
+                      source:
+                        type: message
+                        role: user
+                        trajectory_index: 0
+                        segment_index: 0
+                        segment_type: message
+                        scenario: null
+                        item_id: null
+                        session_id: null
+                        session_index: null
+                        session_date: null
+                        turn_index: null
+                        segment_start: null
+                        segment_end: null
+                        has_answer: null
+                      evidence_ids: []
+                      factor_ids: []
+                      supporting_excerpts: []
+                      evidence: []
+                      event_time: null
+                      time_text: null
+                      merged_from: []
+                      belief_original: null
+                      confidence: 1.0
+                      confidence_dimensions: {}
+                      initial_confidence: null
+                      evidence_confidence: 0.0
+                      factor_confidence: 0.0
+                      confidence_history: []
+                      decision_history: []
+                      metadata: {}
+                    payload:
+                      id: 0
+                      node_type: belief
+                      belief: Acme is at churn risk.
+                      decision: null
+                      stance: asserted
+                      layer: io
+                      role: null
+                      entities: []
+                      source:
+                        type: message
+                        role: user
+                        trajectory_index: 0
+                        segment_index: 0
+                        segment_type: message
+                        scenario: null
+                        item_id: null
+                        session_id: null
+                        session_index: null
+                        session_date: null
+                        turn_index: null
+                        segment_start: null
+                        segment_end: null
+                        has_answer: null
+                      evidence_ids: []
+                      factor_ids: []
+                      supporting_excerpts: []
+                      evidence: []
+                      event_time: null
+                      time_text: null
+                      merged_from: []
+                      belief_original: null
+                      confidence: 1.0
+                      confidence_dimensions: {}
+                      initial_confidence: null
+                      evidence_confidence: 0.0
+                      factor_confidence: 0.0
+                      confidence_history: []
+                      decision_history: []
+                      metadata: {}
+                    created_at: '2026-06-12T10:00:00Z'
+                    updated_at: '2026-06-12T10:00:00Z'
+                    metadata:
+                      belief_id: 0
+                      source_type: message
+                      layer: io
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                type: 'null'
+              examples:
+                missingBelief:
+                  summary: Belief ID not found
+                  value: null
+      parameters:
+      - name: belief_id
+        in: query
+        required: true
+        description: Belief ID to resolve.
+        schema:
+          type: integer
+  /graph/update-belief:
+    patch:
+      tags:
+      - Graph
+      operationId: sdk_BCG_update_belief
+      summary: Update belief
+      description: Replace an existing belief payload while preserving its graph node.
+      x-bcg-python-symbol: BCG.update_belief
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "from bcg import BCG, BCGMemory\n\ngraph = BCG()\nmemory = BCGMemory(graph=graph)\nobservation = memory.observe(\n\
+            \    source_type=\"message\",\n    content=\"Acme is threatening to churn after repeated outages.\",\n)\n\nupdated\
+            \ = observation.belief.model_copy(\n    update={\"belief\": \"Acme is at elevated churn risk.\"}\n)\n\ngraph.update_belief(updated)\n\
+            print(graph.beliefs()[0].belief)\n"
+      responses:
+        '204':
+          description: Updated
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                invalidBelief:
+                  summary: Invalid belief dictionary
+                  value:
+                    exception: ValidationError
+                    message: BeliefPayload validation failed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                belief:
+                  type: object
+                  additionalProperties: true
+                  description: Updated `BeliefPayload`, or a dictionary valid for `BeliefPayload`.
+              additionalProperties: false
+              required:
+              - belief
+  /graph/remove-belief:
+    delete:
+      tags:
+      - Graph
+      operationId: sdk_BCG_remove_belief
+      summary: Remove belief
+      description: Remove a belief and, by default, its incident relation edges.
+      x-bcg-python-symbol: BCG.remove_belief
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "from bcg import BCG, BCGMemory\n\ngraph = BCG()\nmemory = BCGMemory(graph=graph)\nobservation = memory.observe(\n\
+            \    source_type=\"message\",\n    content=\"Acme is threatening to churn after repeated outages.\",\n)\n\nremoved\
+            \ = graph.remove_belief(observation.belief.id)\n\nprint(removed.name if removed else None)\nprint(graph.beliefs())\n"
+      responses:
+        '200':
+          description: Removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BCGNode'
+              examples:
+                success:
+                  summary: Removed
+                  value:
+                    uuid: 11111111-1111-4111-8111-111111111111
+                    name: Acme is at churn risk.
+                    kind: belief
+                    probability: 1.0
+                    belief:
+                      id: 0
+                      node_type: belief
+                      belief: Acme is at churn risk.
+                      decision: null
+                      stance: asserted
+                      layer: io
+                      role: null
+                      entities: []
+                      source:
+                        type: message
+                        role: user
+                        trajectory_index: 0
+                        segment_index: 0
+                        segment_type: message
+                        scenario: null
+                        item_id: null
+                        session_id: null
+                        session_index: null
+                        session_date: null
+                        turn_index: null
+                        segment_start: null
+                        segment_end: null
+                        has_answer: null
+                      evidence_ids: []
+                      factor_ids: []
+                      supporting_excerpts: []
+                      evidence: []
+                      event_time: null
+                      time_text: null
+                      merged_from: []
+                      belief_original: null
+                      confidence: 1.0
+                      confidence_dimensions: {}
+                      initial_confidence: null
+                      evidence_confidence: 0.0
+                      factor_confidence: 0.0
+                      confidence_history: []
+                      decision_history: []
+                      metadata: {}
+                    payload:
+                      id: 0
+                      node_type: belief
+                      belief: Acme is at churn risk.
+                      decision: null
+                      stance: asserted
+                      layer: io
+                      role: null
+                      entities: []
+                      source:
+                        type: message
+                        role: user
+                        trajectory_index: 0
+                        segment_index: 0
+                        segment_type: message
+                        scenario: null
+                        item_id: null
+                        session_id: null
+                        session_index: null
+                        session_date: null
+                        turn_index: null
+                        segment_start: null
+                        segment_end: null
+                        has_answer: null
+                      evidence_ids: []
+                      factor_ids: []
+                      supporting_excerpts: []
+                      evidence: []
+                      event_time: null
+                      time_text: null
+                      merged_from: []
+                      belief_original: null
+                      confidence: 1.0
+                      confidence_dimensions: {}
+                      initial_confidence: null
+                      evidence_confidence: 0.0
+                      factor_confidence: 0.0
+                      confidence_history: []
+                      decision_history: []
+                      metadata: {}
+                    created_at: '2026-06-12T10:00:00Z'
+                    updated_at: '2026-06-12T10:00:00Z'
+                    metadata:
+                      belief_id: 0
+                      source_type: message
+                      layer: io
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                type: 'null'
+              examples:
+                missingBelief:
+                  summary: Belief ID not found
+                  value: null
+      parameters:
+      - name: belief_id
+        in: query
+        required: true
+        description: Belief ID to remove.
+        schema:
+          type: integer
+      - name: drop_edges
+        in: query
+        required: false
+        description: Whether to remove incident relation edges.
+        schema:
+          type: boolean
+          default: true
+  /graph/relation-dictionaries:
+    get:
+      tags:
+      - Graph
+      operationId: sdk_BCG_relation_dicts
+      summary: Get relation dictionaries
+      description: Return relations as JSON-compatible dictionaries.
+      x-bcg-python-symbol: BCG.relation_dicts
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "from bcg import BCG\nfrom bcg.core.graph import BeliefPayload, BeliefSource\n\ngraph = BCG()\nsource = BeliefSource(\n\
+            \    type=\"message\",\n    role=\"user\",\n    trajectory_index=0,\n    segment_index=0,\n    segment_type=\"\
+            message\",\n)\n\nfirst = graph.add_belief(\n    BeliefPayload(\n        id=graph.allocate_belief_id(),\n     \
+            \   belief=\"Acme experienced repeated outages.\",\n        layer=\"io\",\n        source=source,\n    )\n)\n\
+            second = graph.add_belief(\n    BeliefPayload(\n        id=graph.allocate_belief_id(),\n        belief=\"Acme\
+            \ is at churn risk.\",\n        layer=\"reasoning\",\n        source=source,\n    )\n)\n\nfrom bcg.core.graph\
+            \ import RelationPayload\n\ngraph.add_relation_by_ids(\n    RelationPayload(\n        from_id=first.belief.id,\n\
+            \        to_id=second.belief.id,\n        type=\"depends_on\",\n    )\n)\n\nitems = graph.relation_dicts(\"depends_on\"\
+            )\nprint(items[0][\"type\"])\n"
+      responses:
+        '200':
+          description: Retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RelationPayload'
+              examples:
+                withResults:
+                  summary: Relations found
+                  value:
+                  - from_id: 0
+                    to_id: 1
+                    type: depends_on
+                    note: Churn risk depends on the outage history.
+                    weight: 0.5
+                    activated_condition:
+                      input_conf_threshold: 0.8
+                empty:
+                  summary: No matching relations
+                  value: []
+      parameters:
+      - name: relation_type
+        in: query
+        required: false
+        description: Optional relation type filter.
+        schema:
+          type: string
+  /graph/remap-relations:
+    patch:
+      tags:
+      - Graph
+      operationId: sdk_BCG_remap_relations
+      summary: Remap relations
+      description: Rewrite relation endpoints after belief IDs are merged or remapped.
+      x-bcg-python-symbol: BCG.remap_relations
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "from bcg import BCG\nfrom bcg.core.graph import BeliefPayload, BeliefSource, RelationPayload\n\ngraph = BCG()\n\
+            source = BeliefSource(\n    type=\"message\",\n    role=\"user\",\n    trajectory_index=0,\n    segment_index=0,\n\
+            \    segment_type=\"message\",\n)\n\nnodes = [\n    graph.add_belief(\n        BeliefPayload(\n            id=graph.allocate_belief_id(),\n\
+            \            belief=text,\n            layer=\"io\",\n            source=source,\n        )\n    )\n    for text\
+            \ in [\n        \"Canonical outage belief.\",\n        \"Churn risk depends on the outage.\",\n        \"Duplicate\
+            \ outage belief.\",\n    ]\n]\n\ngraph.add_relation_by_ids(\n    RelationPayload(from_id=2, to_id=1, type=\"depends_on\"\
+            )\n)\n\nreport = graph.remap_relations({2: 0})\nprint(report)\n"
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - rewritten
+                - dropped_self
+                - dropped_direction
+                - dropped_duplicate
+                properties:
+                  rewritten:
+                    type: integer
+                  dropped_self:
+                    type: integer
+                  dropped_direction:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  dropped_duplicate:
+                    type: integer
+              examples:
+                success:
+                  summary: Updated
+                  value:
+                    rewritten: 1
+                    dropped_self: 0
+                    dropped_direction: []
+                    dropped_duplicate: 0
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mapping:
+                  type: object
+                  additionalProperties: true
+                  description: Mapping of old belief IDs to surviving canonical belief IDs.
+              additionalProperties: false
+              required:
+              - mapping
+  /graph/memory-dictionary:
+    get:
+      tags:
+      - Graph
+      operationId: sdk_BCG_to_memory_dict
+      summary: Export memory dictionary
+      description: Export the graph in BCG's compact memory-document format.
+      x-bcg-python-symbol: BCG.to_memory_dict
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "from bcg import BCG, BCGMemory\n\ngraph = BCG()\nmemory = BCGMemory(graph=graph)\nobservation = memory.observe(\n\
+            \    source_type=\"message\",\n    content=\"Acme is threatening to churn after repeated outages.\",\n)\n\nmemory_document\
+            \ = graph.to_memory_dict()\nprint(memory_document[\"beliefs\"][0][\"belief\"])\n"
+      responses:
+        '200':
+          description: Retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  beliefs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BeliefPayload'
+                  nodes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BeliefPayload'
+                  decisions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BeliefPayload'
+                  relations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RelationPayload'
+                  forward_relations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RelationPayload'
+                  backward_relations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RelationPayload'
+                  merges:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  sessions:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  evidence:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  factors:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  graph:
+                    $ref: '#/components/schemas/BCGGraph'
+                  counts:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                  metadata:
+                    type: object
+                    additionalProperties: true
+              examples:
+                success:
+                  summary: Retrieved
+                  value:
+                    beliefs:
+                    - id: 0
+                      node_type: belief
+                      belief: Acme is threatening to churn after repeated outages.
+                      decision: null
+                      stance: asserted
+                      layer: io
+                      role: message
+                      entities: []
+                      source:
+                        type: message
+                        role: message
+                        trajectory_index: -1
+                        segment_index: 0
+                        segment_type: message
+                        scenario: null
+                        item_id: null
+                        session_id: null
+                        session_index: null
+                        session_date: null
+                        turn_index: null
+                        segment_start: null
+                        segment_end: null
+                        has_answer: null
+                      evidence_ids: []
+                      factor_ids: []
+                      supporting_excerpts:
+                      - Acme is threatening to churn after repeated outages.
+                      evidence:
+                      - text: Acme is threatening to churn after repeated outages.
+                        start: 0
+                        end: 52
+                        match: exact
+                        via: manual
+                        source:
+                          type: message
+                          role: message
+                          trajectory_index: -1
+                          segment_index: 0
+                          segment_type: message
+                          scenario: null
+                          item_id: null
+                          session_id: null
+                          session_index: null
+                          session_date: null
+                          turn_index: null
+                          segment_start: null
+                          segment_end: null
+                          has_answer: null
+                      event_time: null
+                      time_text: null
+                      merged_from: []
+                      belief_original: null
+                      confidence: 0.55
+                      confidence_dimensions: {}
+                      initial_confidence: 0.55
+                      evidence_confidence: 0.0
+                      factor_confidence: 0.0
+                      confidence_history:
+                      - step: initial
+                        value: 0.55
+                        evidence_confidence: 0.0
+                        factor_confidence: 0.0
+                      decision_history: []
+                      metadata:
+                        namespace: default
+                        actor: null
+                        observed_at: null
+                    nodes:
+                    - id: 0
+                      node_type: belief
+                      belief: Acme is threatening to churn after repeated outages.
+                      decision: null
+                      stance: asserted
+                      layer: io
+                      role: message
+                      entities: []
+                      source:
+                        type: message
+                        role: message
+                        trajectory_index: -1
+                        segment_index: 0
+                        segment_type: message
+                        scenario: null
+                        item_id: null
+                        session_id: null
+                        session_index: null
+                        session_date: null
+                        turn_index: null
+                        segment_start: null
+                        segment_end: null
+                        has_answer: null
+                      evidence_ids: []
+                      factor_ids: []
+                      supporting_excerpts:
+                      - Acme is threatening to churn after repeated outages.
+                      evidence:
+                      - text: Acme is threatening to churn after repeated outages.
+                        start: 0
+                        end: 52
+                        match: exact
+                        via: manual
+                        source:
+                          type: message
+                          role: message
+                          trajectory_index: -1
+                          segment_index: 0
+                          segment_type: message
+                          scenario: null
+                          item_id: null
+                          session_id: null
+                          session_index: null
+                          session_date: null
+                          turn_index: null
+                          segment_start: null
+                          segment_end: null
+                          has_answer: null
+                      event_time: null
+                      time_text: null
+                      merged_from: []
+                      belief_original: null
+                      confidence: 0.55
+                      confidence_dimensions: {}
+                      initial_confidence: 0.55
+                      evidence_confidence: 0.0
+                      factor_confidence: 0.0
+                      confidence_history:
+                      - step: initial
+                        value: 0.55
+                        evidence_confidence: 0.0
+                        factor_confidence: 0.0
+                      decision_history: []
+                      metadata:
+                        namespace: default
+                        actor: null
+                        observed_at: null
+                    decisions: []
+                    relations: []
+                    forward_relations: []
+                    backward_relations: []
+                    merges: []
+                    sessions: []
+                    evidence: []
+                    factors: []
+                    graph:
+                      nodes:
+                      - uuid: 44444444-4444-4444-8444-444444444444
+                        name: Acme is threatening to churn after repeated outages.
+                        kind: belief
+                        probability: 0.55
+                        belief:
+                          id: 0
+                          node_type: belief
+                          belief: Acme is threatening to churn after repeated outages.
+                          decision: null
+                          stance: asserted
+                          layer: io
+                          role: message
+                          entities: []
+                          source:
+                            type: message
+                            role: message
+                            trajectory_index: -1
+                            segment_index: 0
+                            segment_type: message
+                            scenario: null
+                            item_id: null
+                            session_id: null
+                            session_index: null
+                            session_date: null
+                            turn_index: null
+                            segment_start: null
+                            segment_end: null
+                            has_answer: null
+                          evidence_ids: []
+                          factor_ids: []
+                          supporting_excerpts:
+                          - Acme is threatening to churn after repeated outages.
+                          evidence:
+                          - text: Acme is threatening to churn after repeated outages.
+                            start: 0
+                            end: 52
+                            match: exact
+                            via: manual
+                            source:
+                              type: message
+                              role: message
+                              trajectory_index: -1
+                              segment_index: 0
+                              segment_type: message
+                              scenario: null
+                              item_id: null
+                              session_id: null
+                              session_index: null
+                              session_date: null
+                              turn_index: null
+                              segment_start: null
+                              segment_end: null
+                              has_answer: null
+                          event_time: null
+                          time_text: null
+                          merged_from: []
+                          belief_original: null
+                          confidence: 0.55
+                          confidence_dimensions: {}
+                          initial_confidence: 0.55
+                          evidence_confidence: 0.0
+                          factor_confidence: 0.0
+                          confidence_history:
+                          - step: initial
+                            value: 0.55
+                            evidence_confidence: 0.0
+                            factor_confidence: 0.0
+                          decision_history: []
+                          metadata:
+                            namespace: default
+                            actor: null
+                            observed_at: null
+                        payload:
+                          id: 0
+                          node_type: belief
+                          belief: Acme is threatening to churn after repeated outages.
+                          decision: null
+                          stance: asserted
+                          layer: io
+                          role: message
+                          entities: []
+                          source:
+                            type: message
+                            role: message
+                            trajectory_index: -1
+                            segment_index: 0
+                            segment_type: message
+                            scenario: null
+                            item_id: null
+                            session_id: null
+                            session_index: null
+                            session_date: null
+                            turn_index: null
+                            segment_start: null
+                            segment_end: null
+                            has_answer: null
+                          evidence_ids: []
+                          factor_ids: []
+                          supporting_excerpts:
+                          - Acme is threatening to churn after repeated outages.
+                          evidence:
+                          - text: Acme is threatening to churn after repeated outages.
+                            start: 0
+                            end: 52
+                            match: exact
+                            via: manual
+                            source:
+                              type: message
+                              role: message
+                              trajectory_index: -1
+                              segment_index: 0
+                              segment_type: message
+                              scenario: null
+                              item_id: null
+                              session_id: null
+                              session_index: null
+                              session_date: null
+                              turn_index: null
+                              segment_start: null
+                              segment_end: null
+                              has_answer: null
+                          event_time: null
+                          time_text: null
+                          merged_from: []
+                          belief_original: null
+                          confidence: 0.55
+                          confidence_dimensions: {}
+                          initial_confidence: 0.55
+                          evidence_confidence: 0.0
+                          factor_confidence: 0.0
+                          confidence_history:
+                          - step: initial
+                            value: 0.55
+                            evidence_confidence: 0.0
+                            factor_confidence: 0.0
+                          decision_history: []
+                          metadata:
+                            namespace: default
+                            actor: null
+                            observed_at: null
+                        created_at: '2026-06-12T10:00:00Z'
+                        updated_at: '2026-06-12T10:00:00Z'
+                        metadata:
+                          belief_id: 0
+                          source_type: message
+                          layer: io
+                      edges: []
+                      merges: []
+                      sessions: []
+                      evidence: []
+                      factors: []
+                      metadata: {}
+                    counts:
+                      beliefs: 1
+                      forward_relations: 0
+                      backward_relations: 0
+                      merges: 0
+                      sessions: 0
+                      nodes: 1
+                      edges: 0
+                    metadata: {}
+  /memory/observe:
+    post:
+      tags:
+      - Memory
+      operationId: sdk_BCGMemory_observe
+      summary: Observe belief
+      description: Store one already-formed proposition as an asserted belief without LLM extraction.
+      x-bcg-python-symbol: BCGMemory.observe
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "from bcg import BCG, BCGMemory\n\ngraph = BCG()\nmemory = BCGMemory(graph=graph)\n\nobservation = memory.observe(\n\
+            \    source_type=\"message\",\n    content=\"Acme is threatening to churn after repeated outages.\",\n)\n\nprint(observation.belief.id)\n\
+            print(observation.belief.belief)\n"
+      responses:
+        '200':
+          description: Observed
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - belief
+                - graph
+                properties:
+                  belief:
+                    $ref: '#/components/schemas/BeliefPayload'
+                  graph:
+                    $ref: '#/components/schemas/BCGGraph'
+              examples:
+                success:
+                  summary: Observed
+                  value:
+                    belief:
+                      id: 0
+                      node_type: belief
+                      belief: Acme is threatening to churn after repeated outages.
+                      decision: null
+                      stance: asserted
+                      layer: io
+                      role: message
+                      entities: []
+                      source:
+                        type: message
+                        role: message
+                        trajectory_index: -1
+                        segment_index: 0
+                        segment_type: message
+                        scenario: null
+                        item_id: null
+                        session_id: null
+                        session_index: null
+                        session_date: null
+                        turn_index: null
+                        segment_start: null
+                        segment_end: null
+                        has_answer: null
+                      evidence_ids: []
+                      factor_ids: []
+                      supporting_excerpts:
+                      - Acme is threatening to churn after repeated outages.
+                      evidence:
+                      - text: Acme is threatening to churn after repeated outages.
+                        start: 0
+                        end: 52
+                        match: exact
+                        via: manual
+                        source:
+                          type: message
+                          role: message
+                          trajectory_index: -1
+                          segment_index: 0
+                          segment_type: message
+                          scenario: null
+                          item_id: null
+                          session_id: null
+                          session_index: null
+                          session_date: null
+                          turn_index: null
+                          segment_start: null
+                          segment_end: null
+                          has_answer: null
+                      event_time: null
+                      time_text: null
+                      merged_from: []
+                      belief_original: null
+                      confidence: 0.55
+                      confidence_dimensions: {}
+                      initial_confidence: 0.55
+                      evidence_confidence: 0.0
+                      factor_confidence: 0.0
+                      confidence_history:
+                      - step: initial
+                        value: 0.55
+                        evidence_confidence: 0.0
+                        factor_confidence: 0.0
+                      decision_history: []
+                      metadata:
+                        namespace: default
+                        actor: null
+                        observed_at: null
+                    graph:
+                      nodes:
+                      - uuid: 44444444-4444-4444-8444-444444444444
+                        name: Acme is threatening to churn after repeated outages.
+                        kind: belief
+                        probability: 0.55
+                        belief:
+                          id: 0
+                          node_type: belief
+                          belief: Acme is threatening to churn after repeated outages.
+                          decision: null
+                          stance: asserted
+                          layer: io
+                          role: message
+                          entities: []
+                          source:
+                            type: message
+                            role: message
+                            trajectory_index: -1
+                            segment_index: 0
+                            segment_type: message
+                            scenario: null
+                            item_id: null
+                            session_id: null
+                            session_index: null
+                            session_date: null
+                            turn_index: null
+                            segment_start: null
+                            segment_end: null
+                            has_answer: null
+                          evidence_ids: []
+                          factor_ids: []
+                          supporting_excerpts:
+                          - Acme is threatening to churn after repeated outages.
+                          evidence:
+                          - text: Acme is threatening to churn after repeated outages.
+                            start: 0
+                            end: 52
+                            match: exact
+                            via: manual
+                            source:
+                              type: message
+                              role: message
+                              trajectory_index: -1
+                              segment_index: 0
+                              segment_type: message
+                              scenario: null
+                              item_id: null
+                              session_id: null
+                              session_index: null
+                              session_date: null
+                              turn_index: null
+                              segment_start: null
+                              segment_end: null
+                              has_answer: null
+                          event_time: null
+                          time_text: null
+                          merged_from: []
+                          belief_original: null
+                          confidence: 0.55
+                          confidence_dimensions: {}
+                          initial_confidence: 0.55
+                          evidence_confidence: 0.0
+                          factor_confidence: 0.0
+                          confidence_history:
+                          - step: initial
+                            value: 0.55
+                            evidence_confidence: 0.0
+                            factor_confidence: 0.0
+                          decision_history: []
+                          metadata:
+                            namespace: default
+                            actor: null
+                            observed_at: null
+                        payload:
+                          id: 0
+                          node_type: belief
+                          belief: Acme is threatening to churn after repeated outages.
+                          decision: null
+                          stance: asserted
+                          layer: io
+                          role: message
+                          entities: []
+                          source:
+                            type: message
+                            role: message
+                            trajectory_index: -1
+                            segment_index: 0
+                            segment_type: message
+                            scenario: null
+                            item_id: null
+                            session_id: null
+                            session_index: null
+                            session_date: null
+                            turn_index: null
+                            segment_start: null
+                            segment_end: null
+                            has_answer: null
+                          evidence_ids: []
+                          factor_ids: []
+                          supporting_excerpts:
+                          - Acme is threatening to churn after repeated outages.
+                          evidence:
+                          - text: Acme is threatening to churn after repeated outages.
+                            start: 0
+                            end: 52
+                            match: exact
+                            via: manual
+                            source:
+                              type: message
+                              role: message
+                              trajectory_index: -1
+                              segment_index: 0
+                              segment_type: message
+                              scenario: null
+                              item_id: null
+                              session_id: null
+                              session_index: null
+                              session_date: null
+                              turn_index: null
+                              segment_start: null
+                              segment_end: null
+                              has_answer: null
+                          event_time: null
+                          time_text: null
+                          merged_from: []
+                          belief_original: null
+                          confidence: 0.55
+                          confidence_dimensions: {}
+                          initial_confidence: 0.55
+                          evidence_confidence: 0.0
+                          factor_confidence: 0.0
+                          confidence_history:
+                          - step: initial
+                            value: 0.55
+                            evidence_confidence: 0.0
+                            factor_confidence: 0.0
+                          decision_history: []
+                          metadata:
+                            namespace: default
+                            actor: null
+                            observed_at: null
+                        created_at: '2026-06-12T10:00:00Z'
+                        updated_at: '2026-06-12T10:00:00Z'
+                        metadata:
+                          belief_id: 0
+                          source_type: message
+                          layer: io
+                      edges: []
+                      merges: []
+                      sessions: []
+                      evidence: []
+                      factors: []
+                      metadata: {}
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                emptyContent:
+                  summary: Empty belief content
+                  value:
+                    exception: ValidationError
+                    message: BeliefPayload.belief must contain at least 1 character.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                source_type:
+                  type: string
+                  description: Source label used for provenance and confidence initialization.
+                content:
+                  type: string
+                  description: Already-formed belief text. The complete string becomes one asserted belief.
+                actor:
+                  type: object
+                  additionalProperties: true
+                  description: 'Optional actor metadata, for example `{''role'': ''user''}`.'
+                observed_at:
+                  type: string
+                  description: Optional observation timestamp or date string.
+                metadata:
+                  type: object
+                  additionalProperties: true
+                  description: Additional metadata attached to the belief.
+              additionalProperties: false
+              required:
+              - source_type
+              - content
+  /memory/believe:
+    get:
+      tags:
+      - Memory
+      operationId: sdk_BCGMemory_believe
+      summary: Find beliefs
+      description: Find stored beliefs with a case-insensitive text match.
+      x-bcg-python-symbol: BCGMemory.believe
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "from bcg import BCG, BCGMemory\n\nmemory = BCGMemory(graph=BCG())\nmemory.observe(\n    source_type=\"message\"\
+            ,\n    content=\"Acme is threatening to churn after repeated outages.\",\n)\n\nmatches = memory.believe(\"churn\"\
+            , max_results=5)\n\nfor belief in matches:\n    print(belief.id, belief.belief, belief.confidence)\n"
+      responses:
+        '200':
+          description: Retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BeliefPayload'
+              examples:
+                matches:
+                  summary: Matching beliefs
+                  value:
+                  - id: 0
+                    node_type: belief
+                    belief: Acme is threatening to churn after repeated outages.
+                    decision: null
+                    stance: asserted
+                    layer: io
+                    role: message
+                    entities: []
+                    source:
+                      type: message
+                      role: message
+                      trajectory_index: -1
+                      segment_index: 0
+                      segment_type: message
+                      scenario: null
+                      item_id: null
+                      session_id: null
+                      session_index: null
+                      session_date: null
+                      turn_index: null
+                      segment_start: null
+                      segment_end: null
+                      has_answer: null
+                    evidence_ids: []
+                    factor_ids: []
+                    supporting_excerpts:
+                    - Acme is threatening to churn after repeated outages.
+                    evidence:
+                    - text: Acme is threatening to churn after repeated outages.
+                      start: 0
+                      end: 52
+                      match: exact
+                      via: manual
+                      source:
+                        type: message
+                        role: message
+                        trajectory_index: -1
+                        segment_index: 0
+                        segment_type: message
+                        scenario: null
+                        item_id: null
+                        session_id: null
+                        session_index: null
+                        session_date: null
+                        turn_index: null
+                        segment_start: null
+                        segment_end: null
+                        has_answer: null
+                    event_time: null
+                    time_text: null
+                    merged_from: []
+                    belief_original: null
+                    confidence: 0.55
+                    confidence_dimensions: {}
+                    initial_confidence: 0.55
+                    evidence_confidence: 0.0
+                    factor_confidence: 0.0
+                    confidence_history:
+                    - step: initial
+                      value: 0.55
+                      evidence_confidence: 0.0
+                      factor_confidence: 0.0
+                    decision_history: []
+                    metadata:
+                      namespace: default
+                      actor: null
+                      observed_at: null
+                noMatches:
+                  summary: No matching beliefs
+                  value: []
+        '400':
+          description: Invalid argument
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                invalidMaxResults:
+                  summary: Invalid max_results
+                  value:
+                    exception: ValueError
+                    message: max_results must be convertible to int.
+      parameters:
+      - name: target
+        in: query
+        required: true
+        description: Case-insensitive substring to match.
+        schema:
+          type: string
+      - name: max_results
+        in: query
+        required: false
+        description: Maximum number of matches read from `kwargs`.
+        schema:
+          type: integer
+          default: 10
+  /memory/context:
+    post:
+      tags:
+      - Memory
+      operationId: sdk_BCGMemory_context
+      summary: Get task context
+      description: Build a compact belief context for a task.
+      x-bcg-python-symbol: BCGMemory.context
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "from bcg import BCG, BCGMemory\n\nmemory = BCGMemory(graph=BCG())\nmemory.observe(\n    source_type=\"message\"\
+            ,\n    content=\"Acme is threatening to churn after repeated outages.\",\n)\nmemory.observe(\n    source_type=\"\
+            message\",\n    content=\"BetaCorp renewed its contract.\",\n)\n\ncontext = memory.context(\n    task=\"Review\
+            \ customer churn risk\",\n    focal_entities=[\"Acme\"],\n    max_variables=20,\n)\n\nprint(context[\"task\"])\n\
+            print(context[\"beliefs\"][0][\"belief\"])\n"
+      responses:
+        '200':
+          description: Retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - task
+                - namespace
+                - beliefs
+                properties:
+                  task:
+                    type: string
+                  namespace:
+                    type: string
+                  beliefs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BeliefPayload'
+              examples:
+                success:
+                  summary: Retrieved
+                  value:
+                    task: Review customer churn risk
+                    namespace: default
+                    beliefs:
+                    - id: 0
+                      node_type: belief
+                      belief: Acme is threatening to churn after repeated outages.
+                      decision: null
+                      stance: asserted
+                      layer: io
+                      role: message
+                      entities: []
+                      source:
+                        type: message
+                        role: message
+                        trajectory_index: -1
+                        segment_index: 0
+                        segment_type: message
+                        scenario: null
+                        item_id: null
+                        session_id: null
+                        session_index: null
+                        session_date: null
+                        turn_index: null
+                        segment_start: null
+                        segment_end: null
+                        has_answer: null
+                      evidence_ids: []
+                      factor_ids: []
+                      supporting_excerpts:
+                      - Acme is threatening to churn after repeated outages.
+                      evidence:
+                      - text: Acme is threatening to churn after repeated outages.
+                        start: 0
+                        end: 52
+                        match: exact
+                        via: manual
+                        source:
+                          type: message
+                          role: message
+                          trajectory_index: -1
+                          segment_index: 0
+                          segment_type: message
+                          scenario: null
+                          item_id: null
+                          session_id: null
+                          session_index: null
+                          session_date: null
+                          turn_index: null
+                          segment_start: null
+                          segment_end: null
+                          has_answer: null
+                      event_time: null
+                      time_text: null
+                      merged_from: []
+                      belief_original: null
+                      confidence: 0.55
+                      confidence_dimensions: {}
+                      initial_confidence: 0.55
+                      evidence_confidence: 0.0
+                      factor_confidence: 0.0
+                      confidence_history:
+                      - step: initial
+                        value: 0.55
+                        evidence_confidence: 0.0
+                        factor_confidence: 0.0
+                      decision_history: []
+                      metadata:
+                        namespace: default
+                        actor: null
+                        observed_at: null
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                task:
+                  type: string
+                  description: Task the selected belief context should support.
+                focal_entities:
+                  type: array
+                  items:
+                    type: string
+                  description: Optional substrings used to filter belief text.
+                max_variables:
+                  type: integer
+                  default: 100
+                  description: Maximum number of beliefs in the context.
+                include_conflicts:
+                  type: boolean
+                  default: true
+                  description: Compatibility flag; currently does not change selection.
+                include_missing_evidence:
+                  type: boolean
+                  default: true
+                  description: Compatibility flag; currently does not change selection.
+              additionalProperties: false
+              required:
+              - task
+  /memory/search:
+    post:
+      tags:
+      - Memory
+      operationId: sdk_BCGMemory_search
+      summary: Search beliefs
+      description: Search stored beliefs and return JSON-compatible results.
+      x-bcg-python-symbol: BCGMemory.search
+      x-bcg-python-kind: async method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "import asyncio\n\nfrom bcg import BCG, BCGMemory\n\n\nasync def main() -> None:\n    memory = BCGMemory(graph=BCG())\n\
+            \    memory.observe(\n        source_type=\"message\",\n        content=\"Acme is threatening to churn after repeated\
+            \ outages.\",\n    )\n\n    results = await memory.search(\n        query=\"outages\",\n        max_results=10,\n\
+            \    )\n    print(results[0][\"belief\"])\n\n\nasyncio.run(main())\n"
+      responses:
+        '200':
+          description: Retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BeliefPayload'
+              examples:
+                matches:
+                  summary: Matching beliefs
+                  value:
+                  - id: 0
+                    node_type: belief
+                    belief: Acme is threatening to churn after repeated outages.
+                    decision: null
+                    stance: asserted
+                    layer: io
+                    role: message
+                    entities: []
+                    source:
+                      type: message
+                      role: message
+                      trajectory_index: -1
+                      segment_index: 0
+                      segment_type: message
+                      scenario: null
+                      item_id: null
+                      session_id: null
+                      session_index: null
+                      session_date: null
+                      turn_index: null
+                      segment_start: null
+                      segment_end: null
+                      has_answer: null
+                    evidence_ids: []
+                    factor_ids: []
+                    supporting_excerpts:
+                    - Acme is threatening to churn after repeated outages.
+                    evidence:
+                    - text: Acme is threatening to churn after repeated outages.
+                      start: 0
+                      end: 52
+                      match: exact
+                      via: manual
+                      source:
+                        type: message
+                        role: message
+                        trajectory_index: -1
+                        segment_index: 0
+                        segment_type: message
+                        scenario: null
+                        item_id: null
+                        session_id: null
+                        session_index: null
+                        session_date: null
+                        turn_index: null
+                        segment_start: null
+                        segment_end: null
+                        has_answer: null
+                    event_time: null
+                    time_text: null
+                    merged_from: []
+                    belief_original: null
+                    confidence: 0.55
+                    confidence_dimensions: {}
+                    initial_confidence: 0.55
+                    evidence_confidence: 0.0
+                    factor_confidence: 0.0
+                    confidence_history:
+                    - step: initial
+                      value: 0.55
+                      evidence_confidence: 0.0
+                      factor_confidence: 0.0
+                    decision_history: []
+                    metadata:
+                      namespace: default
+                      actor: null
+                      observed_at: null
+                noMatches:
+                  summary: No matching beliefs
+                  value: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                  description: Case-insensitive substring to search for.
+                max_results:
+                  type: integer
+                  default: 10
+                  description: Maximum number of returned matches.
+                include_conflicts:
+                  type: boolean
+                  default: true
+                  description: Compatibility flag; currently does not change selection.
+                include_missing_evidence:
+                  type: boolean
+                  default: true
+                  description: Compatibility flag; currently does not change selection.
+              additionalProperties: false
+              required:
+              - query
+  /construction/trajectory:
+    post:
+      tags:
+      - Construction
+      operationId: sdk_BCGRunner_observe_trajectory
+      summary: Process trajectory
+      description: Build and finalize a graph from a complete conversation trajectory.
+      x-bcg-python-symbol: BCGRunner.observe_trajectory
+      x-bcg-python-kind: async method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "import asyncio\n\nfrom bcg import BCG, BCGMemory, BCGRunner\nfrom bcg.core.llm import LLMClient\n\n\nasync\
+            \ def main() -> None:\n    memory = BCGMemory(graph=BCG())\n    runner = BCGRunner(\n        memory=memory,\n\
+            \        llm=LLMClient(),\n        backend=\"unified\",  # use \"hybrid\" for the hybrid construction backend\n\
+            \    )\n\n    result = await runner.observe_trajectory(\n        [\n            {\n                \"role\": \"\
+            user\",\n                \"content\": \"Acme is threatening to churn after repeated outages.\",\n            },\n\
+            \            {\n                \"role\": \"assistant\",\n                \"content\": \"We should prioritize\
+            \ a reliability review and contact Acme.\",\n            },\n        ],\n        run_id=\"acme-risk-review\",\n\
+            \    )\n\n    print(f\"beliefs: {len(result.graph.beliefs())}\")\n    print(f\"relations: {len(result.graph.relations())}\"\
+            )\n    print(f\"memory artifact: {result.output_paths.memory}\")\n    print(f\"token usage: {result.token_usage}\"\
+            )\n\n\nasyncio.run(main())\n"
+      responses:
+        '200':
+          description: Completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunResult'
+              examples:
+                success:
+                  summary: Completed
+                  value:
+                    run_id: acme-risk-review
+                    graph:
+                      nodes:
+                      - uuid: 44444444-4444-4444-8444-444444444444
+                        name: Acme is threatening to churn after repeated outages.
+                        kind: belief
+                        probability: 0.55
+                        belief:
+                          id: 0
+                          node_type: belief
+                          belief: Acme is threatening to churn after repeated outages.
+                          decision: null
+                          stance: asserted
+                          layer: io
+                          role: message
+                          entities: []
+                          source:
+                            type: message
+                            role: message
+                            trajectory_index: -1
+                            segment_index: 0
+                            segment_type: message
+                            scenario: null
+                            item_id: null
+                            session_id: null
+                            session_index: null
+                            session_date: null
+                            turn_index: null
+                            segment_start: null
+                            segment_end: null
+                            has_answer: null
+                          evidence_ids: []
+                          factor_ids: []
+                          supporting_excerpts:
+                          - Acme is threatening to churn after repeated outages.
+                          evidence:
+                          - text: Acme is threatening to churn after repeated outages.
+                            start: 0
+                            end: 52
+                            match: exact
+                            via: manual
+                            source:
+                              type: message
+                              role: message
+                              trajectory_index: -1
+                              segment_index: 0
+                              segment_type: message
+                              scenario: null
+                              item_id: null
+                              session_id: null
+                              session_index: null
+                              session_date: null
+                              turn_index: null
+                              segment_start: null
+                              segment_end: null
+                              has_answer: null
+                          event_time: null
+                          time_text: null
+                          merged_from: []
+                          belief_original: null
+                          confidence: 0.55
+                          confidence_dimensions: {}
+                          initial_confidence: 0.55
+                          evidence_confidence: 0.0
+                          factor_confidence: 0.0
+                          confidence_history:
+                          - step: initial
+                            value: 0.55
+                            evidence_confidence: 0.0
+                            factor_confidence: 0.0
+                          decision_history: []
+                          metadata:
+                            namespace: default
+                            actor: null
+                            observed_at: null
+                        payload:
+                          id: 0
+                          node_type: belief
+                          belief: Acme is threatening to churn after repeated outages.
+                          decision: null
+                          stance: asserted
+                          layer: io
+                          role: message
+                          entities: []
+                          source:
+                            type: message
+                            role: message
+                            trajectory_index: -1
+                            segment_index: 0
+                            segment_type: message
+                            scenario: null
+                            item_id: null
+                            session_id: null
+                            session_index: null
+                            session_date: null
+                            turn_index: null
+                            segment_start: null
+                            segment_end: null
+                            has_answer: null
+                          evidence_ids: []
+                          factor_ids: []
+                          supporting_excerpts:
+                          - Acme is threatening to churn after repeated outages.
+                          evidence:
+                          - text: Acme is threatening to churn after repeated outages.
+                            start: 0
+                            end: 52
+                            match: exact
+                            via: manual
+                            source:
+                              type: message
+                              role: message
+                              trajectory_index: -1
+                              segment_index: 0
+                              segment_type: message
+                              scenario: null
+                              item_id: null
+                              session_id: null
+                              session_index: null
+                              session_date: null
+                              turn_index: null
+                              segment_start: null
+                              segment_end: null
+                              has_answer: null
+                          event_time: null
+                          time_text: null
+                          merged_from: []
+                          belief_original: null
+                          confidence: 0.55
+                          confidence_dimensions: {}
+                          initial_confidence: 0.55
+                          evidence_confidence: 0.0
+                          factor_confidence: 0.0
+                          confidence_history:
+                          - step: initial
+                            value: 0.55
+                            evidence_confidence: 0.0
+                            factor_confidence: 0.0
+                          decision_history: []
+                          metadata:
+                            namespace: default
+                            actor: null
+                            observed_at: null
+                        created_at: '2026-06-12T10:00:00Z'
+                        updated_at: '2026-06-12T10:00:00Z'
+                        metadata:
+                          belief_id: 0
+                          source_type: message
+                          layer: io
+                      edges: []
+                      merges: []
+                      sessions:
+                      - session_id: session-1
+                        session_index: 0
+                        date: '2026-06-12'
+                        start_turn: 0
+                        n_turns: 2
+                        end_turn: 2
+                      evidence: []
+                      factors: []
+                      metadata:
+                        run_id: acme-risk-review
+                        namespace: default
+                        engine: bcg.construct.unified
+                        scenario: research
+                        item_id: trajectory
+                        generated_at: '2026-06-12T10:02:00Z'
+                    memory:
+                      schema: bcg.memory.v2
+                      engine: bcg.construct.unified
+                      run_id: acme-risk-review
+                      beliefs:
+                      - id: 0
+                        node_type: belief
+                        belief: Acme is threatening to churn after repeated outages.
+                        decision: null
+                        stance: asserted
+                        layer: io
+                        role: message
+                        entities: []
+                        source:
+                          type: message
+                          role: message
+                          trajectory_index: -1
+                          segment_index: 0
+                          segment_type: message
+                          scenario: null
+                          item_id: null
+                          session_id: null
+                          session_index: null
+                          session_date: null
+                          turn_index: null
+                          segment_start: null
+                          segment_end: null
+                          has_answer: null
+                        evidence_ids: []
+                        factor_ids: []
+                        supporting_excerpts:
+                        - Acme is threatening to churn after repeated outages.
+                        evidence:
+                        - text: Acme is threatening to churn after repeated outages.
+                          start: 0
+                          end: 52
+                          match: exact
+                          via: manual
+                          source:
+                            type: message
+                            role: message
+                            trajectory_index: -1
+                            segment_index: 0
+                            segment_type: message
+                            scenario: null
+                            item_id: null
+                            session_id: null
+                            session_index: null
+                            session_date: null
+                            turn_index: null
+                            segment_start: null
+                            segment_end: null
+                            has_answer: null
+                        event_time: null
+                        time_text: null
+                        merged_from: []
+                        belief_original: null
+                        confidence: 0.55
+                        confidence_dimensions: {}
+                        initial_confidence: 0.55
+                        evidence_confidence: 0.0
+                        factor_confidence: 0.0
+                        confidence_history:
+                        - step: initial
+                          value: 0.55
+                          evidence_confidence: 0.0
+                          factor_confidence: 0.0
+                        decision_history: []
+                        metadata:
+                          namespace: default
+                          actor: null
+                          observed_at: null
+                      decisions: []
+                      relations: []
+                      trajectory:
+                      - role: user
+                        content: Acme is threatening to churn after repeated outages.
+                        session_id: session-0
+                        session_index: 0
+                        turn_index: 0
+                      counts:
+                        beliefs: 1
+                        decisions: 0
+                        relations: 0
+                        sessions: 1
+                    output_paths:
+                      run_dir: .bcg/runs/acme-risk-review
+                      artifacts_dir: .bcg/runs/acme-risk-review/artifacts
+                      graph: .bcg/runs/acme-risk-review/graph.json
+                      memory: .bcg/runs/acme-risk-review/memory.json
+                      token_usage: .bcg/runs/acme-risk-review/token_usage.json
+                      events: .bcg/runs/acme-risk-review/events.jsonl
+                      segments: .bcg/runs/acme-risk-review/artifacts/segments.json
+                      io_beliefs: .bcg/runs/acme-risk-review/artifacts/io_beliefs.json
+                      reasoning_beliefs: .bcg/runs/acme-risk-review/artifacts/reasoning_beliefs.json
+                      forward_relations: .bcg/runs/acme-risk-review/artifacts/forward_relations.json
+                      backward_relations: .bcg/runs/acme-risk-review/artifacts/backward_relations.json
+                      merges: .bcg/runs/acme-risk-review/artifacts/merges.json
+                      result: .bcg/runs/acme-risk-review/result.json
+                      final_graph: .bcg/runs/acme-risk-review/final_graph.json
+                      trajectory: .bcg/runs/acme-risk-review/trajectory.json
+                      graph_stream: .bcg/runs/acme-risk-review/graph_stream.jsonl
+                    token_usage:
+                      input_tokens: 412
+                      output_tokens: 96
+                      total_tokens: 508
+                    counts:
+                      beliefs: 1
+                      decisions: 0
+                      relations: 0
+                      sessions: 1
+                    construct_result:
+                      generated_at: '2026-06-12T10:02:00Z'
+                      prompt_name: construct_beliefs
+        '400':
+          description: Invalid backend or options
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                unknownBackend:
+                  summary: Unknown backend
+                  value:
+                    exception: BCGConfigError
+                    message: 'unknown backend ''missing''; choose one of: unified, hybrid'
+                invalidHybridConfig:
+                  summary: Invalid hybrid belief_graph configuration
+                  value:
+                    exception: ValueError
+                    message: belief_graph.runtime must be an object
+        '409':
+          description: Run already active
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                activeRun:
+                  summary: A run is already active
+                  value:
+                    exception: BCGUsageError
+                    message: A belief run is already active
+        '500':
+          description: Construction failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                backendFailure:
+                  summary: Backend/model failure
+                  value:
+                    exception: BCGBackendError
+                    message: The construction backend failed while processing the run.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                trajectory:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+                  description: Complete conversation trajectory; each turn contains at least `role` and `content`.
+                run_id:
+                  type: string
+                  description: Optional explicit run ID.
+                model:
+                  type: string
+                  description: Optional model override.
+                max_tokens:
+                  type: integer
+                  description: Optional construction-model token limit.
+                scenario:
+                  type: string
+                  default: research
+                  description: Scenario label stored with the run.
+                item_id:
+                  type: string
+                  default: trajectory
+                  description: Item identifier stored with the run.
+                backend:
+                  type: string
+                  description: 'Optional backend override: `unified` or `hybrid`.'
+                evidence_mode:
+                  type: string
+                  default: sentence
+                  description: Unified-backend evidence segmentation mode.
+                incremental_merge:
+                  type: boolean
+                  default: true
+                  description: Enable incremental merge for the unified backend.
+                incremental_merge_threshold:
+                  type: number
+                  default: 0.86
+                  description: Incremental merge threshold.
+                verify_merge:
+                  type: boolean
+                  default: true
+                  description: Whether merge candidates are verified.
+                context_chars:
+                  type: integer
+                  default: 100000
+                  description: General context-character budget.
+                io_context_chars:
+                  type: integer
+                  default: 6000
+                  description: I/O context-character budget.
+                min_content_len:
+                  type: integer
+                  default: 0
+                  description: Minimum content length.
+                belief_graph_config:
+                  type: object
+                  additionalProperties: true
+                  description: Hybrid backend `belief_graph` configuration override.
+                embedder:
+                  type: object
+                  additionalProperties: true
+                  description: Optional embedder object.
+                metadata:
+                  type: object
+                  additionalProperties: true
+                  description: Run metadata.
+                options:
+                  type: object
+                  additionalProperties: true
+                  description: Fully built backend-specific options object; when supplied it replaces the individual option
+                    knobs.
+              additionalProperties: false
+              required:
+              - trajectory
+  /construction/run:
+    post:
+      tags:
+      - Construction
+      operationId: sdk_BCGRunner_begin_belief_run
+      summary: Start run
+      description: Start an explicit streamed construction run.
+      x-bcg-python-symbol: BCGRunner.begin_belief_run
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "import asyncio\n\nfrom bcg import BCG, BCGMemory, BCGRunner\nfrom bcg.core.llm import LLMClient\n\n\nasync\
+            \ def main() -> None:\n    runner = BCGRunner(\n        memory=BCGMemory(graph=BCG()),\n        llm=LLMClient(),\n\
+            \        backend=\"unified\",\n    )\n    run_id = runner.begin_belief_run(\n        run_id=\"preference-demo\"\
+            ,\n    )\n    print(run_id)\n\n\nasyncio.run(main())\n"
+      responses:
+        '200':
+          description: Started
+          content:
+            application/json:
+              schema:
+                type: string
+              examples:
+                success:
+                  summary: Started
+                  value: acme-risk-review
+        '400':
+          description: Invalid backend or options
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                unknownBackend:
+                  summary: Unknown backend
+                  value:
+                    exception: BCGConfigError
+                    message: 'unknown backend ''missing''; choose one of: unified, hybrid'
+                invalidHybridConfig:
+                  summary: Invalid hybrid belief_graph configuration
+                  value:
+                    exception: ValueError
+                    message: belief_graph.runtime must be an object
+        '409':
+          description: Run already active
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                activeRun:
+                  summary: A run is already active
+                  value:
+                    exception: BCGUsageError
+                    message: A belief run is already active
+        '500':
+          description: Backend initialization failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                backendFailure:
+                  summary: Backend initialization failure
+                  value:
+                    exception: BCGBackendError
+                    message: The construction backend failed while processing the run.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                run_id:
+                  type: string
+                  description: Optional explicit run ID.
+                model:
+                  type: string
+                  description: Optional model override.
+                max_tokens:
+                  type: integer
+                  description: Optional construction-model token limit.
+                scenario:
+                  type: string
+                  default: research
+                  description: Scenario label stored with the run.
+                item_id:
+                  type: string
+                  default: trajectory
+                  description: Item identifier stored with the run.
+                backend:
+                  type: string
+                  description: 'Optional backend override: `unified` or `hybrid`.'
+                evidence_mode:
+                  type: string
+                  default: sentence
+                  description: Unified-backend evidence segmentation mode.
+                incremental_merge:
+                  type: boolean
+                  default: true
+                  description: Enable incremental merge for the unified backend.
+                incremental_merge_threshold:
+                  type: number
+                  default: 0.86
+                  description: Incremental merge threshold.
+                verify_merge:
+                  type: boolean
+                  default: true
+                  description: Whether merge candidates are verified.
+                context_chars:
+                  type: integer
+                  default: 100000
+                  description: General context-character budget.
+                io_context_chars:
+                  type: integer
+                  default: 6000
+                  description: I/O context-character budget.
+                min_content_len:
+                  type: integer
+                  default: 0
+                  description: Minimum content length.
+                belief_graph_config:
+                  type: object
+                  additionalProperties: true
+                  description: Hybrid backend `belief_graph` configuration override.
+                embedder:
+                  type: object
+                  additionalProperties: true
+                  description: Optional embedder object.
+                metadata:
+                  type: object
+                  additionalProperties: true
+                  description: Run metadata.
+                options:
+                  type: object
+                  additionalProperties: true
+                  description: Fully built backend-specific options object; when supplied it replaces the individual option
+                    knobs.
+              additionalProperties: false
+  /construction/session:
+    post:
+      tags:
+      - Construction
+      operationId: sdk_BCGRunner_start_session
+      summary: Start session
+      description: Open a session inside the active construction run.
+      x-bcg-python-symbol: BCGRunner.start_session
+      x-bcg-python-kind: method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "import asyncio\n\nfrom bcg import BCG, BCGMemory, BCGRunner\nfrom bcg.core.llm import LLMClient\n\n\nasync\
+            \ def main() -> None:\n    runner = BCGRunner(\n        memory=BCGMemory(graph=BCG()),\n        llm=LLMClient(),\n\
+            \        backend=\"unified\",\n    )\n    runner.begin_belief_run(run_id=\"preference-demo\")\n    runner.start_session(\"\
+            session-1\", \"2026-06-12\")\n\n    print(runner.run_id)\n\n\nasyncio.run(main())\n"
+      responses:
+        '204':
+          description: Started
+        '409':
+          description: Invalid run state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                noActiveRun:
+                  summary: No active run
+                  value:
+                    exception: BCGUsageError
+                    message: No active belief run. Call begin_belief_run() first.
+                sessionAlreadyActive:
+                  summary: A session is already active
+                  value:
+                    exception: BCGUsageError
+                    message: A session is already active
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                session_id:
+                  type: string
+                  description: Application-defined session identifier.
+                date:
+                  type: string
+                  description: Optional session date string.
+              additionalProperties: false
+              required:
+              - session_id
+  /construction/turn:
+    post:
+      tags:
+      - Construction
+      operationId: sdk_BCGRunner_observe_turn
+      summary: Observe turn
+      description: Process one conversation turn in the active run.
+      x-bcg-python-symbol: BCGRunner.observe_turn
+      x-bcg-python-kind: async method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "import asyncio\n\nfrom bcg import BCG, BCGMemory, BCGRunner\nfrom bcg.core.llm import LLMClient\n\n\nasync\
+            \ def main() -> None:\n    runner = BCGRunner(\n        memory=BCGMemory(graph=BCG()),\n        llm=LLMClient(),\n\
+            \        backend=\"unified\",\n    )\n    runner.begin_belief_run(run_id=\"preference-demo\")\n    runner.start_session(\"\
+            session-1\", \"2026-06-12\")\n\n    snapshot = await runner.observe_turn(\n        \"user\",\n        \"Alice\
+            \ likes green tea.\",\n    )\n    print(snapshot)\n\n\nasyncio.run(main())\n"
+      responses:
+        '200':
+          description: Processed
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+              examples:
+                success:
+                  summary: Processed
+                  value:
+                    nodes:
+                    - id: 0
+                      node_type: belief
+                      belief: The user states Alice likes tea.
+                      role: user
+                      stance: asserted
+                      entities:
+                      - Alice
+                      evidence_ids:
+                      - 0
+                      factor_ids: []
+                      confidence: 0.88
+                    relations: []
+                    merges: []
+                    evidence:
+                    - id: 0
+                      text: Alice likes tea.
+                      start: 0
+                      end: 16
+                      match: exact
+                      via: split_sentence
+                      role: user
+                    factors: []
+        '409':
+          description: No active run
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                noActiveRun:
+                  summary: No active run
+                  value:
+                    exception: BCGUsageError
+                    message: No active belief run. Call begin_belief_run() first.
+        '500':
+          description: Construction failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                backendFailure:
+                  summary: Backend/model failure
+                  value:
+                    exception: BCGBackendError
+                    message: The construction backend failed while processing the run.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  type: string
+                  description: Turn role, for example `user`, `assistant`, `system`, or `tool`.
+                content:
+                  type: string
+                  description: Turn content.
+                date:
+                  type: string
+                  description: Optional turn date/timestamp.
+                has_answer:
+                  type: boolean
+                  description: Optional answer-state marker copied into the trajectory.
+              additionalProperties: false
+              required:
+              - role
+              - content
+  /construction/end-session:
+    post:
+      tags:
+      - Construction
+      operationId: sdk_BCGRunner_end_session
+      summary: End session
+      description: Close the active session and return its summary when available.
+      x-bcg-python-symbol: BCGRunner.end_session
+      x-bcg-python-kind: async method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "import asyncio\n\nfrom bcg import BCG, BCGMemory, BCGRunner\nfrom bcg.core.llm import LLMClient\n\n\nasync\
+            \ def main() -> None:\n    runner = BCGRunner(\n        memory=BCGMemory(graph=BCG()),\n        llm=LLMClient(),\n\
+            \        backend=\"unified\",\n    )\n    runner.begin_belief_run(run_id=\"preference-demo\")\n    runner.start_session(\"\
+            session-1\", \"2026-06-12\")\n    await runner.observe_turn(\"user\", \"Alice likes green tea.\")\n\n    summary\
+            \ = await runner.end_session()\n    print(summary)\n\n\nasyncio.run(main())\n"
+      responses:
+        '200':
+          description: Ended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionSummary'
+              examples:
+                success:
+                  summary: Ended
+                  value:
+                    session_id: session-1
+                    session_index: 0
+                    date: '2026-06-12'
+                    start_turn: 0
+                    n_turns: 2
+                    end_turn: 2
+        '204':
+          description: No active session
+        '409':
+          description: No active run
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                noActiveRun:
+                  summary: No active run
+                  value:
+                    exception: BCGUsageError
+                    message: No active belief run. Call begin_belief_run() first.
+  /construction/finalize:
+    post:
+      tags:
+      - Construction
+      operationId: sdk_BCGRunner_finalize
+      summary: Finalize run
+      description: Finalize the active construction run and return its result.
+      x-bcg-python-symbol: BCGRunner.finalize
+      x-bcg-python-kind: async method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "import asyncio\n\nfrom bcg import BCG, BCGMemory, BCGRunner\nfrom bcg.core.llm import LLMClient\n\n\nasync\
+            \ def main() -> None:\n    runner = BCGRunner(\n        memory=BCGMemory(graph=BCG()),\n        llm=LLMClient(),\n\
+            \        backend=\"unified\",\n    )\n    runner.begin_belief_run(run_id=\"preference-demo\")\n    runner.start_session(\"\
+            session-1\", \"2026-06-12\")\n    await runner.observe_turn(\"user\", \"Alice likes green tea.\")\n    await runner.observe_turn(\n\
+            \        \"assistant\",\n        \"Noted. I'll remember that preference.\",\n    )\n    await runner.end_session()\n\
+            \n    result = await runner.finalize()\n    print(result.graph.model_dump_json(indent=2))\n\n\nasyncio.run(main())\n"
+      responses:
+        '200':
+          description: Completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunResult'
+              examples:
+                success:
+                  summary: Completed
+                  value:
+                    run_id: acme-risk-review
+                    graph:
+                      nodes:
+                      - uuid: 44444444-4444-4444-8444-444444444444
+                        name: Acme is threatening to churn after repeated outages.
+                        kind: belief
+                        probability: 0.55
+                        belief:
+                          id: 0
+                          node_type: belief
+                          belief: Acme is threatening to churn after repeated outages.
+                          decision: null
+                          stance: asserted
+                          layer: io
+                          role: message
+                          entities: []
+                          source:
+                            type: message
+                            role: message
+                            trajectory_index: -1
+                            segment_index: 0
+                            segment_type: message
+                            scenario: null
+                            item_id: null
+                            session_id: null
+                            session_index: null
+                            session_date: null
+                            turn_index: null
+                            segment_start: null
+                            segment_end: null
+                            has_answer: null
+                          evidence_ids: []
+                          factor_ids: []
+                          supporting_excerpts:
+                          - Acme is threatening to churn after repeated outages.
+                          evidence:
+                          - text: Acme is threatening to churn after repeated outages.
+                            start: 0
+                            end: 52
+                            match: exact
+                            via: manual
+                            source:
+                              type: message
+                              role: message
+                              trajectory_index: -1
+                              segment_index: 0
+                              segment_type: message
+                              scenario: null
+                              item_id: null
+                              session_id: null
+                              session_index: null
+                              session_date: null
+                              turn_index: null
+                              segment_start: null
+                              segment_end: null
+                              has_answer: null
+                          event_time: null
+                          time_text: null
+                          merged_from: []
+                          belief_original: null
+                          confidence: 0.55
+                          confidence_dimensions: {}
+                          initial_confidence: 0.55
+                          evidence_confidence: 0.0
+                          factor_confidence: 0.0
+                          confidence_history:
+                          - step: initial
+                            value: 0.55
+                            evidence_confidence: 0.0
+                            factor_confidence: 0.0
+                          decision_history: []
+                          metadata:
+                            namespace: default
+                            actor: null
+                            observed_at: null
+                        payload:
+                          id: 0
+                          node_type: belief
+                          belief: Acme is threatening to churn after repeated outages.
+                          decision: null
+                          stance: asserted
+                          layer: io
+                          role: message
+                          entities: []
+                          source:
+                            type: message
+                            role: message
+                            trajectory_index: -1
+                            segment_index: 0
+                            segment_type: message
+                            scenario: null
+                            item_id: null
+                            session_id: null
+                            session_index: null
+                            session_date: null
+                            turn_index: null
+                            segment_start: null
+                            segment_end: null
+                            has_answer: null
+                          evidence_ids: []
+                          factor_ids: []
+                          supporting_excerpts:
+                          - Acme is threatening to churn after repeated outages.
+                          evidence:
+                          - text: Acme is threatening to churn after repeated outages.
+                            start: 0
+                            end: 52
+                            match: exact
+                            via: manual
+                            source:
+                              type: message
+                              role: message
+                              trajectory_index: -1
+                              segment_index: 0
+                              segment_type: message
+                              scenario: null
+                              item_id: null
+                              session_id: null
+                              session_index: null
+                              session_date: null
+                              turn_index: null
+                              segment_start: null
+                              segment_end: null
+                              has_answer: null
+                          event_time: null
+                          time_text: null
+                          merged_from: []
+                          belief_original: null
+                          confidence: 0.55
+                          confidence_dimensions: {}
+                          initial_confidence: 0.55
+                          evidence_confidence: 0.0
+                          factor_confidence: 0.0
+                          confidence_history:
+                          - step: initial
+                            value: 0.55
+                            evidence_confidence: 0.0
+                            factor_confidence: 0.0
+                          decision_history: []
+                          metadata:
+                            namespace: default
+                            actor: null
+                            observed_at: null
+                        created_at: '2026-06-12T10:00:00Z'
+                        updated_at: '2026-06-12T10:00:00Z'
+                        metadata:
+                          belief_id: 0
+                          source_type: message
+                          layer: io
+                      edges: []
+                      merges: []
+                      sessions:
+                      - session_id: session-1
+                        session_index: 0
+                        date: '2026-06-12'
+                        start_turn: 0
+                        n_turns: 2
+                        end_turn: 2
+                      evidence: []
+                      factors: []
+                      metadata:
+                        run_id: acme-risk-review
+                        namespace: default
+                        engine: bcg.construct.unified
+                        scenario: research
+                        item_id: trajectory
+                        generated_at: '2026-06-12T10:02:00Z'
+                    memory:
+                      schema: bcg.memory.v2
+                      engine: bcg.construct.unified
+                      run_id: acme-risk-review
+                      beliefs:
+                      - id: 0
+                        node_type: belief
+                        belief: Acme is threatening to churn after repeated outages.
+                        decision: null
+                        stance: asserted
+                        layer: io
+                        role: message
+                        entities: []
+                        source:
+                          type: message
+                          role: message
+                          trajectory_index: -1
+                          segment_index: 0
+                          segment_type: message
+                          scenario: null
+                          item_id: null
+                          session_id: null
+                          session_index: null
+                          session_date: null
+                          turn_index: null
+                          segment_start: null
+                          segment_end: null
+                          has_answer: null
+                        evidence_ids: []
+                        factor_ids: []
+                        supporting_excerpts:
+                        - Acme is threatening to churn after repeated outages.
+                        evidence:
+                        - text: Acme is threatening to churn after repeated outages.
+                          start: 0
+                          end: 52
+                          match: exact
+                          via: manual
+                          source:
+                            type: message
+                            role: message
+                            trajectory_index: -1
+                            segment_index: 0
+                            segment_type: message
+                            scenario: null
+                            item_id: null
+                            session_id: null
+                            session_index: null
+                            session_date: null
+                            turn_index: null
+                            segment_start: null
+                            segment_end: null
+                            has_answer: null
+                        event_time: null
+                        time_text: null
+                        merged_from: []
+                        belief_original: null
+                        confidence: 0.55
+                        confidence_dimensions: {}
+                        initial_confidence: 0.55
+                        evidence_confidence: 0.0
+                        factor_confidence: 0.0
+                        confidence_history:
+                        - step: initial
+                          value: 0.55
+                          evidence_confidence: 0.0
+                          factor_confidence: 0.0
+                        decision_history: []
+                        metadata:
+                          namespace: default
+                          actor: null
+                          observed_at: null
+                      decisions: []
+                      relations: []
+                      trajectory:
+                      - role: user
+                        content: Acme is threatening to churn after repeated outages.
+                        session_id: session-0
+                        session_index: 0
+                        turn_index: 0
+                      counts:
+                        beliefs: 1
+                        decisions: 0
+                        relations: 0
+                        sessions: 1
+                    output_paths:
+                      run_dir: .bcg/runs/acme-risk-review
+                      artifacts_dir: .bcg/runs/acme-risk-review/artifacts
+                      graph: .bcg/runs/acme-risk-review/graph.json
+                      memory: .bcg/runs/acme-risk-review/memory.json
+                      token_usage: .bcg/runs/acme-risk-review/token_usage.json
+                      events: .bcg/runs/acme-risk-review/events.jsonl
+                      segments: .bcg/runs/acme-risk-review/artifacts/segments.json
+                      io_beliefs: .bcg/runs/acme-risk-review/artifacts/io_beliefs.json
+                      reasoning_beliefs: .bcg/runs/acme-risk-review/artifacts/reasoning_beliefs.json
+                      forward_relations: .bcg/runs/acme-risk-review/artifacts/forward_relations.json
+                      backward_relations: .bcg/runs/acme-risk-review/artifacts/backward_relations.json
+                      merges: .bcg/runs/acme-risk-review/artifacts/merges.json
+                      result: .bcg/runs/acme-risk-review/result.json
+                      final_graph: .bcg/runs/acme-risk-review/final_graph.json
+                      trajectory: .bcg/runs/acme-risk-review/trajectory.json
+                      graph_stream: .bcg/runs/acme-risk-review/graph_stream.jsonl
+                    token_usage:
+                      input_tokens: 412
+                      output_tokens: 96
+                      total_tokens: 508
+                    counts:
+                      beliefs: 1
+                      decisions: 0
+                      relations: 0
+                      sessions: 1
+                    construct_result:
+                      generated_at: '2026-06-12T10:02:00Z'
+                      prompt_name: construct_beliefs
+        '409':
+          description: Invalid run state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                noActiveRun:
+                  summary: No active run
+                  value:
+                    exception: BCGUsageError
+                    message: No active belief run. Call begin_belief_run() first.
+        '500':
+          description: Construction or artifact write failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                backendFailure:
+                  summary: Backend/model failure
+                  value:
+                    exception: BCGBackendError
+                    message: The construction backend failed while processing the run.
+                artifactFailure:
+                  summary: Artifact write failure
+                  value:
+                    exception: OSError
+                    message: A run artifact could not be written.
+  /model/generate:
+    post:
+      tags:
+      - Model
+      operationId: sdk_LLMClient_generate
+      summary: Generate response
+      description: Generate a response from structured chat messages.
+      x-bcg-python-symbol: LLMClient.generate
+      x-bcg-python-kind: async method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "import asyncio\n\nfrom bcg import LLMClient\n\n\nasync def main() -> None:\n    client = LLMClient()\n  \
+            \  try:\n        response = await client.generate(\n            [\n                {\n                    \"role\"\
+            : \"user\",\n                    \"content\": \"Summarize the incident in one paragraph.\",\n                }\n\
+            \            ]\n        )\n        print(response.content)\n        print(response.usage)\n    finally:\n    \
+            \    await client.close()\n\n\nasyncio.run(main())\n"
+      responses:
+        '200':
+          description: Generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LLMResponse'
+              examples:
+                success:
+                  summary: Generated
+                  value:
+                    content: The incident was caused by repeated checkout timeouts.
+                    messages:
+                    - role: user
+                      content: Summarize the incident in one paragraph.
+                    - role: assistant
+                      content: The incident was caused by repeated checkout timeouts.
+                    usage:
+                      input_tokens: 18
+                      output_tokens: 10
+                      total_tokens: 28
+                    tool_calls: 0
+                    reasoning_summary: ''
+        4XX:
+          description: Provider request error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                providerClientError:
+                  summary: Non-retryable provider 4xx
+                  value:
+                    exception: APIStatusError
+                    message: The OpenAI-compatible provider rejected the request.
+        '408':
+          description: Request timeout
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                timeout:
+                  summary: Provider timeout after retries
+                  value:
+                    exception: APITimeoutError
+                    message: The model request timed out after the configured retry attempts.
+        '409':
+          description: Provider conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                providerConflict:
+                  summary: Provider conflict after retries
+                  value:
+                    exception: APIStatusError
+                    message: The provider returned HTTP 409 after the configured retry attempts.
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                rateLimit:
+                  summary: Rate limit after retries
+                  value:
+                    exception: RateLimitError
+                    message: The provider rate limit remained in effect after the configured retry attempts.
+        '500':
+          description: Provider error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                providerServerError:
+                  summary: Provider 5xx after retries
+                  value:
+                    exception: InternalServerError
+                    message: The OpenAI-compatible provider returned a server error after retries.
+        '503':
+          description: Client or provider unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                disabledClient:
+                  summary: LLM client disabled
+                  value:
+                    exception: RuntimeError
+                    message: LLMClient is disabled. Set OPENAI_API_KEY or OPENAI_BASE_URL to enable it.
+                connectionFailure:
+                  summary: Provider connection failure
+                  value:
+                    exception: APIConnectionError
+                    message: The model provider could not be reached after the configured retry attempts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                messages:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+                  description: Structured chat messages.
+                tools:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+                  description: Optional tool definitions.
+                tool_runner:
+                  type: object
+                  additionalProperties: true
+                  description: Optional callable/runner used to execute returned tool calls.
+                model:
+                  type: string
+                  description: Optional model override.
+                temperature:
+                  type: number
+                  description: Optional sampling temperature.
+                max_tokens:
+                  type: integer
+                  description: Optional output-token limit.
+                response_format:
+                  type: object
+                  additionalProperties: true
+                  description: Optional response-format object.
+                reasoning_effort:
+                  type: string
+                  default: medium
+                  description: Optional reasoning-effort setting.
+              additionalProperties: false
+              required:
+              - messages
+  /model/generate-text:
+    post:
+      tags:
+      - Model
+      operationId: sdk_LLMClient_generate_text
+      summary: Generate text
+      description: Generate plain text from a prompt.
+      x-bcg-python-symbol: LLMClient.generate_text
+      x-bcg-python-kind: async method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "import asyncio\n\nfrom bcg import LLMClient\n\n\nasync def main() -> None:\n    client = LLMClient()\n  \
+            \  try:\n        text = await client.generate_text(\n            \"Summarize the incident in one paragraph.\"\
+            ,\n            system=\"Be precise and evidence-focused.\",\n        )\n        print(text)\n    finally:\n  \
+            \      await client.close()\n\n\nasyncio.run(main())\n"
+      responses:
+        '200':
+          description: Generated
+          content:
+            application/json:
+              schema:
+                type: string
+              examples:
+                success:
+                  summary: Generated
+                  value: The incident was caused by repeated checkout timeouts.
+        4XX:
+          description: Provider request error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                providerClientError:
+                  summary: Non-retryable provider 4xx
+                  value:
+                    exception: APIStatusError
+                    message: The OpenAI-compatible provider rejected the request.
+        '408':
+          description: Request timeout
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                timeout:
+                  summary: Provider timeout after retries
+                  value:
+                    exception: APITimeoutError
+                    message: The model request timed out after the configured retry attempts.
+        '409':
+          description: Provider conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                providerConflict:
+                  summary: Provider conflict after retries
+                  value:
+                    exception: APIStatusError
+                    message: The provider returned HTTP 409 after the configured retry attempts.
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                rateLimit:
+                  summary: Rate limit after retries
+                  value:
+                    exception: RateLimitError
+                    message: The provider rate limit remained in effect after the configured retry attempts.
+        '500':
+          description: Provider error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                providerServerError:
+                  summary: Provider 5xx after retries
+                  value:
+                    exception: InternalServerError
+                    message: The OpenAI-compatible provider returned a server error after retries.
+        '503':
+          description: Client or provider unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                disabledClient:
+                  summary: LLM client disabled
+                  value:
+                    exception: RuntimeError
+                    message: LLMClient is disabled. Set OPENAI_API_KEY or OPENAI_BASE_URL to enable it.
+                connectionFailure:
+                  summary: Provider connection failure
+                  value:
+                    exception: APIConnectionError
+                    message: The model provider could not be reached after the configured retry attempts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt:
+                  type: string
+                  description: User prompt.
+                system:
+                  type: string
+                  description: Optional system prompt.
+                label:
+                  type: string
+                  description: Compatibility label; currently not used by this method.
+                model:
+                  type: string
+                  description: Optional model override.
+                temperature:
+                  type: number
+                  description: Optional sampling temperature.
+                max_tokens:
+                  type: integer
+                  description: Optional output-token limit.
+                response_format:
+                  type: object
+                  additionalProperties: true
+                  description: Optional response-format object.
+                reasoning_effort:
+                  type: string
+                  default: medium
+                  description: Optional reasoning-effort setting.
+              additionalProperties: false
+              required:
+              - prompt
+  /model/generate-json:
+    post:
+      tags:
+      - Model
+      operationId: sdk_LLMClient_generate_json
+      summary: Generate JSON
+      description: Generate and parse a JSON object from a prompt.
+      x-bcg-python-symbol: LLMClient.generate_json
+      x-bcg-python-kind: async method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "import asyncio\n\nfrom bcg import LLMClient\n\n\nasync def main() -> None:\n    client = LLMClient()\n  \
+            \  try:\n        data = await client.generate_json(\n            \"Return an object with keys severity and reason.\"\
+            \n        )\n        print(data[\"severity\"])\n    finally:\n        await client.close()\n\n\nasyncio.run(main())\n"
+      responses:
+        '200':
+          description: Generated
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+              examples:
+                parsedObject:
+                  summary: Parsed JSON object
+                  value:
+                    severity: high
+                    reason: Repeated checkout failures
+                parseError:
+                  summary: Model output could not be parsed
+                  value:
+                    _parse_error: no JSON object found
+                    _raw: Severity is high because checkout failed repeatedly.
+        4XX:
+          description: Provider request error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                providerClientError:
+                  summary: Non-retryable provider 4xx
+                  value:
+                    exception: APIStatusError
+                    message: The OpenAI-compatible provider rejected the request.
+        '408':
+          description: Request timeout
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                timeout:
+                  summary: Provider timeout after retries
+                  value:
+                    exception: APITimeoutError
+                    message: The model request timed out after the configured retry attempts.
+        '409':
+          description: Provider conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                providerConflict:
+                  summary: Provider conflict after retries
+                  value:
+                    exception: APIStatusError
+                    message: The provider returned HTTP 409 after the configured retry attempts.
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                rateLimit:
+                  summary: Rate limit after retries
+                  value:
+                    exception: RateLimitError
+                    message: The provider rate limit remained in effect after the configured retry attempts.
+        '500':
+          description: Provider error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                providerServerError:
+                  summary: Provider 5xx after retries
+                  value:
+                    exception: InternalServerError
+                    message: The OpenAI-compatible provider returned a server error after retries.
+        '503':
+          description: Client or provider unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                disabledClient:
+                  summary: LLM client disabled
+                  value:
+                    exception: RuntimeError
+                    message: LLMClient is disabled. Set OPENAI_API_KEY or OPENAI_BASE_URL to enable it.
+                connectionFailure:
+                  summary: Provider connection failure
+                  value:
+                    exception: APIConnectionError
+                    message: The model provider could not be reached after the configured retry attempts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt:
+                  type: string
+                  description: Prompt requesting JSON output.
+                system:
+                  type: string
+                  description: Optional system prompt.
+                label:
+                  type: string
+                  description: Compatibility label forwarded to `generate_text`; currently unused there.
+                model:
+                  type: string
+                  description: Optional model override.
+                temperature:
+                  type: number
+                  description: Optional sampling temperature.
+                max_tokens:
+                  type: integer
+                  description: Optional output-token limit.
+                reasoning_effort:
+                  type: string
+                  default: medium
+                  description: Optional reasoning-effort setting.
+              additionalProperties: false
+              required:
+              - prompt
+  /model/close:
+    delete:
+      tags:
+      - Model
+      operationId: sdk_LLMClient_close
+      summary: Close client
+      description: Close the asynchronous model client.
+      x-bcg-python-symbol: LLMClient.close
+      x-bcg-python-kind: async method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "import asyncio\n\nfrom bcg import LLMClient\n\n\nasync def main() -> None:\n    client = LLMClient()\n  \
+            \  try:\n        text = await client.generate_text(\"Say hello in one sentence.\")\n        print(text)\n    finally:\n\
+            \        await client.close()\n\n\nasyncio.run(main())\n"
+      responses:
+        '204':
+          description: Closed
+  /model/image:
+    post:
+      tags:
+      - Model
+      operationId: sdk_LLMClient_image
+      summary: Analyze image
+      description: Analyze image bytes with a multimodal prompt.
+      x-bcg-python-symbol: LLMClient.image
+      x-bcg-python-kind: async method
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: "import asyncio\nfrom pathlib import Path\n\nfrom bcg import LLMClient\n\n\nasync def main() -> None:\n  \
+            \  client = LLMClient()\n    try:\n        image_bytes = Path(\"screenshot.png\").read_bytes()\n        response\
+            \ = await client.image(\n            image_bytes,\n            prompt=\"Describe the important UI state.\",\n\
+            \        )\n        print(response.content)\n    finally:\n        await client.close()\n\n\nasyncio.run(main())\n"
+      responses:
+        '200':
+          description: Generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LLMResponse'
+              examples:
+                success:
+                  summary: Generated
+                  value:
+                    content: The screenshot shows a failed checkout state with a timeout warning.
+                    messages:
+                    - role: user
+                      content:
+                      - type: text
+                        text: Describe the important UI state.
+                      - type: image_url
+                        image_url:
+                          url: data:image/png;base64,<omitted>
+                    - role: assistant
+                      content: The screenshot shows a failed checkout state with a timeout warning.
+                    usage:
+                      input_tokens: 18
+                      output_tokens: 10
+                      total_tokens: 28
+                    tool_calls: 0
+                    reasoning_summary: ''
+        4XX:
+          description: Provider request error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                providerClientError:
+                  summary: Non-retryable provider 4xx
+                  value:
+                    exception: APIStatusError
+                    message: The OpenAI-compatible provider rejected the request.
+        '408':
+          description: Request timeout
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                timeout:
+                  summary: Provider timeout after retries
+                  value:
+                    exception: APITimeoutError
+                    message: The model request timed out after the configured retry attempts.
+        '409':
+          description: Provider conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                providerConflict:
+                  summary: Provider conflict after retries
+                  value:
+                    exception: APIStatusError
+                    message: The provider returned HTTP 409 after the configured retry attempts.
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                rateLimit:
+                  summary: Rate limit after retries
+                  value:
+                    exception: RateLimitError
+                    message: The provider rate limit remained in effect after the configured retry attempts.
+        '500':
+          description: Provider error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                providerServerError:
+                  summary: Provider 5xx after retries
+                  value:
+                    exception: InternalServerError
+                    message: The OpenAI-compatible provider returned a server error after retries.
+        '503':
+          description: Client or provider unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                disabledClient:
+                  summary: LLM client disabled
+                  value:
+                    exception: RuntimeError
+                    message: LLMClient is disabled. Set OPENAI_API_KEY or OPENAI_BASE_URL to enable it.
+                connectionFailure:
+                  summary: Provider connection failure
+                  value:
+                    exception: APIConnectionError
+                    message: The model provider could not be reached after the configured retry attempts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                image_bytes:
+                  type: string
+                  format: binary
+                  description: Raw image bytes.
+                prompt:
+                  type: string
+                  description: Prompt describing what to analyze.
+                mime_type:
+                  type: string
+                  default: image/png
+                  description: MIME type used in the inline image data URL.
+                model:
+                  type: string
+                  description: Optional model override.
+                temperature:
+                  type: number
+                  description: Optional sampling temperature.
+                max_tokens:
+                  type: integer
+                  default: 1200
+                  description: Output-token limit.
+              additionalProperties: false
+              required:
+              - image_bytes
+              - prompt
+  /configuration/settings:
+    get:
+      tags:
+      - Configuration
+      operationId: sdk_bcg_load_settings
+      summary: Load settings
+      description: Load validated BCG settings and the source of each resolved field.
+      x-bcg-python-symbol: bcg.load_settings
+      x-bcg-python-kind: function
+      x-fern-explorer: false
+      x-fern-examples:
+      - name: Python
+        code-samples:
+        - sdk: python
+          code: 'from bcg import load_settings
+
+
+            settings, sources = load_settings()
+
+
+            print(settings.backend)
+
+            print(sources.get("backend"))
+
+            '
+      responses:
+        '200':
+          description: Loaded
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+                minItems: 2
+                maxItems: 2
+                description: Python tuple `(settings, field_sources)`. Item 0 is the validated BCGSettings object; item 1
+                  maps resolved field paths to their configuration source.
+              examples:
+                success:
+                  summary: Loaded
+                  value:
+                  - schema_version: 1
+                    backend: unified
+                    model_key: graph-model
+                    embedding_key: embedding
+                    server:
+                      host: 127.0.0.1
+                      port: 8848
+                    models:
+                      graph-model:
+                        provider: openai
+                        model: gpt-4.1-mini
+                        api_key_env: OPENAI_API_KEY
+                      embedding:
+                        provider: openai
+                        model: text-embedding-3-small
+                        api_key_env: EMBEDDING_API_KEY
+                    pipeline:
+                      runtime:
+                        evidence_mode: sentence
+                        context_chars: 100000
+                        min_content_len: 0
+                    runner:
+                      evidence_mode: sentence
+                      incremental_merge: true
+                      incremental_merge_threshold: 0.86
+                      verify_merge: true
+                      context_chars: 100000
+                      io_context_chars: 6000
+                      min_content_len: 0
+                  - schema_version: packaged defaults
+                    backend: packaged defaults
+                    model_key: packaged defaults
+                    embedding_key: packaged defaults
+                    server.host: packaged defaults
+                    server.port: packaged defaults
+                    runner.evidence_mode: packaged defaults
+        '400':
+          description: Configuration file error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                missingExplicitFile:
+                  summary: Explicit config file not found
+                  value:
+                    exception: BCGConfigError
+                    message: 'explicit config file does not exist: /path/to/bcg.yaml'
+                notMapping:
+                  summary: Config file is not a YAML mapping
+                  value:
+                    exception: BCGConfigError
+                    message: config file /path/to/bcg.yaml must contain a YAML mapping
+        '422':
+          description: Configuration validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PythonException'
+              examples:
+                invalidSchemaVersion:
+                  summary: Unsupported schema version
+                  value:
+                    exception: ValidationError
+                    message: unsupported schema_version 2; this version of BCG expects 1
+                invalidPort:
+                  summary: Invalid server port
+                  value:
+                    exception: ValidationError
+                    message: server.port must be between 1 and 65535
+      parameters:
+      - name: explicit
+        in: query
+        required: false
+        description: Optional explicit config-file path.
+        schema:
+          type: string
+      - name: env_name
+        in: query
+        required: false
+        description: Environment variable containing a config-file path.
+        schema:
+          type: string
+          default: BCG_CONFIG
+      - name: project_names
+        in: query
+        required: false
+        description: Project config filenames to discover; default is `('bcg.yaml',)`.
+        schema:
+          type: array
+          items:
+            type: string
+      - name: home
+        in: query
+        required: false
+        description: Optional home directory used to resolve `~/.bcg/config.yaml`.
+        schema:
+          type: string
+      - name: cli_overrides
+        in: query
+        required: false
+        description: Highest-precedence non-None overrides.
+        schema:
+          type: object
+          additionalProperties: true
+components:
+  schemas:
+    BeliefSource:
+      type: object
+      required:
+      - type
+      - role
+      - trajectory_index
+      - segment_index
+      - segment_type
+      properties:
+        type:
+          type: string
+        role:
+          type: string
+        trajectory_index:
+          type: integer
+        segment_index:
+          type: integer
+        segment_type:
+          type: string
+        scenario:
+          type:
+          - string
+          - 'null'
+        item_id:
+          type:
+          - string
+          - 'null'
+        session_id:
+          type:
+          - string
+          - 'null'
+        session_index:
+          type:
+          - integer
+          - 'null'
+        session_date:
+          type:
+          - string
+          - 'null'
+        turn_index:
+          type:
+          - integer
+          - 'null'
+        segment_start:
+          type:
+          - integer
+          - 'null'
+          minimum: 0
+        segment_end:
+          type:
+          - integer
+          - 'null'
+          minimum: 0
+        has_answer:
+          type:
+          - boolean
+          - 'null'
+      additionalProperties: true
+    EvidenceExcerpt:
+      type: object
+      required:
+      - text
+      properties:
+        text:
+          type: string
+          minLength: 1
+        start:
+          type:
+          - integer
+          - 'null'
+          minimum: 0
+        end:
+          type:
+          - integer
+          - 'null'
+          minimum: 0
+        match:
+          type:
+          - string
+          - 'null'
+          enum:
+          - exact
+          - normalized
+          - fuzzy
+          - not_found
+          - null
+        via:
+          type:
+          - string
+          - 'null'
+          enum:
+          - llm_excerpt
+          - split_sentence
+          - semantic_chunk
+          - manual
+          - null
+        source:
+          anyOf:
+          - $ref: '#/components/schemas/BeliefSource'
+          - type: 'null'
+      additionalProperties: true
+    ConfidenceHistoryEntry:
+      type: object
+      required:
+      - step
+      - value
+      properties:
+        step:
+          type: string
+        value:
+          type: number
+          minimum: 0
+          maximum: 1
+        reason:
+          type: string
+        delta:
+          type:
+          - number
+          - 'null'
+        from_belief_id:
+          type:
+          - integer
+          - 'null'
+        method:
+          type: string
+        dimensions:
+          type: object
+          additionalProperties:
+            type: number
+        formula:
+          type:
+          - string
+          - 'null'
+        fallback_used:
+          type: boolean
+        model:
+          type:
+          - string
+          - 'null'
+    BeliefPayload:
+      type: object
+      required:
+      - id
+      - belief
+      - layer
+      - source
+      properties:
+        id:
+          type: integer
+          minimum: 0
+        node_type:
+          type: string
+          enum:
+          - belief
+          - decision
+        belief:
+          type: string
+          minLength: 1
+        decision:
+          type:
+          - string
+          - 'null'
+        stance:
+          type: string
+          enum:
+          - asserted
+          - recalled
+          - speculated
+          - judged
+        layer:
+          type: string
+          enum:
+          - io
+          - reasoning
+        role:
+          type:
+          - string
+          - 'null'
+        entities:
+          type: array
+          items:
+            type: string
+        source:
+          $ref: '#/components/schemas/BeliefSource'
+        evidence_ids:
+          type: array
+          items:
+            type: integer
+        factor_ids:
+          type: array
+          items:
+            type: integer
+        supporting_excerpts:
+          type: array
+          items:
+            type: string
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvidenceExcerpt'
+        event_time:
+          type:
+          - string
+          - 'null'
+        time_text:
+          type:
+          - string
+          - 'null'
+        merged_from:
+          type: array
+          items:
+            type: integer
+        belief_original:
+          type:
+          - string
+          - 'null'
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        confidence_dimensions:
+          type: object
+          additionalProperties:
+            type: number
+        initial_confidence:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+          maximum: 1
+        evidence_confidence:
+          type: number
+        factor_confidence:
+          type: number
+        confidence_history:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConfidenceHistoryEntry'
+        decision_history:
+          type: array
+          items:
+            type: integer
+        metadata:
+          type: object
+          additionalProperties: true
+      additionalProperties: true
+    BCGNode:
+      type: object
+      required:
+      - uuid
+      - name
+      - kind
+      - probability
+      - created_at
+      - updated_at
+      properties:
+        uuid:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum:
+          - belief
+          - decision
+          - evidence
+          - factor
+          - episode
+          - entity
+        probability:
+          type: number
+          minimum: 0
+          maximum: 1
+        belief:
+          anyOf:
+          - $ref: '#/components/schemas/BeliefPayload'
+          - type: 'null'
+        payload:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+    RelationPayload:
+      type: object
+      required:
+      - from_id
+      - to_id
+      - type
+      properties:
+        from_id:
+          type: integer
+          minimum: 0
+        to_id:
+          type: integer
+          minimum: 0
+        type:
+          type: string
+          enum:
+          - depends_on
+          - supplements
+          - contradicts
+          - informs
+          - confirms
+          - extends
+        note:
+          type: string
+        weight:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+        activated_condition:
+          anyOf:
+          - type: object
+            properties:
+              input_conf_threshold:
+                type: number
+                minimum: 0
+                maximum: 1
+            required:
+            - input_conf_threshold
+          - type: 'null'
+      additionalProperties: true
+    BCGEdge:
+      type: object
+      required:
+      - uuid
+      - source
+      - target
+      - created_at
+      - updated_at
+      properties:
+        uuid:
+          type: string
+        source:
+          type: string
+        target:
+          type: string
+        weight:
+          type:
+          - number
+          - 'null'
+        relation:
+          anyOf:
+          - $ref: '#/components/schemas/RelationPayload'
+          - type: 'null'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+        payload:
+          type: object
+          additionalProperties: true
+    BCGGraph:
+      type: object
+      required:
+      - nodes
+      - edges
+      - merges
+      - sessions
+      - evidence
+      - factors
+      - metadata
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/BCGNode'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/BCGEdge'
+        merges:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        sessions:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        evidence:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        factors:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        metadata:
+          type: object
+          additionalProperties: true
+    SessionSummary:
+      type: object
+      required:
+      - session_id
+      - session_index
+      - start_turn
+      - n_turns
+      - end_turn
+      properties:
+        session_id:
+          type: string
+        session_index:
+          type: integer
+        date:
+          type:
+          - string
+          - 'null'
+        start_turn:
+          type: integer
+        n_turns:
+          type: integer
+        end_turn:
+          type: integer
+    RunPaths:
+      type: object
+      properties:
+        run_dir:
+          type: string
+        artifacts_dir:
+          type: string
+        graph:
+          type: string
+        memory:
+          type: string
+        token_usage:
+          type: string
+        events:
+          type: string
+        segments:
+          type: string
+        io_beliefs:
+          type: string
+        reasoning_beliefs:
+          type: string
+        forward_relations:
+          type: string
+        backward_relations:
+          type: string
+        merges:
+          type: string
+        result:
+          type: string
+        final_graph:
+          type: string
+        trajectory:
+          type: string
+        graph_stream:
+          type: string
+    RunResult:
+      type: object
+      required:
+      - run_id
+      - graph
+      - memory
+      - output_paths
+      - token_usage
+      - counts
+      - construct_result
+      properties:
+        run_id:
+          type: string
+        graph:
+          $ref: '#/components/schemas/BCGGraph'
+        memory:
+          type: object
+          additionalProperties: true
+        output_paths:
+          $ref: '#/components/schemas/RunPaths'
+        token_usage:
+          type: object
+          additionalProperties: true
+        counts:
+          type: object
+          additionalProperties: true
+        construct_result:
+          type: object
+          additionalProperties: true
+    LLMResponse:
+      type: object
+      required:
+      - content
+      - messages
+      - usage
+      - tool_calls
+      - reasoning_summary
+      properties:
+        content:
+          type: string
+        messages:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        usage:
+          type: object
+          additionalProperties: true
+        tool_calls:
+          type: integer
+        reasoning_summary:
+          type: string
+    PythonException:
+      type: object
+      description: Documentation representation of the Python exception raised. The SDK raises this exception; it does not
+        return this dictionary.
+      required:
+      - exception
+      - message
+      properties:
+        exception:
+          type: string
+        message:
+          type: string
+    Settings:
+      type: object
+      required:
+      - schema_version
+      - backend
+      - model_key
+      - embedding_key
+      - server
+      - models
+      - pipeline
+      - runner
+      properties:
+        schema_version:
+          type: integer
+        backend:
+          type: string
+          enum:
+          - unified
+          - hybrid
+        model_key:
+          type: string
+        embedding_key:
+          type: string
+        server:
+          type: object
+          required:
+          - host
+          - port
+          properties:
+            host:
+              type: string
+            port:
+              type: integer
+              minimum: 1
+              maximum: 65535
+        models:
+          type: object
+          additionalProperties: true
+        pipeline:
+          type: object
+          additionalProperties: true
+        runner:
+          type: object
+          additionalProperties: true
+      additionalProperties: false

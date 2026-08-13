@@ -1,4 +1,3 @@
-# yaml-language-server: $schema=https://schema.buildwithfern.dev/docs-yml.json
 instances:
 - url: belief-context-graph.docs.buildwithfern.com
 title: Belief Context Graph
@@ -133,89 +132,145 @@ navigation:
       slug: project-and-glossary
 - tab: sdk
   layout:
-  - section: SDK Reference
+  - api: SDK Reference
+    api-name: sdk-reference
+    paginated: true
     skip-slug: true
-    collapsed: open-by-default
-    contents:
-    - page: Overview
-      path: ./pages/sdk/overview.mdx
-      slug: overview
-  - section: Graph
-    slug: graph
-    collapsed: true
-    contents:
-    - page: Overview
-      path: ./pages/sdk/graph/overview.mdx
-      slug: overview
-    - page: Create and update knowledge
-      path: ./pages/sdk/graph/create-update.mdx
-      slug: create-update
-    - page: Read and serialize graph state
-      path: ./pages/sdk/graph/read.mdx
-      slug: read
-    - page: Connections and maintenance
-      path: ./pages/sdk/graph/connections.mdx
-      slug: connections
-    - page: Low-level graph operations
-      path: ./pages/sdk/graph/low-level.mdx
-      slug: low-level
-  - section: Memory
-    slug: memory
-    collapsed: true
-    contents:
-    - page: Overview
-      path: ./pages/sdk/memory/overview.mdx
-      slug: overview
-    - page: Store and find knowledge
-      path: ./pages/sdk/memory/store-find.mdx
-      slug: store-find
-    - page: Build context and search
-      path: ./pages/sdk/memory/context-search.mdx
-      slug: context-search
-  - section: Runner
-    slug: runner
-    collapsed: true
-    contents:
-    - page: Overview
-      path: ./pages/sdk/runner/overview.mdx
-      slug: overview
-    - page: Process a complete trajectory
-      path: ./pages/sdk/runner/complete.mdx
-      slug: complete
-    - page: Stream turns through a run
-      path: ./pages/sdk/runner/stream.mdx
-      slug: stream
-    - page: Finalize and read the result
-      path: ./pages/sdk/runner/finalize-result.mdx
-      slug: finalize-result
-  - section: Model client
-    slug: model-client
-    collapsed: true
-    contents:
-    - page: Overview
-      path: ./pages/sdk/model-client/overview.mdx
-      slug: overview
-    - page: Configure
-      path: ./pages/sdk/model-client/configure.mdx
-      slug: configure
-    - page: Generate responses
-      path: ./pages/sdk/model-client/generate-all.mdx
-      slug: generate
-  - section: Configuration and types
-    slug: config
-    collapsed: true
-    contents:
-    - page: Settings and data types
-      path: ./pages/sdk/config/settings-types.mdx
-      slug: settings-types
+    display-errors: true
+    playground:
+      environments: []
+    layout:
+    - section: Graph
+      slug: graph
+      collapsed: true
+      contents:
+      - endpoint: POST /graph/add-node
+        title: Add node
+        slug: add-node
+      - endpoint: POST /graph/add-edge
+        title: Add edge
+        slug: add-edge
+      - endpoint: POST /graph/add-belief
+        title: Add belief
+        slug: add-belief
+      - endpoint: GET /graph/next-belief-id
+        title: Get next belief ID
+        slug: get-next-belief-id
+      - endpoint: POST /graph/allocate-belief-id
+        title: Allocate belief ID
+        slug: allocate-belief-id
+      - endpoint: POST /graph/add-relation
+        title: Add relation
+        slug: add-relation
+      - endpoint: POST /graph/add-relation-by-ids
+        title: Add relation by belief IDs
+        slug: add-relation-by-belief-ids
+      - endpoint: POST /graph/add-relations
+        title: Add relations
+        slug: add-relations
+      - endpoint: GET /graph/belief-nodes
+        title: Get belief nodes
+        slug: get-belief-nodes
+      - endpoint: GET /graph/beliefs
+        title: Get beliefs
+        slug: get-beliefs
+      - endpoint: GET /graph/belief-dictionaries
+        title: Get belief dictionaries
+        slug: get-belief-dictionaries
+      - endpoint: GET /graph/relations
+        title: Get relations
+        slug: get-relations
+      - endpoint: GET /graph/node-by-belief-id
+        title: Get node by belief ID
+        slug: get-node-by-belief-id
+      - endpoint: PATCH /graph/update-belief
+        title: Update belief
+        slug: update-belief
+      - endpoint: DELETE /graph/remove-belief
+        title: Remove belief
+        slug: remove-belief
+      - endpoint: GET /graph/relation-dictionaries
+        title: Get relation dictionaries
+        slug: get-relation-dictionaries
+      - endpoint: PATCH /graph/remap-relations
+        title: Remap relations
+        slug: remap-relations
+      - endpoint: GET /graph/memory-dictionary
+        title: Export memory dictionary
+        slug: export-memory-dictionary
+    - section: Memory
+      slug: memory
+      collapsed: false
+      contents:
+      - endpoint: POST /memory/observe
+        title: Observe belief
+        slug: observe-belief
+      - endpoint: GET /memory/believe
+        title: Find beliefs
+        slug: find-beliefs
+      - endpoint: POST /memory/context
+        title: Get task context
+        slug: get-task-context
+      - endpoint: POST /memory/search
+        title: Search beliefs
+        slug: search-beliefs
+    - section: Construction
+      slug: construction
+      collapsed: true
+      contents:
+      - endpoint: POST /construction/trajectory
+        title: Process trajectory
+        slug: process-trajectory
+      - endpoint: POST /construction/run
+        title: Start run
+        slug: start-run
+      - endpoint: POST /construction/session
+        title: Start session
+        slug: start-session
+      - endpoint: POST /construction/turn
+        title: Observe turn
+        slug: observe-turn
+      - endpoint: POST /construction/end-session
+        title: End session
+        slug: end-session
+      - endpoint: POST /construction/finalize
+        title: Finalize run
+        slug: finalize-run
+    - section: Model
+      slug: model
+      collapsed: true
+      contents:
+      - endpoint: POST /model/generate
+        title: Generate response
+        slug: generate-response
+      - endpoint: POST /model/generate-text
+        title: Generate text
+        slug: generate-text
+      - endpoint: POST /model/generate-json
+        title: Generate JSON
+        slug: generate-json
+      - endpoint: DELETE /model/close
+        title: Close client
+        slug: close-client
+      - endpoint: POST /model/image
+        title: Analyze image
+        slug: analyze-image
+    - section: Configuration
+      slug: configuration
+      collapsed: true
+      contents:
+      - endpoint: GET /configuration/settings
+        title: Load settings
+        slug: load-settings
+    tag-description-pages: false
 - tab: api
   layout:
   - api: HTTP API
-    summary: ./pages/api/overview.mdx
     paginated: true
     skip-slug: true
-    tag-description-pages: true
+    tag-description-pages: false
     display-errors: true
+    api-name: http-api
 navbar-links:
 - type: minimal
   text: GitHub
@@ -228,7 +283,7 @@ logo:
   href: https://github.com/bigai-nlco/belief-context-graph
 colors:
   accent-primary:
-    light: '#b8442f'
+    light: '#92331f'
     dark: '#e58b79'
   background:
     light: '#faf7f2'
@@ -254,3 +309,4 @@ settings:
   search-text: Search BCG docs...
   dark-mode-code: false
   http-snippets: true
+js: ./reference-display.js

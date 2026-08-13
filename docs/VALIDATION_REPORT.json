@@ -3,28 +3,64 @@
   "manual_routes": 45,
   "authored_mdx_pages": 46,
   "http_endpoints": 8,
+  "sdk_reference_operations": 34,
   "top_tabs": [
-    "docs",
-    "sdk",
-    "api"
-  ],
-  "documentation_sections": [
-    "Start here",
-    "Understand BCG",
-    "Build and integrate",
-    "Inspect and operate",
-    "Reference"
+    "Documentation",
+    "SDK Reference",
+    "HTTP API"
   ],
   "sdk_sections": [
-    "SDK Reference",
     "Graph",
     "Memory",
-    "Runner",
-    "Model client",
-    "Configuration and types"
+    "Construction",
+    "Model",
+    "Configuration"
   ],
   "missing_navigation_files": [],
-  "broken_internal_links": [],
+  "missing_sdk_reference_endpoints": [],
   "bad_openapi_refs": [],
-  "css_brace_balance": 0
+  "css_brace_balance": 0,
+  "sdk_explorer_disabled": true,
+  "sdk_reference_source_policy": "README core classes + public authored source methods + top-level load_settings",
+  "sdk_reference_breakdown": {
+    "BCG": 18,
+    "BCGMemory": 4,
+    "BCGRunner": 6,
+    "LLMClient": 5,
+    "Configuration": 1
+  },
+  "sdk_fake_server_removed": true,
+  "sdk_root_summary_removed": true,
+  "sdk_section_summaries_removed": true,
+  "http_api_root_summary_removed": true,
+  "http_tag_description_pages": false,
+  "python_examples_syntax_checked": 34,
+  "reference_full_host_display_removed": true,
+  "reference_display_examples": [
+    "/release",
+    "/BCG/add_node"
+  ],
+  "http_api_server_config_preserved": true,
+  "sdk_fake_server_absent": true,
+  "sdk_titles_user_facing": true,
+  "sdk_verbose_python_signatures_removed": true,
+  "sdk_reference_host_prefix_hidden": true,
+  "sdk_code_surfaces_transparent": true,
+  "sdk_code_syntax_colors_neutralized": true,
+  "sdk_text_inputs_transparent": true,
+  "sdk_display_errors": true,
+  "sdk_success_examples_explicit": true,
+  "sdk_error_examples_explicit": true,
+  "sdk_bare_empty_success_objects": 0,
+  "sdk_void_results_use_204": true,
+  "sdk_response_outcomes_source_grounded": true,
+  "load_settings_fern_example_schema_fixed": true,
+  "load_settings_prefix_items_removed": true,
+  "light_accent_previous": "#b8442f",
+  "light_accent": "#92331f",
+  "light_background": "#faf7f2",
+  "light_accent_contrast_ratio": 7.237,
+  "light_accent_wcag_aaa_7_to_1": true,
+  "add_node_success": "204 no content",
+  "add_edge_success": "204 no content"
 }

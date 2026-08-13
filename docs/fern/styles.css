@@ -161,7 +161,7 @@ article a:not(.fern-button):hover {
   color: var(--bcg-brick-dark);
 }
 
-/* ---------- sidebar: original BCG teal selection ---------- */
+/* ---------- sidebar ---------- */
 .fern-sidebar-heading {
   margin-top: 0.5rem;
   margin-bottom: 0.15rem;
@@ -189,11 +189,19 @@ article a:not(.fern-button):hover {
   background: #241f1b !important;
 }
 
+/* Active child links use the theme brick red only. */
 .fern-sidebar-link[data-state="active"] {
-  color: var(--bcg-teal) !important;
-  background: var(--bcg-teal-soft) !important;
-  font-weight: 650 !important;
-  box-shadow: inset 2px 0 0 var(--bcg-teal);
+  color: var(--bcg-brick) !important;
+  background: transparent !important;
+  font-weight: inherit !important;
+  box-shadow: none !important;
+  border-left-color: transparent !important;
+}
+
+.fern-sidebar-link[data-state="active"]::before,
+.fern-sidebar-link[data-state="active"]::after {
+  box-shadow: none !important;
+  border-left: 0 !important;
 }
 
 .fern-sidebar-group .fern-sidebar-group {
@@ -336,4 +344,86 @@ article :not(pre) > code {
   .fern-sidebar-heading-content {
     font-size: 13.5px !important;
   }
+}
+
+/* ---------- SDK Reference: Zep-like lightweight presentation ---------- */
+
+/* Keep code readable as code, but remove the boxed / filled code-block treatment. */
+body.bcg-sdk-reference .fern-layout-reference pre,
+body.bcg-sdk-reference .fern-layout-reference pre code,
+body.bcg-sdk-reference .fern-layout-reference [data-rehype-pretty-code-fragment],
+body.bcg-sdk-reference .fern-layout-reference [data-rehype-pretty-code-figure],
+body.bcg-sdk-reference .fern-layout-reference .bcg-flat-code-surface {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+/* Preserve spacing and monospace hierarchy without syntax highlighting colors. */
+body.bcg-sdk-reference .fern-layout-reference pre {
+  padding: 0.35rem 0 !important;
+  margin-top: 0.5rem !important;
+  margin-bottom: 0.75rem !important;
+}
+
+body.bcg-sdk-reference .fern-layout-reference pre,
+body.bcg-sdk-reference .fern-layout-reference pre *,
+body.bcg-sdk-reference .fern-layout-reference pre code,
+body.bcg-sdk-reference .fern-layout-reference pre code * {
+  color: var(--bcg-ink) !important;
+  -webkit-text-fill-color: var(--bcg-ink) !important;
+  font-family: var(--bcg-mono) !important;
+  font-style: normal !important;
+  text-shadow: none !important;
+}
+
+/* Inline code reads like technical typography, not a colored badge. */
+body.bcg-sdk-reference .fern-layout-reference :not(pre) > code,
+body.bcg-sdk-reference .fern-layout-reference .fern-api-property code {
+  background: transparent !important;
+  color: inherit !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  font-family: var(--bcg-mono) !important;
+}
+
+/* Parameter/type text is neutral; mono distinguishes identifiers rather than color. */
+body.bcg-sdk-reference .fern-api-property-key,
+body.bcg-sdk-reference .fern-api-property-type,
+body.bcg-sdk-reference .fern-api-property-required,
+body.bcg-sdk-reference .fern-api-property-optional,
+body.bcg-sdk-reference .fern-api-property-meta {
+  color: var(--bcg-ink) !important;
+}
+
+body.bcg-sdk-reference .fern-api-property-key {
+  font-family: var(--bcg-mono) !important;
+}
+
+/* Fern controls/text fields inside SDK reference should not look like filled cards. */
+body.bcg-sdk-reference .fern-layout-reference input,
+body.bcg-sdk-reference .fern-layout-reference textarea,
+body.bcg-sdk-reference .fern-layout-reference [role="textbox"],
+body.bcg-sdk-reference .fern-layout-reference [contenteditable="true"] {
+  background: transparent !important;
+  background-color: transparent !important;
+  color: var(--bcg-ink) !important;
+  box-shadow: none !important;
+}
+
+/* Language/code tabs stay light and typographic rather than pill-like. */
+body.bcg-sdk-reference .fern-layout-reference [role="tab"] {
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: var(--bcg-ink) !important;
+}
+
+/* Keep neutral containers neutral if Fern wraps code in an extra surface. */
+body.bcg-sdk-reference .fern-layout-reference .bcg-flat-code-surface * {
+  background-color: transparent !important;
 }

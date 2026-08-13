@@ -9,7 +9,7 @@
   },
   {
     "path": "FILE_INVENTORY.json",
-    "bytes": 6785
+    "bytes": 4616
   },
   {
     "path": "MIGRATION_NOTES.md",
@@ -25,7 +25,19 @@
   },
   {
     "path": "VALIDATION_REPORT.json",
-    "bytes": 549
+    "bytes": 1999
+  },
+  {
+    "path": "fern/apis/http-api/generators.yml",
+    "bytes": 47
+  },
+  {
+    "path": "fern/apis/sdk-reference/generators.yml",
+    "bytes": 41
+  },
+  {
+    "path": "fern/apis/sdk-reference/openapi.yml",
+    "bytes": 185659
   },
   {
     "path": "fern/assets/favicon.svg",
@@ -33,15 +45,11 @@
   },
   {
     "path": "fern/docs.yml",
-    "bytes": 7164
+    "bytes": 9048
   },
   {
     "path": "fern/fern.config.json",
     "bytes": 63
-  },
-  {
-    "path": "fern/generators.yml",
-    "bytes": 41
   },
   {
     "path": "fern/openapi.yml",
@@ -77,15 +85,15 @@
   },
   {
     "path": "fern/pages/construction/api-model.mdx",
-    "bytes": 1128
+    "bytes": 1656
   },
   {
     "path": "fern/pages/construction/compare.mdx",
-    "bytes": 1139
+    "bytes": 1859
   },
   {
     "path": "fern/pages/construction/local-models.mdx",
-    "bytes": 1321
+    "bytes": 2142
   },
   {
     "path": "fern/pages/first-graph.mdx",
@@ -97,7 +105,7 @@
   },
   {
     "path": "fern/pages/guides/batch.mdx",
-    "bytes": 1284
+    "bytes": 1581
   },
   {
     "path": "fern/pages/guides/dashboard.mdx",
@@ -121,7 +129,7 @@
   },
   {
     "path": "fern/pages/installation.mdx",
-    "bytes": 1393
+    "bytes": 2901
   },
   {
     "path": "fern/pages/operations/deploy-secure.mdx",
@@ -137,11 +145,11 @@
   },
   {
     "path": "fern/pages/quickstart.mdx",
-    "bytes": 2582
+    "bytes": 2746
   },
   {
     "path": "fern/pages/reference/cli-and-environment.mdx",
-    "bytes": 1796
+    "bytes": 2049
   },
   {
     "path": "fern/pages/reference/configuration.mdx",
@@ -161,7 +169,7 @@
   },
   {
     "path": "fern/pages/reference-agent.mdx",
-    "bytes": 903
+    "bytes": 4078
   },
   {
     "path": "fern/pages/sdk/config/settings-types.mdx",
@@ -181,7 +189,7 @@
   },
   {
     "path": "fern/pages/sdk/graph/overview.mdx",
-    "bytes": 550
+    "bytes": 492
   },
   {
     "path": "fern/pages/sdk/graph/read.mdx",
@@ -193,7 +201,7 @@
   },
   {
     "path": "fern/pages/sdk/memory/overview.mdx",
-    "bytes": 494
+    "bytes": 606
   },
   {
     "path": "fern/pages/sdk/memory/store-find.mdx",
@@ -209,11 +217,11 @@
   },
   {
     "path": "fern/pages/sdk/model-client/overview.mdx",
-    "bytes": 357
+    "bytes": 517
   },
   {
     "path": "fern/pages/sdk/overview.mdx",
-    "bytes": 1474
+    "bytes": 1402
   },
   {
     "path": "fern/pages/sdk/runner/complete.mdx",
@@ -225,14 +233,18 @@
   },
   {
     "path": "fern/pages/sdk/runner/overview.mdx",
-    "bytes": 579
+    "bytes": 630
   },
   {
     "path": "fern/pages/sdk/runner/stream.mdx",
     "bytes": 1244
   },
   {
+    "path": "fern/reference-display.js",
+    "bytes": 3933
+  },
+  {
     "path": "fern/styles.css",
-    "bytes": 7736
+    "bytes": 11159
   }
 ]
