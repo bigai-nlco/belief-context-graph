@@ -1,6 +1,8 @@
 
 <div align="center">
 
+<img src="assert/bcg-logo.png" width="160" alt="Belief Context Graph logo">
+
 # Belief Context Graph
 
 
@@ -53,6 +55,12 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 
 <div align="center">
 
+<img
+  src="live_demo.gif"
+  alt="Belief Context Graph live demo"
+  width="900"
+/>
+
 </div>
 
 ## Token cost across the task horizon
@@ -74,20 +82,13 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 - **Temporal Awareness:** Run-based lifecycle with sessions and timestamps — know when each belief was formed and how it evolved
 - **Relation Linking:** Forward and backward relationship edges between beliefs, forming a casual decision graph/trace.
 
-
 ## Quick Start
 
-Core BCG uses Python/`uv` for the SDK and Graph Construction. The optional reference terminal Agent uses an isolated Node.js 22.19+ runtime.
+Core BCG uses Python/`uv` for the SDK and Graph Construction. The optional reference terminal Agent uses Node.js 22.19+.
 
 ### 1. Install BCG
 
-Two supported paths, kept in lockstep with `install.sh` and `Makefile`
-(see ADR-0001 for the release versioning policy and the release manifest):
-
-| Path | Audience | Locked deps | Commands |
-|---|---|---|---|
-| `install.sh` (release) | end users | `uv.lock` + `package-lock.json` | `curl .../install.sh \| sh` |
-| `make install` (source) | developers | `uv.lock` + both `package-lock.json` | `make install` |
+Choose one install path.
 
 #### Option A: install globally with curl (release)
 
@@ -96,34 +97,23 @@ curl -LsSf https://raw.githubusercontent.com/bigai-nlco/belief-context-graph/mai
 bcg --version
 ```
 
-The installer requires `curl`, `tar`, npm, and Node.js 22.19 or newer. It
-installs `uv` when necessary, downloads the repository into a temporary
-directory, installs the Python and Node runtimes from their lockfiles, and
-then removes the temporary source. Download failures abort before any
-install step; partial installs are detected and PATH guidance is printed.
+Requires `curl`, `tar`, npm, and Node.js 22.19+. The installer uses the repository lockfiles and installs `uv` when needed.
 
 #### Option B: clone and run from source (development)
 
 ```bash
 git clone https://github.com/bigai-nlco/belief-context-graph.git
 cd belief-context-graph
-make install          # uv sync --locked --all-groups + agent/dashboard npm ci + agent build
-
+make install
 uv run bcg --version
 ```
 
-Run the source checkout with `uv run bcg`. Optionally expose the current
-checkout as the global `bcg` command:
+Optional: expose the checkout as a global command.
 
 ```bash
-make install-tool     # uv tool install . + agent build + npm install -g ./agent-cli
+make install-tool
 bcg --version
 ```
-
-The Node package provides the internal `bcg-agent` executable launched by
-`bcg`; users normally do not invoke it directly. The Dashboard is a
-separately deployed release artifact (not part of these installs); see
-`dashboard/README.md`.
 
 ### 2. Start the reference BCG Agent
 
@@ -329,148 +319,6 @@ bcg construct replay hybrid \
 
 See [bcg/README.md](bcg/README.md) for input formats, HTTP endpoints, output artifacts, and Python APIs.
 
-## Python SDK
-
-The Python SDK exposes the graph data model, memory operations, construction lifecycle, and model client as regular Python objects. Use it when BCG needs to run inside another Python application without going through the terminal Agent or the Graph Server HTTP API.
-
-### Core Classes
-
-| Class | Purpose |
-|---|---|
-| `BCG` | The in-memory Belief Context Graph. It stores typed belief nodes, relation edges, evidence, merge history, sessions, and graph metadata. Use it to inspect, serialize, or modify a graph directly. |
-| `BCGMemory` | The application-facing memory wrapper around a `BCG` graph. It supports manual belief insertion with `observe()`, substring lookup with `believe()`/`search()`, and task-context assembly with `context()`. Manual `observe()` treats the supplied content as one asserted belief; it does not call an LLM. |
-| `BCGRunner` | The graph-construction orchestrator. It sends complete trajectories or individual turns through the `unified` or `hybrid` construction backend, synchronizes the resulting graph into `BCGMemory`, tracks sessions, and writes run artifacts. |
-| `LLMClient` | The asynchronous OpenAI-compatible model client used by `BCGRunner`. It reads `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` from the environment or BCG configuration, and records model token usage. |
-
-`BCG`, `BCGMemory`, and `BCGRunner` are exported directly from `bcg`. `LLMClient` and its explicit `LLMConfig` are available from `bcg.llm`.
-
-### Example: Manual Belief Storage
-
-Use `BCGMemory.observe()` when the input is already a belief and does not need model-based extraction:
-
-```python
-from bcg import BCG, BCGMemory
-
-graph = BCG()
-memory = BCGMemory(graph=graph)
-
-observation = memory.observe(
-    source_type="message",
-    content="Acme is threatening to churn after repeated outages.",
-)
-
-print(observation.belief.id)
-print(observation.belief.belief)
-print(memory.context(task="Review customer churn risk"))
-```
-
-This example runs locally and does not require an API key. The complete `content` string becomes one asserted belief node.
-
-### Example: Build a Graph from a Conversation
-
-Use `BCGRunner` when raw messages need to be segmented and converted into beliefs, decisions, evidence, confidence values, and relations by a construction model.
-
-Configure the OpenAI-compatible endpoint first:
-
-```bash
-export OPENAI_API_KEY="..."
-export OPENAI_BASE_URL="https://api.openai.com/v1"
-export OPENAI_MODEL="gpt-4.1-mini"
-```
-
-Then run the following as a normal Python program:
-
-```python
-import asyncio
-
-from bcg import BCG, BCGMemory, BCGRunner
-from bcg.core.llm import LLMClient
-
-
-async def main() -> None:
-    memory = BCGMemory(graph=BCG())
-    runner = BCGRunner(
-        memory=memory,
-        llm=LLMClient(),
-        backend="unified",  # use "hybrid" for the hybrid construction backend
-    )
-
-    result = await runner.observe_trajectory(
-        [
-            {
-                "role": "user",
-                "content": "Acme is threatening to churn after repeated outages.",
-            },
-            {
-                "role": "assistant",
-                "content": "We should prioritize a reliability review and contact Acme.",
-            },
-        ],
-        run_id="acme-risk-review",
-    )
-
-    print(f"beliefs: {len(result.graph.beliefs())}")
-    print(f"relations: {len(result.graph.relations())}")
-    print(f"memory artifact: {result.output_paths.memory}")
-    print(f"token usage: {result.token_usage}")
-
-
-asyncio.run(main())
-```
-
-`observe_trajectory()` starts and finalizes one construction run automatically. Its result contains the final graph, a memory snapshot, output paths, token usage, and node/relation counts.
-
-### Example: Control Sessions and Turns
-
-For a streaming application, manage the lifecycle explicitly and push turns as they arrive:
-
-```python
-import asyncio
-
-from bcg import BCG, BCGMemory, BCGRunner
-from bcg.core.llm import LLMClient
-
-
-async def main() -> None:
-    runner = BCGRunner(
-        memory=BCGMemory(graph=BCG()),
-        llm=LLMClient(),
-    )
-
-    runner.begin_belief_run(run_id="preference-demo")
-    runner.start_session("session-1", "2026-06-12")
-    await runner.observe_turn("user", "Alice likes green tea.")
-    await runner.observe_turn(
-        "assistant",
-        "Noted. I'll remember that preference.",
-    )
-    await runner.end_session()
-    result = await runner.finalize()
-
-    print(result.graph.model_dump_json(indent=2))
-
-
-asyncio.run(main())
-```
-
-### Run Output Artifacts
-
-Each run produces a structured directory under `.bcg/runs/<run_id>/`:
-
-```text
-.bcg/runs/<run_id>/
-  graph.json                # full belief graph with nodes and edges
-  memory.json               # memory facade snapshot
-  token_usage.json          # LLM token consumption
-  events.jsonl              # timestamped event log
-  artifacts/
-    segments.json           # trajectory segmentation
-    io_beliefs.json          # extracted input/output beliefs
-    reasoning_beliefs.json   # extracted reasoning beliefs
-    forward_relations.json  # forward relation edges
-    backward_relations.json # backward relation edges
-    merges.json             # duplicate belief merge decisions
-```
 
 ---
 
@@ -714,42 +562,6 @@ Agent memory systems serve different purposes. Below is a feature-level comparis
 > ✅ Full support &nbsp;&nbsp; ⚡ Partial / optional &nbsp;&nbsp; ❌ Not supported
 
 ---
-
-<!-- ## Agent Framework Integrations
-
-BCG is a Python library with a minimal dependency footprint. It integrates with agent frameworks through direct API usage, MCP servers, or HTTP bridges. -->
-
-
-<!-- ### Supported Frameworks -->
-<!--
-| Framework | Integration Method | Notes |
-|---|---|---|
-| **Claude Code** | MCP server or Python tool | Expose BCG as an MCP tool for belief extraction and query during agent sessions |
-| **LangChain** | Custom `BaseMemory` / Tool | Wrap `BCGMemory` as a LangChain memory backend; register belief extraction as a tool |
-| **LlamaIndex** | Custom `BaseMemory` / Tool | Integrate via LlamaIndex's memory abstraction or as an ingestion pipeline tool |
-| **OpenAI Agents SDK** | Python function tool | Register `BCGMemory.observe()` and `BCGMemory.search()` as callable tools |
-| **CrewAI** | Python tool | Add BCG as a crew tool for belief tracking across multi-agent workflows |
-| **AutoGen** | Python tool / agent | Use BCG as a shared memory backend for AutoGen agent groups |
-| **Agno** | Python tool | Integrate as a tool or memory backend in Agno agent pipelines |
-| **Any MCP-compatible agent** | MCP server | BCG's HTTP API can be fronted by an MCP server exposing belief extraction and query tools |
-| **Any Python agent loop** | `BCGRunner` / `BCGMemory` API | Direct import and use in custom agent loops — see the Quick Start examples above |
--->
-
-<!-- ### MCP Server -->
-<!--
-A built-in MCP server is on the roadmap, exposing:
-
-| Tool | Purpose |
-|---|---|
-| `bcg_observe_turn` | Feed a conversation turn into the belief graph |
-| `bcg_search_beliefs` | Search beliefs by text, confidence range, or entity |
-| `bcg_query_graph` | Traverse the belief graph by relation type or temporal range |
-| `bcg_get_context` | Assemble belief-aware context for a given task |
-| `bcg_finalize_run` | Finalize the current run and return the complete graph |
-
-Until the native MCP server ships, BCG can be used with any MCP-compatible agent via its HTTP API (see `online_server.py`) or direct Python integration.
-
---- -->
 
 ## Configuration
 
