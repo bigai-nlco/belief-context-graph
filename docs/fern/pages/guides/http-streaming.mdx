@@ -1,0 +1,58 @@
+---
+title: HTTP Streaming
+description: Send turns from any runtime and retrieve the latest graph by problem
+  ID.
+icon: server
+---
+
+Run a construction service when your agent is not in the same Python process.
+
+## 1. Start the service
+
+```bash
+bcg construct server unified \
+  --config ~/.bcg/config.yaml \
+  --host 127.0.0.1 \
+  --port 8848 \
+  --output-dir ~/.bcg/graphs
+```
+
+## 2. Check health
+
+```bash
+curl http://127.0.0.1:8848/health
+```
+
+The response includes the contract `schema_version` and active/all problem IDs.
+
+## 3. Send a turn
+
+```bash
+curl -X POST http://127.0.0.1:8848/turn \
+  -H 'content-type: application/json' \
+  -d '{
+    "problem_id": "case-42",
+    "role": "user",
+    "content": "The customer says the issue started after the upgrade."
+  }'
+```
+
+## 4. Read the graph
+
+```bash
+curl 'http://127.0.0.1:8848/graph?problem_id=case-42'
+```
+
+## 5. Finalize
+
+```bash
+curl -X POST http://127.0.0.1:8848/finalize \
+  -H 'content-type: application/json' \
+  -d '{"problem_id":"case-42"}'
+```
+
+<Info>
+The service keeps active sessions in the server process. Persisted run files remain after `/release`, but `/release` removes the in-memory session.
+</Info>
+
+For exact parameters, responses, and errors, use the [HTTP API](/api) tab.

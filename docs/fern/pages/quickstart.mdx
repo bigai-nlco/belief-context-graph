@@ -1,0 +1,102 @@
+---
+title: Quickstart
+description: Construct a graph with the Python SDK and inspect the result.
+icon: rocket
+---
+
+This quickstart uses the **API model** construction mode (`unified` in code).
+
+<Info>
+This assumes BCG is already installed and `bcg --version` works in your environment. See [Installation](/installation) if you haven't done that yet.
+</Info>
+
+## 1. Configure an OpenAI-compatible endpoint
+
+```bash
+export OPENAI_API_KEY="..."
+export OPENAI_BASE_URL="https://api.openai.com/v1"
+export OPENAI_MODEL="gpt-4.1-mini"
+```
+
+## 2. Construct a graph
+
+```python
+import asyncio
+
+from bcg import BCG, BCGMemory, BCGRunner, LLMClient
+
+
+async def main():
+    memory = BCGMemory(graph=BCG())
+    runner = BCGRunner(
+        memory=memory,
+        llm=LLMClient(),
+        backend="unified",
+    )
+
+    result = await runner.observe_trajectory(
+        [
+            {
+                "role": "user",
+                "content": "Acme is threatening to churn after repeated outages.",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "We should prioritize a reliability review and contact Acme. "
+                    "This is urgent because the outages are recurring."
+                ),
+            },
+        ],
+        run_id="acme-risk-review",
+    )
+
+    print("beliefs:", len(result.graph.beliefs()))
+    print("relations:", len(result.graph.relations()))
+    print("graph artifact:", result.output_paths.graph)
+    return memory, result
+
+
+memory, result = asyncio.run(main())
+```
+
+<Note>
+`LLMClient` is exported from the package root: `from bcg import LLMClient`. The implementation module is `bcg.core.llm`; there is no `bcg.llm` module in the current package.
+</Note>
+
+## 3. Read the stored knowledge
+
+```python
+for item in result.graph.beliefs():
+    text = item.belief or item.decision
+    print(item.id, item.node_type, item.confidence, text)
+```
+
+## 4. Build context for another model call
+
+```python
+context = memory.context(
+    task="Decide the next customer-success action",
+    focal_entities=["Acme"],
+)
+
+print(context["task"])
+print(context["beliefs"])
+```
+
+`context()` returns a **structured dictionary** in the current implementation.
+
+## 5. Render a standalone HTML view
+
+```bash
+bcg construct visualize \
+  .bcg/runs/acme-risk-review/result.json \
+  --output acme-risk-review.html
+```
+
+<CardGroup cols={2}>
+  <Card title="Understand the graph" icon="circle-nodes" href="/first-graph" />
+  <Card title="Stream turns over HTTP" icon="server" href="/guides/http-streaming" />
+  <Card title="Python SDK Reference" icon="code" href="/sdk/overview" />
+  <Card title="Choose a construction mode" icon="sliders" href="/guides/construction-modes" />
+</CardGroup>

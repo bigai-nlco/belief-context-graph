@@ -1,0 +1,54 @@
+---
+title: Configuration
+description: Understand the unified YAML settings and precedence rules.
+icon: gear
+---
+
+The current configuration system is centered on YAML.
+
+## Precedence
+
+Highest priority first:
+
+1. explicit CLI overrides;
+2. file passed with `--config`;
+3. file referenced by `BCG_CONFIG`;
+4. project `bcg.yaml`;
+5. user `~/.bcg/config.yaml`;
+6. packaged defaults.
+
+<Warning>
+The project-level filename is intentionally `bcg.yaml`, not a generic `config.yaml`.
+</Warning>
+
+## Inspect effective values
+
+```bash
+bcg config
+bcg config --json
+```
+
+## Settings groups
+
+`BCGSettings` includes:
+
+- `schema_version`;
+- `backend`;
+- `model_key`;
+- `embedding_key`;
+- `server`;
+- `models`;
+- `pipeline`;
+- `runner`.
+
+The packaged default backend is `unified`.
+
+## Example source file
+
+The current reference example in the package is:
+
+```text
+bcg/config/config.example.yaml
+```
+
+Legacy `model_config.json` readers remain for compatibility, but new setup writes `~/.bcg/config.yaml`.

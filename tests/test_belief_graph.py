@@ -298,8 +298,7 @@ def test_hybrid_query_metadata_is_code_owned() -> None:
 
     assert len(nodes) == 1
     assert nodes[0].text == (
-        'The assistant is using serper_search to search for '
-        '"World Bank savings 2001".'
+        'The assistant is using serper_search to search for "World Bank savings 2001".'
     )
     assert nodes[0].tool_name == "serper_search"
     assert nodes[0].query == "World Bank savings 2001"
@@ -577,13 +576,19 @@ def test_token_efficient_tool_result_batch_uses_one_call_and_keeps_items_separat
                     {
                         "item_index": 0,
                         "beliefs": [
-                            {"belief": "Alpha was founded in 1999.", "entities": ["Alpha"]}
+                            {
+                                "belief": "Alpha was founded in 1999.",
+                                "entities": ["Alpha"],
+                            }
                         ],
                     },
                     {
                         "item_index": 1,
                         "beliefs": [
-                            {"belief": "Beta was founded in 2007.", "entities": ["Beta"]}
+                            {
+                                "belief": "Beta was founded in 2007.",
+                                "entities": ["Beta"],
+                            }
                         ],
                     },
                 ]
@@ -682,8 +687,7 @@ def test_token_efficient_builder_batches_results_and_links_each_query(
     assert (alpha_fact["source"] or {})["turn_id"] == 1
     assert (beta_fact["source"] or {})["turn_id"] == 2
     relation_pairs = {
-        (relation["from_id"], relation["to_id"])
-        for relation in builder.graph.relations
+        (relation["from_id"], relation["to_id"]) for relation in builder.graph.relations
     }
     assert (alpha_fact["id"], alpha_query["id"]) in relation_pairs
     assert (beta_fact["id"], beta_query["id"]) in relation_pairs

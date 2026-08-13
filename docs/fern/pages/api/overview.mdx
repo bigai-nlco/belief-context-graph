@@ -1,0 +1,57 @@
+---
+title: HTTP API
+description: Use BCG as a language-neutral graph construction service.
+icon: server
+---
+
+The HTTP service keeps one active construction session per `problem_id` and exposes graph construction, graph access, and lifecycle operations.
+
+## Local base URL
+
+```text
+http://127.0.0.1:8848
+```
+
+## Typical lifecycle
+
+<Steps>
+  <Step title="Check health">
+    Call `GET /health` and verify `schema_version`.
+  </Step>
+  <Step title="Send input">
+    Use `POST /turn` for one turn, `POST /turns` for a batch/NDJSON stream, or `POST /input` for a complete supported input.
+  </Step>
+  <Step title="Read the current graph">
+    Call `GET /graph?problem_id=...`.
+  </Step>
+  <Step title="Finalize">
+    Call `POST /finalize` when the trajectory is complete.
+  </Step>
+  <Step title="Release memory when appropriate">
+    Call `POST /release` to remove the in-process session. Persisted output files are not deleted.
+  </Step>
+</Steps>
+
+## Contract
+
+The current wire contract uses:
+
+```text
+schema_version: 1
+```
+
+Turn roles are:
+
+```text
+assistant | system | tool | user
+```
+
+Common error bodies use:
+
+```json
+{"error": "description"}
+```
+
+<Info>
+The endpoint pages in this tab are generated from `fern/openapi.yml`, which was reconstructed from the repository's `contracts/http.schema.json` and `bcg/apps/online_server.py`.
+</Info>

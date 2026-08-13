@@ -1,0 +1,67 @@
+---
+title: Troubleshooting
+description: Resolve the most common installation, configuration, model, and server
+  issues.
+icon: screwdriver-wrench
+---
+
+## `bcg` is not found
+
+For a source checkout:
+
+```bash
+uv run bcg --version
+```
+
+Or install the checkout as a tool:
+
+```bash
+make install-tool
+bcg --version
+```
+
+## Which configuration is active?
+
+```bash
+bcg config
+```
+
+This prints loaded files and effective values. Use `bcg config --json` for machine-readable output.
+
+## Model calls fail
+
+Check the configured model entry and environment values. For the root-level default `LLMClient`, commonly used environment variables include:
+
+```text
+OPENAI_API_KEY
+OPENAI_BASE_URL
+OPENAI_MODEL
+OPENAI_TIMEOUT
+OPENAI_MAX_RETRIES
+```
+
+## HTTP graph returns 404
+
+`GET /graph` needs a `problem_id` that exists in the current server process. Check:
+
+```bash
+curl http://127.0.0.1:8848/health
+```
+
+## Old docs mention `bcg.llm`
+
+Use:
+
+```python
+from bcg import LLMClient
+```
+
+or, when you need the configuration type:
+
+```python
+from bcg.core.llm import LLMConfig
+```
+
+## Old docs mention `dashboard/bcg_viewer`
+
+That viewer was removed. Use the current Vite [Dashboard](/operate/dashboard) or [standalone HTML export](/operate/static-view).

@@ -1,0 +1,50 @@
+---
+title: Inspect a Live Graph
+description: Use the current Vite Dashboard with the construction service.
+icon: display
+---
+
+The current repository uses the Vite application in `dashboard/`. The legacy `dashboard/bcg_viewer/` was removed.
+
+## 1. Install source dependencies
+
+From a source checkout:
+
+```bash
+make install
+```
+
+## 2. Start a construction server
+
+```bash
+uv run bcg construct server unified \
+  --config ~/.bcg/config.yaml \
+  --host 127.0.0.1 \
+  --port 8848
+```
+
+## 3. Start the Dashboard
+
+```bash
+npm --prefix dashboard run dev
+```
+
+The Dashboard development server proxies `/graph` and `/health` to `VITE_BCG_API_URL`, which defaults to `http://127.0.0.1:8848`.
+
+Optional environment configuration:
+
+```bash
+export VITE_BCG_API_URL=http://127.0.0.1:8848
+export VITE_BCG_PROBLEM_ID=case-42
+npm --prefix dashboard run dev
+```
+
+If `VITE_BCG_PROBLEM_ID` is empty, the Dashboard can resolve an active session from `/health`.
+
+## Current feature boundary
+
+The current Dashboard implements live graph loading, artifact replay adapters, and graph metrics. It does **not** currently provide the removed viewer's run-control or subgraph workflow.
+
+<Warning>
+Do not use instructions that depend on the legacy `dashboard/bcg_viewer/` directory; it no longer exists in the refactored repository.
+</Warning>

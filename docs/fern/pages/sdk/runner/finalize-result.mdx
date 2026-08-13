@@ -1,0 +1,41 @@
+---
+title: Finalize and Read the Result
+description: Finish construction and inspect the final graph, output paths, counts,
+  and usage.
+icon: box-archive
+---
+
+## Finalize
+
+```python
+result = await runner.finalize()
+```
+
+```python
+await runner.finalize() -> BeliefGraphRunResult
+```
+
+A run can only be finalized once.
+
+## Result fields
+
+Important `BeliefGraphRunResult` fields:
+
+| Field | Meaning |
+|---|---|
+| `run_id` | Stable run identifier |
+| `graph` | Final public `BCG` |
+| `memory` | Serialized memory document |
+| `output_paths` | Typed run artifact paths |
+| `token_usage` | Construction usage totals |
+| `counts` | Node/relation and related counts |
+| `construct_result` | Native backend result |
+
+```python
+print(result.run_id)
+print(result.graph.beliefs())
+print(result.output_paths.result)
+print(result.token_usage)
+```
+
+See [Generated files](/reference/generated-files) for the individual path fields.

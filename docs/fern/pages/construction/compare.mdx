@@ -1,0 +1,33 @@
+---
+title: Choose a Construction Mode
+description: Choose between API-hosted models and the local-model pipeline.
+icon: sliders
+---
+
+BCG currently exposes two construction backends. The user-facing names below describe *how you operate them*; the code identifiers remain unchanged.
+
+| User-facing name | Code value | Best when |
+|---|---|---|
+| **API model construction** | `unified` | You already have an OpenAI-compatible model endpoint and want the simplest setup |
+| **Local model construction** | `hybrid` | You want a smaller/local pipeline with a separate vLLM generation endpoint and local NLP/classification components |
+
+<CardGroup cols={2}>
+  <Card title="API model construction" icon="cloud" href="/guides/api-model">
+    One OpenAI-compatible model drives node and relation generation.
+  </Card>
+  <Card title="Local model construction" icon="server" href="/guides/local-models">
+    vLLM generation plus local embeddings, classifier, and spaCy components.
+  </Card>
+</CardGroup>
+
+<Note>
+The CLI, SDK, and configuration use the backend names `unified` and `hybrid` consistently.
+</Note>
+
+## Selecting a backend for the terminal Agent
+
+In normal Agent use, you choose a backend once during `bcg setup`, and `bcg` starts or reuses the Graph Construction HTTP server for you automatically. The manual server commands on the [API model construction](/guides/api-model) and [Local model construction](/guides/local-models) pages are for independent deployment, debugging, or running Graph Construction without the Agent.
+
+## Connect to an existing Graph server
+
+If Graph Construction is already hosted elsewhere, backend selection does not apply. Run `bcg setup`, choose **Connect to an existing Graph server**, and enter its URL. In this mode BCG checks and reuses that endpoint but does not start or manage it.

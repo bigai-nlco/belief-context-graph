@@ -1,0 +1,64 @@
+---
+title: Deploy and Secure BCG
+description: Run the HTTP construction service with explicit persistence, routing,
+  and access controls.
+icon: shield-halved
+---
+
+## Deployment
+
+A production deployment usually separates four concerns:
+
+1. your agent or application;
+2. the BCG HTTP construction service;
+3. model endpoints;
+4. persisted run artifacts.
+
+## Start the server explicitly
+
+```bash
+bcg construct server unified \
+  --config /etc/bcg/config.yaml \
+  --host 0.0.0.0 \
+  --port 8848 \
+  --output-dir /var/lib/bcg/graphs
+```
+
+Use the `hybrid` backend only when the required local-model services and dependencies are available.
+
+## Process model
+
+The built-in HTTP server keeps graph-construction sessions in process memory. `/release` removes a session from memory but does not delete files already written to disk.
+
+## Scale-out implication
+
+Because session state is process-local, a multi-worker or multi-host deployment must provide routing/session affinity or an external coordination layer around BCG.
+
+<Warning>
+Do not assume the repository includes a distributed session store or production graph database. Those are deployment responsibilities outside the current BCG package.
+</Warning>
+
+## Security
+
+## Credentials
+
+Use environment variables or appropriately protected configuration for model credentials. The interactive setup stores sensitive values under `~/.bcg/.env` and applies restrictive permissions.
+
+## HTTP service
+
+The built-in construction server is an application service, not an internet-facing authentication gateway. Put normal production controls in front of it when it is reachable outside a trusted network:
+
+- TLS;
+- authentication/authorization;
+- request-size limits;
+- rate limiting;
+- network policy;
+- audit logging.
+
+## Graph content
+
+BCG artifacts can contain user messages, extracted propositions, evidence excerpts, and decisions. Treat the output directory as sensitive application data.
+
+## Dashboard
+
+The source Dashboard reads graph data from the construction service. Apply the same access policy to it as to the underlying graph endpoint.

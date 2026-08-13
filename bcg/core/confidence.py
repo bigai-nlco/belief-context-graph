@@ -62,7 +62,9 @@ def select_independent_evidence(
     identity keep legacy one-record-per-observation behavior.
     """
 
-    selected: dict[tuple[str, str, str] | tuple[str, int], tuple[int, dict[str, Any], float]] = {}
+    selected: dict[
+        tuple[str, str, str] | tuple[str, int], tuple[int, dict[str, Any], float]
+    ] = {}
     for raw_evidence_id, record in evidence_items:
         if not isinstance(record, dict):
             continue
@@ -83,8 +85,10 @@ def select_independent_evidence(
         except (TypeError, ValueError):
             score = 0.0
         current = selected.get(key)
-        if current is None or score > current[2] or (
-            score == current[2] and evidence_id < current[0]
+        if (
+            current is None
+            or score > current[2]
+            or (score == current[2] and evidence_id < current[0])
         ):
             selected[key] = (evidence_id, record, score)
 

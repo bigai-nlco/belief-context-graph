@@ -1,0 +1,72 @@
+---
+title: Benchmark the reference Agent
+description: Compare Default and BCG context modes with reproducible task, token, latency, and graph traces.
+icon: gauge
+---
+
+The benchmark adapter runs supported datasets through the bundled Agent and writes resumable task records, trajectories, Graph context traces, and aggregate metrics.
+
+## Basic command
+
+```bash
+bcg benchmark run hotpotqa \
+  --data-root datasets \
+  --modes default,bcg \
+  --model "$OPENAI_MODEL" \
+  --base-url "$OPENAI_BASE_URL" \
+  --output-dir results/hotpotqa-comparison
+```
+
+The exact benchmark names and options are exposed by:
+
+```bash
+bcg benchmark run --help
+```
+
+## Important controls
+
+| Option | Purpose |
+|---|---|
+| `--modes` | Comma-separated `default,bcg` |
+| `--max-problems` | Limit examples; `0` means all |
+| `--task-ids` | Select exact task IDs |
+| `--shuffle` / `--no-shuffle` | Control selection order before truncation |
+| `--workers` | Concurrent Agent processes |
+| `--timeout` | Per-task timeout; `0` disables it |
+| `--graph-url` | Graph server used in BCG mode |
+| `--graph-max-turns` | Maximum Agent messages in a task |
+| `--recent-turns` | Completed raw turns retained in BCG mode |
+| `--graph-view` | `full` Graph dialogue or bounded `compact` belief projection |
+| `--allow-graph-fallback` | Score tasks that fell back to raw context |
+| `--overwrite` | Rerun existing task artifacts |
+
+## Compare modes fairly
+
+Keep the Agent model, endpoint, tools, selected tasks, timeout, reasoning effort, and judge model constant. Change only the context mode and the BCG policy being evaluated.
+
+```bash
+bcg benchmark run browsecomp \
+  --modes default,bcg \
+  --graph-view compact \
+  --recent-turns 2 \
+  --workers 4 \
+  --output-dir results/browsecomp-comparison
+```
+
+`compact` retains whole beliefs under a fixed character budget. It does not rewrite belief text or introduce renderer-only graph concepts. `full` remains the default for backward-compatible runs.
+
+## Output artifacts
+
+```text
+results/<run>/
+├── run.json
+├── summary.json
+└── <benchmark>/<mode>/
+    ├── tasks/<task-id>.json
+    ├── trajectories/<task-id>.jsonl
+    └── graph-contexts/<task-id>.jsonl
+```
+
+BCG Graph context traces record the renderer, Graph size, character count, stream position, and exact role-marked text injected into each model request. Align them with the Agent trajectory to audit whether later actions used information retained from evicted turns.
+
+Measure accuracy together with cumulative token use, latency, Graph construction cost, Graph fallback rate, search calls, contradiction and merge behavior, decision traces, and evidence grounding.

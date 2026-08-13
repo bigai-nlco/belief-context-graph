@@ -1,0 +1,75 @@
+---
+title: Knowledge, Decisions, and Sources
+description: Understand what BCG stores and how each item stays traceable to its source.
+icon: database
+---
+
+BCG's graph is useful when a user can answer two questions quickly:
+**what did the system retain?** and **where did it come from?**
+
+This page combines those two ideas so you do not need to learn internal graph vocabulary before inspecting a result.
+
+## Stored knowledge and decisions
+
+BCG stores both propositions and conclusions as typed graph nodes.
+
+## Stored knowledge
+
+A `belief` node represents a proposition the system can retain and inspect. A belief payload can include:
+
+- stable numeric `id`;
+- text in `belief`;
+- confidence;
+- stance such as `asserted`, `recalled`, `judged`, or `speculated`;
+- layer (`io` or `reasoning`);
+- source role and turn metadata;
+- evidence excerpts;
+- merge lineage and confidence history.
+
+## Decisions
+
+A `decision` node uses the same graph machinery and sets `node_type="decision"`. The shared `BeliefPayload` still carries required proposition text in `belief`, while decision-specific text may also be present in `decision`. Treat the node as a conclusion or action that you may want to audit separately from supporting propositions.
+
+```python
+for item in graph.beliefs():
+    if item.node_type == "decision":
+        print("decision:", item.decision)
+    else:
+        print("belief:", item.belief)
+```
+
+<Info>
+The SDK method is still named `beliefs()` for compatibility, but it returns the ordered typed payloads for both `belief` and `decision` nodes.
+</Info>
+
+## Stance is not confidence
+
+`stance` describes *how a proposition was expressed or formed*. `confidence` describes *how strong the current graph state is*. Keep them separate when building UI or policy.
+
+## Source and evidence
+
+A useful memory item should answer not only *what is believed?* but also *why is it present?*
+
+BCG payloads can carry:
+
+- source role and source metadata;
+- turn and session identifiers;
+- exact supporting excerpts;
+- evidence IDs;
+- timestamps or session dates when provided.
+
+## Why this matters
+
+Source information lets you:
+
+1. show evidence next to a belief;
+2. audit a final decision;
+3. distinguish user statements from model reasoning;
+4. detect stale or conflicting information;
+5. reconstruct how a run evolved.
+
+## Manual observations
+
+`BCGMemory.observe()` inserts known content without an LLM extraction step. The supplied content becomes an asserted belief with manual evidence, which is useful when your application already has a trusted proposition to store.
+
+See [Observe known content](/sdk/memory/store-find).

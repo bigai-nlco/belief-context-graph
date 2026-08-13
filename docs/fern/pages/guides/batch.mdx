@@ -1,0 +1,69 @@
+---
+title: Batch Construction
+description: Build graphs from complete trajectories, message lists, or multi-session
+  inputs.
+icon: layer-group
+---
+
+The shared construction loaders support several input shapes.
+
+## Trajectory object
+
+```json
+{
+  "trajectory": [
+    {"role": "user", "content": "Question"},
+    {"role": "assistant", "content": "Answer"}
+  ]
+}
+```
+
+## Message object
+
+```json
+{
+  "messages": [
+    {"role": "user", "content": "Question"},
+    {"role": "assistant", "content": "Answer"}
+  ]
+}
+```
+
+A bare JSON list of message objects is also accepted as one item.
+
+## Multi-session data
+
+Supported dataset-style inputs can provide `sessions` with parallel session IDs and dates. When all dates are parseable, the loader sorts sessions chronologically unless you request `keep_order`.
+
+## CLI
+
+Process a complete saved trajectory or dataset file:
+
+```bash
+bcg construct run unified \
+  --input data.json \
+  --config ~/.bcg/config.yaml \
+  --model-key graph-model
+```
+
+Replay a stream of individual turns, as if they arrived live:
+
+```bash
+bcg construct replay hybrid \
+  --input stream.jsonl \
+  --config ~/.bcg/config.yaml \
+  --model-key graph-model
+```
+
+Use the CLI help for backend-specific flags:
+
+```bash
+bcg construct run --help
+bcg construct replay --help
+```
+
+<Note>
+Construction input parsing no longer uses a “scenario” to choose a loader. Input shape determines how the shared loader interprets the data.
+</Note>
+
+See [Input formats](/reference/data-and-inputs) for the supported shapes and [Generated files](/reference/generated-files) for outputs.

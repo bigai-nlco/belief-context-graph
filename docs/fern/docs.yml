@@ -1,0 +1,315 @@
+instances:
+- url: belief-context-graph.docs.buildwithfern.com
+title: Belief Context Graph
+tabs:
+  docs:
+    display-name: Documentation
+    icon: book-open
+    skip-slug: true
+  sdk:
+    display-name: SDK Reference
+    icon: code
+    slug: sdk
+  api:
+    display-name: HTTP API
+    icon: server
+    slug: api
+theme:
+  sidebar: default
+  body: default
+  tabs:
+    style: default
+    alignment: left
+    placement: header
+  page-actions: toolbar
+  footer-nav: minimal
+navigation:
+- tab: docs
+  layout:
+  - section: Start here
+    skip-slug: true
+    collapsed: open-by-default
+    contents:
+    - page: Overview
+      path: ./pages/overview.mdx
+      slug: overview
+    - page: Installation
+      path: ./pages/installation.mdx
+      slug: installation
+    - page: Quickstart
+      path: ./pages/quickstart.mdx
+      slug: quickstart
+    - page: Understand your first graph
+      path: ./pages/first-graph.mdx
+      slug: first-graph
+    - page: Choose an integration
+      path: ./pages/choose-an-integration.mdx
+      slug: choose-an-integration
+  - section: Understand BCG
+    slug: concepts
+    collapsed: true
+    contents:
+    - page: Key concepts
+      path: ./pages/concepts/overview.mdx
+      slug: overview
+    - page: Knowledge, decisions, and sources
+      path: ./pages/concepts/knowledge-and-sources.mdx
+      slug: knowledge-and-sources
+    - page: How confidence is calculated
+      path: ./pages/concepts/confidence.mdx
+      slug: confidence
+    - page: Relationships and duplicate handling
+      path: ./pages/concepts/relationships-and-change.mdx
+      slug: relationships-and-change
+    - page: Conversation history and context
+      path: ./pages/concepts/history-and-context.mdx
+      slug: history-and-context
+  - section: Build and integrate
+    slug: guides
+    collapsed: true
+    contents:
+    - page: Python integration
+      path: ./pages/guides/python.mdx
+      slug: python
+    - page: HTTP streaming
+      path: ./pages/guides/http-streaming.mdx
+      slug: http-streaming
+    - page: Batch construction
+      path: ./pages/guides/batch.mdx
+      slug: batch
+    - page: Add known facts
+      path: ./pages/guides/known-facts.mdx
+      slug: known-facts
+    - page: Choose a construction mode
+      path: ./pages/construction/compare.mdx
+      slug: construction-modes
+    - page: API model construction
+      path: ./pages/construction/api-model.mdx
+      slug: api-model
+    - page: Local model construction
+      path: ./pages/construction/local-models.mdx
+      slug: local-models
+    - page: Reference terminal Agent
+      path: ./pages/reference-agent.mdx
+      slug: reference-agent
+    - page: Benchmark the reference Agent
+      path: ./pages/guides/benchmarking.mdx
+      slug: benchmarking
+  - section: Inspect and operate
+    slug: operate
+    collapsed: true
+    contents:
+    - page: Inspect a live graph
+      path: ./pages/guides/dashboard.mdx
+      slug: dashboard
+    - page: Export an HTML graph
+      path: ./pages/guides/static-view.mdx
+      slug: static-view
+    - page: Audit and trace a run
+      path: ./pages/guides/audit-and-trace.mdx
+      slug: audit-and-trace
+    - page: Deploy and secure BCG
+      path: ./pages/operations/deploy-secure.mdx
+      slug: deploy-secure
+    - page: Troubleshooting
+      path: ./pages/operations/troubleshooting.mdx
+      slug: troubleshooting
+  - section: Reference
+    slug: reference
+    collapsed: true
+    contents:
+    - page: Configuration
+      path: ./pages/reference/configuration.mdx
+      slug: configuration
+    - page: Data model and input formats
+      path: ./pages/reference/data-and-inputs.mdx
+      slug: data-and-inputs
+    - page: CLI and environment
+      path: ./pages/reference/cli-and-environment.mdx
+      slug: cli-and-environment
+    - page: Generated files
+      path: ./pages/reference/generated-files.mdx
+      slug: generated-files
+    - page: Project layout and glossary
+      path: ./pages/reference/project-and-glossary.mdx
+      slug: project-and-glossary
+- tab: sdk
+  layout:
+  - api: SDK Reference
+    api-name: sdk-reference
+    paginated: true
+    skip-slug: true
+    display-errors: true
+    playground:
+      environments: []
+    layout:
+    - section: Graph
+      slug: graph
+      collapsed: true
+      contents:
+      - endpoint: POST /graph/add-node
+        title: Add node
+        slug: add-node
+      - endpoint: POST /graph/add-edge
+        title: Add edge
+        slug: add-edge
+      - endpoint: POST /graph/add-belief
+        title: Add belief
+        slug: add-belief
+      - endpoint: GET /graph/next-belief-id
+        title: Get next belief ID
+        slug: get-next-belief-id
+      - endpoint: POST /graph/allocate-belief-id
+        title: Allocate belief ID
+        slug: allocate-belief-id
+      - endpoint: POST /graph/add-relation
+        title: Add relation
+        slug: add-relation
+      - endpoint: POST /graph/add-relation-by-ids
+        title: Add relation by belief IDs
+        slug: add-relation-by-belief-ids
+      - endpoint: POST /graph/add-relations
+        title: Add relations
+        slug: add-relations
+      - endpoint: GET /graph/belief-nodes
+        title: Get belief nodes
+        slug: get-belief-nodes
+      - endpoint: GET /graph/beliefs
+        title: Get beliefs
+        slug: get-beliefs
+      - endpoint: GET /graph/belief-dictionaries
+        title: Get belief dictionaries
+        slug: get-belief-dictionaries
+      - endpoint: GET /graph/relations
+        title: Get relations
+        slug: get-relations
+      - endpoint: GET /graph/node-by-belief-id
+        title: Get node by belief ID
+        slug: get-node-by-belief-id
+      - endpoint: PATCH /graph/update-belief
+        title: Update belief
+        slug: update-belief
+      - endpoint: DELETE /graph/remove-belief
+        title: Remove belief
+        slug: remove-belief
+      - endpoint: GET /graph/relation-dictionaries
+        title: Get relation dictionaries
+        slug: get-relation-dictionaries
+      - endpoint: PATCH /graph/remap-relations
+        title: Remap relations
+        slug: remap-relations
+      - endpoint: GET /graph/memory-dictionary
+        title: Export memory dictionary
+        slug: export-memory-dictionary
+    - section: Memory
+      slug: memory
+      collapsed: false
+      contents:
+      - endpoint: POST /memory/observe
+        title: Observe belief
+        slug: observe-belief
+      - endpoint: GET /memory/believe
+        title: Find beliefs
+        slug: find-beliefs
+      - endpoint: POST /memory/context
+        title: Get task context
+        slug: get-task-context
+      - endpoint: POST /memory/search
+        title: Search beliefs
+        slug: search-beliefs
+    - section: Construction
+      slug: construction
+      collapsed: true
+      contents:
+      - endpoint: POST /construction/trajectory
+        title: Process trajectory
+        slug: process-trajectory
+      - endpoint: POST /construction/run
+        title: Start run
+        slug: start-run
+      - endpoint: POST /construction/session
+        title: Start session
+        slug: start-session
+      - endpoint: POST /construction/turn
+        title: Observe turn
+        slug: observe-turn
+      - endpoint: POST /construction/end-session
+        title: End session
+        slug: end-session
+      - endpoint: POST /construction/finalize
+        title: Finalize run
+        slug: finalize-run
+    - section: Model
+      slug: model
+      collapsed: true
+      contents:
+      - endpoint: POST /model/generate
+        title: Generate response
+        slug: generate-response
+      - endpoint: POST /model/generate-text
+        title: Generate text
+        slug: generate-text
+      - endpoint: POST /model/generate-json
+        title: Generate JSON
+        slug: generate-json
+      - endpoint: DELETE /model/close
+        title: Close client
+        slug: close-client
+      - endpoint: POST /model/image
+        title: Analyze image
+        slug: analyze-image
+    - section: Configuration
+      slug: configuration
+      collapsed: true
+      contents:
+      - endpoint: GET /configuration/settings
+        title: Load settings
+        slug: load-settings
+    tag-description-pages: false
+- tab: api
+  layout:
+  - api: HTTP API
+    paginated: true
+    skip-slug: true
+    tag-description-pages: false
+    display-errors: true
+    api-name: http-api
+navbar-links:
+- type: minimal
+  text: GitHub
+  url: https://github.com/bigai-nlco/belief-context-graph
+logo:
+  light: ./assets/favicon.svg
+  dark: ./assets/favicon.svg
+  right-text: Belief Context Graph
+  height: 29
+  href: https://github.com/bigai-nlco/belief-context-graph
+colors:
+  accent-primary:
+    light: '#92331f'
+    dark: '#e58b79'
+  background:
+    light: '#faf7f2'
+    dark: '#171513'
+  border:
+    light: '#e8e2d8'
+    dark: '#3b332c'
+  sidebar-background:
+    light: '#ffffff'
+    dark: '#1e1a17'
+  header-background:
+    light: '#ffffff'
+    dark: '#1e1a17'
+  card-background:
+    light: '#ffffff'
+    dark: '#211c19'
+favicon: ./assets/favicon.svg
+css: styles.css
+layout:
+  content-alignment: center
+  mobile-toc: true
+settings:
+  search-text: Search BCG docs...
+  dark-mode-code: false
+  http-snippets: true
+js: ./reference-display.js

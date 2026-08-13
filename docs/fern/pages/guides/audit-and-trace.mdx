@@ -1,0 +1,67 @@
+---
+title: Audit and Trace a Run
+description: Inspect a decision, its support, conflicts, construction history, and
+  generated run artifacts.
+icon: magnifying-glass-chart
+---
+
+## Audit a decision
+
+When a graph contains a `decision` node, audit it in four passes.
+
+<Steps>
+  <Step title="Find the decision">
+    Filter `graph.beliefs()` for `node_type == "decision"`.
+  </Step>
+  <Step title="Inspect incoming and outgoing connections">
+    Look for dependencies, supplemental context, and contradictions involving the decision.
+  </Step>
+  <Step title="Verify source evidence">
+    Read source metadata and supporting excerpts for the decision and its important neighbors.
+  </Step>
+  <Step title="Review confidence history and merges">
+    Check whether confidence moved and whether source nodes were merged or rewired.
+  </Step>
+</Steps>
+
+```python
+decision_ids = {
+    item.id for item in graph.beliefs()
+    if item.node_type == "decision"
+}
+
+for relation in graph.relations():
+    if relation.from_id in decision_ids or relation.to_id in decision_ids:
+        print(relation)
+```
+
+For visual inspection, export the result with [Export an HTML graph](/operate/static-view).
+
+## Trace construction
+
+`BCGRunner.finalize()` writes compatibility artifacts for a run. The exact available files depend on backend and runtime options, but `RunPaths` exposes the paths BCG manages.
+
+Useful categories include:
+
+- final/public graph data;
+- memory representation;
+- per-turn graph stream;
+- merges;
+- relations;
+- token usage;
+- result summary;
+- trajectory;
+- engine events and segments.
+
+```python
+result = await runner.finalize()
+print(result.output_paths)
+print(result.token_usage)
+print(result.counts)
+```
+
+<Info>
+Prefer the typed `result.output_paths` values to hard-coding filenames in application code.
+</Info>
+
+See [Generated files](/reference/generated-files) and [`BeliefGraphRunResult`](/sdk/runner/finalize-result).

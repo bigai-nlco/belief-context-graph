@@ -1,0 +1,59 @@
+---
+title: Settings and Data Types
+description: Load validated BCG configuration and find the main graph/run Python types.
+icon: shapes
+---
+
+## Load settings
+
+```python
+from bcg import load_settings
+
+settings, sources = load_settings(
+    explicit="./config/prod.yaml",
+    cli_overrides={"backend": "unified"},
+)
+```
+
+Default precedence is:
+
+```text
+CLI overrides
+→ explicit config
+→ BCG_CONFIG
+→ project bcg.yaml
+→ ~/.bcg/config.yaml
+→ packaged defaults
+```
+
+Top-level `BCGSettings` groups include:
+
+```text
+schema_version
+backend
+model_key
+embedding_key
+server
+models
+pipeline
+runner
+```
+
+## Graph types
+
+```python
+from bcg.core.graph import (
+    BCGNode,
+    BCGEdge,
+    BeliefPayload,
+    BeliefSource,
+    EvidenceExcerpt,
+    ConfidenceHistoryEntry,
+    RelationPayload,
+    RelationActivationCondition,
+    TrajectorySegment,
+    EpisodeBCG,
+)
+```
+
+For the conceptual field view, see [Data Model and Input Formats](/reference/data-and-inputs).

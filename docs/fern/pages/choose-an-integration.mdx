@@ -1,0 +1,34 @@
+---
+title: Choose an Integration
+description: Pick the BCG interface that matches how your application already runs.
+icon: route
+---
+
+You do not need to learn every BCG surface. Start from the workflow you already have.
+
+<CardGroup cols={2}>
+  <Card title="I have a Python agent" icon="python" href="/guides/python">
+    Use `BCGMemory` and `BCGRunner` in the same process.
+  </Card>
+  <Card title="My agent is not Python" icon="server" href="/guides/http-streaming">
+    Run BCG as an HTTP construction service and send turns as JSON.
+  </Card>
+  <Card title="I have saved conversations" icon="file-lines" href="/guides/batch">
+    Process trajectories, message lists, or multi-session datasets.
+  </Card>
+  <Card title="I want to try BCG interactively" icon="terminal" href="/guides/reference-agent">
+    Use the bundled terminal Agent as a reference integration.
+  </Card>
+</CardGroup>
+
+## Decision table
+
+| You need | Start here |
+|---|---|
+| Direct access to Python objects | [Python integration](/guides/python) |
+| Language-neutral integration | [HTTP streaming](/guides/http-streaming) |
+| Offline construction from files | [Batch construction](/guides/batch) |
+| Manual insertion of known propositions | [Add known facts](/guides/known-facts) |
+| A ready-made agent UI | [Reference terminal Agent](/guides/reference-agent) |
+| One method signature | [SDK Reference](/sdk/overview) |
+| One HTTP endpoint | [HTTP API](/api) |

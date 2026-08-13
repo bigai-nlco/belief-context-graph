@@ -1,0 +1,29 @@
+---
+title: Memory
+description: Reference for BCGMemory, the application-facing memory facade.
+icon: brain
+---
+
+```python
+from bcg import BCGMemory
+
+memory = BCGMemory()
+```
+
+Constructor fields:
+
+```python
+BCGMemory(
+    namespace="default",
+    options={},
+    graph=None,
+    confidence_config=None,
+)
+```
+
+<CardGroup cols={2}>
+  <Card title="Observe trusted knowledge" href="/sdk/memory/observe" />
+  <Card title="Find matching beliefs" href="/sdk/memory/believe" />
+  <Card title="Build task context" href="/sdk/memory/context" />
+  <Card title="Search memory" href="/sdk/memory/search" />
+</CardGroup>

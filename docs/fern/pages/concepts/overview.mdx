@@ -1,0 +1,28 @@
+---
+title: Key Concepts
+description: A small vocabulary for understanding what BCG stores and how it changes.
+icon: book-open
+---
+
+BCG models the knowledge state accumulated from an agent trajectory. The code uses precise graph terms, but most users only need the concepts below.
+
+| User-facing concept | BCG field or type | What it means |
+|---|---|---|
+| **Stored knowledge** | belief node | A proposition retained by the system |
+| **Decision** | decision node | An action or conclusion retained in the same graph |
+| **Source** | source + evidence | Where the proposition came from |
+| **Confidence** | confidence fields | How strongly the current graph supports the proposition |
+| **Connection** | relation | How two pieces of knowledge affect or qualify each other |
+| **Duplicate handling** | merge | How repeated or equivalent knowledge is canonicalized |
+| **Conversation history** | session / turn metadata | When and where knowledge was formed |
+| **Context selection** | memory context | What graph state is returned to the next model call |
+
+<CardGroup cols={2}>
+  <Card title="Stored knowledge and decisions" icon="database" href="/concepts/knowledge-and-sources" />
+  <Card title="How confidence is calculated" icon="gauge-high" href="/concepts/confidence" />
+  <Card title="Where knowledge came from" icon="quote-left" href="/concepts/knowledge-and-sources" />
+  <Card title="How knowledge connects" icon="share-nodes" href="/concepts/relationships-and-change" />
+  <Card title="Handling duplicate knowledge" icon="code-merge" href="/concepts/relationships-and-change" />
+  <Card title="Conversation history and time" icon="clock" href="/concepts/history-and-context" />
+  <Card title="What the agent sees" icon="eye" href="/concepts/history-and-context" />
+</CardGroup>

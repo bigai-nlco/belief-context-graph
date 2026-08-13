@@ -1,0 +1,33 @@
+---
+title: Add Known Facts
+description: Insert trusted propositions without running LLM extraction.
+icon: pen-to-square
+---
+
+Use `BCGMemory.observe()` when your application already knows the proposition it wants to store.
+
+```python
+from bcg import BCGMemory
+
+memory = BCGMemory()
+
+observation = memory.observe(
+    source_type="manual",
+    content="The production region is us-west-2.",
+    actor="deployment-service",
+    metadata={"ticket": "INC-42"},
+)
+
+print(observation.belief.id)
+```
+
+The current implementation:
+
+- does not call an LLM;
+- creates one asserted `belief` node;
+- marks it in the `io` layer;
+- records manual source/evidence information.
+
+This is different from `BCGRunner`, which constructs graph state from a trajectory.
+
+See [`BCGMemory.observe()`](/sdk/memory/store-find).

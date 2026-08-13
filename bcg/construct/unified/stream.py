@@ -223,9 +223,7 @@ class StreamingBeliefBuilder:
         # Results prepared by one batch extraction call and consumed later by
         # the normal per-turn pipeline. Keys are future flat turn indices;
         # values retain independent nodes/evidence for exactly one tool turn.
-        self._prepared_tool_results: dict[
-            int, tuple[dict[str, Any] | None, float]
-        ] = {}
+        self._prepared_tool_results: dict[int, tuple[dict[str, Any] | None, float]] = {}
         # Final (trajectory-end) merge timing; filled in finalize(). Always
         # zero now that the trajectory-end global merge has been removed.
         self._final_merge_timing: dict[str, Any] = {
@@ -300,8 +298,10 @@ class StreamingBeliefBuilder:
             new_nodes, relations_added, report = self._update_from_turn(
                 eff_role, content, turn_idx, flat_idx, date, has_answer
             )
-            turn_total = time.perf_counter() - _t_turn + float(
-                report.pop("_prepared_batch_seconds", 0.0) or 0.0
+            turn_total = (
+                time.perf_counter()
+                - _t_turn
+                + float(report.pop("_prepared_batch_seconds", 0.0) or 0.0)
             )
             # Normalise + round the sub-step timing produced by _update_from_turn,
             # attach turn_total, and record one wide-table row for this turn.
@@ -410,9 +410,7 @@ class StreamingBeliefBuilder:
         _t_batch = time.perf_counter()
         semantic_results: list[dict[str, Any] | None] = []
         if semantic_count:
-            USAGE.set_label(
-                f"t{self._flat_turn}.extract:tool_batch:{semantic_count}"
-            )
+            USAGE.set_label(f"t{self._flat_turn}.extract:tool_batch:{semantic_count}")
             semantic_results = extract_compact_tool_result_nodes_batch(
                 self.client,
                 self.model,
@@ -542,8 +540,7 @@ class StreamingBeliefBuilder:
                 )
                 if (
                     node_res is not None
-                    and node_res.get("extraction_method")
-                    == "compact_llm_tool_result"
+                    and node_res.get("extraction_method") == "compact_llm_tool_result"
                 ):
                     self._semantic_tool_result_calls += 1
             else:

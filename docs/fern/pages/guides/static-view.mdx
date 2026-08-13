@@ -1,0 +1,31 @@
+---
+title: Export an HTML Graph
+description: Generate a self-contained HTML inspector for one saved graph result.
+icon: file-code
+---
+
+Use the built-in renderer:
+
+```bash
+bcg construct visualize outputs/case-42/result.json
+```
+
+Supported input families include:
+
+- `result.json`;
+- `final_graph.json`;
+- `belief_graph.jsonl`.
+
+Choose an output file:
+
+```bash
+bcg construct visualize \
+  outputs/case-42/final_graph.json \
+  --output reports/case-42.html
+```
+
+The visualizer is aligned with the current graph schema and can surface beliefs/decisions, relations, factors, evidence, confidence history, timing, and decision history when those fields exist.
+
+<Tip>
+Use the standalone HTML renderer for a shareable finalized artifact. Use the [Dashboard](/operate/dashboard) when you want to inspect the graph through the current live service.
+</Tip>

@@ -1,0 +1,74 @@
+---
+title: API Model Construction
+description: Use an OpenAI-compatible model endpoint to construct graph nodes and
+  relationships.
+icon: cloud
+---
+
+The code identifier for this backend is:
+
+```text
+unified
+```
+
+Use it when an OpenAI-compatible model endpoint is already available.
+
+## Using this backend with the terminal Agent
+
+During `bcg setup`, API model construction can reuse the Agent's own model endpoint and API key, or use a separate endpoint:
+
+```bash
+bcg setup
+# Graph server: Start and manage a local Graph server automatically
+# Graph backend: API model construction (unified)
+
+bcg
+```
+
+No separate vLLM process is required when the configured API endpoint is already available. If a server for this backend is already healthy, a later `bcg` invocation reuses it instead of starting a new one.
+
+## Server
+
+```bash
+bcg construct server unified \
+  --config ~/.bcg/config.yaml \
+  --model-key graph-model \
+  --embedding-key embedding \
+  --host 127.0.0.1 \
+  --port 8848 \
+  --output-dir ~/.bcg/graphs
+```
+
+## Python
+
+```python
+runner = BCGRunner(
+    memory=memory,
+    llm=llm,
+    backend="unified",
+)
+```
+
+Relevant runner controls include:
+
+```python
+evidence_mode="sentence"
+incremental_merge=True
+incremental_merge_threshold=0.86
+verify_merge=True
+context_chars=100000
+io_context_chars=6000
+min_content_len=0
+```
+
+These are exposed by `observe_trajectory()` / `begin_belief_run()` and may also be configured through the unified YAML settings.
+
+## Configuration
+
+Model and embedding endpoint definitions live in the unified `config.yaml` model registry. Use:
+
+```bash
+bcg config
+```
+
+to confirm which values are actually active.

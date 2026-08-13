@@ -1,0 +1,560 @@
+openapi: 3.1.0
+info:
+  title: BCG Graph Construction API
+  version: '1'
+  description: Incrementally construct and query one belief graph per problem_id. The wire contract corresponds to schema_version 1 in contracts/http.schema.json.
+servers:
+- url: http://127.0.0.1:8848
+  description: Local server
+tags:
+- name: System
+  description: Service health and contract version.
+- name: Graph construction
+  description: Submit turns or complete inputs for graph construction.
+- name: Graph access
+  description: Read the current graph snapshot.
+- name: Session management
+  description: Finalize or release an in-memory construction session.
+paths:
+  /health:
+    get:
+      tags:
+      - System
+      operationId: getHealth
+      summary: Check server health
+      responses:
+        '200':
+          description: Healthy server
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+  /turn:
+    post:
+      tags:
+      - Graph construction
+      operationId: pushTurn
+      summary: Add one turn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Turn'
+      responses:
+        '200':
+          description: Latest graph snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Snapshot'
+        '400': &id001
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409': &id002
+          description: Trajectory already closed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500': &id003
+          description: Construction failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /turns:
+    post:
+      tags:
+      - Graph construction
+      operationId: pushTurns
+      summary: Add multiple turns
+      description: Accepts a JSON array. The server also accepts NDJSON turn objects.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/Turn'
+          application/x-ndjson:
+            schema:
+              type: string
+              description: One JSON turn object per line.
+      responses:
+        '200':
+          description: Batch push result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TurnsResponse'
+        '400': *id001
+        '409': *id002
+        '500': *id003
+  /input:
+    post:
+      tags:
+      - Graph construction
+      operationId: pushInput
+      summary: Process a complete input
+      description: Accepts trajectory, messages, bare message-list, or multi-session input shapes supported by the shared loaders.
+      parameters:
+      - name: item
+        in: query
+        schema:
+          type: string
+        description: Select one item by id or zero-based index.
+      - name: keep_order
+        in: query
+        schema:
+          type: boolean
+          default: false
+        description: Keep input session order instead of chronological sorting.
+      - name: finalize
+        in: query
+        schema:
+          type: boolean
+          default: true
+        description: Finalize each item after ingest.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteInput'
+      responses:
+        '200':
+          description: Processed input result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InputResponse'
+        '400': *id001
+        '409': *id002
+        '500': *id003
+  /run:
+    post:
+      tags:
+      - Graph construction
+      operationId: runInput
+      summary: Process a complete input (alias)
+      description: Accepts trajectory, messages, bare message-list, or multi-session input shapes supported by the shared loaders.
+      parameters:
+      - name: item
+        in: query
+        schema:
+          type: string
+        description: Select one item by id or zero-based index.
+      - name: keep_order
+        in: query
+        schema:
+          type: boolean
+          default: false
+        description: Keep input session order instead of chronological sorting.
+      - name: finalize
+        in: query
+        schema:
+          type: boolean
+          default: true
+        description: Finalize each item after ingest.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteInput'
+      responses:
+        '200':
+          description: Processed input result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InputResponse'
+        '400': *id001
+        '409': *id002
+        '500': *id003
+  /finalize:
+    post:
+      tags:
+      - Session management
+      operationId: finalizeGraph
+      summary: Finalize a graph
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProblemRequest'
+      responses:
+        '200':
+          description: Final graph snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Snapshot'
+        '404':
+          description: Unknown problem_id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400': *id001
+        '409': *id002
+        '500': *id003
+  /release:
+    post:
+      tags:
+      - Session management
+      operationId: releaseGraph
+      summary: Release a graph session
+      description: Removes the in-memory session while preserving files already written to disk.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProblemRequest'
+      responses:
+        '200':
+          description: Release status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReleaseResponse'
+        '400': *id001
+        '409': *id002
+        '500': *id003
+  /graph:
+    get:
+      tags:
+      - Graph access
+      operationId: getGraph
+      summary: Get the current graph
+      parameters:
+      - name: problem_id
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Current graph snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Snapshot'
+        '400':
+          description: Missing problem_id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Unknown problem_id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  schemas:
+    Turn:
+      type: object
+      required:
+      - problem_id
+      - role
+      - content
+      properties:
+        problem_id:
+          type: string
+          description: Key for the in-memory construction session.
+        role:
+          type: string
+          enum:
+          - assistant
+          - system
+          - tool
+          - user
+        content:
+          type: string
+        is_message_end:
+          type: boolean
+          description: False while sending message fragments.
+        is_trajectory_end:
+          type: boolean
+          description: True to finalize after this completed turn.
+        date:
+          type: string
+        session_date:
+          type: string
+      additionalProperties: true
+    Relation:
+      type: object
+      required:
+      - id
+      - from_id
+      - to_id
+      - type
+      properties:
+        id:
+          type: integer
+        from_id:
+          type: integer
+        to_id:
+          type: integer
+        type:
+          type: string
+          enum:
+          - depends_on
+          - supplements
+          - contradicts
+        note:
+          type: string
+        weight:
+          type: number
+        activated_condition:
+          type: string
+      additionalProperties: true
+    Node:
+      type: object
+      required:
+      - id
+      - node_type
+      properties:
+        id:
+          type: integer
+        node_type:
+          type: string
+          enum:
+          - belief
+          - decision
+        belief:
+          type: string
+        decision:
+          type: string
+        confidence:
+          type: number
+        stance:
+          type: string
+        role:
+          type: string
+        layer:
+          type: string
+        source:
+          type: object
+          additionalProperties: true
+        evidence_ids:
+          type: array
+          items:
+            type: integer
+        factor_ids:
+          type: array
+          items:
+            type: integer
+        supporting_excerpts:
+          type: array
+          items:
+            type: string
+        merged_from:
+          type: array
+          items:
+            type: integer
+        confidence_history:
+          type: array
+          items: {}
+      additionalProperties: true
+    Snapshot:
+      type: object
+      required:
+      - generated_at
+      - n_nodes
+      - n_beliefs
+      - n_decisions
+      - nodes
+      - beliefs
+      - decisions
+      - relations
+      properties:
+        problem_id:
+          type: string
+        item_id:
+          type: string
+        stage:
+          type: string
+          enum:
+          - turn
+          - buffered
+          - final
+          - empty
+          - query
+        finalized:
+          type: boolean
+        stream_turn_index:
+          type: integer
+        n_turns_ingested:
+          type: integer
+        token_usage:
+          type: object
+          additionalProperties: true
+        generated_at:
+          type: string
+        n_nodes:
+          type: integer
+        n_beliefs:
+          type: integer
+        n_decisions:
+          type: integer
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Node'
+        beliefs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Node'
+        decisions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Node'
+        evidence: {}
+        relations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Relation'
+        merges:
+          type: array
+          items: {}
+        sessions:
+          type: array
+          items: {}
+      additionalProperties: true
+    Error:
+      type: object
+      required:
+      - error
+      properties:
+        error:
+          type: string
+      additionalProperties: false
+    Health:
+      type: object
+      required:
+      - status
+      - active
+      - all
+      - schema_version
+      properties:
+        status:
+          type: string
+          enum:
+          - ok
+        active:
+          type: array
+          items:
+            type: string
+        all:
+          type: array
+          items:
+            type: string
+        schema_version:
+          type: integer
+      additionalProperties: false
+    TurnsResponse:
+      type: object
+      required:
+      - pushed
+      - finalized
+      - latest
+      properties:
+        pushed:
+          type: integer
+        finalized:
+          type: array
+          items:
+            type: string
+        latest:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/Snapshot'
+      additionalProperties: false
+    InputResponse:
+      type: object
+      required:
+      - items
+      - finalized
+      - latest
+      properties:
+        items:
+          type: integer
+        finalized:
+          type: array
+          items:
+            type: string
+        latest:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/Snapshot'
+      additionalProperties: false
+    ProblemRequest:
+      type: object
+      required:
+      - problem_id
+      properties:
+        problem_id:
+          type: string
+      additionalProperties: false
+    ReleaseResponse:
+      type: object
+      required:
+      - problem_id
+      - released
+      properties:
+        problem_id:
+          type: string
+        released:
+          type: boolean
+      additionalProperties: false
+    Message:
+      type: object
+      required:
+      - role
+      - content
+      properties:
+        role:
+          type: string
+        content:
+          type: string
+      additionalProperties: true
+    TrajectoryInput:
+      type: object
+      required:
+      - trajectory
+      properties:
+        trajectory:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+      additionalProperties: true
+    MessagesInput:
+      type: object
+      required:
+      - messages
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+      additionalProperties: true
+    CompleteInput:
+      description: 'Any complete-input shape accepted by the shared loaders: a trajectory object, messages object, bare message list, or supported multi-session dataset record.'
+      oneOf:
+      - $ref: '#/components/schemas/TrajectoryInput'
+      - $ref: '#/components/schemas/MessagesInput'
+      - type: array
+        items:
+          $ref: '#/components/schemas/Message'
+      - type: object
+        additionalProperties: true

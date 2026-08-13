@@ -1,0 +1,65 @@
+---
+title: Project Layout and Glossary
+description: Find the main source areas and translate BCG code vocabulary into application-facing
+  terms.
+icon: folder-tree
+---
+
+## Project layout
+
+The refactored repository separates application-facing core types from construction engines and front ends.
+
+```text
+bcg/
+  core/                  # graph, memory, runner, LLM client
+  construct/
+    unified/             # API-model construction backend
+    hybrid/              # local-model construction backend
+    _shared/             # shared loaders/contracts/helpers
+  config/                # unified YAML configuration
+  apps/                  # CLI, HTTP server, setup, visualizer, benchmark
+
+contracts/
+  http.schema.json       # HTTP wire contract
+
+agent-cli/               # reference terminal Agent
+dashboard/               # current Vite graph Dashboard
+docs/                    # documentation source
+```
+
+## Public imports
+
+The package root exports:
+
+```python
+from bcg import (
+    BCG,
+    BCGMemory,
+    BCGRunner,
+    BCGSettings,
+    LLMClient,
+    load_settings,
+)
+```
+
+More specialized types remain in their implementation modules.
+
+## Glossary
+
+| Term | Practical meaning |
+|---|---|
+| BCG | The in-memory graph container and, more broadly, the Belief Context Graph system |
+| belief | A stored proposition |
+| decision | A stored action/conclusion |
+| evidence | Source material supporting a graph item |
+| source | Where a graph item came from |
+| confidence | Current strength of a proposition in graph state |
+| relation | Directional connection between two nodes |
+| merge | Combining equivalent graph items |
+| factor | Graph/runtime input that can contribute to confidence updates |
+| trajectory | Ordered message-like input to construction |
+| session | A temporal group of turns |
+| run | One construction lifecycle and its artifacts |
+| `problem_id` | HTTP session key for one in-memory graph construction |
+| `unified` | API model construction backend |
+| `hybrid` | Local model construction backend |

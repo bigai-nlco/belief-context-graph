@@ -1,0 +1,65 @@
+---
+title: Build Context and Search Memory
+description: Select structured graph state for a task or search the in-memory graph.
+icon: magnifying-glass
+---
+
+## `BCGMemory.context()`
+
+```python
+context = memory.context(
+    task="Choose the next customer-success action",
+    focal_entities=["Acme"],
+    max_variables=20,
+)
+```
+
+```python
+memory.context(
+    *,
+    task: str,
+    focal_entities: list[str] | None = None,
+    max_variables: int = 100,
+    include_conflicts: bool = True,
+    include_missing_evidence: bool = True,
+    **kwargs: Any,
+) -> dict[str, Any]
+```
+
+Current return shape:
+
+```python
+{
+    "task": str,
+    "namespace": str,
+    "beliefs": list[dict[str, Any]],
+}
+```
+
+Items are sorted by descending confidence after the optional focal-entity substring filter.
+
+<Warning>
+`include_conflicts` and `include_missing_evidence` are currently compatibility parameters; they do not change filtering behavior.
+</Warning>
+
+## `BCGMemory.search()`
+
+```python
+results = await memory.search(
+    query="outage",
+    max_results=10,
+)
+```
+
+```python
+await memory.search(
+    *,
+    query: str,
+    max_results: int = 10,
+    include_conflicts: bool = True,
+    include_missing_evidence: bool = True,
+    **kwargs: Any,
+) -> list[dict[str, Any]]
+```
+
+The current implementation searches the in-memory graph with case-insensitive substring matching. It is not a vector-database API.

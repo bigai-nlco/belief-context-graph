@@ -1,0 +1,30 @@
+---
+title: Generated Files
+description: Understand the artifact paths exposed by a completed runner result.
+icon: folder-open
+---
+
+`BeliefGraphRunResult.output_paths` is a `RunPaths` object. It can expose paths for:
+
+| Field | Purpose |
+|---|---|
+| `run_dir` | Root directory for the run |
+| `artifacts_dir` | Backend/runtime artifacts |
+| `graph` | Public graph output |
+| `memory` | Memory-shaped output |
+| `token_usage` | Usage summary |
+| `events` | Engine/runtime events |
+| `segments` | Trajectory segmentation data |
+| `io_beliefs` | I/O-layer belief output |
+| `reasoning_beliefs` | Reasoning-layer belief output |
+| `forward_relations` | Forward relation artifact |
+| `backward_relations` | Backward relation artifact |
+| `merges` | Merge artifact |
+| `result` | Compatibility result |
+| `final_graph` | Final graph artifact |
+| `trajectory` | Source trajectory |
+| `graph_stream` | Per-turn graph stream |
+
+<Info>
+Not every backend or run necessarily needs every artifact to be populated. In application code, use the typed paths returned by the runner instead of assuming a fixed directory layout.
+</Info>

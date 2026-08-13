@@ -1,0 +1,41 @@
+---
+title: Understand Your First Graph
+description: Know what to inspect first in a construction result.
+icon: magnifying-glass
+---
+
+A graph is easiest to understand in this order: **nodes → source → confidence → connections → history**.
+
+## 1. Nodes: what was retained?
+
+```python
+for item in result.graph.beliefs():
+    print(item.id, item.node_type, item.belief or item.decision)
+```
+
+`node_type` distinguishes ordinary stored knowledge (`belief`) from an action or conclusion (`decision`).
+
+## 2. Source: where did it come from?
+
+Each payload can carry source metadata, exact evidence excerpts, and turn/session information. Use these fields to verify that a stored proposition is grounded in the input rather than judging it from the text alone.
+
+## 3. Confidence: how strong is it?
+
+BCG stores the confidence inputs and history so the current value is inspectable. See [How confidence is calculated](/concepts/confidence).
+
+## 4. Connections: what changes its meaning?
+
+Relations tell you whether one node depends on, adds context to, or contradicts another.
+
+```python
+for relation in result.graph.relations():
+    print(relation.from_id, relation.type, relation.to_id)
+```
+
+## 5. History: what changed during construction?
+
+Use merge history, confidence history, sessions, and run artifacts when you need to audit *how* the final state was produced.
+
+<Tip>
+For an initial integration, do not start by reading every artifact. First confirm that the final beliefs, decisions, evidence, and relations are useful for your application; then add deeper audit tooling as needed.
+</Tip>
