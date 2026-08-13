@@ -233,9 +233,7 @@ def _load_browsecomp_like_rows(
 ) -> list[BenchmarkTask]:
     tasks = []
     for index, row in enumerate(rows):
-        question = _first(
-            row, ("input", "question", "Question", "query", "problem")
-        )
+        question = _first(row, ("input", "question", "Question", "query", "problem"))
         answers = _answers(
             _first(
                 row,
