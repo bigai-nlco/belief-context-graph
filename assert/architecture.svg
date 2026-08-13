@@ -58,7 +58,7 @@
     <circle cx="103" cy="188" r="17" fill="#e0e7ff"/>
     <path d="M96 188h14M103 181v14" stroke="#4f46e5" stroke-width="2.4" stroke-linecap="round"/>
     <text x="132" y="191" class="title">Any Agent</text>
-    <text x="96" y="222" class="body">Reference terminal Agent included</text>
+    <text x="96" y="222" class="body">Reference CLI included</text>
     <text x="96" y="248" class="small">User input · sessions · tools</text>
     <rect x="96" y="262" width="107" height="18" rx="9" fill="#eef2ff"/>
     <text x="149" y="275" text-anchor="middle" class="chip">agent-agnostic</text>
@@ -78,11 +78,8 @@
     <text x="986" y="248" class="small">Search · shell · files · extensions</text>
     <text x="986" y="273" class="small">Assistant and tool turns return to context</text>
 
-    <path d="M330 222H380" class="arrow"/>
-    <text x="355" y="211" text-anchor="middle" class="small">messages</text>
-    <path d="M895 222H945" class="arrowPurple"/>
-    <text x="920" y="197" text-anchor="middle" class="small">system + raw</text>
-    <text x="920" y="213" text-anchor="middle" class="small">window + graph</text>
+    <path d="M330 222H382" class="arrow"/>
+    <path d="M895 222H947" class="arrowPurple"/>
 
     <!-- Integration paths -->
     <text x="66" y="365" class="section">INTEGRATION PATHS</text>
@@ -113,12 +110,13 @@
     <text x="815" y="511" class="small">Direct backend access without the HTTP layer</text>
 
     <text x="700" y="607" text-anchor="middle" font-size="19" font-weight="780" fill="#ffffff">Lazy Backend Registry</text>
-    <text x="700" y="628" text-anchor="middle" font-size="12.5" font-weight="560" fill="#e0e7ff">shared contracts · typed configuration · session lifecycle</text>
+    <text x="700" y="628" text-anchor="middle" font-size="12.5" font-weight="560" fill="#e0e7ff">shared contracts · config · sessions</text>
 
-    <path d="M645 300V349Q645 363 631 363H394Q380 363 380 377V387" class="arrowPurple"/>
-    <text x="530" y="351" text-anchor="middle" class="small" fill="#4f46e5">evicted completed turns</text>
-    <path d="M380 537V557Q380 565 390 565H510Q525 565 525 585" class="arrow"/>
-    <path d="M1020 537V557Q1020 565 1005 565H890Q875 565 875 585" class="arrow"/>
+    <path d="M645 300V342Q645 356 631 356H394Q380 356 380 370V374" class="arrowPurple"/>
+    <rect x="470" y="333" width="166" height="23" rx="11.5" fill="#ffffff" stroke="#c4b5fd"/>
+    <text x="553" y="349" text-anchor="middle" font-size="12.5" font-weight="650" fill="#4f46e5">evicted completed turns</text>
+    <path d="M380 537V548Q380 560 392 560H608Q620 560 620 565" class="arrow"/>
+    <path d="M1020 537V548Q1020 560 1008 560H792Q780 560 780 565" class="arrow"/>
 
     <!-- Backends -->
     <text x="66" y="690" class="section">CONSTRUCTION BACKENDS</text>
@@ -140,8 +138,8 @@
     <text x="826" y="788" class="body">Semantic chunks · embeddings · DeBERTa stance · spaCy NER</text>
     <text x="826" y="814" class="small">Separate extraction and relation generation components</text>
 
-    <path d="M625 645V670Q625 682 613 682H345Q345 682 345 701V711" class="arrow"/>
-    <path d="M775 645V670Q775 682 787 682H1055Q1055 682 1055 701V711" class="arrow"/>
+    <path d="M625 645V670Q625 682 613 682H357Q345 682 345 694V698" class="arrow"/>
+    <path d="M775 645V670Q775 682 787 682H1043Q1055 682 1055 694V698" class="arrow"/>
 
     <!-- Shared incremental pipeline -->
     <rect x="40" y="866" width="1320" height="108" rx="22" fill="url(#pipelineFill)" stroke="#d8d5f4"/>
@@ -180,9 +178,10 @@
 
     <!-- Feedback path -->
     <path d="M1332 934H1372V116H780V135" class="feedback"/>
-    <rect x="1166" y="349" width="190" height="44" rx="12" fill="#ffffff" stroke="#c4b5fd"/>
-    <text x="1261" y="367" text-anchor="middle" font-size="12.5" font-weight="760" fill="#4f46e5">GRAPH SNAPSHOT</text>
-    <text x="1261" y="384" text-anchor="middle" class="small">beliefs · relations · confidence</text>
+    <rect x="1148" y="340" width="208" height="44" rx="12" fill="#ffffff" stroke="#c4b5fd"/>
+    <text x="1252" y="358" text-anchor="middle" font-size="12.5" font-weight="760" fill="#4f46e5">GRAPH SNAPSHOT</text>
+    <text x="1252" y="375" text-anchor="middle" class="small">beliefs · relations · confidence</text>
+    <path d="M1356 362H1372" fill="none" stroke="#5b5bd6" stroke-width="2.3" stroke-dasharray="8 7"/>
 
     <text x="54" y="1004" class="small">Persistent outputs: belief_graph.jsonl · belief_graph_latest.json · result.json · prompt and usage traces</text>
   </g>
