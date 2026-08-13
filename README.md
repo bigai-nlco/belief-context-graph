@@ -46,7 +46,7 @@ This repository includes a simple terminal Agent as a reference integration. It 
 
 ---
 
-**[Live Demo](#live-demo)** &nbsp;·&nbsp;**[Quick Start](#quick-start)** &nbsp;·&nbsp; **[Architecture](#architecture)** &nbsp;·&nbsp; **[Core Concepts](#core-concepts)** &nbsp;·&nbsp; **[Benchmarking](#benchmarking-results)** &nbsp;·&nbsp; **[Comparison](#comparison-with-existing-memory-solutions)** &nbsp;·&nbsp; **[Integrations](#agent-framework-integrations)** &nbsp;·&nbsp; **[Configuration](#configuration)** &nbsp;·&nbsp;  **[Contributing](#contributing)**
+**[Live Demo](#live-demo)** &nbsp;·&nbsp;**[Quick Start](#quick-start)** &nbsp;·&nbsp; **[Architecture](#architecture)** &nbsp;·&nbsp; **[Core Concepts](#core-concepts)** &nbsp;·&nbsp; **[Benchmarking](#benchmarking-results)** &nbsp;·&nbsp; **[Comparison](#comparison-with-existing-memory-solutions)** &nbsp;·&nbsp; **[Configuration](#configuration)** &nbsp;·&nbsp;  **[Contributing](#contributing)**
 
 ---
 ## Live Demo
@@ -54,7 +54,7 @@ This repository includes a simple terminal Agent as a reference integration. It 
 <div align="center">
 
 <img
-  src="docs/images/live_demo_clear.gif"
+  src="live_demo.gif"
   alt="Belief Context Graph live demo"
   width="900"
 />
@@ -719,42 +719,6 @@ Agent memory systems serve different purposes. Below is a feature-level comparis
 > ✅ Full support &nbsp;&nbsp; ⚡ Partial / optional &nbsp;&nbsp; ❌ Not supported
 
 ---
-
-<!-- ## Agent Framework Integrations
-
-BCG is a Python library with a minimal dependency footprint. It integrates with agent frameworks through direct API usage, MCP servers, or HTTP bridges. -->
-
-
-<!-- ### Supported Frameworks -->
-<!--
-| Framework | Integration Method | Notes |
-|---|---|---|
-| **Claude Code** | MCP server or Python tool | Expose BCG as an MCP tool for belief extraction and query during agent sessions |
-| **LangChain** | Custom `BaseMemory` / Tool | Wrap `BCGMemory` as a LangChain memory backend; register belief extraction as a tool |
-| **LlamaIndex** | Custom `BaseMemory` / Tool | Integrate via LlamaIndex's memory abstraction or as an ingestion pipeline tool |
-| **OpenAI Agents SDK** | Python function tool | Register `BCGMemory.observe()` and `BCGMemory.search()` as callable tools |
-| **CrewAI** | Python tool | Add BCG as a crew tool for belief tracking across multi-agent workflows |
-| **AutoGen** | Python tool / agent | Use BCG as a shared memory backend for AutoGen agent groups |
-| **Agno** | Python tool | Integrate as a tool or memory backend in Agno agent pipelines |
-| **Any MCP-compatible agent** | MCP server | BCG's HTTP API can be fronted by an MCP server exposing belief extraction and query tools |
-| **Any Python agent loop** | `BCGRunner` / `BCGMemory` API | Direct import and use in custom agent loops — see the Quick Start examples above |
--->
-
-<!-- ### MCP Server -->
-<!--
-A built-in MCP server is on the roadmap, exposing:
-
-| Tool | Purpose |
-|---|---|
-| `bcg_observe_turn` | Feed a conversation turn into the belief graph |
-| `bcg_search_beliefs` | Search beliefs by text, confidence range, or entity |
-| `bcg_query_graph` | Traverse the belief graph by relation type or temporal range |
-| `bcg_get_context` | Assemble belief-aware context for a given task |
-| `bcg_finalize_run` | Finalize the current run and return the complete graph |
-
-Until the native MCP server ships, BCG can be used with any MCP-compatible agent via its HTTP API (see `online_server.py`) or direct Python integration.
-
---- -->
 
 ## Configuration
 
