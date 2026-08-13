@@ -76,17 +76,11 @@ This repository includes a simple terminal Agent as a reference integration. It 
 
 ## Quick Start
 
-Core BCG uses Python/`uv` for the SDK and Graph Construction. The optional reference terminal Agent uses an isolated Node.js 22.19+ runtime.
+Core BCG uses Python/`uv` for the SDK and Graph Construction. The optional reference terminal Agent uses Node.js 22.19+.
 
 ### 1. Install BCG
 
-Two supported paths, kept in lockstep with `install.sh` and `Makefile`
-(see ADR-0001 for the release versioning policy and the release manifest):
-
-| Path | Audience | Locked deps | Commands |
-|---|---|---|---|
-| `install.sh` (release) | end users | `uv.lock` + `package-lock.json` | `curl .../install.sh \| sh` |
-| `make install` (source) | developers | `uv.lock` + both `package-lock.json` | `make install` |
+Choose one install path.
 
 #### Option A: install globally with curl (release)
 
@@ -95,34 +89,23 @@ curl -LsSf https://raw.githubusercontent.com/bigai-nlco/belief-context-graph/mai
 bcg --version
 ```
 
-The installer requires `curl`, `tar`, npm, and Node.js 22.19 or newer. It
-installs `uv` when necessary, downloads the repository into a temporary
-directory, installs the Python and Node runtimes from their lockfiles, and
-then removes the temporary source. Download failures abort before any
-install step; partial installs are detected and PATH guidance is printed.
+Requires `curl`, `tar`, npm, and Node.js 22.19+. The installer uses the repository lockfiles and installs `uv` when needed.
 
 #### Option B: clone and run from source (development)
 
 ```bash
 git clone https://github.com/bigai-nlco/belief-context-graph.git
 cd belief-context-graph
-make install          # uv sync --locked --all-groups + agent/dashboard npm ci + agent build
-
+make install
 uv run bcg --version
 ```
 
-Run the source checkout with `uv run bcg`. Optionally expose the current
-checkout as the global `bcg` command:
+Optional: expose the checkout as a global command.
 
 ```bash
-make install-tool     # uv tool install . + agent build + npm install -g ./agent-cli
+make install-tool
 bcg --version
 ```
-
-The Node package provides the internal `bcg-agent` executable launched by
-`bcg`; users normally do not invoke it directly. The Dashboard is a
-separately deployed release artifact (not part of these installs); see
-`dashboard/README.md`.
 
 ### 2. Start the reference BCG Agent
 
