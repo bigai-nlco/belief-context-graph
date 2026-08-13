@@ -1,8 +1,6 @@
 
 <div align="center">
 
-<img src="assert/bcg-logo.png" width="160" alt="Belief Context Graph logo">
-
 # Belief Context Graph
 
 
@@ -56,7 +54,7 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 <div align="center">
 
 <img
-  src="live_demo.gif"
+  src="assert/live_demo.gif"
   alt="Belief Context Graph live demo"
   width="900"
 />
