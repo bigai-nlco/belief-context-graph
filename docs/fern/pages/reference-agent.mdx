@@ -98,6 +98,21 @@ Context mode is fixed after the first user message. Use `/new` to start a sessio
 - **BCG** permanently retains the initial user input and keeps the latest two completed turns as raw messages. On the first request, the system prompt and initial user input seed the Graph. Messages leaving the two-turn raw window are then added incrementally, and the current Graph is encoded into the system prompt as context. Traditional compaction is disabled in this mode.
 - **Default** uses the full normal Agent conversation with automatic compaction. Graph context is not injected.
 
+### Graph presentation: full vs compact
+
+In BCG mode, how much of the Graph gets encoded into the system prompt is switched independently of the context mode itself:
+
+- **`full`** (default) preserves the complete belief-and-relation dialogue view.
+- **`compact`** keeps the same chat markers and selects whole beliefs under a fixed character budget. It omits the duplicated initial question but never rewrites belief text, synthesizes query/result mappings, or introduces renderer-only node concepts.
+
+Set it for interactive use:
+
+```bash
+export BCG_GRAPH_VIEW=compact
+```
+
+Unset it, or set it to `full`, to restore the complete graph rendering. The same setting is available as `--graph-view` on `bcg benchmark run` — see [Evaluate with benchmarks](/operate/benchmarking).
+
 <Info>
 `BCG_RECENT_TURNS` overrides the default raw window of `2`. See [CLI and environment](/reference/cli-and-environment).
 </Info>

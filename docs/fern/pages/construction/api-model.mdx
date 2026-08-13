@@ -39,6 +39,31 @@ bcg construct server unified \
   --output-dir ~/.bcg/graphs
 ```
 
+## Construction modes
+
+This backend has two switchable implementations, set with `pipeline.runtime.construction_mode` in `~/.bcg/config.yaml`:
+
+```yaml
+pipeline:
+  runtime:
+    construction_mode: llm  # canonical/default implementation
+  token_efficient:
+    max_search_results: 10
+    max_snippet_chars: 240
+    semantic_tool_results: true
+    max_facts: 3
+    max_semantic_calls: 12
+```
+
+- **`llm`** (default) is the canonical model-extraction and model-linking implementation described above.
+- **`token_efficient`** parses canonical Agent tool calls and tool results in code, distills a bounded number of non-empty tool results with a short current-query-only prompt, creates provenance edges deterministically, and uses embedding-only merge without LLM verification. Raw tool output remains attached as evidence. After `max_semantic_calls`, later tool results automatically fall back to the zero-LLM rule path; set `semantic_tool_results: false` to use that path from the start.
+
+Restart the Graph Construction server after changing `construction_mode`.
+
+<Note>
+This setting controls how the Graph is *built*. How much of it gets *rendered* into the Agent's context (`full` vs `compact`) is a separate, independent setting — see [Graph presentation](/guides/reference-agent#graph-presentation-full-vs-compact).
+</Note>
+
 ## Python
 
 ```python
