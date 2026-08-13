@@ -4,7 +4,7 @@ description: Construct a graph with the Python SDK and inspect the result.
 icon: rocket
 ---
 
-This quickstart uses the **API model** construction mode (`api_based` in code).
+This quickstart uses the **API model** construction mode (`unified` in code).
 
 <Info>
 This assumes BCG is already installed and `bcg --version` works in your environment. See [Installation](/installation) if you haven't done that yet.
@@ -23,7 +23,8 @@ export OPENAI_MODEL="gpt-4.1-mini"
 ```python
 import asyncio
 
-from bcg import BCG, BCGMemory, BCGRunner, LLMClient
+from bcg import BCG, BCGMemory, BCGRunner
+from bcg.core.llm import LLMClient
 
 
 async def main():
@@ -31,7 +32,7 @@ async def main():
     runner = BCGRunner(
         memory=memory,
         llm=LLMClient(),
-        backend="api_based",
+        backend="unified",
     )
 
     result = await runner.observe_trajectory(
@@ -61,7 +62,7 @@ memory, result = asyncio.run(main())
 ```
 
 <Note>
-`LLMClient` is exported from the package root: `from bcg import LLMClient`. The implementation module is `bcg.core.llm`; there is no `bcg.llm` module in the current package.
+`LLMClient` can be imported either directly from the package root (`from bcg import LLMClient`) or explicitly from its defining module (`from bcg.core.llm import LLMClient`). There is no `bcg.llm` module in the current package.
 </Note>
 
 ## 3. Read the stored knowledge
@@ -97,6 +98,6 @@ bcg construct visualize \
 <CardGroup cols={2}>
   <Card title="Understand the graph" icon="circle-nodes" href="/first-graph" />
   <Card title="Stream turns over HTTP" icon="server" href="/guides/http-streaming" />
-  <Card title="Python SDK Reference" icon="code" href="/sdk/overview" />
+  <Card title="Python SDK Reference" icon="code" href="/sdk" />
   <Card title="Choose a construction mode" icon="sliders" href="/guides/construction-modes" />
 </CardGroup>

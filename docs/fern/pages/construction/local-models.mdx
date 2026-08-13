@@ -1,6 +1,6 @@
 ---
 title: Local Model Construction
-description: Use the light backend with a vLLM generation endpoint and local processing
+description: Use the hybrid backend with a vLLM generation endpoint and local processing
   components.
 icon: server
 ---
@@ -8,7 +8,7 @@ icon: server
 The code identifier for this backend is:
 
 ```text
-light
+hybrid
 ```
 
 The current pipeline uses:
@@ -46,7 +46,7 @@ Once vLLM is serving, configure BCG with:
 
 ```text
 Graph server: Start and manage a local Graph server automatically
-Graph backend: Local model construction (light)
+Graph backend: Local model construction (hybrid)
 vLLM base URL: http://127.0.0.1:8001/v1
 Model served by vLLM: <MODEL_NAME>
 vLLM API key: EMPTY
@@ -58,14 +58,14 @@ vLLM API key: EMPTY
 bcg
 ```
 
-BCG starts the `light` Graph Construction server at `127.0.0.1:8848`; it does not start the vLLM process itself.
+BCG starts the `hybrid` Graph Construction server at `127.0.0.1:8848`; it does not start the vLLM process itself.
 
 ## Manual server (independent deployment or debugging)
 
 Configure the matching endpoint/model in `~/.bcg/config.yaml` and run:
 
 ```bash
-bcg construct server light \
+bcg construct server hybrid \
   --config ~/.bcg/config.yaml \
   --model-key graph-model \
   --embedding-key embedding \
@@ -75,5 +75,5 @@ bcg construct server light \
 ```
 
 <Info>
-The light CLI intentionally exposes fewer one-off run flags than the API-model path. Treat the unified YAML pipeline settings as the source for full backend configuration.
+The hybrid CLI intentionally exposes fewer one-off run flags than the API-model path. Treat the unified YAML pipeline settings as the source for full backend configuration.
 </Info>

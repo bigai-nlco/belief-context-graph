@@ -40,7 +40,7 @@ Supported dataset-style inputs can provide `sessions` with parallel session IDs 
 Process a complete saved trajectory or dataset file:
 
 ```bash
-bcg construct run api_based \
+bcg construct run unified \
   --input data.json \
   --config ~/.bcg/config.yaml \
   --model-key graph-model
@@ -49,7 +49,7 @@ bcg construct run api_based \
 Replay a stream of individual turns, as if they arrived live:
 
 ```bash
-bcg construct replay light \
+bcg construct replay hybrid \
   --input stream.jsonl \
   --config ~/.bcg/config.yaml \
   --model-key graph-model

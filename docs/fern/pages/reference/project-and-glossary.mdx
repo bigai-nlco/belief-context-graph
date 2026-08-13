@@ -13,8 +13,8 @@ The refactored repository separates application-facing core types from construct
 bcg/
   core/                  # graph, memory, runner, LLM client
   construct/
-    api_based/           # API-model construction backend
-    light/               # local-model construction backend
+    unified/             # API-model construction backend
+    hybrid/              # local-model construction backend
     _shared/             # shared loaders/contracts/helpers
   config/                # unified YAML configuration
   apps/                  # CLI, HTTP server, setup, visualizer, benchmark
@@ -61,5 +61,5 @@ More specialized types remain in their implementation modules.
 | session | A temporal group of turns |
 | run | One construction lifecycle and its artifacts |
 | `problem_id` | HTTP session key for one in-memory graph construction |
-| `api_based` | API model construction backend |
-| `light` | Local model construction backend |
+| `unified` | API model construction backend |
+| `hybrid` | Local model construction backend |

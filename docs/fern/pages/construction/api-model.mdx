@@ -8,7 +8,7 @@ icon: cloud
 The code identifier for this backend is:
 
 ```text
-api_based
+unified
 ```
 
 Use it when an OpenAI-compatible model endpoint is already available.
@@ -20,7 +20,7 @@ During `bcg setup`, API model construction can reuse the Agent's own model endpo
 ```bash
 bcg setup
 # Graph server: Start and manage a local Graph server automatically
-# Graph backend: API model construction (api_based)
+# Graph backend: API model construction (unified)
 
 bcg
 ```
@@ -30,7 +30,7 @@ No separate vLLM process is required when the configured API endpoint is already
 ## Server
 
 ```bash
-bcg construct server api_based \
+bcg construct server unified \
   --config ~/.bcg/config.yaml \
   --model-key graph-model \
   --embedding-key embedding \
@@ -45,7 +45,7 @@ bcg construct server api_based \
 runner = BCGRunner(
     memory=memory,
     llm=llm,
-    backend="api_based",
+    backend="unified",
 )
 ```
 

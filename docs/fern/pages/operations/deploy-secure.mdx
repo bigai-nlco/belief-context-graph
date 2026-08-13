@@ -17,14 +17,14 @@ A production deployment usually separates four concerns:
 ## Start the server explicitly
 
 ```bash
-bcg construct server api_based \
+bcg construct server unified \
   --config /etc/bcg/config.yaml \
   --host 0.0.0.0 \
   --port 8848 \
   --output-dir /var/lib/bcg/graphs
 ```
 
-Use the `light` backend only when the required local-model services and dependencies are available.
+Use the `hybrid` backend only when the required local-model services and dependencies are available.
 
 ## Process model
 
