@@ -5,45 +5,47 @@
   <text x="22" y="36" fill="#0f172a" font-family="Inter,Arial,sans-serif" font-size="27" font-weight="700">BrowseComp</text>
   <text x="22" y="62" fill="#64748b" font-family="Inter,Arial,sans-serif" font-size="15">Full dataset · 1,266 tasks per mode</text>
 
-  <rect x="18" y="78" width="584" height="344" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
   <text x="72" y="108" fill="#475569" font-family="Inter,Arial,sans-serif" font-size="15" font-weight="700">Accuracy</text>
   <text x="548" y="108" fill="#475569" font-family="Inter,Arial,sans-serif" font-size="15" font-weight="700" text-anchor="end">Mean tokens / task</text>
 
   <g fill="none" stroke="#e2e8f0" stroke-width="1">
-    <path d="M72 126H548 M72 182H548 M72 238H548 M72 294H548 M72 350H548"/>
+    <path d="M72 126H548 M72 171H548 M72 216H548 M72 260H548 M72 305H548 M72 350H548"/>
   </g>
   <path d="M72 126V350H548V126" fill="none" stroke="#cbd5e1" stroke-width="1.2"/>
-  <path d="M65 201H72 M65 276H72" fill="none" stroke="#64748b" stroke-width="1.2"/>
+  <path d="M65 126H72 M65 171H72 M65 216H72 M65 260H72 M65 305H72 M65 350H72" fill="none" stroke="#64748b" stroke-width="1.2"/>
 
   <g fill="#64748b" font-family="Inter,Arial,sans-serif" font-size="13" text-anchor="end">
-    <text x="62" y="131">45%</text>
-    <text x="62" y="206">30%</text>
-    <text x="62" y="281">15%</text>
+    <text x="62" y="131">50%</text>
+    <text x="62" y="176">40%</text>
+    <text x="62" y="221">30%</text>
+    <text x="62" y="265">20%</text>
+    <text x="62" y="310">10%</text>
     <text x="62" y="355">0%</text>
   </g>
   <g fill="#64748b" font-family="Inter,Arial,sans-serif" font-size="13">
-    <text x="556" y="131">40K</text>
-    <text x="556" y="187">30K</text>
-    <text x="556" y="243">20K</text>
-    <text x="556" y="299">10K</text>
+    <text x="556" y="131">50K</text>
+    <text x="556" y="176">40K</text>
+    <text x="556" y="221">30K</text>
+    <text x="556" y="265">20K</text>
+    <text x="556" y="310">10K</text>
     <text x="556" y="355">0</text>
   </g>
 
-  <rect x="132" y="184" width="60" height="166" rx="7" fill="#64748b"/>
-  <rect x="204" y="165" width="60" height="185" rx="7" fill="#5b5bd6"/>
-  <rect x="356" y="152" width="60" height="198" rx="7" fill="#64748b"/>
-  <rect x="428" y="224" width="60" height="126" fill="#5b5bd6"/>
-  <path d="M428 191a7 7 0 0 1 7-7h46a7 7 0 0 1 7 7v33h-60z" fill="#aaa8f4"/>
+  <path d="M132 208a7 7 0 0 1 7-7h46a7 7 0 0 1 7 7v142h-60z" fill="#64748b"/>
+  <path d="M204 191a7 7 0 0 1 7-7h46a7 7 0 0 1 7 7v159h-60z" fill="#5b5bd6"/>
+  <path d="M356 198a7 7 0 0 1 7-7h46a7 7 0 0 1 7 7v152h-60z" fill="#64748b"/>
+  <rect x="428" y="249" width="60" height="101" fill="#5b5bd6"/>
+  <path d="M428 224a7 7 0 0 1 7-7h46a7 7 0 0 1 7 7v25h-60z" fill="#aaa8f4"/>
 
   <g fill="#0f172a" font-family="Inter,Arial,sans-serif" font-size="15" font-weight="700" text-anchor="middle">
-    <text x="162" y="171">33.33%</text>
-    <text x="234" y="152">37.12%</text>
-    <text x="386" y="139">35.39K</text>
-    <text x="458" y="171">29.64K</text>
+    <text x="162" y="188">33.33%</text>
+    <text x="234" y="171">37.12%</text>
+    <text x="386" y="178">35.39K</text>
+    <text x="458" y="204">29.64K</text>
   </g>
   <g font-family="Inter,Arial,sans-serif" font-size="13" font-weight="700" text-anchor="middle">
-    <text x="458" y="292" fill="#ffffff">22.55K</text>
-    <text x="458" y="207" fill="#312e81">7.10K</text>
+    <text x="458" y="307" fill="#ffffff">22.55K</text>
+    <text x="458" y="237" fill="#312e81">7.10K</text>
   </g>
   <g fill="#64748b" font-family="Inter,Arial,sans-serif" font-size="13" font-weight="600" text-anchor="middle">
     <text x="162" y="371">Default</text>

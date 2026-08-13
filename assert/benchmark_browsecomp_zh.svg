@@ -5,7 +5,6 @@
   <text x="22" y="36" fill="#0f172a" font-family="Inter,Arial,sans-serif" font-size="27" font-weight="700">BrowseComp-ZH</text>
   <text x="22" y="62" fill="#64748b" font-family="Inter,Arial,sans-serif" font-size="15">Full dataset · 289 tasks per mode</text>
 
-  <rect x="18" y="78" width="584" height="344" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
   <text x="72" y="108" fill="#475569" font-family="Inter,Arial,sans-serif" font-size="15" font-weight="700">Accuracy</text>
   <text x="548" y="108" fill="#475569" font-family="Inter,Arial,sans-serif" font-size="15" font-weight="700" text-anchor="end">Mean tokens / task</text>
 
@@ -29,9 +28,9 @@
     <text x="556" y="355">0</text>
   </g>
 
-  <rect x="132" y="202" width="60" height="148" rx="7" fill="#64748b"/>
-  <rect x="204" y="173" width="60" height="177" rx="7" fill="#5b5bd6"/>
-  <rect x="356" y="177" width="60" height="173" rx="7" fill="#64748b"/>
+  <path d="M132 209a7 7 0 0 1 7-7h46a7 7 0 0 1 7 7v141h-60z" fill="#64748b"/>
+  <path d="M204 180a7 7 0 0 1 7-7h46a7 7 0 0 1 7 7v170h-60z" fill="#5b5bd6"/>
+  <path d="M356 184a7 7 0 0 1 7-7h46a7 7 0 0 1 7 7v166h-60z" fill="#64748b"/>
   <rect x="428" y="229" width="60" height="121" fill="#5b5bd6"/>
   <path d="M428 199a7 7 0 0 1 7-7h46a7 7 0 0 1 7 7v30h-60z" fill="#aaa8f4"/>
 
