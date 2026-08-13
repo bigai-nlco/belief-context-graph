@@ -110,8 +110,8 @@
     <text x="700" y="628" text-anchor="middle" font-size="12.5" font-weight="560" fill="#e0e7ff">shared contracts · config · sessions</text>
 
     <path d="M645 308V342Q645 356 631 356H394Q380 356 380 370V376" class="arrowPurple"/>
-    <rect x="470" y="322" width="166" height="23" rx="11.5" fill="#ffffff" stroke="#c4b5fd"/>
-    <text x="553" y="338" text-anchor="middle" font-size="12.5" font-weight="650" fill="#4f46e5">evicted completed turns</text>
+    <rect x="470" y="330" width="166" height="20" rx="10" fill="#ffffff" stroke="#c4b5fd"/>
+    <text x="553" y="344" text-anchor="middle" font-size="12" font-weight="650" fill="#4f46e5">evicted completed turns</text>
     <path d="M380 545V548Q380 560 392 560H608Q620 560 620 566" class="arrow"/>
     <path d="M1020 545V548Q1020 560 1008 560H792Q780 560 780 566" class="arrow"/>
 
@@ -175,10 +175,10 @@
 
     <!-- Feedback path -->
     <path d="M1340 934H1372V116H780V136" class="feedback"/>
-    <rect x="1148" y="340" width="208" height="44" rx="12" fill="#ffffff" stroke="#c4b5fd"/>
-    <text x="1252" y="358" text-anchor="middle" font-size="12.5" font-weight="760" fill="#4f46e5">GRAPH SNAPSHOT</text>
-    <text x="1252" y="375" text-anchor="middle" class="small">beliefs · relations · confidence</text>
-    <path d="M1364 362H1372" fill="none" stroke="#5b5bd6" stroke-width="1.8" stroke-dasharray="7 7"/>
+    <rect x="1148" y="332" width="208" height="40" rx="11" fill="#ffffff" stroke="#c4b5fd"/>
+    <text x="1252" y="349" text-anchor="middle" font-size="12" font-weight="760" fill="#4f46e5">GRAPH SNAPSHOT</text>
+    <text x="1252" y="365" text-anchor="middle" font-size="12.5" font-weight="520" fill="#64748b">beliefs · relations · confidence</text>
+    <path d="M1364 352H1372" fill="none" stroke="#5b5bd6" stroke-width="1.8" stroke-dasharray="7 7"/>
 
   </g>
 </svg>
