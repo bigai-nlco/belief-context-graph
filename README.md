@@ -9,6 +9,7 @@
 [![Python 3.11–3.13](https://img.shields.io/badge/python-3.11--3.13-blue.svg?style=flat-square)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![uv](https://img.shields.io/badge/uv-managed-6E4BF9.svg?style=flat-square)](https://docs.astral.sh/uv/)
+[![Documentation](https://img.shields.io/badge/documentation-online-0F766E.svg?style=flat-square&logo=readthedocs&logoColor=white)](https://belief-context-graph.docs.buildwithfern.com/)
 
 </div>
 
@@ -34,18 +35,11 @@ But agents executing real tasks also need to answer **belief questions**:
 
 Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to **belief context graph**. It is a probabilistic, temporal, evidence-grounded and computational memory substrate that helps agents continuously maintain: what to believe, at what confidence, from which evidence, and whether uncertainty should block action. The result is agent memory you can query, audit, and trust.
 
-## **Core capabilities:**
-
-- **Belief Extraction:** Segment trajectories, extract structured beliefs that counts for agent reasoning and link them into a connected graph
-- **Deterministic Confidence:** Auditable posterior confidence computed from `initial_confidence`, `evidence_confidence`, and relation-derived `factor_confidence`; source reliability and stance quality set the prior, while relation weights and activation thresholds propagate support or contradiction deterministically
-- **Evidence Provenance:** Every belief carries exact-offset source references back to the originating conversation turn
-- **Temporal Awareness:** Run-based lifecycle with sessions and timestamps — know when each belief was formed and how it evolved
-- **Relation Linking:** Forward and backward relationship edges between beliefs, forming a casual decision graph/trace.
-
 ---
 
 <p align="center">
   <strong><a href="#live-demo">Live Demo</a></strong> &nbsp;·&nbsp;
+  <strong><a href="#core-capabilities">Core Capabilities</a></strong> &nbsp;·&nbsp;
   <strong><a href="#quick-start">Quick Start</a></strong> &nbsp;·&nbsp;
   <strong><a href="#architecture">Architecture</a></strong> &nbsp;·&nbsp;
   <strong><a href="#core-concepts">Core Concepts</a></strong> &nbsp;·&nbsp;
@@ -71,6 +65,14 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 
 - **Model calls.** The number of model calls (assistant turns) a task has made so far. Moving right means progressing deeper into the task horizon. The full-horizon figure shows the overall trend, while the accompanying zoomed-in figure focuses on the first 20 calls to make the early-phase behavior and crossover easier to see.
 - **Mean cumulative tokens per task.** Tokens summed from the first call up to and including call *k*, then averaged over all 1,200 trajectories in that mode.
+
+## **Core capabilities:**
+
+- **Belief Extraction:** Segment trajectories, extract structured beliefs that counts for agent reasoning and link them into a connected graph
+- **Deterministic Confidence:** Auditable posterior confidence computed from `initial_confidence`, `evidence_confidence`, and relation-derived `factor_confidence`; source reliability and stance quality set the prior, while relation weights and activation thresholds propagate support or contradiction deterministically
+- **Evidence Provenance:** Every belief carries exact-offset source references back to the originating conversation turn
+- **Temporal Awareness:** Run-based lifecycle with sessions and timestamps — know when each belief was formed and how it evolved
+- **Relation Linking:** Forward and backward relationship edges between beliefs, forming a casual decision graph/trace.
 
 
 ## Quick Start
