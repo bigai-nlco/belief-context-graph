@@ -326,21 +326,11 @@ See [bcg/README.md](bcg/README.md) for input formats, HTTP endpoints, output art
 
 ## Architecture
 
-The belief graph construction pipeline processes each conversation turn incrementally. Merge runs before relation linking so edges are created against the surviving canonical nodes:
-
-```text
-Turn input ──▶ Split / chunk ──▶ Extract nodes + initialize confidence ──▶ Merge ──▶ Link relations ──▶ Propagate relation confidence ──▶ BCG graph
-```
-
-| Stage | Actual implementation | Description |
-|---|---|---|
-| **Segmentation** | `bcg.construct.unified.split.split_sentences` / `bcg.construct.hybrid.split.semantic_chunks_isolating_tool_calls` | Splits a turn into sentence evidence (`unified`) or optional semantic chunks with isolated tool calls (`hybrid`) |
-| **Extraction** | `bcg.construct.unified.extract.extract_nodes` / `bcg.construct.hybrid.extractor.QwenChunkExtractor.extract_turn` | Extracts belief and decision nodes from the current turn |
-| **Confidence** | `bcg.construct.unified.confidence.init_belief_confidence` / `bcg.construct.hybrid.confidence.init_belief_confidence` | Initializes `initial_confidence` from source role and stance; later merged evidence updates `evidence_confidence`, and active relations update `factor_confidence` |
-| **Merge** | `bcg.construct.unified.merge.run_merge_pass` / `bcg.construct.hybrid.merge.run_merge_pass` | Deduplicates belief nodes before relation generation and rewires existing relation endpoints |
-| **Linking** | `bcg.construct.unified.extract.extract_relations` / `bcg.construct.hybrid.edge_generation.QwenEdgeGenerator.generate_window` | Generates, validates, and adds typed relations between surviving nodes; confidence-carrying edges include `weight` and `activated_condition`, while `supplements` keeps both fields as `null` |
-
-`BCGRunner` is the public orchestration layer. It delegates each run to the selected backend's `StreamingTrajectorySession`, whose `StreamingBeliefBuilder` executes the stages above. `BCGMemory` is the user-facing memory facade for manually observing already-formed beliefs and reading or searching the resulting graph; it does not implement the construction stages itself. Context budgets, merge strategy, run IDs, and output paths are configured explicitly through `BCGRunner` and backend options.
+<p align="center">
+  <a href="assert/architecture.svg">
+    <img src="assert/architecture.svg" width="100%" alt="BCG architecture: Agent context management and Python SDK feed unified or hybrid Graph Construction backends, which share an incremental belief graph pipeline and return Graph snapshots to the Agent system prompt">
+  </a>
+</p>
 
 ---
 
