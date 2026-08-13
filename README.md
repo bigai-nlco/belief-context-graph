@@ -18,8 +18,8 @@
   <img src="assert/benchmark_browsecomp_zh.svg" width="49%" alt="BrowseComp-ZH full-dataset dual-axis comparison of accuracy and mean token cost per task">
 </p>
 
-<p align="center">
-  <sub>Evaluation setup: GPT-5.6-luna Agent with <code>thinking=low</code> · Full BrowseComp (1,266 tasks) and BrowseComp-ZH (289 tasks) · BCG uses compact Graph Context in the system prompt, two recent completed turns, GPT-5.6-luna Graph Construction with reasoning disabled, token-efficient construction, and local <code>all-MiniLM-L6-v2</code> embeddings.</sub>
+<p align="right">
+  <sub><sub>Evaluation setup: GPT-5.6-luna Agent with <code>thinking=low</code> · Full BrowseComp (1,266 tasks) and BrowseComp-ZH (289 tasks) · BCG uses compact Graph Context in the system prompt, two recent completed turns, GPT-5.6-luna Graph Construction with reasoning disabled, token-efficient construction, and local <code>all-MiniLM-L6-v2</code> embeddings.</sub></sub>
 </p>
 
 ## **Why Belief Context Graph**
