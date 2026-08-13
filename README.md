@@ -13,15 +13,6 @@
 
 </div>
 
-<p align="center">
-  <img src="assert/benchmark_browsecomp.svg" width="49%" alt="BrowseComp full-dataset dual-axis comparison of accuracy and mean token cost per task">
-  <img src="assert/benchmark_browsecomp_zh.svg" width="49%" alt="BrowseComp-ZH full-dataset dual-axis comparison of accuracy and mean token cost per task">
-</p>
-
-<p align="right">
-  <sub><sub>Evaluation setup: GPT-5.6-luna Agent with <code>thinking=low</code> · Full BrowseComp (1,266 tasks) and BrowseComp-ZH (289 tasks) · BCG uses compact Graph Context in the system prompt, two recent completed turns, GPT-5.6-luna Graph Construction with reasoning disabled, token-efficient construction, and local <code>all-MiniLM-L6-v2</code> embeddings.</sub></sub>
-</p>
-
 ## **Why Belief Context Graph**
 **Current agent memory systems fall short.** Conversation memory preserves history. Vector memory retrieves similar fragments. GraphRAG extracts entities and relations. Trace memory records tool calls. Temporal KGs track facts over time.
 
@@ -38,6 +29,15 @@ But agents executing real tasks also need to answer **belief questions**:
 
 
 Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to **belief context graph**. It is a probabilistic, temporal, evidence-grounded and computational memory substrate that helps agents continuously maintain: what to believe, at what confidence, from which evidence, and whether uncertainty should block action. The result is agent memory you can query, audit, and trust.
+
+<p align="center">
+  <img src="assert/benchmark_browsecomp.svg" width="49%" alt="BrowseComp full-dataset dual-axis comparison of accuracy and mean token cost per task">
+  <img src="assert/benchmark_browsecomp_zh.svg" width="49%" alt="BrowseComp-ZH full-dataset dual-axis comparison of accuracy and mean token cost per task">
+</p>
+
+<p align="right">
+  <sub><sub>Evaluation setup: GPT-5.6-luna Agent with <code>thinking=low</code> · BCG uses compact Graph Context in the system prompt, two recent completed turns, GPT-5.6-luna Graph Construction with reasoning disabled, and local <code>all-MiniLM-L6-v2</code> embeddings.</sub></sub>
+</p>
 
 ---
 
