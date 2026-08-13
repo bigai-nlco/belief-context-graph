@@ -13,7 +13,10 @@ from typing import Any
 import pytest
 
 from bcg.apps.online_server import serve
-from bcg.construct._shared.session import TrajectoryClosedError
+from bcg.construct._shared.session import (
+    StreamingTrajectorySession,
+    TrajectoryClosedError,
+)
 from bcg.construct._shared.writers import ArtifactWriter
 
 
@@ -137,7 +140,7 @@ def test_http_happy_path_and_query_mapping(http_service: Any) -> None:
 
     status, health = request(address, "GET", "/health")
     assert status == 200
-    assert health == {"status": "ok", "active": [], "all": [], "schema_version": 1}
+    assert health == {"status": "ok", "active": [], "all": [], "schema_version": 2}
 
     status, graph = request(
         address,
@@ -385,6 +388,58 @@ def test_push_many_parallelizes_ids_and_preserves_per_id_order(
     assert result["finalized"] == ["a"]
     assert manager.sessions["a"].received == [0, 1]
     assert manager.sessions["b"].received == [0, 1]
+
+
+def test_streaming_session_batches_only_consecutive_complete_tool_results(
+    tmp_path: Path,
+) -> None:
+    class DummyGraph:
+        def snapshot(self, *, extra: dict[str, Any]) -> dict[str, Any]:
+            return {**extra, "nodes": [], "relations": [], "merges": []}
+
+    class DummyBuilder:
+        def __init__(self, **kwargs: Any) -> None:
+            del kwargs
+            self.graph = DummyGraph()
+            self.ingested: list[tuple[str, str]] = []
+            self.prepared: list[list[str]] = []
+
+        def ingest_turn(
+            self,
+            role: str,
+            content: str,
+            **kwargs: Any,
+        ) -> None:
+            del kwargs
+            self.ingested.append((role, content))
+
+        def prepare_tool_result_batch(self, contents: list[str]) -> int:
+            self.prepared.append(list(contents))
+            return len(contents)
+
+    session = StreamingTrajectorySession(
+        "batch-case",
+        client=object(),
+        model="unused",
+        output_root=tmp_path,
+        builder_cls=DummyBuilder,
+    )
+    session.push_many(
+        [
+            {"problem_id": "batch-case", "role": "assistant", "content": "calls"},
+            {"problem_id": "batch-case", "role": "tool", "content": "result-1"},
+            {"problem_id": "batch-case", "role": "tool", "content": "result-2"},
+        ]
+    )
+
+    builder = session._builder
+    assert isinstance(builder, DummyBuilder)
+    assert builder.prepared == [["result-1", "result-2"]]
+    assert builder.ingested == [
+        ("assistant", "calls"),
+        ("tool", "result-1"),
+        ("tool", "result-2"),
+    ]
 
 
 def test_artifact_writer_preserves_target_and_cleans_temp_on_replace_failure(

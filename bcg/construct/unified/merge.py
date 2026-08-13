@@ -157,21 +157,40 @@ def _merge_node_type(b: dict[str, Any]) -> str:
 
 def _same_node_type(ids: list[int], by_id: dict[int, dict[str, Any]]) -> bool:
     types = {_merge_node_type(by_id[i]) for i in ids if i in by_id}
-    return len(types) == 1
+    query_identities = {_query_identity(by_id[i]) for i in ids if i in by_id}
+    return len(types) == 1 and len(query_identities) == 1
+
+
+def _query_identity(node: dict[str, Any]) -> tuple[str, str, str]:
+    """Merge key that keeps distinct executed queries as distinct nodes."""
+
+    query = node.get("query")
+    tool_name = str(node.get("tool_name") or "tool")
+    if isinstance(query, str) and query:
+        return ("query", tool_name, query)
+    if node.get("extraction_method") == "rule_tool_call":
+        arguments = json.dumps(
+            node.get("tool_arguments") or {}, ensure_ascii=False, sort_keys=True
+        )
+        return ("tool_call", tool_name, arguments)
+    return ("non_query", "", "")
 
 
 def _split_ids_by_role(
     ids: list[int], by_id: dict[int, dict[str, Any]]
 ) -> list[list[int]]:
-    """Split ids into subgroups sharing BOTH role and node_type.
+    """Split ids into subgroups sharing role, node type, and query identity.
 
-    The bucket key is (role, node_type), so a mixed-role or mixed-type group is
-    broken into homogeneous subgroups; only subgroups with >= 2 ids survive.
+    Query nodes merge only when both the exact tool name and query are equal.
     """
-    buckets: dict[tuple[str, str], list[int]] = {}
+    buckets: dict[tuple[str, str, tuple[str, str, str]], list[int]] = {}
     for i in ids:
         if i in by_id:
-            key = (_merge_role(by_id[i]), _merge_node_type(by_id[i]))
+            key = (
+                _merge_role(by_id[i]),
+                _merge_node_type(by_id[i]),
+                _query_identity(by_id[i]),
+            )
             buckets.setdefault(key, []).append(i)
     return [sorted(v) for v in buckets.values() if len(v) >= 2]
 

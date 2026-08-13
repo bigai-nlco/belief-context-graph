@@ -37,6 +37,7 @@ from bcg.core.confidence import (
 )
 from bcg.core.confidence import (
     posterior_confidence,
+    select_independent_evidence,
 )
 
 from .constants import VALID_STANCES
@@ -320,6 +321,7 @@ def sum_evidence_contributions(
 def additional_evidence_from_node(
     node: dict[str, Any],
     evidence_by_id: dict[int, dict[str, Any]],
+    config: dict[str, Any] | None = None,
 ) -> tuple[list[int], list[dict[str, Any]]]:
     """Return evidence added after the node was originally created."""
     evidence_ids = node.get("evidence_ids") or []
@@ -342,7 +344,10 @@ def additional_evidence_from_node(
         if isinstance(ev, dict):
             out_ids.append(eid)
             out_records.append(ev)
-    return out_ids, out_records
+    return select_independent_evidence(
+        zip(out_ids, out_records, strict=False),
+        contribution=lambda evidence: evidence_contribution(evidence, config),
+    )
 
 
 def recompute_evidence_confidence_from_node(
@@ -356,7 +361,7 @@ def recompute_evidence_confidence_from_node(
     """Synchronise evidence_confidence and confidence from evidence_ids."""
     old_conf = float(node.get("confidence") or 0.0)
     old_ev_score = float(node.get("evidence_confidence") or 0.0)
-    scored_ids, records = additional_evidence_from_node(node, evidence_by_id)
+    scored_ids, records = additional_evidence_from_node(node, evidence_by_id, config)
     new_ev_score = round(sum_evidence_contributions(records, config), 6)
     node["evidence_confidence"] = new_ev_score
     recompute_node_confidence(node)
@@ -391,13 +396,16 @@ def record_evidence_merge_confidence(
 
     if evidence_by_id is not None:
         scored_evidence_ids, scored_records = additional_evidence_from_node(
-            canonical, evidence_by_id
+            canonical, evidence_by_id, config
         )
         new_ev_score = round(sum_evidence_contributions(scored_records, config), 6)
     else:
-        scored_evidence_ids = list(added_evidence_ids)
+        scored_evidence_ids, scored_records = select_independent_evidence(
+            zip(added_evidence_ids, added_evidence_records, strict=False),
+            contribution=lambda evidence: evidence_contribution(evidence, config),
+        )
         new_ev_score = round(
-            old_ev_score + sum_evidence_contributions(added_evidence_records, config),
+            old_ev_score + sum_evidence_contributions(scored_records, config),
             6,
         )
 

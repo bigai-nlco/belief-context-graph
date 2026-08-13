@@ -50,7 +50,7 @@ BCG 配置的映射：
 | `url` | `BELIEF_GRAPH_URL` 环境变量 → `defaults.json` 的 `server.host:port` | env > settings > 默认 | 否 |
 | `recentTurns` | Agent settings（`context.recentTurns`，setup 写入） | settings | 否 |
 | `timeoutMs` | Agent settings 默认 60000 | settings 默认 | 否 |
-| `maxTurns` | Agent settings 默认 40 | settings 默认 | 否 |
+| `maxTurns` | Agent settings 默认 160 | settings 默认 | 否 |
 | `includeRelations` | Agent settings 默认 true | settings 默认 | 否 |
 
 - URL 默认值的唯一规范来源是 `contracts/defaults.json`；Python

@@ -15,8 +15,10 @@ Common variables include:
 | `BCG_HOME` | Override global BCG state root |
 | `BELIEF_GRAPH_URL` | Graph Construction server used by the Agent |
 | `BCG_RECENT_TURNS` | Raw completed-turn window in BCG mode |
+| `BCG_GRAPH_VIEW` | Graph injection renderer: `full` (default) or `compact` |
 | `BCG_AGENT_MODEL` | Benchmark/reference Agent model override |
 | `SERPER_API_KEY` | Search access for supported benchmarks |
+| `SERPER_MAX_CALLS` | Hard `web_search` calls per Agent session (default: `20`) |
 | Langfuse variables | Optional remote tracing |
 
 ## Project `.env`

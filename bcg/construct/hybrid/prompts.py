@@ -142,10 +142,14 @@ The chunk may mix internal reasoning, tool invocations, and the final answer. Ex
   ``<tool_call>{"name": "serper_search", "arguments": {"query": "..."}}</tool_call>``.
   For such a chunk, emit EXACTLY ONE belief that renders the call in natural
   language — the tool name, the key argument(s)/query, and the hypothesis/goal it
-  checks ("The assistant calls serper_search with the query 'annual rainfall in
-  Lisbon 2024' to find an authoritative weather report."). Do NOT copy the raw
+  checks ("The assistant is using serper_search to search for 'annual rainfall
+  in Lisbon 2024'."). Do NOT copy the raw
   JSON, and do NOT emit the field names
   (name/arguments/query) as separate nodes.
+  If the tool call contains a string ``query`` (or ``q``), extraction is
+  mandatory and the belief MUST also contain ``tool_name`` and ``query``
+  properties copied exactly from the call. Do not add these properties to
+  beliefs derived from non-query content.
 - Key reasoning steps that are falsifiable, reusable, or needed by later turns.
  
 Do NOT extract: pure procedure / planning filler ("Let me search next") unless it
@@ -254,9 +258,17 @@ def _output_schema(is_assistant: bool, require_excerpt: bool) -> str:
         if require_excerpt
         else ""
     )
+    query_fields = (
+        ', "tool_name": "<exact tool name>", "query": "<exact query string>"'
+        if is_assistant
+        else ""
+    )
     beliefs = (
         '  "beliefs": [\n'
-        '    { "belief": "<self-contained coherent belief>"' + exc + " }\n"
+        '    { "belief": "<self-contained coherent belief>"'
+        + query_fields
+        + exc
+        + " }\n"
         "  ]"
     )
     head = "## Output (JSON only — no markdown fences, no commentary)\n{\n"
@@ -367,8 +379,8 @@ Use ONLY these three relation types in the `relations` field:
    A relies on B as a premise, input, assumption, tool result, user constraint,
    or required context.
    Examples:
-   - "The assistant calls serper_search with the query 'annual rainfall in Lisbon
-     2024'" depends_on "The user asks for Lisbon's 2024 rainfall total".
+   - "The assistant is using serper_search to search for 'annual rainfall in
+     Lisbon 2024'" depends_on "The user asks for Lisbon's 2024 rainfall total".
    - "The assistant concludes that the reported total is 774 mm" depends_on "The
      weather service result lists a 2024 annual total of 774 mm".
 

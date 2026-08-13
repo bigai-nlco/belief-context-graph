@@ -29,6 +29,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .._shared.roles import normalize_role
+from .._shared.tool_queries import (
+    extract_pure_tool_calls,
+    extract_query_tool_calls,
+    rule_tool_call_belief,
+)
 from .llm import (
     bind_prompt_log_path,
     bind_usage_tracker,
@@ -131,6 +136,13 @@ class ExtractedNode:
     node_type: str  # "belief" | "decision"
     text: str
     supporting_excerpts: list[str] = field(default_factory=list)
+    tool_name: str | None = None
+    query: str | None = None
+    tool_arguments: dict[str, Any] | None = None
+    tool_call_index: int | None = None
+    extraction_method: str | None = None
+    stance: str | None = None
+    entities: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -140,7 +152,43 @@ class ExtractedNode:
         }
         if self.supporting_excerpts:
             out["supporting_excerpts"] = list(self.supporting_excerpts)
+        if self.query is not None:
+            out["tool_name"] = self.tool_name or "tool"
+            out["query"] = self.query
+        if self.extraction_method is not None:
+            out["tool_name"] = self.tool_name or "tool"
+            out["tool_arguments"] = dict(self.tool_arguments or {})
+            out["tool_call_index"] = self.tool_call_index
+            out["extraction_method"] = self.extraction_method
+            out["stance"] = self.stance
+            out["entities"] = list(self.entities)
         return out
+
+
+def _rule_nodes_for_chunk(
+    chunk_text: str, *, chunk_index: int, role: str, start_index: int = 0
+) -> list[ExtractedNode] | None:
+    if role != "assistant":
+        return None
+    calls = extract_pure_tool_calls(chunk_text)
+    if calls is None:
+        return None
+    return [
+        ExtractedNode(
+            chunk_index=chunk_index,
+            node_type="belief",
+            text=rule_tool_call_belief(call),
+            supporting_excerpts=[call.excerpt],
+            tool_name=call.name,
+            query=call.query,
+            tool_arguments=dict(call.arguments),
+            tool_call_index=index,
+            extraction_method="rule_tool_call",
+            stance="asserted",
+            entities=[call.name],
+        )
+        for index, call in enumerate(calls, start=start_index)
+    ]
 
 
 def _normalise_role(role: Any) -> str:
@@ -241,6 +289,52 @@ class QwenChunkExtractor:
             node_type = "decision" if role == "assistant" else "belief"
             nodes.append(ExtractedNode(chunk_index, node_type, text, excerpts))
 
+        query_calls = (
+            extract_query_tool_calls(chunk_text) if role == "assistant" else []
+        )
+        for call in query_calls:
+            matched_index = next(
+                (
+                    index
+                    for index, node in enumerate(nodes)
+                    if node.node_type == "belief" and call.query in node.text
+                ),
+                None,
+            )
+            if matched_index is None:
+                matched_index = next(
+                    (
+                        index
+                        for index, node in enumerate(nodes)
+                        if node.node_type == "belief" and node.query is None
+                    ),
+                    None,
+                )
+            if matched_index is None:
+                nodes.append(
+                    ExtractedNode(
+                        chunk_index=chunk_index,
+                        node_type="belief",
+                        text=rule_tool_call_belief(call),
+                        supporting_excerpts=[call.excerpt],
+                        tool_name=call.name,
+                        query=call.query,
+                    )
+                )
+                continue
+            existing = nodes[matched_index]
+            nodes[matched_index] = ExtractedNode(
+                chunk_index=existing.chunk_index,
+                node_type=existing.node_type,
+                # Query-bearing tool use remains a regular belief. Normalize
+                # its wording in code so no extractor invents a pseudo node
+                # type or a different action description.
+                text=rule_tool_call_belief(call),
+                supporting_excerpts=existing.supporting_excerpts,
+                tool_name=call.name,
+                query=call.query,
+            )
+
         return nodes
 
     # -- per-chunk node budget ---------------------------------------------
@@ -301,7 +395,7 @@ class QwenChunkExtractor:
         else:
             nodes_context = "[]"
 
-        client = self._ensure_client()
+        client = None
         reasoning_effort, extra_body = thinking_request_options(
             self.model, enabled=self.config.get("enable_thinking", False)
         )
@@ -311,15 +405,28 @@ class QwenChunkExtractor:
         )
         require_excerpt = self.config.get("require_excerpt", False)
         prompts: list[str | None] = []
+        rule_groups: list[list[ExtractedNode] | None] = []
         chunk_texts: list[str] = []
         chunk_caps: list[int] = []
+        next_tool_call_index = 0
         for chunk in chunks:
             chunk_text = str(getattr(chunk, "text", chunk) or "")
             chunk_texts.append(chunk_text)
             cap = self._cap_for_chunk(chunk)
             chunk_caps.append(cap)
+            rule_group = _rule_nodes_for_chunk(
+                chunk_text,
+                chunk_index=int(getattr(chunk, "chunk_id", len(rule_groups))),
+                role=role_key,
+                start_index=next_tool_call_index,
+            )
+            if rule_group is not None:
+                next_tool_call_index += len(rule_group)
+            rule_groups.append(rule_group)
             prompts.append(
-                build_chunk_extraction_prompt(
+                None
+                if rule_group is not None
+                else build_chunk_extraction_prompt(
                     role_key,
                     chunk_text=chunk_text,
                     graph_nodes=nodes_context,
@@ -329,12 +436,17 @@ class QwenChunkExtractor:
                 )
             )
 
+        if any(group is None for group in rule_groups):
+            client = self._ensure_client()
+
         # Bind the caller's usage tracker / prompt-log path into worker threads
         # so token accounting and prompt audit remain correct under concurrency.
         tracker = current_usage_tracker()
         log_path = current_prompt_log_path()
 
         def _run_one(index: int) -> list[ExtractedNode]:
+            if rule_groups[index] is not None:
+                return rule_groups[index] or []
             prompt = prompts[index]
             if not prompt:
                 return []
@@ -348,6 +460,10 @@ class QwenChunkExtractor:
                 )
 
                 def _call(request_prompt: str, request_label: str) -> str:
+                    if client is None:
+                        raise RuntimeError(
+                            "model client unavailable for non-rule chunk"
+                        )
                     return call_model(
                         client,
                         self.model,

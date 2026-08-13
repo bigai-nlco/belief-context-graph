@@ -20,7 +20,7 @@ from bcg.core.env import PROJECT_ROOT, SOURCE_PROJECT_ROOT
 DEFAULT_GRAPH_URL = "http://127.0.0.1:8848"
 DEFAULT_GRAPH_BACKEND = "hybrid"
 DEFAULT_RECENT_TURNS = 2
-DEFAULT_GRAPH_MAX_TURNS = 300
+DEFAULT_GRAPH_MAX_TURNS = 160
 DEFAULT_GRAPH_TIMEOUT_MS = 300_000
 GENERATED_PROVIDER = "bcg"
 LEGACY_GENERATED_PROVIDER = "bcg-openai"
@@ -113,6 +113,10 @@ def ensure_agent_configuration(graph_url: str) -> Path:
             "maxTurns": max(1, max_turns),
             "timeoutMs": timeout_ms,
             "includeRelations": True,
+            "graphView": os.environ.get("BCG_GRAPH_VIEW", "full").strip().lower()
+            if os.environ.get("BCG_GRAPH_VIEW", "full").strip().lower()
+            in {"full", "compact"}
+            else "full",
         }
     )
     configured_context_provider = os.environ.get("BCG_CONTEXT_MODE", "").strip()

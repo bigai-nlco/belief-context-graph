@@ -5,6 +5,7 @@ import {
 	BcgContextManager,
 	BcgTurnLimitError,
 	formatBcgDialogueContext,
+	formatCompactBcgDialogueContext,
 	formatBcgMarkdown,
 	splitBcgTurns,
 } from "../src/core/context/bcg-context.ts";
@@ -358,6 +359,153 @@ describe("BCG context management", () => {
 		expect(encoded).not.toContain("direction=incoming");
 	});
 
+	it("projects original graph beliefs and their retained relations into compact chat-marked context", () => {
+		const encoded = formatCompactBcgDialogueContext({
+			beliefs: [
+				{ id: 1, belief: "duplicated initial request", source: { turn_id: 1 } },
+				{
+					id: 10,
+					belief: 'The assistant is using web_search to search for "first historical query".',
+					extraction_method: "rule_tool_call",
+					tool_name: "web_search",
+					query: "first historical query",
+				},
+				{
+					id: 11,
+					belief: "The source establishes the answer-relevant date as 1912.",
+					extraction_method: "compact_llm_tool_result",
+					tool_result_items: [
+						{ title: "Source", url: "https://secret.example/full", snippet: "long raw result" },
+					],
+					confidence: 0.8,
+				},
+				{
+					id: 12,
+					belief: "large raw result",
+					extraction_method: "rule_tool_result",
+					tool_result_items: [
+						{
+							title: "Useful title",
+							url: "https://secret.example/result",
+							snippet: "A bounded useful snippet.",
+						},
+					],
+				},
+				{
+					id: 13,
+					belief: 'The assistant is using web_search to search for "second historical query".',
+					extraction_method: "rule_tool_call",
+					tool_name: "web_search",
+					query: "second historical query",
+				},
+			],
+			relations: [
+				{ from_id: 11, to_id: 10, type: "depends_on", note: "provenance prose" },
+				{ from_id: 12, to_id: 13, type: "depends_on", note: "provenance prose" },
+			],
+		});
+
+		expect(encoded).toContain("<｜begin▁of▁sentence｜><｜User｜>");
+		expect(encoded).toContain("<｜Assistant｜>");
+		expect(encoded).toContain(
+			'[B10] The assistant is using web_search to search for "first historical query".',
+		);
+		expect(encoded).toContain(
+			'[B13] The assistant is using web_search to search for "second historical query".',
+		);
+		expect(encoded).not.toMatch(/\[Q\d+\]/);
+		expect(encoded).toContain("[B11] The source establishes the answer-relevant date as 1912.");
+		expect(encoded).toContain("[B12] large raw result");
+		expect(encoded).not.toContain("→ evidence");
+		expect(encoded).not.toContain("Useful title");
+		expect(encoded).not.toContain("Continuation policy");
+		expect(encoded).not.toContain("I will continue from this earlier investigation state");
+		expect(encoded).not.toContain("secret.example");
+		expect(encoded).not.toContain("provenance prose");
+		expect(encoded).not.toContain("duplicated initial request");
+		expect(encoded).toContain("#### Retained relations");
+		expect(encoded).toContain("[B11] depends_on [B10]");
+		expect(encoded).toContain("[B12] depends_on [B13]");
+	});
+
+	it("can omit compact relations without changing retained belief text", () => {
+		const snapshot = {
+			beliefs: [
+				{ id: 2, belief: "candidate answer", confidence: 0.9 },
+				{ id: 3, belief: "supporting fact", confidence: 0.7 },
+			],
+			relations: [{ id: 1, from_id: 2, to_id: 3, type: "depends_on" as const }],
+		};
+
+		const encoded = formatCompactBcgDialogueContext(snapshot, false);
+
+		expect(encoded).toContain("[B2] candidate answer (confidence 0.90)");
+		expect(encoded).toContain("[B3] supporting fact (confidence 0.70)");
+		expect(encoded).not.toContain("Retained relations");
+		expect(encoded).not.toContain("depends_on");
+	});
+
+	it("ranks factual confidence before recency and treats queries as history", () => {
+		const encoded = formatCompactBcgDialogueContext({
+			beliefs: [
+				{ id: 2, belief: "strong exact answer", confidence: 0.91, source: { turn_id: 3 } },
+				{ id: 8, belief: "newer weak distractor", confidence: 0.78, source: { turn_id: 8 } },
+				{
+					id: 9,
+					belief: 'The assistant is using web_search to search for "already tried".',
+					confidence: 0.99,
+					query: "already tried",
+					extraction_method: "rule_tool_call",
+					source: { turn_id: 9 },
+				},
+			],
+			relations: [],
+		});
+
+		expect(encoded).toContain("#### Factual beliefs");
+		expect(encoded).toContain("#### Search-history beliefs");
+		expect(encoded.indexOf("[B2] strong exact answer")).toBeLessThan(
+			encoded.indexOf("[B8] newer weak distractor"),
+		);
+		expect(encoded).toContain('[B9] The assistant is using web_search to search for "already tried".');
+		expect(encoded).not.toContain("[B9] The assistant is using web_search to search for \"already tried\". (confidence");
+	});
+
+	it("keeps compact graph injection within its bounded rendering budget", () => {
+		const beliefs = Array.from({ length: 80 }, (_, index) => ({
+			id: index + 2,
+			belief: `fact ${index} ${"x".repeat(300)}`,
+			confidence: 0.78,
+			source: { turn_id: index + 2 },
+		}));
+
+		const encoded = formatCompactBcgDialogueContext({ beliefs, relations: [] });
+
+		expect(encoded.length).toBeLessThanOrEqual(8_100);
+	});
+
+	it("renders exact tool and query metadata for query-derived beliefs", () => {
+		const encoded = formatBcgDialogueContext({
+			beliefs: [
+				{
+					id: 7,
+					belief: "The assistant searches for a World Bank statistic.",
+					role: "assistant",
+					tool_name: "web_search",
+					query: "World Bank gross savings 2001",
+					tool_arguments: { query: "World Bank gross savings 2001", num: 10 },
+				},
+			],
+			relations: [],
+		});
+
+		expect(encoded).toContain("**Tool:** web_search");
+		expect(encoded).toContain("**Query:** World Bank gross savings 2001");
+		expect(encoded).toContain(
+			'**Arguments:** {"query": "World Bank gross savings 2001", "num": 10}',
+		);
+	});
+
 	it("resolves BCG settings and supports -1 as an unbounded raw context", () => {
 		const settings = SettingsManager.inMemory({
 			contextManagement: {
@@ -368,6 +516,7 @@ describe("BCG context management", () => {
 					maxTurns: 100,
 					timeoutMs: 1234,
 					includeRelations: false,
+					graphView: "compact",
 				},
 			},
 		});
@@ -380,6 +529,7 @@ describe("BCG context management", () => {
 				maxTurns: 100,
 				timeoutMs: 1234,
 				includeRelations: false,
+				graphView: "compact",
 			},
 		});
 	});

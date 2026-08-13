@@ -59,8 +59,9 @@ class RunConfig:
     timeout: float = 900.0
     graph_url: str = "http://127.0.0.1:8848"
     graph_timeout_ms: int = 300_000
-    graph_max_turns: int = 300
+    graph_max_turns: int = 160
     recent_turns: int = 2
+    graph_view: str = "full"
     allow_graph_fallback: bool = False
     allow_no_search: bool = False
     overwrite: bool = False
@@ -93,6 +94,7 @@ def run_benchmarks(
         "graph_timeout_ms": config.graph_timeout_ms,
         "graph_max_turns": config.graph_max_turns,
         "recent_turns": config.recent_turns,
+        "graph_view": config.graph_view,
         "allow_graph_fallback": config.allow_graph_fallback,
         "benchmarks": {
             benchmark: len(tasks) for benchmark, tasks in tasks_by_benchmark.items()
@@ -258,6 +260,8 @@ def _validate_run(
     config: RunConfig,
     judge: LLMJudge | None,
 ) -> None:
+    if config.graph_view not in {"full", "compact"}:
+        raise ValueError("graph_view must be 'full' or 'compact'.")
     invalid_modes = set(config.modes) - {"default", "bcg"}
     if invalid_modes:
         raise ValueError(f"Invalid context modes: {', '.join(sorted(invalid_modes))}.")
@@ -300,6 +304,7 @@ def _write_agent_configuration(
                 "maxTurns": config.graph_max_turns,
                 "timeoutMs": config.graph_timeout_ms,
                 "includeRelations": True,
+                "graphView": config.graph_view,
             },
         },
     }
@@ -350,6 +355,13 @@ def _run_one(
         / f"{safe_key}.jsonl"
     )
     trajectory_path.parent.mkdir(parents=True, exist_ok=True)
+    graph_context_trace_path = (
+        config.output_dir.expanduser().resolve()
+        / task.benchmark
+        / mode
+        / "graph-contexts"
+        / f"{safe_key}.jsonl"
+    )
 
     with tempfile.TemporaryDirectory(prefix="bcg-benchmark-") as temporary:
         workspace = Path(temporary)
@@ -387,6 +399,7 @@ def _run_one(
                 "BELIEF_GRAPH_URL": config.graph_url,
                 "OPENAI_API_KEY": config.api_key or "EMPTY",
                 "BCG_SKIP_VERSION_CHECK": "1",
+                "BCG_GRAPH_TRACE_PATH": str(graph_context_trace_path),
             }
         )
         started = time.monotonic()
@@ -456,7 +469,9 @@ def _run_one(
             )
             error = score.error
 
-    search_calls = parsed["tool_calls"].get("web_search", 0)
+    search_calls_attempted = parsed["tool_calls"].get("web_search", 0)
+    search_calls_blocked = parsed["blocked_tool_calls"].get("web_search", 0)
+    search_calls = max(0, search_calls_attempted - search_calls_blocked)
     correct = (
         False
         if status == "turn_limit"
@@ -485,11 +500,18 @@ def _run_one(
         "graph_usage": parsed["graph_usage"].as_dict(),
         "tool_calls": parsed["tool_calls"],
         "search_calls": search_calls,
+        "search_calls_attempted": search_calls_attempted,
+        "search_calls_blocked": search_calls_blocked,
         "graph_fallback": graph_fallback,
         "agent_exit_code": return_code,
         "agent_stop_reason": parsed["stop_reason"],
         "stderr": stderr,
         "trajectory": str(trajectory_path),
+        "graph_context_trace": (
+            str(graph_context_trace_path)
+            if graph_context_trace_path.is_file()
+            else None
+        ),
         "metadata": task.metadata,
     }
 
@@ -588,6 +610,7 @@ def parse_agent_events(stdout: str) -> dict[str, Any]:
     usage = TokenUsage()
     graph_usage = TokenUsage()
     tool_calls: Counter[str] = Counter()
+    blocked_tool_calls: Counter[str] = Counter()
     for line in stdout.splitlines():
         try:
             event = json.loads(line)
@@ -612,7 +635,15 @@ def parse_agent_events(stdout: str) -> dict[str, Any]:
         if event.get("type") != "message_end":
             continue
         message = event.get("message")
-        if not isinstance(message, dict) or message.get("role") != "assistant":
+        if not isinstance(message, dict):
+            continue
+        if message.get("role") == "toolResult":
+            details = message.get("details")
+            budget = details.get("budget") if isinstance(details, dict) else None
+            if isinstance(budget, dict) and budget.get("blocked") is True:
+                blocked_tool_calls[str(message.get("toolName") or "unknown")] += 1
+            continue
+        if message.get("role") != "assistant":
             continue
         event_usage = message.get("usage")
         if isinstance(event_usage, dict):
@@ -635,6 +666,7 @@ def parse_agent_events(stdout: str) -> dict[str, Any]:
         "usage": usage,
         "graph_usage": graph_usage,
         "tool_calls": dict(tool_calls),
+        "blocked_tool_calls": dict(blocked_tool_calls),
     }
 
 
@@ -721,6 +753,13 @@ def summarize_results(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
                 sum(int(value.get("search_calls", 0)) for value in values) / len(values)
                 if values
                 else 0.0
+            ),
+            "search_calls_attempted_total": sum(
+                int(value.get("search_calls_attempted", value.get("search_calls", 0)))
+                for value in values
+            ),
+            "search_calls_blocked_total": sum(
+                int(value.get("search_calls_blocked", 0)) for value in values
             ),
         }
         if benchmark == "hotpotqa" and completed:

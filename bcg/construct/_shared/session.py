@@ -26,6 +26,7 @@ from .._shared.llm import (
     unbind_usage_tracker,
 )
 from .._shared.loaders import sanitize_name
+from .._shared.roles import normalize_role
 
 
 class TrajectoryClosedError(RuntimeError):
@@ -373,6 +374,65 @@ class StreamingTrajectorySession:
         """
         with self._lock:
             return self._push_locked(turn)
+
+    @staticmethod
+    def _batchable_tool_result(turn: dict[str, Any]) -> bool:
+        """Whether a raw turn can safely participate in extraction batching."""
+
+        if not isinstance(turn, dict):
+            return False
+        if normalize_role(str(turn.get("role") or "user")) != "tool":
+            return False
+        if bool(turn.get("is_trajectory_end", False)):
+            return False
+        return bool(turn.get("is_message_end", True))
+
+    def push_many(self, turns: list[dict[str, Any]]) -> dict[str, Any]:
+        """Push an atomic ordered batch, coalescing consecutive tool results.
+
+        Only builders that explicitly expose ``prepare_tool_result_batch`` opt
+        in. All snapshots, stream logs, trajectory messages, and graph updates
+        are still emitted one turn at a time by ``_push_locked``.
+        """
+
+        latest: dict[str, Any] | None = None
+        with self._lock:
+            index = 0
+            while index < len(turns):
+                run_end = index
+                if not self._buf_parts and self._batchable_tool_result(turns[index]):
+                    while run_end < len(turns) and self._batchable_tool_result(
+                        turns[run_end]
+                    ):
+                        run_end += 1
+                if run_end - index >= 2:
+                    builder = self._ensure_builder()
+                    prepare = getattr(builder, "prepare_tool_result_batch", None)
+                    if callable(prepare):
+                        contents = [
+                            str(turn.get("content") or "")
+                            for turn in turns[index:run_end]
+                        ]
+                        try:
+                            with self._engine():
+                                prepare(contents)
+                        except Exception as exc:
+                            # Batch preparation is an optimization. A failure
+                            # must preserve the existing per-turn behavior.
+                            print(
+                                f"  [warn] {self.problem_id}: tool-result batch "
+                                f"preparation failed ({exc}); using sequential extraction",
+                                file=sys.stderr,
+                            )
+                    for turn in turns[index:run_end]:
+                        latest = self._push_locked(turn)
+                    index = run_end
+                    continue
+
+                latest = self._push_locked(turns[index])
+                index += 1
+
+        return latest if latest is not None else self._snapshot(stage="turn")
 
     def _push_locked(self, turn: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(turn, dict):

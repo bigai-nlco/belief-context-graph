@@ -499,6 +499,9 @@ class StreamingBeliefBuilder:
             node = self.graph.beliefs.get(node_id)
             if node is None:
                 continue
+            if node.get("extraction_method") == "rule_tool_call":
+                processed.append(node_id)
+                continue
             try:
                 node["entities"] = self.entity_recognizer.extract_entity_texts(
                     self._primary_text(node)
@@ -639,18 +642,41 @@ class StreamingBeliefBuilder:
             for extracted in group
         ]
 
-        # Stance is inferred per extracted node TEXT (not per chunk).
-        if flat:
+        # Model-extracted nodes use the local stance classifier. Rule-extracted
+        # tool calls are deterministically asserted and never enter a model.
+        model_stance_indices = [
+            index
+            for index, (_, extracted) in enumerate(flat)
+            if extracted.extraction_method != "rule_tool_call"
+        ]
+        classified_by_index: dict[int, StancePrediction] = {}
+        if model_stance_indices:
             try:
-                stance_predictions = self._classify_texts_stances(
-                    [extracted.text for _, extracted in flat]
+                classified = self._classify_texts_stances(
+                    [flat[index][1].text for index in model_stance_indices]
                 )
             except Exception as exc:
                 raise RuntimeError(
                     f"Local stance classification failed for turn={turn_idx}: {exc}"
                 ) from exc
-        else:
-            stance_predictions = []
+            classified_by_index = dict(
+                zip(model_stance_indices, classified, strict=True)
+            )
+        stance_predictions = [
+            classified_by_index.get(index)
+            or StancePrediction(
+                stance="asserted",
+                confidence=1.0,
+                scores={
+                    "asserted": 1.0,
+                    "recalled": 0.0,
+                    "judged": 0.0,
+                    "speculated": 0.0,
+                },
+                model_path="rule_tool_call",
+            )
+            for index in range(len(flat))
+        ]
         report["stance_classification"] = {
             "model_path": self.options.stance_config["model_path"],
             "predictions": [prediction.to_dict() for prediction in stance_predictions],
@@ -679,6 +705,15 @@ class StreamingBeliefBuilder:
                 "stance_scores": dict(stance_prediction.scores),
                 "stance_model": stance_prediction.model_path,
             }
+            if extracted.query is not None:
+                cleaned["tool_name"] = extracted.tool_name or "tool"
+                cleaned["query"] = extracted.query
+            if extracted.extraction_method == "rule_tool_call":
+                cleaned["entities"] = list(extracted.entities)
+                cleaned["tool_name"] = extracted.tool_name or "tool"
+                cleaned["tool_arguments"] = dict(extracted.tool_arguments or {})
+                cleaned["tool_call_index"] = int(extracted.tool_call_index or 0)
+                cleaned["extraction_method"] = "rule_tool_call"
             # Evidence granularity: every node from a chunk shares that chunk's
             # full contiguous span (one evidence record per node).
             evidence = evidence_from_chunk(
@@ -1103,13 +1138,25 @@ class StreamingBeliefBuilder:
             "stance_scores": dict(cleaned.get("stance_scores") or {}),
             "stance_model": str(cleaned.get("stance_model") or ""),
             "role": role,
-            "entities": [],
+            "entities": list(cleaned.get("entities") or []),
             "event_time": datetime.now(UTC).isoformat(),
             "source": dict(src),
             "evidence_ids": evidence_ids,
             "initial_evidence_count": len(evidence_ids),
             "supporting_excerpts": [ev["text"] for ev in evid if ev.get("text")],
         }
+        if cleaned.get("query"):
+            node["tool_name"] = str(cleaned.get("tool_name") or "tool")
+            node["query"] = str(cleaned["query"])
+        if cleaned.get("extraction_method") == "rule_tool_call":
+            node["tool_name"] = str(cleaned.get("tool_name") or "tool")
+            node["tool_arguments"] = dict(cleaned.get("tool_arguments") or {})
+            node["tool_call_index"] = int(cleaned.get("tool_call_index") or 0)
+            node["extraction_method"] = "rule_tool_call"
+            node["tool_call_id"] = (
+                f"{src.get('item_id', self.item_id)}:"
+                f"t{src.get('turn_id', -1)}:c{node['tool_call_index']}"
+            )
         if node_type == "decision":
             node["decision_history"] = []
         init_belief_confidence(node, config=self.options.confidence_config)

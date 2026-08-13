@@ -51,6 +51,20 @@ def test_benchmark_agent_thinking_is_written_to_runtime_config(tmp_path: Path) -
     assert models["providers"]["benchmark"]["models"][0]["reasoning"] is True
 
 
+def test_benchmark_graph_view_is_written_to_runtime_config(tmp_path: Path) -> None:
+    config = RunConfig(
+        output_dir=tmp_path,
+        model="gpt-5.6-luna",
+        base_url="https://example.test/v1",
+        graph_view="compact",
+    )
+
+    agent_dir = _write_agent_configuration(tmp_path, config, "bcg")
+    settings = json.loads((agent_dir / "settings.json").read_text(encoding="utf-8"))
+
+    assert settings["contextManagement"]["bcg"]["graphView"] == "compact"
+
+
 def test_benchmark_gpt_56_off_is_sent_as_reasoning_none(tmp_path: Path) -> None:
     config = RunConfig(
         output_dir=tmp_path,
@@ -280,6 +294,33 @@ def test_agent_json_events_keep_input_and_output_separate() -> None:
     assert parsed["usage"].input == 30
     assert parsed["usage"].output == 8
     assert parsed["tool_calls"] == {"web_search": 1}
+    assert parsed["blocked_tool_calls"] == {}
+
+
+def test_agent_json_events_distinguish_blocked_search_calls() -> None:
+    events = [
+        {"type": "tool_execution_start", "toolName": "web_search"},
+        {
+            "type": "message_end",
+            "message": {
+                "role": "toolResult",
+                "toolName": "web_search",
+                "details": {
+                    "budget": {
+                        "callsUsed": 20,
+                        "maxCalls": 20,
+                        "exhausted": True,
+                        "blocked": True,
+                    }
+                },
+            },
+        },
+    ]
+
+    parsed = parse_agent_events("\n".join(json.dumps(event) for event in events))
+
+    assert parsed["tool_calls"] == {"web_search": 1}
+    assert parsed["blocked_tool_calls"] == {"web_search": 1}
 
 
 def test_agent_json_events_expose_provider_error_message() -> None:

@@ -246,10 +246,15 @@ class SessionManager:
             group_latest = None
             group_finalized = False
             with sess.exclusive():
-                for t in groups[pid]:
-                    group_latest = sess.push(t)
-                    if group_latest.get("finalized"):
-                        group_finalized = True
+                batch_push = getattr(sess, "push_many", None)
+                if callable(batch_push):
+                    group_latest = batch_push(groups[pid])
+                    group_finalized = bool(group_latest.get("finalized"))
+                else:
+                    for t in groups[pid]:
+                        group_latest = sess.push(t)
+                        if group_latest.get("finalized"):
+                            group_finalized = True
             with result_lock:
                 if group_latest is not None:
                     latest[pid] = group_latest

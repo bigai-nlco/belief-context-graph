@@ -367,6 +367,7 @@ ${chalk.bold("Environment Variables:")}
   SERPER_ENDPOINT                  - Serper search endpoint (optional)
   SERPER_COUNTRY                   - Serper Google country code (default: us)
   SERPER_LANGUAGE                  - Serper Google language code (default: en)
+  SERPER_MAX_CALLS                 - Hard web_search calls per Agent session (default: 20)
   QWEN_TOKEN_PLAN_API_KEY          - Qwen Token Plan API key (international region)
   QWEN_TOKEN_PLAN_CN_API_KEY       - Qwen Token Plan API key (China region)
   XIAOMI_API_KEY                   - Xiaomi MiMo API key (api.xiaomimimo.com billing)

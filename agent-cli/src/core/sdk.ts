@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { Agent, type AgentMessage, setDefaultStreamFn, type ThinkingLevel } from "@bigai-nlco/bcg-agent-core";
 import { clampThinkingLevel, type Message, type Model, streamSimple } from "@bigai-nlco/bcg-ai/compat";
 import { getAgentDir } from "../config.ts";
@@ -303,6 +304,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	const extensionRunnerRef: { current?: ExtensionRunner } = {};
 	ensureSessionContextMode(sessionManager, settingsManager.getContextManagementSettings().provider);
 	const bcgProblemId = `${sessionManager.getSessionId()}:${randomUUID()}`;
+	const graphTracePath = process.env.BCG_GRAPH_TRACE_PATH?.trim();
 	let bcgContextManager: BcgContextManager | undefined;
 	const getBcgContextManager = (): BcgContextManager | undefined => {
 		if (getSessionContextMode(sessionManager) !== "bcg") {
@@ -322,6 +324,16 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 				}
 				return undefined;
 			},
+			onGraphContext: graphTracePath
+				? (trace) => {
+						mkdirSync(dirname(graphTracePath), { recursive: true });
+						appendFileSync(
+							graphTracePath,
+							`${JSON.stringify({ timestamp: new Date().toISOString(), ...trace })}\n`,
+							"utf8",
+						);
+					}
+				: undefined,
 		});
 		return bcgContextManager;
 	};

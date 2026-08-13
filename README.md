@@ -220,6 +220,33 @@ bcg construct server unified \
 
 If that server is already healthy, a later `bcg` invocation reuses it.
 
+The `unified` backend provides two switchable construction modes under `pipeline.runtime.construction_mode` in `~/.bcg/config.yaml`:
+
+```yaml
+pipeline:
+  runtime:
+    construction_mode: llm  # canonical/default implementation
+  token_efficient:
+    max_search_results: 10
+    max_snippet_chars: 240
+    semantic_tool_results: true
+    max_facts: 3
+    max_semantic_calls: 12
+```
+
+Set the mode to `token_efficient` to parse canonical Agent tool calls and tool results in code, distill a bounded number of non-empty tool results with a short current-query-only prompt, create provenance edges deterministically, and use embedding-only merge without LLM verification. Raw tool output remains attached as evidence. After `max_semantic_calls`, later tool results automatically use the zero-LLM rule path; set `semantic_tool_results: false` to use that path from the start. Set `construction_mode` back to `llm` and restart the Graph server to restore the canonical model-extraction and model-linking implementation.
+
+The Agent graph presentation is independently switchable. `full` preserves the complete belief-and-relation dialogue view. `compact` keeps the same chat markers and selects whole beliefs under a fixed character budget. It omits the duplicated initial question but never rewrites belief text, synthesizes query/result mappings, or introduces renderer-only node concepts:
+
+```bash
+bcg benchmark run browsecomp \
+  --modes bcg \
+  --graph-view compact \
+  --recent-turns 2
+```
+
+For interactive use, set `BCG_GRAPH_VIEW=compact`; unset it or use `full` to restore the complete graph rendering.
+
 #### Option B: `hybrid`
 
 `hybrid` uses:
@@ -545,6 +572,7 @@ OPENAI_BASE_URL=https://your-openai-compatible-server/v1
 OPENAI_API_KEY=...
 OPENAI_MODEL=your-agent-model
 SERPER_API_KEY=...  # BrowseComp, HotpotQA, and online GAIA research
+SERPER_MAX_CALLS=20 # Hard web_search budget per Agent session
 ```
 
 Then run the same selected examples in both context modes:
@@ -560,10 +588,9 @@ bcg benchmark run browsecomp gaia hotpotqa mmlu_pro \
   --output-dir results/four-benchmark-comparison
 ```
 
-Use `--thinking medium` (or another supported level) to set the Agent's
-reasoning effort for the run. This setting is independent of the Graph
-Construction model's `pipeline.extractor.enable_thinking` and
-`pipeline.edge_generation.enable_thinking` settings.
+Use `--graph-view compact` in BCG mode to inject the low-token belief projection while retaining the dialogue-style chat markers. The default is `full`, so existing runs keep the complete graph rendering unless this option is selected explicitly.
+
+Use `--thinking medium` (or another supported level) to set the Agent's reasoning effort for the run. This setting is independent of the Graph Construction model's `pipeline.extractor.enable_thinking` and `pipeline.edge_generation.enable_thinking` settings.
 
 When BCG mode is requested, the command reuses a healthy Graph Construction server or starts the configured local server in the same way as `bcg`. A BCG request that falls back to raw context is marked `graph_fallback` and excluded from accuracy by default. Use `--allow-graph-fallback` only when that behavior is intentional.
 
@@ -586,8 +613,11 @@ Every task runs in an isolated working directory. Artifacts are resumable and co
 ├── summary.json
 └── <benchmark>/<mode>/
     ├── tasks/<task-id>.json
-    └── trajectories/<task-id>.jsonl
+    ├── trajectories/<task-id>.jsonl
+    └── graph-contexts/<task-id>.jsonl  # BCG mode: exact graph text injected per request
 ```
+
+Each BCG task record links to its graph-context trace. The JSONL entries include the renderer (`full` or `compact`), graph size, character count, stream position, and exact role-marked text, making it possible to align graph injection with the following Agent action during trajectory audits.
 
 Dataset files and benchmark results are ignored by Git because task artifacts contain plaintext questions, model responses, and reference answers. Do not publish them unless the dataset's license and benchmark policy explicitly allow it.
 

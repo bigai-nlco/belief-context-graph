@@ -39,6 +39,7 @@ The repository includes adapters for the benchmark set declared in `bcg.benchmar
 | `--graph-url` | Graph server for BCG mode |
 | `--graph-max-turns` | Maximum graph messages |
 | `--recent-turns` | Raw completed turns retained |
+| `--graph-view` | `full` graph dialogue or low-token `compact` belief projection |
 | `--allow-graph-fallback` | Score tasks that fell back to raw context |
 | `--overwrite` | Rerun existing task artifacts |
 
@@ -65,3 +66,5 @@ Measure more than final accuracy:
 - contradiction and merge behavior
 - decision trace quality
 - evidence grounding
+
+BCG runs also write `graph-contexts/<task-id>.jsonl`. These traces contain the exact role-marked graph text supplied to each model request and can be aligned with the trajectory to verify whether later Agent actions use evicted information retained by the graph.

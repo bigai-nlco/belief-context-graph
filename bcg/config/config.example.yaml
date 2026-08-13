@@ -94,6 +94,15 @@ pipeline:
     evidence_mode: chunk
     context_chars: 12000
     min_content_len: 0
+    # Switch to token_efficient to parse tool results and provenance edges in
+    # code, while keeping llm as the lossless canonical/default implementation.
+    construction_mode: llm
+  token_efficient:
+    max_search_results: 10
+    max_snippet_chars: 240
+    semantic_tool_results: true
+    max_facts: 3
+    max_semantic_calls: 12
   incremental_merge:
     enabled: true
     threshold: 0.76

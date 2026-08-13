@@ -151,6 +151,22 @@ CRITICAL — do NOT copy old graph content as new output merely because it appea
 {GRAPH_EDGES_PLACEHOLDER}
 """
 
+_NODE_GRAPH_CONTEXT_BLOCK = f"""\
+## Existing belief nodes (context — READ ONLY)
+These NODES were already extracted from EARLIER turns. Use them only to:
+  - resolve pronouns or vague references in the current turn ("it", "the shop", "that issue"),
+  - keep entity names and wording consistent with prior beliefs.
+
+CRITICAL — do NOT copy old node content as new output merely because it appears here:
+  - Extract beliefs ONLY from the CURRENT turn.
+  - Existing nodes are read-only context.
+  - Do not copy existing beliefs from the graph.
+  - However, if the CURRENT turn explicitly restates, confirms, corrects, or updates an existing belief, extract a NEW evidence-bearing belief for the CURRENT turn. Downstream merge/dedup may combine it later.
+
+### Existing nodes
+{GRAPH_NODES_PLACEHOLDER}
+"""
+
 _FORWARD_EDGE_RULES = """\
 ## Relations between nodes
 After creating the NEW beliefs/decisions for this turn, emit relations that connect:
@@ -224,6 +240,8 @@ _OUTPUT_FORMAT_EXCERPT = """\
     {
       "tmp_id": "n0",
       "belief": "<self-contained coherent belief>",
+      "tool_name": "<exact tool name; include only for a query-derived belief>",
+      "query": "<exact query string; include only for a query-derived belief>",
       "entities": ["<entity mentioned in this belief>", "<another entity>"],
       "stance": "asserted | recalled | speculated | judged",
       "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
@@ -251,6 +269,8 @@ _OUTPUT_FORMAT_SENTENCES = """\
     {
       "tmp_id": "n0",
       "belief": "<self-contained coherent belief>",
+      "tool_name": "<exact tool name; include only for a query-derived belief>",
+      "query": "<exact query string; include only for a query-derived belief>",
       "entities": ["<entity mentioned in this belief>", "<another entity>"],
       "stance": "asserted | recalled | speculated | judged",
       "supporting_sentence_indices": [0, 2]
@@ -281,6 +301,7 @@ _HARD_CONSTRAINTS_EXCERPT = """\
 5. Each new decision needs a unique "tmp_id": d0, d1, d2, … in output order.
 6. Every belief and decision MUST include "entities" as a list, even if empty.
 7. Empty beliefs / decisions / relations lists are OK when the content expresses none.
+8. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
 """
 
 _HARD_CONSTRAINTS_SENTENCES = """\
@@ -294,6 +315,7 @@ _HARD_CONSTRAINTS_SENTENCES = """\
 5. Each new decision needs a unique "tmp_id": d0, d1, d2, … in output order.
 6. Every belief and decision MUST include "entities" as a list, even if empty.
 7. Empty beliefs / decisions / relations lists are OK when the sentences express none.
+8. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
 """
 
 
@@ -343,6 +365,12 @@ The turn may mix internal reasoning, tool invocations, and the final answer. Ext
 - **Assessments** of the user's situation.
 - **Final decisions**: when the assistant gives a final answer, especially inside ``\\boxed{...}``, put it in ``decisions`` instead of ``beliefs``.
 - **Tool calls**: extract every tool call as a belief — describe the assistant's information-seeking intent in natural language, capturing the tool name, the key parameters or constraints issued, and any hypothesis the call presupposes or commits to.
+- **Query-bearing tool calls are mandatory**: for every ``<tool_call>`` whose
+  ``arguments`` contains a string ``query`` (or ``q``), emit exactly one belief
+  for that call. Add ``tool_name`` and ``query`` properties to that belief and
+  copy both values exactly, character-for-character, from the tool call. Never
+  paraphrase, shorten, normalize, or omit either field. Do not add these
+  properties to beliefs derived from non-query content.
 - **Key reasoning steps that are falsifiable, reusable, or needed by later turns** — keep enough detail to reconstruct causal/dependency chains between user request, tool result, reasoning, and final answer.
 
 Do NOT extract: pure procedure / planning filler ("Let me search next", "First I need to…") unless it encodes a substantive dependency; self-questions; raw tool-call JSON syntax / key names; or politeness.
@@ -462,6 +490,8 @@ _OUTPUT_FORMAT_EXCERPT_NODES = """\
     {
       "tmp_id": "n0",
       "belief": "<self-contained coherent belief>",
+      "tool_name": "<exact tool name; include only for a query-derived belief>",
+      "query": "<exact query string; include only for a query-derived belief>",
       "entities": ["<entity mentioned in this belief>", "<another entity>"],
       "stance": "asserted | recalled | speculated | judged",
       "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
@@ -486,6 +516,8 @@ _OUTPUT_FORMAT_SENTENCES_NODES = """\
     {
       "tmp_id": "n0",
       "belief": "<self-contained coherent belief>",
+      "tool_name": "<exact tool name; include only for a query-derived belief>",
+      "query": "<exact query string; include only for a query-derived belief>",
       "entities": ["<entity mentioned in this belief>", "<another entity>"],
       "stance": "asserted | recalled | speculated | judged",
       "supporting_sentence_indices": [0, 2]
@@ -513,6 +545,7 @@ _HARD_CONSTRAINTS_EXCERPT_NODES = """\
 5. Each new decision needs a unique "tmp_id": d0, d1, d2, … in output order.
 6. Every belief and decision MUST include "entities" as a list, even if empty.
 7. Empty beliefs / decisions lists are OK when the content expresses none.
+8. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
 """
 
 _HARD_CONSTRAINTS_SENTENCES_NODES = """\
@@ -526,6 +559,7 @@ _HARD_CONSTRAINTS_SENTENCES_NODES = """\
 5. Each new decision needs a unique "tmp_id": d0, d1, d2, … in output order.
 6. Every belief and decision MUST include "entities" as a list, even if empty.
 7. Empty beliefs / decisions lists are OK when the sentences express none.
+8. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
 """
 
 
@@ -555,7 +589,7 @@ def build_node_extraction_prompt(
         _BELIEF_DEFINITION,
         guidance + "\n",
         _STANCE_DEFINITION + stance_hint + "\n",
-        _GRAPH_CONTEXT_BLOCK,
+        _NODE_GRAPH_CONTEXT_BLOCK,
     ]
     if mode == "excerpt":
         parts.append(_HARD_CONSTRAINTS_EXCERPT_NODES)
@@ -576,7 +610,9 @@ def build_node_extraction_prompt(
     # assigned deterministically when the graph node is created, not by the LLM.
     _ = current_date
     prompt = prompt.replace(GRAPH_NODES_PLACEHOLDER, graph_nodes or "[]")
-    prompt = prompt.replace(GRAPH_EDGES_PLACEHOLDER, graph_edges or "[]")
+    # Node extraction intentionally receives historical nodes but no historical
+    # relations. Relations are handled by the separate edge-extraction phase.
+    _ = graph_edges
     if mode == "excerpt":
         prompt = prompt.replace(CONTENT_PLACEHOLDER, content or "")
     else:

@@ -53,7 +53,7 @@ BCG mode:
 - injects the current graph into the system prompt using a role-marked dialogue context template
 - disables traditional conversation compaction
 
-The graph is encoded as dialogue-like context:
+The default `full` graph view is encoded as dialogue-like context:
 
 ```text
 <｜begin▁of▁sentence｜><｜User｜>### Belief 1
@@ -64,6 +64,8 @@ The graph is encoded as dialogue-like context:
 ```
 
 The guide explains that earlier turns were omitted from raw context, confidence indicates how much to trust each belief, and repeated searches should be avoided. The graph is appended directly to the system prompt without `<belief_graph>` wrapper tags.
+
+Set `BCG_GRAPH_VIEW=compact` or pass `--graph-view compact` to the benchmark command for a bounded dialogue-form belief projection. Compact mode preserves the same begin/user/assistant/end chat markers, omits the initial question because it is already permanently present as a raw user message, and copies selected belief text and confidence directly from the graph. It does not synthesize query/result mappings or renderer-only concepts. `full` remains the default.
 
 </Tab>
 
