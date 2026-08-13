@@ -1,54 +1,67 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="500" viewBox="0 0 1100 500" role="img" aria-labelledby="title desc">
-  <title id="title">BrowseComp-ZH full-dataset accuracy and mean token cost per task</title>
-  <desc id="desc">Default accuracy is 49.48 percent and BCG accuracy is 59.17 percent. Default uses 30.84 thousand tokens per task. BCG uses 27.90 thousand tokens per task, comprising 21.55 thousand Agent tokens and 6.35 thousand Graph tokens.</desc>
-  <rect width="1100" height="500" rx="18" fill="#ffffff"/>
-  <text x="34" y="43" fill="#0f172a" font-family="Inter,Arial,sans-serif" font-size="26" font-weight="700">BrowseComp-ZH</text>
-  <text x="34" y="70" fill="#64748b" font-family="Inter,Arial,sans-serif" font-size="15">Full dataset · 289 tasks per mode</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="500" viewBox="0 0 760 500" role="img" aria-labelledby="title desc">
+  <title id="title">BrowseComp-ZH dual-axis benchmark comparison</title>
+  <desc id="desc">A grouped dual-axis bar chart comparing Default and BCG on BrowseComp-ZH. The left axis shows accuracy. The right axis shows mean tokens per task, with BCG tokens split into Agent and Graph usage.</desc>
+  <rect width="760" height="500" rx="18" fill="#ffffff"/>
+  <text x="28" y="40" fill="#0f172a" font-family="Inter,Arial,sans-serif" font-size="26" font-weight="700">BrowseComp-ZH</text>
+  <text x="28" y="66" fill="#64748b" font-family="Inter,Arial,sans-serif" font-size="14">Full dataset · 289 tasks per mode</text>
 
-  <rect x="30" y="94" width="500" height="360" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
-  <rect x="550" y="94" width="520" height="360" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
-  <text x="55" y="126" fill="#334155" font-family="Inter,Arial,sans-serif" font-size="17" font-weight="650">Accuracy</text>
-  <text x="575" y="126" fill="#334155" font-family="Inter,Arial,sans-serif" font-size="17" font-weight="650">Mean token cost / task</text>
+  <rect x="28" y="84" width="704" height="354" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="90" y="112" fill="#475569" font-family="Inter,Arial,sans-serif" font-size="14" font-weight="700">Accuracy</text>
+  <text x="670" y="112" fill="#475569" font-family="Inter,Arial,sans-serif" font-size="14" font-weight="700" text-anchor="end">Mean tokens / task</text>
 
   <g fill="none" stroke="#e2e8f0" stroke-width="1">
-    <path d="M90 150H505 M90 230H505 M90 310H505 M90 390H505"/>
-    <path d="M620 150H1045 M620 210H1045 M620 270H1045 M620 330H1045 M620 390H1045"/>
+    <path d="M90 130H670 M90 195H670 M90 260H670 M90 325H670 M90 390H670"/>
   </g>
+  <path d="M90 130V390H670V130" fill="none" stroke="#cbd5e1" stroke-width="1.2"/>
+  <path d="M84 217H90 M84 303H90" fill="none" stroke="#64748b" stroke-width="1.2"/>
+
   <g fill="#64748b" font-family="Inter,Arial,sans-serif" font-size="12" text-anchor="end">
-    <text x="82" y="154">75%</text><text x="82" y="234">50%</text><text x="82" y="314">25%</text><text x="82" y="394">0%</text>
-    <text x="612" y="154">40K</text><text x="612" y="214">30K</text><text x="612" y="274">20K</text><text x="612" y="334">10K</text><text x="612" y="394">0</text>
+    <text x="80" y="134">75%</text>
+    <text x="80" y="221">50%</text>
+    <text x="80" y="308">25%</text>
+    <text x="80" y="394">0%</text>
+  </g>
+  <g fill="#64748b" font-family="Inter,Arial,sans-serif" font-size="12">
+    <text x="680" y="134">40K</text>
+    <text x="680" y="199">30K</text>
+    <text x="680" y="264">20K</text>
+    <text x="680" y="329">10K</text>
+    <text x="680" y="394">0</text>
   </g>
 
-  <rect x="165" y="232" width="100" height="158" rx="7" fill="#64748b"/>
-  <rect x="335" y="201" width="100" height="189" rx="7" fill="#5b5bd6"/>
-  <g fill="#0f172a" font-family="Inter,Arial,sans-serif" font-size="15" font-weight="700" text-anchor="middle">
-    <text x="215" y="218">49.48%</text>
-    <text x="385" y="187">59.17%</text>
+  <rect x="184" y="218" width="66" height="172" rx="7" fill="#64748b"/>
+  <rect x="266" y="185" width="66" height="205" rx="7" fill="#5b5bd6"/>
+  <rect x="428" y="190" width="66" height="200" rx="7" fill="#64748b"/>
+  <rect x="510" y="250" width="66" height="140" fill="#5b5bd6"/>
+  <path d="M510 215a7 7 0 0 1 7-7h52a7 7 0 0 1 7 7v35h-66z" fill="#aaa8f4"/>
+
+  <g fill="#0f172a" font-family="Inter,Arial,sans-serif" font-size="14" font-weight="700" text-anchor="middle">
+    <text x="217" y="206">49.48%</text>
+    <text x="299" y="173">59.17%</text>
+    <text x="461" y="178">30.84K</text>
+    <text x="543" y="196">27.90K</text>
   </g>
-  <g fill="#475569" font-family="Inter,Arial,sans-serif" font-size="14" font-weight="600" text-anchor="middle">
-    <text x="215" y="418">Default</text>
-    <text x="385" y="418">BCG</text>
+  <g font-family="Inter,Arial,sans-serif" font-size="12" font-weight="700" text-anchor="middle">
+    <text x="543" y="325" fill="#ffffff">21.55K</text>
+    <text x="543" y="231" fill="#312e81">6.35K</text>
+  </g>
+  <g fill="#64748b" font-family="Inter,Arial,sans-serif" font-size="11" font-weight="600" text-anchor="middle">
+    <text x="217" y="407">Default</text>
+    <text x="299" y="407">BCG</text>
+    <text x="461" y="407">Default</text>
+    <text x="543" y="407">BCG</text>
+  </g>
+  <g fill="#334155" font-family="Inter,Arial,sans-serif" font-size="14" font-weight="700" text-anchor="middle">
+    <text x="258" y="429">Accuracy</text>
+    <text x="502" y="429">Token cost</text>
   </g>
 
-  <rect x="700" y="205" width="100" height="185" rx="7" fill="#64748b"/>
-  <rect x="870" y="261" width="100" height="129" rx="0" fill="#5b5bd6"/>
-  <path d="M870 230a7 7 0 0 1 7-7h86a7 7 0 0 1 7 7v31H870z" fill="#aaa8f4"/>
-  <g font-family="Inter,Arial,sans-serif" text-anchor="middle">
-    <text x="750" y="191" fill="#0f172a" font-size="15" font-weight="700">30.84K</text>
-    <text x="920" y="209" fill="#0f172a" font-size="15" font-weight="700">27.90K</text>
-    <text x="750" y="303" fill="#ffffff" font-size="14" font-weight="700">30.84K</text>
-    <text x="920" y="330" fill="#ffffff" font-size="14" font-weight="700">21.55K</text>
-    <text x="920" y="247" fill="#312e81" font-size="13" font-weight="700">6.35K</text>
+  <g font-family="Inter,Arial,sans-serif" font-size="12" fill="#475569">
+    <rect x="170" y="455" width="13" height="13" rx="3" fill="#64748b"/>
+    <text x="190" y="466">Default</text>
+    <rect x="275" y="455" width="13" height="13" rx="3" fill="#5b5bd6"/>
+    <text x="295" y="466">BCG</text>
+    <rect x="365" y="455" width="13" height="13" rx="3" fill="#aaa8f4"/>
+    <text x="385" y="466">Graph portion</text>
   </g>
-  <g fill="#475569" font-family="Inter,Arial,sans-serif" font-size="14" font-weight="600" text-anchor="middle">
-    <text x="750" y="418">Default</text>
-    <text x="920" y="418">BCG</text>
-  </g>
-  <rect x="690" y="434" width="14" height="14" rx="3" fill="#5b5bd6"/>
-  <text x="712" y="446" fill="#475569" font-family="Inter,Arial,sans-serif" font-size="12">BCG Agent</text>
-  <rect x="820" y="434" width="14" height="14" rx="3" fill="#aaa8f4"/>
-  <text x="842" y="446" fill="#475569" font-family="Inter,Arial,sans-serif" font-size="12">BCG Graph</text>
-
-  <text x="297" y="478" fill="#64748b" font-family="Inter,Arial,sans-serif" font-size="12" text-anchor="middle">Higher is better</text>
-  <text x="810" y="478" fill="#64748b" font-family="Inter,Arial,sans-serif" font-size="12" text-anchor="middle">Lower is better · mean tokens per task</text>
 </svg>

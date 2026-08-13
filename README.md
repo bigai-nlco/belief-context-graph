@@ -12,7 +12,11 @@
 
 </div>
 
----
+<p align="center">
+  <img src="assert/benchmark_browsecomp.svg" width="49%" alt="BrowseComp full-dataset dual-axis comparison of accuracy and mean token cost per task">
+  <img src="assert/benchmark_browsecomp_zh.svg" width="49%" alt="BrowseComp-ZH full-dataset dual-axis comparison of accuracy and mean token cost per task">
+</p>
+
 ## **Why Belief Context Graph**
 **Current agent memory systems fall short.** Conversation memory preserves history. Vector memory retrieves similar fragments. GraphRAG extracts entities and relations. Trace memory records tool calls. Temporal KGs track facts over time.
 
@@ -37,14 +41,6 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 - **Evidence Provenance:** Every belief carries exact-offset source references back to the originating conversation turn
 - **Temporal Awareness:** Run-based lifecycle with sessions and timestamps — know when each belief was formed and how it evolved
 - **Relation Linking:** Forward and backward relationship edges between beliefs, forming a casual decision graph/trace.
-
-<p align="center">
-  <img src="assert/benchmark_browsecomp.svg" width="100%" alt="BrowseComp full-dataset accuracy and mean token cost per task comparison">
-</p>
-
-<p align="center">
-  <img src="assert/benchmark_browsecomp_zh.svg" width="100%" alt="BrowseComp-ZH full-dataset accuracy and mean token cost per task comparison">
-</p>
 
 ---
 
