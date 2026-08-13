@@ -624,12 +624,40 @@ export class BcgContextManager {
 		return [systemPrompt, guide, this.graphText].filter(Boolean).join("\n\n");
 	}
 
-	async release(): Promise<Record<string, unknown> | undefined> {
+	async release(messages: AgentMessage[] = []): Promise<Record<string, unknown> | undefined> {
 		if (!this.seeded || this.released) {
 			return undefined;
 		}
 		this.released = true;
 		let tokenUsage: Record<string, unknown> | undefined;
+		if (messages.length > 0) {
+			try {
+				const initialUser = this.resolveInitialUser(messages);
+				const initialKey = initialUser ? messageKey(initialUser) : undefined;
+				let removedInitial = false;
+				const unsent = messages
+					.filter((message) => {
+						if (!removedInitial && initialKey !== undefined && messageKey(message) === initialKey) {
+							removedInitial = true;
+							return false;
+						}
+						return true;
+					})
+					.map((message) => this.serialize(message))
+					.filter((message) => !this.sentMessages.has(message.message));
+				const payloads = unsent.flatMap((message) => (message.payload ? [message.payload] : []));
+				if (payloads.length > 0) {
+					const snapshot = await this.postTurns(payloads);
+					this.updateSnapshot(snapshot);
+				}
+				for (const message of unsent) {
+					this.sentMessages.add(message.message);
+				}
+			} catch (error) {
+				const detail = error instanceof Error ? error.message : String(error);
+				this.onWarning(`[BCG context] failed to ingest final unsent messages: ${detail}`);
+			}
+		}
 		try {
 			const snapshot = await this.client.finalize();
 			this.updateSnapshot(snapshot);

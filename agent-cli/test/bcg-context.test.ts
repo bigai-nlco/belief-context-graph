@@ -304,6 +304,56 @@ describe("BCG context management", () => {
 		});
 	});
 
+	it("ingests every final unsent message before finalizing the Graph session", async () => {
+		const requests: Array<{ path: string; body: unknown }> = [];
+		const initial = user("initial", 1);
+		const firstAssistant = assistant("searching", 2);
+		const evidence = tool("evidence", 3);
+		const finalAssistant = assistant("FINAL ANSWER: result", 4);
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 2,
+			maxTurns: 300,
+			timeoutMs: 1000,
+			includeRelations: true,
+			getSystemPrompt: () => "system",
+			fetch: (async (input, init) => {
+				const path = new URL(String(input)).pathname;
+				requests.push({
+					path,
+					body: init?.body ? JSON.parse(String(init.body)) : undefined,
+				});
+				if (path === "/release") {
+					return new Response(JSON.stringify({ problem_id: "problem", released: true }), { status: 200 });
+				}
+				return new Response(
+					JSON.stringify({
+						latest: {
+							problem: { beliefs: [], relations: [], token_usage: {} },
+						},
+					}),
+					{ status: 200 },
+				);
+			}) as typeof globalThis.fetch,
+		});
+
+		await manager.transform([initial]);
+		await manager.release([initial, firstAssistant, evidence, finalAssistant]);
+
+		expect(requests.map((request) => request.path)).toEqual([
+			"/turns",
+			"/turns",
+			"/finalize",
+			"/release",
+		]);
+		expect(requests[1]?.body).toEqual([
+			expect.objectContaining({ role: "assistant", content: "searching" }),
+			expect.objectContaining({ role: "tool", content: "[Tool result: search]\nevidence" }),
+			expect.objectContaining({ role: "assistant", content: "FINAL ANSWER: result" }),
+		]);
+	});
+
 	it("formats relations as Markdown", () => {
 		expect(
 			formatBcgMarkdown({

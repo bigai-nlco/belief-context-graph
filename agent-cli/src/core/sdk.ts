@@ -453,7 +453,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		extensionsResult,
 		modelFallbackMessage,
 		dispose: async () => {
-			const graphUsage = await bcgContextManager?.release();
+			const graphUsage = await bcgContextManager?.release(agent.state.messages);
 			if (graphUsage) {
 				session.emitGraphUsage(graphUsage);
 			}
