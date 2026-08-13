@@ -306,6 +306,7 @@ describe("BCG context management", () => {
 
 	it("ingests every final unsent message before finalizing the Graph session", async () => {
 		const requests: Array<{ path: string; body: unknown }> = [];
+		let graphRequestCount = 0;
 		const initial = user("initial", 1);
 		const firstAssistant = assistant("searching", 2);
 		const evidence = tool("evidence", 3);
@@ -327,10 +328,22 @@ describe("BCG context management", () => {
 				if (path === "/release") {
 					return new Response(JSON.stringify({ problem_id: "problem", released: true }), { status: 200 });
 				}
+				graphRequestCount += 1;
+				const inputTokens = graphRequestCount === 1 ? 10 : graphRequestCount === 2 ? 90 : 100;
 				return new Response(
 					JSON.stringify({
 						latest: {
-							problem: { beliefs: [], relations: [], token_usage: {} },
+							problem: {
+								beliefs: [],
+								relations: [],
+								token_usage: {
+									llm_totals: {
+										input_tokens: inputTokens,
+										output_tokens: inputTokens / 10,
+										total_tokens: inputTokens + inputTokens / 10,
+									},
+								},
+							},
 						},
 					}),
 					{ status: 200 },
@@ -339,7 +352,7 @@ describe("BCG context management", () => {
 		});
 
 		await manager.transform([initial]);
-		await manager.release([initial, firstAssistant, evidence, finalAssistant]);
+		const usage = await manager.release([initial, firstAssistant, evidence, finalAssistant]);
 
 		expect(requests.map((request) => request.path)).toEqual([
 			"/turns",
@@ -352,6 +365,9 @@ describe("BCG context management", () => {
 			expect.objectContaining({ role: "tool", content: "[Tool result: search]\nevidence" }),
 			expect.objectContaining({ role: "assistant", content: "FINAL ANSWER: result" }),
 		]);
+		expect(usage).toEqual({
+			llm_totals: { input_tokens: 10, output_tokens: 1, total_tokens: 11 },
+		});
 	});
 
 	it("formats relations as Markdown", () => {

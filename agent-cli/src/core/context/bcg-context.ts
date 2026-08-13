@@ -541,6 +541,7 @@ export class BcgContextManager {
 	private submittedTurns = 0;
 	private warned = false;
 	private graphText = "";
+	private reportableTokenUsage: Record<string, unknown> | undefined;
 	private requestReady = false;
 	private initialUserMessage: AgentMessage | undefined;
 
@@ -629,7 +630,12 @@ export class BcgContextManager {
 			return undefined;
 		}
 		this.released = true;
-		let tokenUsage: Record<string, unknown> | undefined;
+		// Only report construction work that could affect an Agent request. The
+		// final unsent-message ingest below exists to complete the persisted Graph
+		// (for example, by recording the final decision), but the Agent never sees
+		// that update. Its model usage therefore must not be charged to benchmark
+		// graph_usage totals.
+		const tokenUsage = this.reportableTokenUsage;
 		if (messages.length > 0) {
 			try {
 				const initialUser = this.resolveInitialUser(messages);
@@ -648,7 +654,7 @@ export class BcgContextManager {
 				const payloads = unsent.flatMap((message) => (message.payload ? [message.payload] : []));
 				if (payloads.length > 0) {
 					const snapshot = await this.postTurns(payloads);
-					this.updateSnapshot(snapshot);
+					this.updateSnapshot(snapshot, false);
 				}
 				for (const message of unsent) {
 					this.sentMessages.add(message.message);
@@ -660,8 +666,7 @@ export class BcgContextManager {
 		}
 		try {
 			const snapshot = await this.client.finalize();
-			this.updateSnapshot(snapshot);
-			tokenUsage = snapshot.token_usage;
+			this.updateSnapshot(snapshot, false);
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
 			this.onWarning(`[BCG context] failed to finalize Graph session: ${detail}`);
@@ -719,7 +724,10 @@ export class BcgContextManager {
 		return snapshot;
 	}
 
-	private updateSnapshot(snapshot: BcgSnapshot): void {
+	private updateSnapshot(snapshot: BcgSnapshot, recordTokenUsage = true): void {
+		if (recordTokenUsage && snapshot.token_usage) {
+			this.reportableTokenUsage = snapshot.token_usage;
+		}
 		this.graphText =
 			this.graphView === "compact"
 				? formatCompactBcgDialogueContext(snapshot, this.includeRelations)
