@@ -83,13 +83,17 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 - **Temporal Awareness:** Run-based lifecycle with sessions and timestamps — know when each belief was formed and how it evolved
 - **Relation Linking:** Forward and backward relationship edges between beliefs, forming a casual decision graph/trace.
 
-### An “Aha Moment” in graph-guided search
+### Case Study: Turning graph uncertainty into a targeted search
 
-A particularly revealing moment appears when the Agent has a strong candidate but the Graph shows that its decisive evidence is still indirect. Instead of treating a high-confidence belief as a final answer, the Agent pauses, identifies the unresolved link, and turns it into a discriminating search.
+This BrowseComp case shows how BCG can influence an Agent's next action, rather than simply supplying retrieved text.
 
-**Problem.** Identify a 1940s short story from clues involving a man in sandals, a stamp collector, and a 64-page magazine published by a company whose name contains *Pendulum*.
+**Task**
 
-**Belief Context Graph before the next action**
+Identify a 1940s short story from clues involving a man in sandals, a stamp collector, and a 64-page magazine published by a company whose name contains *Pendulum*.
+
+**Graph state**
+
+After several searches, the Agent's system context contained two high-confidence beliefs pointing toward a candidate, but neither belief directly established the distinctive plot connection:
 
 ```text
 [B72] A 1946 pulp-fiction listing identifies "White Mouse" as by Thornton Ayre, the pen name associated with John Russell Fearn. (confidence 0.98)
@@ -97,11 +101,11 @@ A particularly revealing moment appears when the Agent has a strong candidate bu
 [B73] A search result for The Multi-Man by John Russell Fearn mentions a white mouse being given the correct treatment. (confidence 0.98)
 ```
 
-> **Aha Moment of the BCG Agent**
+> **Agent decision**
 >
-> *Graph decision: The leading candidate is “White Mouse” (B72/B73), while the plot evidence is indirect; I’ll search the distinctive breath/death wording to test that candidate against alternatives.*
+> Graph decision: The leading candidate is “White Mouse” (B72/B73), while the plot evidence is indirect; I’ll search the distinctive breath/death wording to test that candidate against alternatives.
 >
-> **Next action**
+> **Tool call**
 >
 > ```json
 > {
@@ -110,7 +114,11 @@ A particularly revealing moment appears when the Agent has a strong candidate bu
 > }
 > ```
 
-This moment makes the Graph-to-action path inspectable. The Agent cites the beliefs behind its current hypothesis, notices that confidence in the surrounding metadata does not establish the crucial plot connection, and directs the next tool call at exactly that uncertainty. The visible statement is a concise decision summary, not the model's private chain-of-thought.
+**What BCG contributed**
+
+The Agent did not treat `confidence 0.98` as proof that the candidate was correct. It separated confidence in the recorded metadata from confidence in the missing plot-level connection, cited the beliefs behind its current hypothesis, and searched for the exact evidence needed to distinguish that hypothesis from alternatives. The resulting Graph-to-action path is explicit and auditable.
+
+The displayed statement is a concise decision summary emitted for this case study, not the model's private chain-of-thought.
 
 <sub>This diagnostic trace demonstrates observability rather than answer quality; the task's final answer was incorrect.</sub>
 
