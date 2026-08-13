@@ -47,6 +47,7 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
   <strong><a href="#quick-start">Quick Start</a></strong> &nbsp;·&nbsp;
   <strong><a href="#architecture">Architecture</a></strong> &nbsp;·&nbsp;
   <strong><a href="#core-concepts">Core Concepts</a></strong> &nbsp;·&nbsp;
+  <strong><a href="#case-study-turning-graph-uncertainty-into-a-targeted-search">Case Study</a></strong> &nbsp;·&nbsp;
   <strong><a href="#comparison-with-existing-memory-solutions">Comparison</a></strong> &nbsp;·&nbsp;
   <strong><a href="#contributing">Contributing</a></strong>
 </p>
@@ -82,45 +83,6 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 - **Evidence Provenance:** Every belief carries exact-offset source references back to the originating conversation turn
 - **Temporal Awareness:** Run-based lifecycle with sessions and timestamps — know when each belief was formed and how it evolved
 - **Relation Linking:** Forward and backward relationship edges between beliefs, forming a casual decision graph/trace.
-
-### Case Study: Turning graph uncertainty into a targeted search
-
-This BrowseComp case shows how BCG can influence an Agent's next action, rather than simply supplying retrieved text.
-
-**Task**
-
-Identify a 1940s short story from clues involving a man in sandals, a stamp collector, and a 64-page magazine published by a company whose name contains *Pendulum*.
-
-**Graph state**
-
-After several searches, the Agent's system context contained two high-confidence beliefs pointing toward a candidate, but neither belief directly established the distinctive plot connection:
-
-```text
-[B72] A 1946 pulp-fiction listing identifies "White Mouse" as by Thornton Ayre, the pen name associated with John Russell Fearn. (confidence 0.98)
-
-[B73] A search result for The Multi-Man by John Russell Fearn mentions a white mouse being given the correct treatment. (confidence 0.98)
-```
-
-> **Agent decision**
->
-> Graph decision: The leading candidate is “White Mouse” (B72/B73), while the plot evidence is indirect; I’ll search the distinctive breath/death wording to test that candidate against alternatives.
->
-> **Tool call**
->
-> ```json
-> {
->   "name": "web_search",
->   "arguments": {"query": "\"stamp collector's breath\" story"}
-> }
-> ```
-
-**What BCG contributed**
-
-The Agent did not treat `confidence 0.98` as proof that the candidate was correct. It separated confidence in the recorded metadata from confidence in the missing plot-level connection, cited the beliefs behind its current hypothesis, and searched for the exact evidence needed to distinguish that hypothesis from alternatives. The resulting Graph-to-action path is explicit and auditable.
-
-The displayed statement is a concise decision summary emitted for this case study, not the model's private chain-of-thought.
-
-<sub>This diagnostic trace demonstrates observability rather than answer quality; the task's final answer was incorrect.</sub>
 
 ## Quick Start
 
@@ -515,6 +477,45 @@ Dataset files and benchmark results are ignored by Git because task artifacts co
 ```bash
 bcg benchmark run --help
 ```
+
+## Case Study: Turning graph uncertainty into a targeted search
+
+This BrowseComp case shows how BCG can influence an Agent's next action, rather than simply supplying retrieved text.
+
+**Task**
+
+Identify a 1940s short story from clues involving a man in sandals, a stamp collector, and a 64-page magazine published by a company whose name contains *Pendulum*.
+
+**Graph state**
+
+After several searches, the Agent's system context contained two high-confidence beliefs pointing toward a candidate, but neither belief directly established the distinctive plot connection:
+
+```text
+[B72] A 1946 pulp-fiction listing identifies "White Mouse" as by Thornton Ayre, the pen name associated with John Russell Fearn. (confidence 0.98)
+
+[B73] A search result for The Multi-Man by John Russell Fearn mentions a white mouse being given the correct treatment. (confidence 0.98)
+```
+
+> **Agent decision**
+>
+> Graph decision: The leading candidate is “White Mouse” (B72/B73), while the plot evidence is indirect; I’ll search the distinctive breath/death wording to test that candidate against alternatives.
+>
+> **Tool call**
+>
+> ```json
+> {
+>   "name": "web_search",
+>   "arguments": {"query": "\"stamp collector's breath\" story"}
+> }
+> ```
+
+**What BCG contributed**
+
+The Agent did not treat `confidence 0.98` as proof that the candidate was correct. It separated confidence in the recorded metadata from confidence in the missing plot-level connection, cited the beliefs behind its current hypothesis, and searched for the exact evidence needed to distinguish that hypothesis from alternatives. The resulting Graph-to-action path is explicit and auditable.
+
+The displayed statement is a concise decision summary emitted for this case study, not the model's private chain-of-thought.
+
+<sub>This diagnostic trace demonstrates observability rather than answer quality; the task's final answer was incorrect.</sub>
 
 ## Comparison with Existing Memory Solutions
 
