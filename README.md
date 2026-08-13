@@ -83,6 +83,33 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 - **Temporal Awareness:** Run-based lifecycle with sessions and timestamps — know when each belief was formed and how it evolved
 - **Relation Linking:** Forward and backward relationship edges between beliefs, forming a casual decision graph/trace.
 
+### Graph-guided action, made inspectable
+
+The following excerpt comes from a BrowseComp diagnostic run in which the Agent was asked to emit one short, visible decision summary before each tool call. The model's private chain-of-thought remained hidden; the summary exposes only the Graph evidence used to choose the next action.
+
+The system prompt contained these Graph beliefs:
+
+```text
+[B72] A 1946 pulp-fiction listing identifies "White Mouse" as by Thornton Ayre, the pen name associated with John Russell Fearn. (confidence 0.98)
+
+[B73] A search result for The Multi-Man by John Russell Fearn mentions a white mouse being given the correct treatment. (confidence 0.98)
+```
+
+The Agent then made its uncertainty and next search explicit:
+
+```text
+Graph decision: The leading candidate is “White Mouse” (B72/B73), while the plot evidence is indirect; I’ll search the distinctive breath/death wording to test that candidate against alternatives.
+```
+
+```json
+{
+  "name": "web_search",
+  "arguments": {"query": "\"stamp collector's breath\" story"}
+}
+```
+
+This trace makes the Graph-to-action path auditable: the Agent names the beliefs supporting its current candidate, distinguishes high-confidence metadata from indirect plot evidence, and turns the unresolved low-confidence link into a discriminating search. This is an observability example rather than an accuracy claim; the diagnostic task's final answer was incorrect.
+
 ## Quick Start
 
 Core BCG uses Python/`uv` for the SDK and Graph Construction. The optional reference terminal Agent uses Node.js 22.19+.
