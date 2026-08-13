@@ -13,11 +13,6 @@
 
 </div>
 
-<p align="center">
-  <img src="assert/benchmark_browsecomp.svg" width="49%" alt="BrowseComp full-dataset dual-axis comparison of accuracy and mean token cost per task">
-  <img src="assert/benchmark_browsecomp_zh.svg" width="49%" alt="BrowseComp-ZH full-dataset dual-axis comparison of accuracy and mean token cost per task">
-</p>
-
 ## **Why Belief Context Graph**
 **Current agent memory systems fall short.** Conversation memory preserves history. Vector memory retrieves similar fragments. GraphRAG extracts entities and relations. Trace memory records tool calls. Temporal KGs track facts over time.
 
@@ -35,6 +30,15 @@ But agents executing real tasks also need to answer **belief questions**:
 
 Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to **belief context graph**. It is a probabilistic, temporal, evidence-grounded and computational memory substrate that helps agents continuously maintain: what to believe, at what confidence, from which evidence, and whether uncertainty should block action. The result is agent memory you can query, audit, and trust.
 
+<p align="center">
+  <img src="assert/benchmark_browsecomp.svg" width="49%" alt="BrowseComp full-dataset dual-axis comparison of accuracy and mean token cost per task">
+  <img src="assert/benchmark_browsecomp_zh.svg" width="49%" alt="BrowseComp-ZH full-dataset dual-axis comparison of accuracy and mean token cost per task">
+</p>
+
+<p align="right">
+  <sub><sub>Evaluation setup: GPT-5.6-luna Agent with <code>thinking=low</code> · BCG uses compact Graph Context in the system prompt, two recent completed turns, GPT-5.6-luna Graph Construction with reasoning disabled, and local <code>all-MiniLM-L6-v2</code> embeddings.</sub></sub>
+</p>
+
 ---
 
 <p align="center">
@@ -43,7 +47,6 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
   <strong><a href="#quick-start">Quick Start</a></strong> &nbsp;·&nbsp;
   <strong><a href="#architecture">Architecture</a></strong> &nbsp;·&nbsp;
   <strong><a href="#core-concepts">Core Concepts</a></strong> &nbsp;·&nbsp;
-  <strong><a href="#benchmarking-results">Benchmark Results</a></strong> &nbsp;·&nbsp;
   <strong><a href="#comparison-with-existing-memory-solutions">Comparison</a></strong> &nbsp;·&nbsp;
   <strong><a href="#contributing">Contributing</a></strong>
 </p>
@@ -473,72 +476,6 @@ Dataset files and benchmark results are ignored by Git because task artifacts co
 ```bash
 bcg benchmark run --help
 ```
-
-## Benchmarking Results
-
-The following experiments compare the built-in Agent's normal context management (`Default`) with graph-backed context (`BCG`).
-
-### Evaluation setup
-
-- **Agent model:** GPT-5.6-luna with `thinking=low`.
-- **Datasets:** Full BrowseComp (1,266 tasks) and full BrowseComp-ZH (289 tasks); both modes evaluate the same tasks.
-- **BCG setup:** Compact Graph Context injected into the system prompt, two recent completed turns retained verbatim, GPT-5.6-luna Graph Construction with reasoning disabled, token-efficient construction, and local `all-MiniLM-L6-v2` embeddings.
-
-<table>
-  <thead>
-    <tr>
-      <th>Benchmark</th>
-      <th>Mode</th>
-      <th>Evaluated</th>
-      <th>Accuracy</th>
-      <th>Mean Agent tokens / task</th>
-      <th>Mean Graph tokens / task</th>
-      <th>Mean total tokens / task</th>
-      <th>Token change</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td rowspan="2"><strong>BrowseComp</strong></td>
-      <td>Default</td>
-      <td>1,266</td>
-      <td>33.33%</td>
-      <td>35.39K</td>
-      <td>—</td>
-      <td>35.39K</td>
-      <td>Baseline</td>
-    </tr>
-    <tr>
-      <td>BCG</td>
-      <td>1,266</td>
-      <td><strong>37.12%</strong></td>
-      <td>22.55K</td>
-      <td>7.10K</td>
-      <td><strong>29.64K</strong></td>
-      <td><strong>−16.23%</strong></td>
-    </tr>
-    <tr>
-      <td rowspan="2"><strong>BrowseComp-ZH</strong></td>
-      <td>Default</td>
-      <td>289</td>
-      <td>49.48%</td>
-      <td>30.84K</td>
-      <td>—</td>
-      <td>30.84K</td>
-      <td>Baseline</td>
-    </tr>
-    <tr>
-      <td>BCG</td>
-      <td>289</td>
-      <td><strong>59.17%</strong></td>
-      <td>21.55K</td>
-      <td>6.35K</td>
-      <td><strong>27.90K</strong></td>
-      <td><strong>−9.53%</strong></td>
-    </tr>
-  </tbody>
-</table>
-
 
 ## Comparison with Existing Memory Solutions
 

@@ -149,7 +149,7 @@ jobs:
           release_venv="$RUNNER_TEMP/bcg-release-smoke"
           uv venv "$release_venv"
           uv pip install --python "$release_venv/bin/python" --no-deps dist/bcg-*.whl
-          uv pip install --python "$release_venv/bin/python" "openai>=2.40.0" "pyyaml>=6.0" "typer>=0.16"
+          uv pip install --python "$release_venv/bin/python" "httpx>=0.28.1" "openai>=2.40.0" "pyyaml>=6.0" "typer>=0.16"
           npm --prefix agent-cli run build
           npm install -g ./agent-cli
           echo "$release_venv/bin" >> "$GITHUB_PATH"
