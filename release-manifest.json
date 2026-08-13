@@ -10,8 +10,8 @@
     "bcg_dashboard": "1.0.0"
   },
   "contracts": {
-    "http_schema": 1,
-    "defaults": 1
+    "http_schema": 2,
+    "defaults": 2
   },
   "lockfiles_clean": true
 }
