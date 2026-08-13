@@ -274,7 +274,7 @@ def run(
     destination = output_dir or Path("results") / "benchmarks" / time.strftime(
         "%Y%m%d-%H%M%S"
     )
-    uses_judge = "browsecomp" in canonical
+    uses_judge = bool({"browsecomp", "browsecomp_zh"} & set(canonical))
     judge = None
     if uses_judge:
         judge = LLMJudge(

@@ -81,10 +81,14 @@ def test_benchmark_gpt_56_off_is_sent_as_reasoning_none(tmp_path: Path) -> None:
     assert definition["thinkingLevelMap"] == {"off": "none"}
 
 
-def test_loads_all_four_benchmark_schemas(tmp_path: Path) -> None:
+def test_loads_all_supported_benchmark_schemas(tmp_path: Path) -> None:
     _write_json(
         tmp_path / "browse_comp" / "data.json",
         [{"task_id": "bc-1", "input": "Find it", "ground_truth_answer": "answer"}],
+    )
+    _write_json(
+        tmp_path / "browsecomp_zh" / "data.json",
+        [{"Question": "请找到它", "Answer": "答案", "Topic": "测试"}],
     )
     _write_json(
         tmp_path / "hotpotqa" / "data.json",
@@ -119,11 +123,14 @@ def test_loads_all_four_benchmark_schemas(tmp_path: Path) -> None:
     )
 
     browsecomp = load_benchmark("browsecomp", tmp_path)
+    browsecomp_zh = load_benchmark("browsecomp_zh", tmp_path)
     hotpot = load_benchmark("hotpotqa", tmp_path)
     mmlu = load_benchmark("mmlu_pro", tmp_path)
     gaia = load_benchmark("gaia", tmp_path, split="validation")
 
     assert browsecomp[0].answers == ("answer",)
+    assert browsecomp_zh[0].answers == ("答案",)
+    assert browsecomp_zh[0].metadata["Topic"] == "测试"
     assert hotpot[0].task_id == "hp-1"
     assert mmlu[0].answers == ("J",)
     assert "J. option 9" in mmlu[0].question

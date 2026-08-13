@@ -267,9 +267,14 @@ def _validate_run(
         raise ValueError(f"Invalid context modes: {', '.join(sorted(invalid_modes))}.")
     if not config.model.strip() or not config.base_url.strip():
         raise ValueError("Agent model and base URL are required.")
-    if "browsecomp" in tasks_by_benchmark and judge is None:
-        raise ValueError("BrowseComp requires an LLM judge configuration.")
-    search_benchmarks = {"browsecomp", "hotpotqa"} & tasks_by_benchmark.keys()
+    browsecomp_benchmarks = {"browsecomp", "browsecomp_zh"} & tasks_by_benchmark.keys()
+    if browsecomp_benchmarks and judge is None:
+        raise ValueError("BrowseComp benchmarks require an LLM judge configuration.")
+    search_benchmarks = {
+        "browsecomp",
+        "browsecomp_zh",
+        "hotpotqa",
+    } & tasks_by_benchmark.keys()
     if (
         search_benchmarks
         and not os.environ.get("SERPER_API_KEY", "").strip()
@@ -527,6 +532,9 @@ def _task_prompt(task: BenchmarkTask, workspace: Path) -> str:
         )
     benchmark_note = {
         "browsecomp": "Use web_search iteratively when external evidence is needed.",
+        "browsecomp_zh": (
+            "请在需要外部证据时迭代使用 web_search，并优先使用适合中文网页的检索词。"
+        ),
         "gaia": "Use the available tools as needed and return the shortest exact answer.",
         "hotpotqa": "This is multi-hop QA. Verify all linking facts before answering.",
         "mmlu_pro": "Choose exactly one option letter from A through J.",

@@ -190,7 +190,7 @@ def score_task(
 ) -> ScoreResult:
     """Score one response using the benchmark's evaluation protocol."""
 
-    if task.benchmark == "browsecomp":
+    if task.benchmark in {"browsecomp", "browsecomp_zh"}:
         if judge is None:
             return ScoreResult(
                 correct=False,
