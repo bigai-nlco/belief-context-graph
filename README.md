@@ -50,19 +50,7 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
   <sub><sub>Evaluation setup: GPT-5.6-luna Agent with <code>thinking=low</code> · BCG uses compact Graph Context in the system prompt, two recent completed turns, GPT-5.6-luna Graph Construction with reasoning disabled, and local <code>all-MiniLM-L6-v2</code> embeddings.</sub></sub>
 </p>
 
----
 
-<p align="center">
-  <strong><a href="#live-demo">Live Demo</a></strong> &nbsp;·&nbsp;
-  <strong><a href="#core-capabilities">Core Capabilities</a></strong> &nbsp;·&nbsp;
-  <strong><a href="#quick-start">Quick Start</a></strong> &nbsp;·&nbsp;
-  <strong><a href="#architecture">Architecture</a></strong> &nbsp;·&nbsp;
-  <strong><a href="#case-study-turning-graph-uncertainty-into-a-targeted-search">Case Study</a></strong> &nbsp;·&nbsp;
-  <strong><a href="#comparison-with-existing-memory-solutions">Comparison</a></strong> &nbsp;·&nbsp;
-  <strong><a href="#contributing">Contributing</a></strong>
-</p>
-
----
 
 ## Token cost across the task horizon
 
@@ -88,6 +76,18 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 
 </div>
 
+
+---
+
+<p align="center">
+  <strong><a href="#quick-start">Quick Start</a></strong> &nbsp;·&nbsp;
+  <strong><a href="#architecture">Architecture</a></strong> &nbsp;·&nbsp;
+  <strong><a href="#case-study-turning-graph-uncertainty-into-a-targeted-search">Case Study</a></strong> &nbsp;·&nbsp;
+  <strong><a href="#comparison-with-existing-memory-solutions">Comparison</a></strong> &nbsp;·&nbsp;
+  <strong><a href="#contributing">Contributing</a></strong>
+</p>
+
+---
 
 
 ## Quick Start
