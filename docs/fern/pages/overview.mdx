@@ -26,7 +26,7 @@ Most memory systems are optimized for retrieval: *what was said, what is similar
   <Card title="Learn the data model" icon="circle-nodes" href="/concepts/overview">
     Understand stored knowledge, confidence, evidence, connections, and time.
   </Card>
-  <Card title="Look up a method" icon="code" href="/sdk/overview">
+  <Card title="Look up a method" icon="code" href="/sdk">
     Jump directly to one Python SDK class or method.
   </Card>
 </CardGroup>
@@ -46,6 +46,21 @@ A completed run can contain:
 <Note>
 BCG is not an agent framework and does not require the bundled terminal Agent. You can use the Python SDK or HTTP service beneath your own runtime.
 </Note>
+
+## Choose a construction backend
+
+BCG builds graphs with one of two backends:
+**`unified`** routes both node and relation generation through one OpenAI-compatible model — the highest-fidelity option, best when you already have an API endpoint and want the most accurate graphs.
+**`hybrid`** builds graphs locally with a small vLLM model, local embeddings, and a local classifier — lightweight and effectively free to run once set up, at some cost to precision, best for high-volume or cost-sensitive workloads.
+
+<CardGroup cols={2}>
+  <Card title="API model construction (unified)" icon="cloud" href="/guides/api-model">
+    Highest fidelity, from one OpenAI-compatible endpoint.
+  </Card>
+  <Card title="Local model construction (hybrid)" icon="server" href="/guides/local-models">
+    Lightweight and free to run, no hosted API required.
+  </Card>
+</CardGroup>
 
 ## Pick the shortest path
 
