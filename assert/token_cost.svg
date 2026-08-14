@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="620" viewBox="0 0 1280 620" role="img" aria-labelledby="title desc">
+<title id="title">Cumulative total tokens across the task horizon</title>
+<desc id="desc">Full-dataset comparison of Default and BCG cumulative total tokens by model call for BrowseComp and BrowseComp-ZH. BCG includes Agent and Graph Construction tokens.</desc>
+<rect width="1280" height="620" fill="#ffffff"/>
+<g font-family="Inter,Arial,sans-serif">
+<text x="640" y="39" text-anchor="middle" fill="#0f172a" font-size="27" font-weight="700">Cumulative total tokens across the task horizon</text>
+<text x="640" y="66" text-anchor="middle" fill="#64748b" font-size="14">Full-dataset mean · BCG includes Agent + Graph Construction · completed task totals carried forward</text>
+<path d="M474 96H510" stroke="#64748b" stroke-width="5" stroke-linecap="round"/><text x="522" y="102" fill="#0f172a" font-size="16" font-weight="600">Default</text>
+<path d="M644 96H680" stroke="#5b5bd6" stroke-width="5" stroke-linecap="round"/><text x="692" y="102" fill="#0f172a" font-size="16" font-weight="600">BCG</text>
+<text x="24" y="338" transform="rotate(-90 24 338)" text-anchor="middle" fill="#0f172a" font-size="17" font-weight="600">Mean cumulative total tokens / task</text>
+<text x="88" y="132" fill="#0f172a" font-size="21" font-weight="700">BrowseComp</text>
+<text x="613" y="132" text-anchor="end" fill="#64748b" font-size="13">1,266 tasks / mode</text>
+<path d="M88.0 510.0H613.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="75.0" y="515.0" text-anchor="end" fill="#64748b" font-size="13">0</text>
+<path d="M88.0 424.0H613.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="75.0" y="429.0" text-anchor="end" fill="#64748b" font-size="13">10K</text>
+<path d="M88.0 338.0H613.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="75.0" y="343.0" text-anchor="end" fill="#64748b" font-size="13">20K</text>
+<path d="M88.0 252.0H613.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="75.0" y="257.0" text-anchor="end" fill="#64748b" font-size="13">30K</text>
+<path d="M88.0 166.0H613.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="75.0" y="171.0" text-anchor="end" fill="#64748b" font-size="13">40K</text>
+<path d="M88.0 166.0V510.0H613.0" fill="none" stroke="#cbd5e1" stroke-width="1.2"/>
+<path d="M88.0 510.0v7" stroke="#64748b" stroke-width="1"/>
+<text x="88.0" y="537.0" text-anchor="middle" fill="#64748b" font-size="13">1</text>
+<path d="M188.0 510.0v7" stroke="#64748b" stroke-width="1"/>
+<text x="188.0" y="537.0" text-anchor="middle" fill="#64748b" font-size="13">5</text>
+<path d="M313.0 510.0v7" stroke="#64748b" stroke-width="1"/>
+<text x="313.0" y="537.0" text-anchor="middle" fill="#64748b" font-size="13">10</text>
+<path d="M438.0 510.0v7" stroke="#64748b" stroke-width="1"/>
+<text x="438.0" y="537.0" text-anchor="middle" fill="#64748b" font-size="13">15</text>
+<path d="M563.0 510.0v7" stroke="#64748b" stroke-width="1"/>
+<text x="563.0" y="537.0" text-anchor="middle" fill="#64748b" font-size="13">20</text>
+<path d="M613.0 510.0v7" stroke="#64748b" stroke-width="1"/>
+<text x="613.0" y="537.0" text-anchor="middle" fill="#64748b" font-size="13">22</text>
+<path d="M308.5 166.0V510.0" stroke="#5b5bd6" stroke-opacity="0.55" stroke-width="1.5" stroke-dasharray="5 5"/>
+<rect x="229.5" y="179.0" width="158" height="26" rx="13" fill="#ffffff" fill-opacity="0.94" stroke="#c7d2fe"/>
+<text x="308.5" y="197.0" text-anchor="middle" fill="#4338ca" font-size="12" font-weight="700">Break-even at ~10 calls</text>
+<path d="M88.0,504.7 C96.3,500.7 104.7,498.5 113.0,492.8 C121.3,487.0 129.7,479.3 138.0,470.2 C146.3,461.2 154.7,450.1 163.0,438.7 C171.3,427.4 179.7,414.5 188.0,402.0 C196.3,389.4 204.7,376.0 213.0,363.3 C221.3,350.7 229.7,336.7 238.0,326.1 C246.3,315.4 254.7,306.4 263.0,299.2 C271.3,291.9 279.7,287.7 288.0,282.7 C296.3,277.7 304.7,273.1 313.0,269.0 C321.3,264.8 329.7,261.1 338.0,257.7 C346.3,254.3 354.7,251.4 363.0,248.6 C371.3,245.7 379.7,243.1 388.0,240.6 C396.3,238.2 404.7,235.9 413.0,233.9 C421.3,231.9 429.7,230.4 438.0,228.7 C446.3,227.0 454.7,225.3 463.0,223.7 C471.3,222.1 479.7,220.7 488.0,219.4 C496.3,218.0 504.7,216.8 513.0,215.6 C521.3,214.4 529.7,213.2 538.0,212.2 C546.3,211.2 554.7,210.2 563.0,209.4 C571.3,208.6 579.7,208.1 588.0,207.5 C596.3,206.9 604.7,206.3 613.0,205.7 L613.0,255.1 C604.7,255.1 596.3,255.1 588.0,255.1 C579.7,255.1 571.3,255.1 563.0,255.2 C554.7,255.2 546.3,255.3 538.0,255.4 C529.7,255.5 521.3,255.5 513.0,255.7 C504.7,255.8 496.3,255.9 488.0,256.1 C479.7,256.3 471.3,256.5 463.0,256.8 C454.7,257.1 446.3,257.4 438.0,257.8 C429.7,258.2 421.3,258.7 413.0,259.2 C404.7,259.7 396.3,260.3 388.0,261.0 C379.7,261.7 371.3,262.3 363.0,263.2 C354.7,264.1 346.3,265.1 338.0,266.3 C329.7,267.5 321.3,268.8 313.0,270.4 C304.7,272.1 296.3,273.6 288.0,276.1 C279.7,278.5 271.3,280.5 263.0,284.9 C254.7,289.3 246.3,294.2 238.0,302.3 C229.7,310.5 221.3,322.3 213.0,333.9 C204.7,345.4 196.3,358.6 188.0,371.5 C179.7,384.4 171.3,398.5 163.0,411.4 C154.7,424.2 146.3,438.6 138.0,448.6 C129.7,458.6 121.3,465.6 113.0,471.4 C104.7,477.2 96.3,479.4 88.0,483.4 Z" fill="#aaa8f4" fill-opacity="0.20"/>
+<path d="M88.0,504.7 C96.3,500.7 104.7,498.5 113.0,492.8 C121.3,487.0 129.7,479.3 138.0,470.2 C146.3,461.2 154.7,450.1 163.0,438.7 C171.3,427.4 179.7,414.5 188.0,402.0 C196.3,389.4 204.7,376.0 213.0,363.3 C221.3,350.7 229.7,336.7 238.0,326.1 C246.3,315.4 254.7,306.4 263.0,299.2 C271.3,291.9 279.7,287.7 288.0,282.7 C296.3,277.7 304.7,273.1 313.0,269.0 C321.3,264.8 329.7,261.1 338.0,257.7 C346.3,254.3 354.7,251.4 363.0,248.6 C371.3,245.7 379.7,243.1 388.0,240.6 C396.3,238.2 404.7,235.9 413.0,233.9 C421.3,231.9 429.7,230.4 438.0,228.7 C446.3,227.0 454.7,225.3 463.0,223.7 C471.3,222.1 479.7,220.7 488.0,219.4 C496.3,218.0 504.7,216.8 513.0,215.6 C521.3,214.4 529.7,213.2 538.0,212.2 C546.3,211.2 554.7,210.2 563.0,209.4 C571.3,208.6 579.7,208.1 588.0,207.5 C596.3,206.9 604.7,206.3 613.0,205.7" fill="none" stroke="#64748b" stroke-width="4.5" stroke-linecap="round"/>
+<path d="M88.0,483.4 C96.3,479.4 104.7,477.2 113.0,471.4 C121.3,465.6 129.7,458.6 138.0,448.6 C146.3,438.6 154.7,424.2 163.0,411.4 C171.3,398.5 179.7,384.4 188.0,371.5 C196.3,358.6 204.7,345.4 213.0,333.9 C221.3,322.3 229.7,310.5 238.0,302.3 C246.3,294.2 254.7,289.3 263.0,284.9 C271.3,280.5 279.7,278.5 288.0,276.1 C296.3,273.6 304.7,272.1 313.0,270.4 C321.3,268.8 329.7,267.5 338.0,266.3 C346.3,265.1 354.7,264.1 363.0,263.2 C371.3,262.3 379.7,261.7 388.0,261.0 C396.3,260.3 404.7,259.7 413.0,259.2 C421.3,258.7 429.7,258.2 438.0,257.8 C446.3,257.4 454.7,257.1 463.0,256.8 C471.3,256.5 479.7,256.3 488.0,256.1 C496.3,255.9 504.7,255.8 513.0,255.7 C521.3,255.5 529.7,255.5 538.0,255.4 C546.3,255.3 554.7,255.2 563.0,255.2 C571.3,255.1 579.7,255.1 588.0,255.1 C596.3,255.1 604.7,255.1 613.0,255.1" fill="none" stroke="#5b5bd6" stroke-width="4.5" stroke-linecap="round"/>
+<circle cx="613.0" cy="205.7" r="6" fill="#64748b" stroke="#ffffff" stroke-width="2"/>
+<text x="603.0" y="190.7" text-anchor="end" fill="#64748b" font-size="16" font-weight="700">35.4K</text>
+<circle cx="613.0" cy="255.1" r="6" fill="#5b5bd6" stroke="#ffffff" stroke-width="2"/>
+<text x="603.0" y="280.1" text-anchor="end" fill="#5b5bd6" font-size="16" font-weight="700">29.6K</text>
+<rect x="422.0" y="452.0" width="174" height="31" rx="15.5" fill="#eef2ff"/>
+<text x="509.0" y="473.0" text-anchor="middle" fill="#4338ca" font-size="13" font-weight="700">16% fewer total tokens</text>
+<text x="350.5" y="580" text-anchor="middle" fill="#0f172a" font-size="17" font-weight="600">Agent model calls</text>
+<text x="703" y="132" fill="#0f172a" font-size="21" font-weight="700">BrowseComp-ZH</text>
+<text x="1228" y="132" text-anchor="end" fill="#64748b" font-size="13">289 tasks / mode</text>
+<path d="M703.0 510.0H1228.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="690.0" y="515.0" text-anchor="end" fill="#64748b" font-size="13">0</text>
+<path d="M703.0 460.9H1228.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="690.0" y="465.9" text-anchor="end" fill="#64748b" font-size="13">5K</text>
+<path d="M703.0 411.7H1228.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="690.0" y="416.7" text-anchor="end" fill="#64748b" font-size="13">10K</text>
+<path d="M703.0 362.6H1228.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="690.0" y="367.6" text-anchor="end" fill="#64748b" font-size="13">15K</text>
+<path d="M703.0 313.4H1228.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="690.0" y="318.4" text-anchor="end" fill="#64748b" font-size="13">20K</text>
+<path d="M703.0 264.3H1228.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="690.0" y="269.3" text-anchor="end" fill="#64748b" font-size="13">25K</text>
+<path d="M703.0 215.1H1228.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="690.0" y="220.1" text-anchor="end" fill="#64748b" font-size="13">30K</text>
+<path d="M703.0 166.0H1228.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="690.0" y="171.0" text-anchor="end" fill="#64748b" font-size="13">35K</text>
+<path d="M703.0 166.0V510.0H1228.0" fill="none" stroke="#cbd5e1" stroke-width="1.2"/>
+<path d="M703.0 510.0v7" stroke="#64748b" stroke-width="1"/>
+<text x="703.0" y="537.0" text-anchor="middle" fill="#64748b" font-size="13">1</text>
+<path d="M803.0 510.0v7" stroke="#64748b" stroke-width="1"/>
+<text x="803.0" y="537.0" text-anchor="middle" fill="#64748b" font-size="13">5</text>
+<path d="M928.0 510.0v7" stroke="#64748b" stroke-width="1"/>
+<text x="928.0" y="537.0" text-anchor="middle" fill="#64748b" font-size="13">10</text>
+<path d="M1053.0 510.0v7" stroke="#64748b" stroke-width="1"/>
+<text x="1053.0" y="537.0" text-anchor="middle" fill="#64748b" font-size="13">15</text>
+<path d="M1178.0 510.0v7" stroke="#64748b" stroke-width="1"/>
+<text x="1178.0" y="537.0" text-anchor="middle" fill="#64748b" font-size="13">20</text>
+<path d="M1228.0 510.0v7" stroke="#64748b" stroke-width="1"/>
+<text x="1228.0" y="537.0" text-anchor="middle" fill="#64748b" font-size="13">22</text>
+<path d="M891.7 166.0V510.0" stroke="#5b5bd6" stroke-opacity="0.55" stroke-width="1.5" stroke-dasharray="5 5"/>
+<rect x="812.7" y="179.0" width="158" height="26" rx="13" fill="#ffffff" fill-opacity="0.94" stroke="#c7d2fe"/>
+<text x="891.7" y="197.0" text-anchor="middle" fill="#4338ca" font-size="12" font-weight="700">Break-even at ~9 calls</text>
+<path d="M703.0,503.7 C711.3,497.2 719.7,493.6 728.0,484.1 C736.3,474.6 744.7,460.4 753.0,446.8 C761.3,433.1 769.7,417.1 778.0,402.1 C786.3,387.0 794.7,371.0 803.0,356.4 C811.3,341.8 819.7,327.3 828.0,314.4 C836.3,301.5 844.7,288.1 853.0,278.8 C861.3,269.5 869.7,264.3 878.0,258.7 C886.3,253.1 894.7,249.1 903.0,245.4 C911.3,241.7 919.7,239.0 928.0,236.3 C936.3,233.5 944.7,230.7 953.0,228.9 C961.3,227.0 969.7,226.4 978.0,225.2 C986.3,224.0 994.7,222.7 1003.0,221.7 C1011.3,220.6 1019.7,219.7 1028.0,218.8 C1036.3,217.9 1044.7,217.1 1053.0,216.3 C1061.3,215.5 1069.7,214.8 1078.0,214.0 C1086.3,213.2 1094.7,212.2 1103.0,211.5 C1111.3,210.8 1119.7,210.3 1128.0,209.9 C1136.3,209.5 1144.7,209.5 1153.0,209.2 C1161.3,209.0 1169.7,208.7 1178.0,208.5 C1186.3,208.2 1194.7,208.0 1203.0,207.7 C1211.3,207.4 1219.7,207.2 1228.0,206.9 L1228.0,235.8 C1219.7,235.8 1211.3,235.8 1203.0,235.8 C1194.7,235.8 1186.3,235.8 1178.0,235.8 C1169.7,235.8 1161.3,235.8 1153.0,235.8 C1144.7,235.8 1136.3,235.8 1128.0,235.8 C1119.7,235.8 1111.3,235.8 1103.0,235.8 C1094.7,235.8 1086.3,235.9 1078.0,236.2 C1069.7,236.4 1061.3,236.8 1053.0,237.1 C1044.7,237.4 1036.3,237.7 1028.0,238.0 C1019.7,238.4 1011.3,238.7 1003.0,239.2 C994.7,239.6 986.3,240.2 978.0,240.7 C969.7,241.3 961.3,241.8 953.0,242.6 C944.7,243.3 936.3,244.3 928.0,245.3 C919.7,246.4 911.3,247.2 903.0,248.8 C894.7,250.3 886.3,251.5 878.0,254.6 C869.7,257.6 861.3,260.7 853.0,267.0 C844.7,273.3 836.3,282.3 828.0,292.5 C819.7,302.8 811.3,315.3 803.0,328.7 C794.7,342.1 786.3,357.5 778.0,373.2 C769.7,388.8 761.3,408.1 753.0,422.7 C744.7,437.3 736.3,451.2 728.0,460.8 C719.7,470.5 711.3,474.0 703.0,480.6 Z" fill="#aaa8f4" fill-opacity="0.20"/>
+<path d="M703.0,503.7 C711.3,497.2 719.7,493.6 728.0,484.1 C736.3,474.6 744.7,460.4 753.0,446.8 C761.3,433.1 769.7,417.1 778.0,402.1 C786.3,387.0 794.7,371.0 803.0,356.4 C811.3,341.8 819.7,327.3 828.0,314.4 C836.3,301.5 844.7,288.1 853.0,278.8 C861.3,269.5 869.7,264.3 878.0,258.7 C886.3,253.1 894.7,249.1 903.0,245.4 C911.3,241.7 919.7,239.0 928.0,236.3 C936.3,233.5 944.7,230.7 953.0,228.9 C961.3,227.0 969.7,226.4 978.0,225.2 C986.3,224.0 994.7,222.7 1003.0,221.7 C1011.3,220.6 1019.7,219.7 1028.0,218.8 C1036.3,217.9 1044.7,217.1 1053.0,216.3 C1061.3,215.5 1069.7,214.8 1078.0,214.0 C1086.3,213.2 1094.7,212.2 1103.0,211.5 C1111.3,210.8 1119.7,210.3 1128.0,209.9 C1136.3,209.5 1144.7,209.5 1153.0,209.2 C1161.3,209.0 1169.7,208.7 1178.0,208.5 C1186.3,208.2 1194.7,208.0 1203.0,207.7 C1211.3,207.4 1219.7,207.2 1228.0,206.9" fill="none" stroke="#64748b" stroke-width="4.5" stroke-linecap="round"/>
+<path d="M703.0,480.6 C711.3,474.0 719.7,470.5 728.0,460.8 C736.3,451.2 744.7,437.3 753.0,422.7 C761.3,408.1 769.7,388.8 778.0,373.2 C786.3,357.5 794.7,342.1 803.0,328.7 C811.3,315.3 819.7,302.8 828.0,292.5 C836.3,282.3 844.7,273.3 853.0,267.0 C861.3,260.7 869.7,257.6 878.0,254.6 C886.3,251.5 894.7,250.3 903.0,248.8 C911.3,247.2 919.7,246.4 928.0,245.3 C936.3,244.3 944.7,243.3 953.0,242.6 C961.3,241.8 969.7,241.3 978.0,240.7 C986.3,240.2 994.7,239.6 1003.0,239.2 C1011.3,238.7 1019.7,238.4 1028.0,238.0 C1036.3,237.7 1044.7,237.4 1053.0,237.1 C1061.3,236.8 1069.7,236.4 1078.0,236.2 C1086.3,235.9 1094.7,235.8 1103.0,235.8 C1111.3,235.8 1119.7,235.8 1128.0,235.8 C1136.3,235.8 1144.7,235.8 1153.0,235.8 C1161.3,235.8 1169.7,235.8 1178.0,235.8 C1186.3,235.8 1194.7,235.8 1203.0,235.8 C1211.3,235.8 1219.7,235.8 1228.0,235.8" fill="none" stroke="#5b5bd6" stroke-width="4.5" stroke-linecap="round"/>
+<circle cx="1228.0" cy="206.9" r="6" fill="#64748b" stroke="#ffffff" stroke-width="2"/>
+<text x="1218.0" y="191.9" text-anchor="end" fill="#64748b" font-size="16" font-weight="700">30.8K</text>
+<circle cx="1228.0" cy="235.8" r="6" fill="#5b5bd6" stroke="#ffffff" stroke-width="2"/>
+<text x="1218.0" y="260.8" text-anchor="end" fill="#5b5bd6" font-size="16" font-weight="700">27.9K</text>
+<rect x="1037.0" y="452.0" width="174" height="31" rx="15.5" fill="#eef2ff"/>
+<text x="1124.0" y="473.0" text-anchor="middle" fill="#4338ca" font-size="13" font-weight="700">10% fewer total tokens</text>
+<text x="965.5" y="580" text-anchor="middle" fill="#0f172a" font-size="17" font-weight="600">Agent model calls</text>
+</g>
+</svg>

@@ -46,22 +46,15 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
   <img src="assert/benchmark_browsecomp_zh.svg" width="49%" alt="BrowseComp-ZH full-dataset dual-axis comparison of accuracy and mean token cost per task">
 </p>
 
-<p align="left">
-  <sub><sub>Evaluation setup: GPT-5.6-luna Agent with <code>thinking=low</code> · BCG uses compact Graph Context in the system prompt, two recent completed turns, GPT-5.6-luna Graph Construction with reasoning disabled, and local <code>all-MiniLM-L6-v2</code> embeddings.</sub></sub>
-</p>
-
-
-
-## Token cost across the task horizon
-
 <p align="center">
-  <a href="assert/token_cost.png">
-    <img src="assert/token_cost.png" width="60%" alt="Cumulative token cost">
+  <a href="assert/token_cost.svg">
+    <img src="assert/token_cost.svg" width="100%" alt="Cumulative total token cost by model-call depth for BrowseComp and BrowseComp-ZH">
   </a>
 </p>
 
-- **Model calls.** The number of model calls (assistant turns) a task has made so far. Moving right means progressing deeper into the task horizon.
-- **Mean cumulative tokens per task.** Tokens summed from the first call up to and including call *k*, then averaged over all 1,555 trajectories in that mode.
+<p align="left">
+  <sub><sub>Evaluation: GPT-5.6-luna Agent with <code>thinking=low</code> · compact Graph Context, two recent completed turns, GPT-5.6-luna Graph Construction with reasoning disabled, and local <code>all-MiniLM-L6-v2</code> embeddings</sub></sub>
+</p>
 
 
 ## Live Demo
