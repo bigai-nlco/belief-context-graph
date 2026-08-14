@@ -66,16 +66,7 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 
 ## Live Demo
 
-<div align="center">
-
-<img
-  src="assert/live_demo.gif"
-  alt="Belief Context Graph live demo"
-  width="900"
-/>
-
-</div>
-
+https://github.com/user-attachments/assets/7064feb1-3147-4552-a498-cd9e63616743
 
 ---
 
