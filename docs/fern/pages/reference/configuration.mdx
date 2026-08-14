@@ -1,14 +1,40 @@
 ---
 title: Configuration
-description: Understand the unified YAML settings and precedence rules.
+description: Understand where BCG configuration lives, which settings users commonly change, and how configuration precedence works.
 icon: gear
 ---
 
-The current configuration system is centered on YAML.
+BCG configuration is stored in YAML.
+
+## Where to configure
+
+Use one of these files:
+
+- `~/.bcg/config.yaml` for user-level settings;
+- `<project>/bcg.yaml` for project-specific settings.
+
+Every field is optional. Unset values fall back to the packaged defaults. Keep secrets out of YAML and reference them through `api_key_env`.
+
+## Common configurable parameters
+
+| Configuration | What you can configure |
+|---|---|
+| `backend` | Choose the graph-construction backend, such as `unified` or `hybrid`. |
+| `graph-model` | Configure the chat model used for graph construction, including its endpoint, API-key environment variable, generation settings, and optional pricing metadata. |
+| `embedding` | Configure the embedding provider/model, device, batch size, maximum length, and input prefix. |
+| `extractor` | Configure belief extraction, including the model endpoint, generation limits, concurrency/retries, context scope, excerpt requirements, and dynamic node limits. |
+| `stance` | Configure stance classification, including the classifier model, device, batch settings, and stance labels. |
+| `edge_generation` | Configure relationship generation, including the model endpoint, retries, error handling, and whether previous turns are searched. |
+| `incremental_merge.threshold` | Set the similarity threshold used when deciding whether newly extracted knowledge should be merged with existing knowledge. |
+| `entities` | Configure entity extraction, including the extraction method/models, device, confidence threshold, overlap handling, and fallback methods. |
+| `confidence.source_reliability` | Set reliability weights for different source types, such as user input, assistant output, tool results, manual input, and historical retrieval. |
+| `confidence.stance_quality` | Set quality weights for stance categories such as asserted, recalled, judged, and speculated. |
+| `relation_propagation` | Configure how confidence propagates across graph relationships, including relation weight, confidence threshold, minimum update size, and iteration limit. |
+| `chunking.breakpoint_percentile_threshold` | Adjust the percentile threshold used to choose semantic chunk boundaries. |
 
 ## Precedence
 
-Highest priority first:
+When the same setting appears in more than one place, BCG applies the following order from highest to lowest priority:
 
 1. explicit CLI overrides;
 2. file passed with `--config`;
@@ -18,7 +44,7 @@ Highest priority first:
 6. packaged defaults.
 
 <Warning>
-The project-level filename is intentionally `bcg.yaml`, not a generic `config.yaml`.
+The project-level filename is `bcg.yaml`, not a generic `config.yaml`.
 </Warning>
 
 ## Inspect effective values
@@ -27,28 +53,3 @@ The project-level filename is intentionally `bcg.yaml`, not a generic `config.ya
 bcg config
 bcg config --json
 ```
-
-## Settings groups
-
-`BCGSettings` includes:
-
-- `schema_version`;
-- `backend`;
-- `model_key`;
-- `embedding_key`;
-- `server`;
-- `models`;
-- `pipeline`;
-- `runner`.
-
-The packaged default backend is `unified`.
-
-## Example source file
-
-The current reference example in the package is:
-
-```text
-bcg/config/config.example.yaml
-```
-
-Legacy `model_config.json` readers remain for compatibility, but new setup writes `~/.bcg/config.yaml`.
