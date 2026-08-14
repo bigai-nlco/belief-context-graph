@@ -42,8 +42,9 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
   
 
 <p align="center">
-  <img src="assert/benchmark_browsecomp.svg" width="49%" alt="BrowseComp full-dataset dual-axis comparison of accuracy and mean token cost per task">
-  <img src="assert/benchmark_browsecomp_zh.svg" width="49%" alt="BrowseComp-ZH full-dataset dual-axis comparison of accuracy and mean token cost per task">
+  <a href="assert/benchmark_summary.svg">
+    <img src="assert/benchmark_summary.svg" width="100%" alt="Full-dataset accuracy and mean token cost comparison for BrowseComp and BrowseComp-ZH">
+  </a>
 </p>
 
 <p align="center">

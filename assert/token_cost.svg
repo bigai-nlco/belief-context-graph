@@ -4,12 +4,11 @@
 <rect width="1280" height="620" fill="#ffffff"/>
 <g font-family="Inter,Arial,sans-serif">
 <text x="640" y="39" text-anchor="middle" fill="#0f172a" font-size="27" font-weight="700">Cumulative total tokens across the task horizon</text>
-<text x="640" y="66" text-anchor="middle" fill="#64748b" font-size="14">Full-dataset mean · BCG includes Agent + Graph Construction · completed task totals carried forward</text>
-<path d="M474 96H510" stroke="#64748b" stroke-width="5" stroke-linecap="round"/><text x="522" y="102" fill="#0f172a" font-size="16" font-weight="600">Default</text>
-<path d="M644 96H680" stroke="#5b5bd6" stroke-width="5" stroke-linecap="round"/><text x="692" y="102" fill="#0f172a" font-size="16" font-weight="600">BCG</text>
+<path d="M474 69H510" stroke="#64748b" stroke-width="5" stroke-linecap="round"/><text x="522" y="75" fill="#0f172a" font-size="16" font-weight="600">Default</text>
+<path d="M644 69H680" stroke="#5b5bd6" stroke-width="5" stroke-linecap="round"/><text x="692" y="75" fill="#0f172a" font-size="16" font-weight="600">BCG</text>
 <text x="24" y="338" transform="rotate(-90 24 338)" text-anchor="middle" fill="#0f172a" font-size="17" font-weight="600">Mean cumulative total tokens / task</text>
-<text x="88" y="132" fill="#0f172a" font-size="21" font-weight="700">BrowseComp</text>
-<text x="613" y="132" text-anchor="end" fill="#64748b" font-size="13">1,266 tasks / mode</text>
+<text x="88" y="116" fill="#0f172a" font-size="21" font-weight="700">BrowseComp</text>
+<text x="613" y="116" text-anchor="end" fill="#64748b" font-size="13">1,266 tasks / mode</text>
 <path d="M88.0 510.0H613.0" stroke="#e2e8f0" stroke-width="1"/>
 <text x="75.0" y="515.0" text-anchor="end" fill="#64748b" font-size="13">0</text>
 <path d="M88.0 424.0H613.0" stroke="#e2e8f0" stroke-width="1"/>
@@ -46,8 +45,8 @@
 <rect x="422.0" y="452.0" width="174" height="31" rx="15.5" fill="#eef2ff"/>
 <text x="509.0" y="473.0" text-anchor="middle" fill="#4338ca" font-size="13" font-weight="700">16% fewer total tokens</text>
 <text x="350.5" y="580" text-anchor="middle" fill="#0f172a" font-size="17" font-weight="600">Agent model calls</text>
-<text x="703" y="132" fill="#0f172a" font-size="21" font-weight="700">BrowseComp-ZH</text>
-<text x="1228" y="132" text-anchor="end" fill="#64748b" font-size="13">289 tasks / mode</text>
+<text x="703" y="116" fill="#0f172a" font-size="21" font-weight="700">BrowseComp-ZH</text>
+<text x="1228" y="116" text-anchor="end" fill="#64748b" font-size="13">289 tasks / mode</text>
 <path d="M703.0 510.0H1228.0" stroke="#e2e8f0" stroke-width="1"/>
 <text x="690.0" y="515.0" text-anchor="end" fill="#64748b" font-size="13">0</text>
 <path d="M703.0 460.9H1228.0" stroke="#e2e8f0" stroke-width="1"/>

@@ -255,9 +255,8 @@ def render_svg(series: tuple[BenchmarkSeries, ...], output: Path) -> None:
         '<rect width="1280" height="620" fill="#ffffff"/>',
         '<g font-family="Inter,Arial,sans-serif">',
         f'<text x="640" y="39" text-anchor="middle" fill="{TEXT_COLOR}" font-size="27" font-weight="700">Cumulative total tokens across the task horizon</text>',
-        f'<text x="640" y="66" text-anchor="middle" fill="{MUTED_COLOR}" font-size="14">Full-dataset mean · BCG includes Agent + Graph Construction · completed task totals carried forward</text>',
-        f'<path d="M474 96H510" stroke="{DEFAULT_COLOR}" stroke-width="5" stroke-linecap="round"/><text x="522" y="102" fill="{TEXT_COLOR}" font-size="16" font-weight="600">Default</text>',
-        f'<path d="M644 96H680" stroke="{BCG_COLOR}" stroke-width="5" stroke-linecap="round"/><text x="692" y="102" fill="{TEXT_COLOR}" font-size="16" font-weight="600">BCG</text>',
+        f'<path d="M474 69H510" stroke="{DEFAULT_COLOR}" stroke-width="5" stroke-linecap="round"/><text x="522" y="75" fill="{TEXT_COLOR}" font-size="16" font-weight="600">Default</text>',
+        f'<path d="M644 69H680" stroke="{BCG_COLOR}" stroke-width="5" stroke-linecap="round"/><text x="692" y="75" fill="{TEXT_COLOR}" font-size="16" font-weight="600">BCG</text>',
         f'<text x="24" y="338" transform="rotate(-90 24 338)" text-anchor="middle" fill="{TEXT_COLOR}" font-size="17" font-weight="600">Mean cumulative total tokens / task</text>',
     ]
 
@@ -289,8 +288,8 @@ def render_svg(series: tuple[BenchmarkSeries, ...], output: Path) -> None:
 
         parts.extend(
             [
-                f'<text x="{left:.0f}" y="132" fill="{TEXT_COLOR}" font-size="21" font-weight="700">{html.escape(item.title)}</text>',
-                f'<text x="{right:.0f}" y="132" text-anchor="end" fill="{MUTED_COLOR}" font-size="13">{item.task_count:,} tasks / mode</text>',
+                f'<text x="{left:.0f}" y="116" fill="{TEXT_COLOR}" font-size="21" font-weight="700">{html.escape(item.title)}</text>',
+                f'<text x="{right:.0f}" y="116" text-anchor="end" fill="{MUTED_COLOR}" font-size="13">{item.task_count:,} tasks / mode</text>',
             ]
         )
 
