@@ -100,8 +100,8 @@ def render_svg(output: Path) -> None:
         right = left + panel_width
         axis_left = left + 48
         axis_right = right - 48
-        accuracy_x = (left + 118, left + 190)
-        token_x = (left + 334, left + 406)
+        accuracy_x = (left + 89, left + 161)
+        token_x = (left + 305, left + 377)
         bar_width = 60.0
 
         parts.extend(
