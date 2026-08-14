@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="620" viewBox="0 0 1280 620" role="img" aria-labelledby="title desc">
+<title id="title">Accuracy and mean token cost by benchmark</title>
+<desc id="desc">Full-dataset Default and BCG accuracy and mean token cost for BrowseComp and BrowseComp-ZH. BCG token cost is divided into Agent and Graph Construction tokens.</desc>
+<rect width="1280" height="620" fill="#ffffff"/>
+<g font-family="Inter,Arial,sans-serif">
+<text x="640" y="39" text-anchor="middle" fill="#0f172a" font-size="27" font-weight="700">Accuracy and mean token cost by benchmark</text>
+<rect x="438" y="62" width="14" height="14" rx="3" fill="#64748b"/><text x="462" y="75" fill="#0f172a" font-size="15" font-weight="600">Default</text>
+<rect x="548" y="62" width="14" height="14" rx="3" fill="#5b5bd6"/><text x="572" y="75" fill="#0f172a" font-size="15" font-weight="600">BCG</text>
+<rect x="638" y="62" width="14" height="14" rx="3" fill="#aaa8f4"/><text x="662" y="75" fill="#0f172a" font-size="15" font-weight="600">Graph portion</text>
+<text x="88" y="116" fill="#0f172a" font-size="21" font-weight="700">BrowseComp</text>
+<text x="613" y="116" text-anchor="end" fill="#64748b" font-size="13">1,266 tasks / mode</text>
+<text x="136.0" y="171" fill="#475569" font-size="14" font-weight="700">Accuracy</text>
+<text x="565.0" y="171" text-anchor="end" fill="#475569" font-size="14" font-weight="700">Mean tokens / task</text>
+<path d="M136.0 475.0H565.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="575.0" y="480.0" fill="#64748b" font-size="13">0</text>
+<path d="M136.0 418.0H565.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="575.0" y="423.0" fill="#64748b" font-size="13">10K</text>
+<path d="M136.0 361.0H565.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="575.0" y="366.0" fill="#64748b" font-size="13">20K</text>
+<path d="M136.0 304.0H565.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="575.0" y="309.0" fill="#64748b" font-size="13">30K</text>
+<path d="M136.0 247.0H565.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="575.0" y="252.0" fill="#64748b" font-size="13">40K</text>
+<path d="M136.0 190.0H565.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="575.0" y="195.0" fill="#64748b" font-size="13">50K</text>
+<path d="M129.0 475.0H136.0" stroke="#64748b" stroke-width="1"/>
+<text x="124.0" y="480.0" text-anchor="end" fill="#64748b" font-size="13">0%</text>
+<path d="M129.0 418.0H136.0" stroke="#64748b" stroke-width="1"/>
+<text x="124.0" y="423.0" text-anchor="end" fill="#64748b" font-size="13">10%</text>
+<path d="M129.0 361.0H136.0" stroke="#64748b" stroke-width="1"/>
+<text x="124.0" y="366.0" text-anchor="end" fill="#64748b" font-size="13">20%</text>
+<path d="M129.0 304.0H136.0" stroke="#64748b" stroke-width="1"/>
+<text x="124.0" y="309.0" text-anchor="end" fill="#64748b" font-size="13">30%</text>
+<path d="M129.0 247.0H136.0" stroke="#64748b" stroke-width="1"/>
+<text x="124.0" y="252.0" text-anchor="end" fill="#64748b" font-size="13">40%</text>
+<path d="M129.0 190.0H136.0" stroke="#64748b" stroke-width="1"/>
+<text x="124.0" y="195.0" text-anchor="end" fill="#64748b" font-size="13">50%</text>
+<path d="M136.0 190.0V475.0H565.0V190.0" fill="none" stroke="#cbd5e1" stroke-width="1.2"/>
+<path d="M177.0 475.0V292.0a7 7 0 0 1 7 -7h46.0a7 7 0 0 1 7 7V475.0Z" fill="#64748b"/>
+<text x="207.0" y="273.0" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">33.33%</text>
+<text x="207.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Default</text>
+<path d="M249.0 475.0V270.4a7 7 0 0 1 7 -7h46.0a7 7 0 0 1 7 7V475.0Z" fill="#5b5bd6"/>
+<text x="279.0" y="251.4" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">37.12%</text>
+<text x="279.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">BCG</text>
+<path d="M393.0 475.0V280.3a7 7 0 0 1 7 -7h46.0a7 7 0 0 1 7 7V475.0Z" fill="#64748b"/>
+<rect x="465.0" y="346.5" width="60.0" height="128.5" fill="#5b5bd6"/>
+<path d="M465.0 346.5V313.1a7 7 0 0 1 7 -7h46.0a7 7 0 0 1 7 7V346.5Z" fill="#aaa8f4"/>
+<text x="423.0" y="261.3" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">35.39K</text>
+<text x="495.0" y="294.1" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">29.64K</text>
+<text x="495.0" y="415.8" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="700">22.54K</text>
+<text x="495.0" y="331.3" text-anchor="middle" fill="#312e81" font-size="13" font-weight="700">7.10K</text>
+<text x="423.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Default</text>
+<text x="495.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">BCG</text>
+<text x="243.0" y="536" text-anchor="middle" fill="#0f172a" font-size="16" font-weight="700">Accuracy</text>
+<text x="459.0" y="536" text-anchor="middle" fill="#0f172a" font-size="16" font-weight="700">Token cost</text>
+<text x="703" y="116" fill="#0f172a" font-size="21" font-weight="700">BrowseComp-ZH</text>
+<text x="1228" y="116" text-anchor="end" fill="#64748b" font-size="13">289 tasks / mode</text>
+<text x="751.0" y="171" fill="#475569" font-size="14" font-weight="700">Accuracy</text>
+<text x="1180.0" y="171" text-anchor="end" fill="#475569" font-size="14" font-weight="700">Mean tokens / task</text>
+<path d="M751.0 475.0H1180.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="1190.0" y="480.0" fill="#64748b" font-size="13">0</text>
+<path d="M751.0 403.8H1180.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="1190.0" y="408.8" fill="#64748b" font-size="13">10K</text>
+<path d="M751.0 332.5H1180.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="1190.0" y="337.5" fill="#64748b" font-size="13">20K</text>
+<path d="M751.0 261.2H1180.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="1190.0" y="266.2" fill="#64748b" font-size="13">30K</text>
+<path d="M751.0 190.0H1180.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="1190.0" y="195.0" fill="#64748b" font-size="13">40K</text>
+<path d="M744.0 475.0H751.0" stroke="#64748b" stroke-width="1"/>
+<text x="739.0" y="480.0" text-anchor="end" fill="#64748b" font-size="13">0%</text>
+<path d="M744.0 380.0H751.0" stroke="#64748b" stroke-width="1"/>
+<text x="739.0" y="385.0" text-anchor="end" fill="#64748b" font-size="13">25%</text>
+<path d="M744.0 285.0H751.0" stroke="#64748b" stroke-width="1"/>
+<text x="739.0" y="290.0" text-anchor="end" fill="#64748b" font-size="13">50%</text>
+<path d="M744.0 190.0H751.0" stroke="#64748b" stroke-width="1"/>
+<text x="739.0" y="195.0" text-anchor="end" fill="#64748b" font-size="13">75%</text>
+<path d="M751.0 190.0V475.0H1180.0V190.0" fill="none" stroke="#cbd5e1" stroke-width="1.2"/>
+<path d="M792.0 475.0V294.0a7 7 0 0 1 7 -7h46.0a7 7 0 0 1 7 7V475.0Z" fill="#64748b"/>
+<text x="822.0" y="275.0" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">49.48%</text>
+<text x="822.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Default</text>
+<path d="M864.0 475.0V257.2a7 7 0 0 1 7 -7h46.0a7 7 0 0 1 7 7V475.0Z" fill="#5b5bd6"/>
+<text x="894.0" y="238.2" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">59.17%</text>
+<text x="894.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">BCG</text>
+<path d="M1008.0 475.0V262.3a7 7 0 0 1 7 -7h46.0a7 7 0 0 1 7 7V475.0Z" fill="#64748b"/>
+<rect x="1080.0" y="321.5" width="60.0" height="153.5" fill="#5b5bd6"/>
+<path d="M1080.0 321.5V283.2a7 7 0 0 1 7 -7h46.0a7 7 0 0 1 7 7V321.5Z" fill="#aaa8f4"/>
+<text x="1038.0" y="243.3" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">30.84K</text>
+<text x="1110.0" y="264.2" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">27.90K</text>
+<text x="1110.0" y="403.2" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="700">21.55K</text>
+<text x="1110.0" y="303.8" text-anchor="middle" fill="#312e81" font-size="13" font-weight="700">6.35K</text>
+<text x="1038.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Default</text>
+<text x="1110.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">BCG</text>
+<text x="858.0" y="536" text-anchor="middle" fill="#0f172a" font-size="16" font-weight="700">Accuracy</text>
+<text x="1074.0" y="536" text-anchor="middle" fill="#0f172a" font-size="16" font-weight="700">Token cost</text>
+</g>
+</svg>
