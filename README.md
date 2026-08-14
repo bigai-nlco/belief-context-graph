@@ -63,17 +63,6 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 </p>
 
 ---
-## Live Demo
-
-<div align="center">
-
-<img
-  src="assert/live_demo.gif"
-  alt="Belief Context Graph live demo"
-  width="900"
-/>
-
-</div>
 
 ## Token cost across the task horizon
 
@@ -85,6 +74,19 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 
 - **Model calls.** The number of model calls (assistant turns) a task has made so far. Moving right means progressing deeper into the task horizon. The full-horizon figure shows the overall trend, while the accompanying zoomed-in figure focuses on the first 20 calls to make the early-phase behavior and crossover easier to see.
 - **Mean cumulative tokens per task.** Tokens summed from the first call up to and including call *k*, then averaged over all 1,200 trajectories in that mode.
+
+
+## Live Demo
+
+<div align="center">
+
+<img
+  src="assert/live_demo.gif"
+  alt="Belief Context Graph live demo"
+  width="900"
+/>
+
+</div>
 
 
 
