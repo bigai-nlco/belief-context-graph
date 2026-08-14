@@ -194,45 +194,6 @@ Agent memory systems serve different purposes. Below is a feature-level comparis
 
 ---
 
-## Configuration
-
-### Environment Variables
-
-Normal users configure these values through `bcg setup`; they are persisted in `~/.bcg/config.json` and `~/.bcg/.env`. `.env.example` is a development and automation reference:
-
-```bash
-cp .env.example .env
-```
-
-#### LLM API
-
-| Variable | Description |
-|---|---|
-| `OPENAI_API_KEY` | API key for OpenAI-compatible endpoints |
-| `OPENAI_BASE_URL` | Base URL for the API endpoint |
-| `OPENAI_MODEL` | Model name to use for generation |
-| `OPENAI_TIMEOUT` (Optional) | Request timeout in seconds |
-| `OPENAI_MAX_RETRIES`  (Optional)| Maximum retry attempts on failure |
-
-#### Embeddings
-
-Used by the semantic split, extract and merge passes:
-
-| Variable | Description |
-|---|---|
-| `EMBEDDING_PROVIDER` | Embedding service provider |
-| `EMBEDDING_MODEL` | Embedding model name |
-| `EMBEDDING_BASE_URL` | Base URL for the embedding endpoint |
-| `EMBEDDING_API_KEY` | API key for the embedding service |
-
-### Pipeline Configuration
-
-Pipeline behavior — semantic splitting, merge strategy, context budgets, run IDs, and output roots — is configured through Python constructor arguments on `BCGRunner` and `BCGMemory`. There are no hidden environment defaults for pipeline parameters.
-
----
-
-
-
 ## Contributing
 
 Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
