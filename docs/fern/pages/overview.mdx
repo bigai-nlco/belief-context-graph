@@ -50,7 +50,9 @@ BCG is not an agent framework and does not require the bundled terminal Agent. Y
 ## Choose a construction backend
 
 BCG builds graphs with one of two backends:
+
 **`unified`** routes both node and relation generation through one OpenAI-compatible model — the highest-fidelity option, best when you already have an API endpoint and want the most accurate graphs.
+
 **`hybrid`** builds graphs locally with a small vLLM model, local embeddings, and a local classifier — lightweight and effectively free to run once set up, at some cost to precision, best for high-volume or cost-sensitive workloads.
 
 <CardGroup cols={2}>
