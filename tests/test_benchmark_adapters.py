@@ -9,7 +9,7 @@ from threading import Event
 import pytest
 
 from bcg.apps.benchmark.loaders import BenchmarkDataError, load_benchmark
-from bcg.apps.benchmark.models import BenchmarkTask
+from bcg.apps.benchmark.models import BenchmarkTask, is_api_quota_error
 from bcg.apps.benchmark.runner import (
     APIQuotaExhaustedError,
     RunConfig,
@@ -345,6 +345,17 @@ def test_agent_json_events_expose_provider_error_message() -> None:
     parsed = parse_agent_events(json.dumps(event))
 
     assert parsed["error_message"] == "insufficient_quota: no credit remains"
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "insufficient_quota: no credit remains",
+        '403: {"message":"Key limit exceeded (total limit)","code":403}',
+    ],
+)
+def test_api_quota_error_recognizes_provider_limit_messages(message: str) -> None:
+    assert is_api_quota_error(message)
 
 
 def test_agent_json_events_capture_graph_model_usage() -> None:

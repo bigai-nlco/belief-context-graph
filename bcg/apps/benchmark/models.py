@@ -20,6 +20,7 @@ _API_QUOTA_MARKERS = (
     "budget exceeded",
     "budget has been exceeded",
     "billing limit",
+    "key limit exceeded",
     "额度不足",
     "余额不足",
 )
