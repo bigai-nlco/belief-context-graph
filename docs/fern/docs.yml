@@ -17,11 +17,10 @@ tabs:
 theme:
   sidebar: default
   body: default
-  tabs:
-    style: default
-    alignment: left
-    placement: header
+  tabs: default
   footer-nav: minimal
+ai-examples:
+  enabled: false
 page-actions:
   options:
     copy-page: false
@@ -318,6 +317,7 @@ colors:
 favicon: ./assets/favicon.svg
 css: styles.css
 layout:
+  tabs-placement: header
   content-alignment: center
   mobile-toc: true
 settings:
