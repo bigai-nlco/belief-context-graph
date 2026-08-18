@@ -21,8 +21,17 @@ theme:
     style: default
     alignment: left
     placement: header
-  page-actions: toolbar
   footer-nav: minimal
+page-actions:
+  options:
+    copy-page: false
+    view-as-markdown: false
+    ask-ai: false
+    chatgpt: false
+    claude: false
+    claude-code: false
+    cursor: false
+    vscode: false
 navigation:
 - tab: docs
   layout:
