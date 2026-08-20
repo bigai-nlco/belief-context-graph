@@ -2148,10 +2148,14 @@ ${block.body}`, 0, 0),
 				this.editor.setText("");
 				if (!requestedMode) {
 					this.showContextModeSelector();
-				} else if (requestedMode === "default" || requestedMode === "bcg") {
+				} else if (
+					requestedMode === "default" ||
+					requestedMode === "bcg" ||
+					requestedMode === "summary"
+				) {
 					this.handleContextModeChange(requestedMode);
 				} else {
-					this.showWarning("Usage: /mode <default|bcg>");
+					this.showWarning("Usage: /mode <default|bcg|summary>");
 				}
 				return;
 			}
@@ -4468,7 +4472,7 @@ ${block.body}`, 0, 0),
 | Command | Action |
 |---------|--------|
 | \`/model\` | Select the inference model |
-| \`/mode\` | Select Default or BCG context before the first message |
+| \`/mode\` | Select Default, Summary, or BCG context before the first message |
 | \`/login\` | Configure the model API key |
 | \`/logout\` | Remove a saved model API key |
 | \`/new\` | Start a fresh BCG session |
@@ -4501,15 +4505,23 @@ ${block.body}`, 0, 0),
 		const model = this.session.state.model;
 		const title = theme.bold(theme.fg("accent", "BCG MEMORY AGENT")) + theme.fg("dim", `  v${this.version}`);
 		const graphState =
-			mode === "bcg" ? theme.fg("success", "● GRAPH ACTIVE") : theme.fg("warning", "○ GRAPH DISABLED");
+			mode === "bcg"
+				? theme.fg("success", "● GRAPH ACTIVE")
+				: mode === "summary"
+					? theme.fg("success", "● SUMMARY ACTIVE")
+					: theme.fg("warning", "○ MEMORY DISABLED");
 		const modelProvider = model?.provider === "bcg-openai" ? "bcg" : model?.provider;
 		const modelName = model ? `${modelProvider}/${model.id}` : "not configured";
 		const contextLine =
 			mode === "default"
 				? "Context  full conversation · automatic compaction"
-				: context.bcg.recentTurns < 0
-					? "Context  initial request pinned · raw history retained"
-					: `Context  initial request pinned · ${context.bcg.recentTurns} recent turns · older turns → graph`;
+				: mode === "summary"
+					? context.summary.recentTurns < 0
+						? "Context  initial request pinned · raw history retained"
+						: `Context  initial request pinned · ${context.summary.recentTurns} recent turns · older turns → summary`
+					: context.bcg.recentTurns < 0
+						? "Context  initial request pinned · raw history retained"
+						: `Context  initial request pinned · ${context.bcg.recentTurns} recent turns · older turns → graph`;
 		const graphEndpoint = mode === "bcg" ? `  ${context.bcg.url}` : "";
 		const commandLine = `${theme.fg("accent", "/help")} commands   ${theme.fg("accent", "/model")} model   ${theme.fg("accent", "/mode")} context mode`;
 		return `${title}\n${graphState}${graphEndpoint}\nMode     ${mode}\nModel    ${modelName}\n${contextLine}\n${commandLine}`;
@@ -4538,8 +4550,10 @@ ${block.body}`, 0, 0),
 		this.refreshBuiltInHeader();
 		this.showStatus(
 			mode === "bcg"
-				? "Mode: BCG · graph memory with 2 recent raw turns"
-				: "Mode: Default · full context with automatic compaction",
+				? "Mode: BCG · graph memory with recent raw turns"
+				: mode === "summary"
+					? "Mode: Summary · rolling LLM summary with recent raw turns"
+					: "Mode: Default · full context with automatic compaction",
 		);
 	}
 
@@ -4591,6 +4605,8 @@ ${block.body}`, 0, 0),
 					? theme.fg("success", "connected")
 					: theme.fg("error", "unreachable");
 		const rawWindow = context.bcg.recentTurns < 0 ? "all turns" : `${context.bcg.recentTurns} completed turns`;
+		const summaryRawWindow =
+			context.summary.recentTurns < 0 ? "all turns" : `${context.summary.recentTurns} completed turns`;
 		const info =
 			mode === "default"
 				? [
@@ -4601,16 +4617,25 @@ ${block.body}`, 0, 0),
 						`${theme.fg("dim", "Compaction:")} ${this.session.autoCompactionEnabled ? "automatic" : "disabled"}`,
 						`${theme.fg("dim", "Graph injection:")} disabled`,
 					]
-				: [
-			theme.bold(theme.fg("accent", "BCG Graph")),
-			"",
-			`${theme.fg("dim", "Mode:")} bcg`,
-			`${theme.fg("dim", "Status:")} ${status}`,
-			`${theme.fg("dim", "Endpoint:")} ${context.bcg.url}`,
-			`${theme.fg("dim", "Raw context:")} initial user input + ${rawWindow}`,
-			`${theme.fg("dim", "Graph injection:")} system prompt · Markdown`,
-			`${theme.fg("dim", "Relations:")} ${context.bcg.includeRelations ? "enabled" : "disabled"}`,
-					];
+				: mode === "summary"
+					? [
+							theme.bold(theme.fg("accent", "Rolling Summary")),
+							"",
+							`${theme.fg("dim", "Mode:")} summary`,
+							`${theme.fg("dim", "Summary model:")} ${context.summary.provider}/${context.summary.model}`,
+							`${theme.fg("dim", "Raw context:")} initial user input + ${summaryRawWindow}`,
+							`${theme.fg("dim", "Summary injection:")} system prompt · Markdown`,
+						]
+					: [
+							theme.bold(theme.fg("accent", "BCG Graph")),
+							"",
+							`${theme.fg("dim", "Mode:")} bcg`,
+							`${theme.fg("dim", "Status:")} ${status}`,
+							`${theme.fg("dim", "Endpoint:")} ${context.bcg.url}`,
+							`${theme.fg("dim", "Raw context:")} initial user input + ${rawWindow}`,
+							`${theme.fg("dim", "Graph injection:")} system prompt · Markdown`,
+							`${theme.fg("dim", "Relations:")} ${context.bcg.includeRelations ? "enabled" : "disabled"}`,
+						];
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Text(info.join("\n"), 1, 0));
 		this.ui.requestRender();

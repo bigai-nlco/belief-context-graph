@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import webbrowser
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Annotated
@@ -96,7 +97,7 @@ def _construct(ctx: typer.Context) -> None:
 
 @app.command(
     "benchmark",
-    help="Evaluate the Agent in Default and BCG context modes.",
+    help="Evaluate the Agent in Default, BCG, and Summary context modes.",
     context_settings=_FORWARD_CONTEXT,
     add_help_option=False,
 )
@@ -153,6 +154,83 @@ def _config(
                     typer.echo(f"  {key}: {item}")
         else:
             typer.echo(f"{section}: {value}")
+
+
+@app.command(
+    "viewer",
+    help="View every exact model request and response in a benchmark task.",
+)
+def _viewer(
+    source: Annotated[
+        Path,
+        typer.Argument(
+            help="Model-I/O JSONL, task-result JSON, or benchmark result directory."
+        ),
+    ],
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Destination HTML file."),
+    ] = None,
+    task: Annotated[
+        str | None,
+        typer.Option(help="Task-id substring initially selected in directory mode."),
+    ] = None,
+    host: Annotated[
+        str,
+        typer.Option(help="Directory Viewer server host."),
+    ] = "127.0.0.1",
+    port: Annotated[
+        int,
+        typer.Option(
+            min=0, max=65535, help="Directory Viewer port; 0 picks a free port."
+        ),
+    ] = 0,
+    open_browser: Annotated[
+        bool,
+        typer.Option(
+            "--open/--no-open", help="Open the generated viewer in a browser."
+        ),
+    ] = True,
+) -> None:
+    """View exact per-call model input/output traces."""
+
+    from bcg.apps.model_io_viewer import (
+        ModelIoViewerError,
+        create_model_io_viewer_server,
+        render_model_io_viewer,
+    )
+
+    try:
+        if source.expanduser().resolve().is_dir():
+            if output is not None:
+                raise ModelIoViewerError(
+                    "--output is available for a single task/trace only; "
+                    "directory mode loads tasks lazily from a local server."
+                )
+            server, url = create_model_io_viewer_server(
+                source,
+                host=host,
+                port=port,
+                task=task,
+            )
+            typer.echo(f"Model I/O viewer: {url}")
+            typer.echo("Press Ctrl+C to stop the Viewer server.")
+            if open_browser:
+                webbrowser.open(url)
+            try:
+                server.serve_forever(poll_interval=0.2)
+            except KeyboardInterrupt:
+                typer.echo("\nViewer stopped.")
+            finally:
+                server.server_close()
+            return
+        destination = render_model_io_viewer(source, output=output, task=task)
+    except ModelIoViewerError as exc:
+        typer.echo(f"bcg viewer: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(f"Model I/O viewer: {destination}")
+    if open_browser:
+        webbrowser.open(destination.as_uri())
 
 
 def main(argv: list[str] | None = None) -> None:

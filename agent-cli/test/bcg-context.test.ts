@@ -597,6 +597,14 @@ describe("BCG context management", () => {
 				includeRelations: false,
 				graphView: "compact",
 			},
+			summary: {
+				provider: "summary",
+				model: "",
+				recentTurns: -1,
+				timeoutMs: 300000,
+				maxTokens: 2048,
+				thinkingLevel: "off",
+			},
 		});
 	});
 
@@ -609,6 +617,8 @@ describe("BCG context management", () => {
 
 		setSessionContextMode(session, "bcg");
 		expect(getSessionContextMode(session)).toBe("bcg");
+		setSessionContextMode(session, "summary");
+		expect(getSessionContextMode(session)).toBe("summary");
 
 		session.appendMessage(user("first message", 1));
 		expect(hasSessionConversationStarted(session)).toBe(true);

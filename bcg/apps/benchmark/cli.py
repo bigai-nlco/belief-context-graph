@@ -33,7 +33,7 @@ def _bootstrap_env() -> None:
 
 app = typer.Typer(
     name="bcg benchmark",
-    help="Evaluate the reference Agent in Default and BCG context modes.",
+    help="Evaluate the reference Agent in Default, BCG, and Summary modes.",
     add_completion=False,
     context_settings={"help_option_names": ["-h", "--help"]},
     rich_markup_mode="rich",
@@ -43,7 +43,7 @@ console = Console()
 
 @app.callback()
 def _root() -> None:
-    """Evaluate the reference Agent in Default and BCG context modes."""
+    """Evaluate the reference Agent in Default, BCG, and Summary modes."""
 
 
 @app.command("run")
@@ -65,7 +65,7 @@ def run(
     ] = None,
     modes: Annotated[
         str,
-        typer.Option(help="Comma-separated context modes: default,bcg."),
+        typer.Option(help="Comma-separated context modes: default,bcg,summary."),
     ] = "default,bcg",
     output_dir: Annotated[
         Path | None,
@@ -133,8 +133,37 @@ def run(
     ] = 160,
     recent_turns: Annotated[
         int,
-        typer.Option(min=-1, help="Completed turns retained verbatim in BCG mode."),
+        typer.Option(
+            min=-1,
+            help="Completed turns retained verbatim in BCG and Summary modes.",
+        ),
     ] = 2,
+    summary_model: Annotated[
+        str | None,
+        typer.Option(help="Rolling-summary model; defaults to the Agent model."),
+    ] = None,
+    summary_base_url: Annotated[
+        str | None,
+        typer.Option(help="Summary API base URL; defaults to the Agent base URL."),
+    ] = None,
+    summary_api_key_env: Annotated[
+        str,
+        typer.Option(help="Environment variable holding the Summary API key."),
+    ] = "BCG_SUMMARY_API_KEY",
+    summary_thinking: Annotated[
+        str,
+        typer.Option(
+            help="Summary model thinking level: off, minimal, low, medium, high, xhigh, max."
+        ),
+    ] = "off",
+    summary_timeout_ms: Annotated[
+        int,
+        typer.Option(min=1, help="Summary model request timeout in milliseconds."),
+    ] = 300_000,
+    summary_max_tokens: Annotated[
+        int,
+        typer.Option(min=1, help="Maximum output tokens per summary update."),
+    ] = 2048,
     graph_view: Annotated[
         str,
         typer.Option(
@@ -147,6 +176,12 @@ def run(
     allow_graph_fallback: Annotated[
         bool,
         typer.Option(help="Score BCG tasks even when Graph falls back to raw context."),
+    ] = False,
+    allow_summary_fallback: Annotated[
+        bool,
+        typer.Option(
+            help="Score Summary tasks even when summarization falls back to raw context."
+        ),
     ] = False,
     allow_no_search: Annotated[
         bool,
@@ -264,13 +299,22 @@ def run(
         raise typer.BadParameter(
             "--thinking must be one of: " + ", ".join(sorted(valid_thinking))
         )
+    if summary_thinking not in valid_thinking:
+        raise typer.BadParameter(
+            "--summary-thinking must be one of: " + ", ".join(sorted(valid_thinking))
+        )
     if graph_view not in {"full", "compact"}:
         raise typer.BadParameter("--graph-view must be `full` or `compact`.")
 
     resolved_modes = tuple(value.strip() for value in modes.split(",") if value.strip())
-    invalid_modes = set(resolved_modes) - {"default", "bcg"}
+    invalid_modes = set(resolved_modes) - {"default", "bcg", "summary"}
     if not resolved_modes or invalid_modes:
-        raise typer.BadParameter("--modes must contain only `default` and/or `bcg`.")
+        raise typer.BadParameter(
+            "--modes must contain only `default`, `bcg`, and/or `summary`."
+        )
+    resolved_summary_model = (summary_model or resolved_model).strip()
+    resolved_summary_base_url = (summary_base_url or resolved_base_url).strip()
+    summary_api_key = os.environ.get(summary_api_key_env, "") or api_key
     destination = output_dir or Path("results") / "benchmarks" / time.strftime(
         "%Y%m%d-%H%M%S"
     )
@@ -301,7 +345,14 @@ def run(
         graph_max_turns=graph_max_turns,
         recent_turns=recent_turns,
         graph_view=graph_view,
+        summary_model=resolved_summary_model,
+        summary_base_url=resolved_summary_base_url,
+        summary_api_key=summary_api_key,
+        summary_thinking=summary_thinking,
+        summary_timeout_ms=summary_timeout_ms,
+        summary_max_tokens=summary_max_tokens,
         allow_graph_fallback=allow_graph_fallback,
+        allow_summary_fallback=allow_summary_fallback,
         allow_no_search=allow_no_search,
         overwrite=overwrite,
         agent_command=tuple(shlex.split(agent_command)) if agent_command else None,
@@ -338,6 +389,7 @@ def _print_summary(summary: dict[str, object], output_dir: Path) -> None:
     result_table.add_column("Scored", justify="right")
     result_table.add_column("Accuracy", justify="right")
     result_table.add_column("Mean time", justify="right")
+    result_table.add_column("Summary time", justify="right")
     token_table = Table(title="Model token usage")
     token_table.add_column("Benchmark")
     token_table.add_column("Mode")
@@ -360,6 +412,7 @@ def _print_summary(summary: dict[str, object], output_dir: Path) -> None:
                     str(values.get("evaluated", 0)),
                     f"{float(accuracy):.2%}" if accuracy is not None else "n/a",
                     f"{float(values.get('wall_time_seconds_mean', 0)):.1f}s",
+                    f"{float(values.get('summary_wall_time_seconds_mean', 0)):.1f}s",
                 )
                 model_tokens = values.get("model_token_usage")
                 if not isinstance(model_tokens, dict):
@@ -367,6 +420,7 @@ def _print_summary(summary: dict[str, object], output_dir: Path) -> None:
                 for scope, label in (
                     ("agent_model", "Agent model"),
                     ("graph_model", "Graph model"),
+                    ("summary_model", "Summary model"),
                     ("combined", "Combined"),
                 ):
                     tokens = model_tokens.get(scope)
@@ -386,6 +440,7 @@ def _print_summary(summary: dict[str, object], output_dir: Path) -> None:
         for scope, label in (
             ("agent_model", "Agent model"),
             ("graph_model", "Graph model"),
+            ("summary_model", "Summary model"),
             ("combined", "Combined"),
         ):
             tokens = overall_tokens.get(scope)

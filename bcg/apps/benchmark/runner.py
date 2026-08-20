@@ -38,6 +38,7 @@ RETRYABLE_CACHED_STATUSES = {
     "api_quota_exhausted",
     "cancelled_after_quota",
     "graph_fallback",
+    "summary_fallback",
 }
 
 
@@ -62,7 +63,14 @@ class RunConfig:
     graph_max_turns: int = 160
     recent_turns: int = 2
     graph_view: str = "full"
+    summary_model: str = ""
+    summary_base_url: str = ""
+    summary_api_key: str = field(default="", repr=False)
+    summary_thinking: str = "off"
+    summary_timeout_ms: int = 300_000
+    summary_max_tokens: int = 2048
     allow_graph_fallback: bool = False
+    allow_summary_fallback: bool = False
     allow_no_search: bool = False
     overwrite: bool = False
     agent_command: tuple[str, ...] | None = None
@@ -95,7 +103,13 @@ def run_benchmarks(
         "graph_max_turns": config.graph_max_turns,
         "recent_turns": config.recent_turns,
         "graph_view": config.graph_view,
+        "summary_model": config.summary_model,
+        "summary_base_url": config.summary_base_url,
+        "summary_thinking": config.summary_thinking,
+        "summary_timeout_ms": config.summary_timeout_ms,
+        "summary_max_tokens": config.summary_max_tokens,
         "allow_graph_fallback": config.allow_graph_fallback,
+        "allow_summary_fallback": config.allow_summary_fallback,
         "benchmarks": {
             benchmark: len(tasks) for benchmark, tasks in tasks_by_benchmark.items()
         },
@@ -262,11 +276,15 @@ def _validate_run(
 ) -> None:
     if config.graph_view not in {"full", "compact"}:
         raise ValueError("graph_view must be 'full' or 'compact'.")
-    invalid_modes = set(config.modes) - {"default", "bcg"}
+    invalid_modes = set(config.modes) - {"default", "bcg", "summary"}
     if invalid_modes:
         raise ValueError(f"Invalid context modes: {', '.join(sorted(invalid_modes))}.")
     if not config.model.strip() or not config.base_url.strip():
         raise ValueError("Agent model and base URL are required.")
+    if "summary" in config.modes and (
+        not config.summary_model.strip() or not config.summary_base_url.strip()
+    ):
+        raise ValueError("Summary mode requires a Summary model and base URL.")
     browsecomp_benchmarks = {"browsecomp", "browsecomp_zh"} & tasks_by_benchmark.keys()
     if browsecomp_benchmarks and judge is None:
         raise ValueError("BrowseComp benchmarks require an LLM judge configuration.")
@@ -294,6 +312,8 @@ def _write_agent_configuration(
 ) -> Path:
     agent_dir = output_dir / ".agent-config" / mode
     agent_dir.mkdir(parents=True, exist_ok=True)
+    summary_model = config.summary_model or config.model
+    summary_base_url = config.summary_base_url or config.base_url
     settings = {
         "defaultProvider": "benchmark",
         "defaultModel": config.model,
@@ -311,6 +331,14 @@ def _write_agent_configuration(
                 "includeRelations": True,
                 "graphView": config.graph_view,
             },
+            "summary": {
+                "provider": "summary",
+                "model": summary_model,
+                "recentTurns": config.recent_turns,
+                "timeoutMs": config.summary_timeout_ms,
+                "maxTokens": config.summary_max_tokens,
+                "thinkingLevel": config.summary_thinking,
+            },
         },
     }
     is_gpt_56 = "gpt-5.6" in config.model.casefold()
@@ -323,6 +351,14 @@ def _write_agent_configuration(
         # GPT-5.6 defaults to reasoning when the field is omitted. Keep the
         # model reasoning-capable and map the CLI's `off` level explicitly.
         model_definition["thinkingLevelMap"] = {"off": "none"}
+    summary_is_gpt_56 = "gpt-5.6" in summary_model.casefold()
+    summary_model_definition: dict[str, Any] = {
+        "id": summary_model,
+        "name": summary_model,
+        "reasoning": config.summary_thinking != "off" or summary_is_gpt_56,
+    }
+    if summary_is_gpt_56:
+        summary_model_definition["thinkingLevelMap"] = {"off": "none"}
     models = {
         "providers": {
             "benchmark": {
@@ -331,7 +367,14 @@ def _write_agent_configuration(
                 "apiKey": "$OPENAI_API_KEY",
                 "authHeader": True,
                 "models": [model_definition],
-            }
+            },
+            "summary": {
+                "baseUrl": summary_base_url,
+                "api": "openai-completions",
+                "apiKey": "$SUMMARY_API_KEY",
+                "authHeader": True,
+                "models": [summary_model_definition],
+            },
         }
     }
     _write_json(agent_dir / "settings.json", settings, mode=0o600)
@@ -367,6 +410,22 @@ def _run_one(
         / "graph-contexts"
         / f"{safe_key}.jsonl"
     )
+    summary_context_trace_path = (
+        config.output_dir.expanduser().resolve()
+        / task.benchmark
+        / mode
+        / "summary-contexts"
+        / f"{safe_key}.jsonl"
+    )
+    model_io_trace_path = (
+        config.output_dir.expanduser().resolve()
+        / task.benchmark
+        / mode
+        / "model-io"
+        / f"{safe_key}.jsonl"
+    )
+    model_io_trace_path.parent.mkdir(parents=True, exist_ok=True)
+    model_io_trace_path.unlink(missing_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="bcg-benchmark-") as temporary:
         workspace = Path(temporary)
@@ -405,6 +464,9 @@ def _run_one(
                 "OPENAI_API_KEY": config.api_key or "EMPTY",
                 "BCG_SKIP_VERSION_CHECK": "1",
                 "BCG_GRAPH_TRACE_PATH": str(graph_context_trace_path),
+                "BCG_SUMMARY_TRACE_PATH": str(summary_context_trace_path),
+                "BCG_MODEL_IO_TRACE_PATH": str(model_io_trace_path),
+                "SUMMARY_API_KEY": config.summary_api_key or config.api_key or "EMPTY",
             }
         )
         started = time.monotonic()
@@ -420,6 +482,7 @@ def _run_one(
 
     parsed = parse_agent_events(stdout)
     graph_fallback = mode == "bcg" and "[BCG context]" in stderr
+    summary_fallback = mode == "summary" and "[Summary context]" in stderr
     status = "completed"
     error: str | None = None
     score = None
@@ -459,6 +522,12 @@ def _run_one(
         status = "graph_fallback"
         error = (
             "BCG context failed and the Agent fell back to full raw context; "
+            "this sample is excluded from accuracy."
+        )
+    elif summary_fallback and not config.allow_summary_fallback:
+        status = "summary_fallback"
+        error = (
+            "Summary context failed and the Agent fell back to full raw context; "
             "this sample is excluded from accuracy."
         )
     elif not task.answers:
@@ -503,11 +572,14 @@ def _run_one(
         "wall_time_seconds": wall_time,
         "usage": parsed["usage"].as_dict(),
         "graph_usage": parsed["graph_usage"].as_dict(),
+        "summary_usage": parsed["summary_usage"].as_dict(),
+        "summary_wall_time_seconds": parsed["summary_wall_time_seconds"],
         "tool_calls": parsed["tool_calls"],
         "search_calls": search_calls,
         "search_calls_attempted": search_calls_attempted,
         "search_calls_blocked": search_calls_blocked,
         "graph_fallback": graph_fallback,
+        "summary_fallback": summary_fallback,
         "agent_exit_code": return_code,
         "agent_stop_reason": parsed["stop_reason"],
         "stderr": stderr,
@@ -516,6 +588,14 @@ def _run_one(
             str(graph_context_trace_path)
             if graph_context_trace_path.is_file()
             else None
+        ),
+        "summary_context_trace": (
+            str(summary_context_trace_path)
+            if summary_context_trace_path.is_file()
+            else None
+        ),
+        "model_io_trace": (
+            str(model_io_trace_path) if model_io_trace_path.is_file() else None
         ),
         "metadata": task.metadata,
     }
@@ -617,6 +697,8 @@ def parse_agent_events(stdout: str) -> dict[str, Any]:
     error_message = ""
     usage = TokenUsage()
     graph_usage = TokenUsage()
+    summary_usage = TokenUsage()
+    summary_wall_time_seconds = 0.0
     tool_calls: Counter[str] = Counter()
     blocked_tool_calls: Counter[str] = Counter()
     for line in stdout.splitlines():
@@ -637,6 +719,28 @@ def parse_agent_events(stdout: str) -> dict[str, Any]:
                     graph_usage.output += _int(totals.get("output_tokens"))
                     graph_usage.reasoning += _int(totals.get("reasoning_tokens"))
                     graph_usage.total += _int(totals.get("total_tokens"))
+            continue
+        if event.get("type") == "summary_usage":
+            raw_summary_usage = event.get("usage")
+            if isinstance(raw_summary_usage, dict):
+                totals = raw_summary_usage.get("llm_totals")
+                if isinstance(totals, dict):
+                    summary_usage.input += _int(totals.get("input_tokens"))
+                    summary_usage.output += _int(totals.get("output_tokens"))
+                    summary_usage.cache_read += _int(totals.get("cache_read_tokens"))
+                    summary_usage.cache_write += _int(totals.get("cache_write_tokens"))
+                    summary_usage.reasoning += _int(totals.get("reasoning_tokens"))
+                    summary_usage.total += _int(totals.get("total_tokens"))
+                costs = raw_summary_usage.get("cost")
+                if isinstance(costs, dict):
+                    summary_usage.input_cost += _float(costs.get("input"))
+                    summary_usage.output_cost += _float(costs.get("output"))
+                    summary_usage.cache_read_cost += _float(costs.get("cache_read"))
+                    summary_usage.cache_write_cost += _float(costs.get("cache_write"))
+                    summary_usage.total_cost += _float(costs.get("total"))
+                summary_wall_time_seconds += _float(
+                    raw_summary_usage.get("wall_time_seconds")
+                )
             continue
         if event.get("type") == "tool_execution_start":
             tool_calls[str(event.get("toolName") or "unknown")] += 1
@@ -673,6 +777,8 @@ def parse_agent_events(stdout: str) -> dict[str, Any]:
         "error_message": error_message,
         "usage": usage,
         "graph_usage": graph_usage,
+        "summary_usage": summary_usage,
+        "summary_wall_time_seconds": summary_wall_time_seconds,
         "tool_calls": dict(tool_calls),
         "blocked_tool_calls": dict(blocked_tool_calls),
     }
@@ -742,11 +848,38 @@ def summarize_results(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
             "graph_fallbacks": sum(
                 bool(value.get("graph_fallback")) for value in values
             ),
+            "summary_fallbacks": sum(
+                bool(value.get("summary_fallback")) for value in values
+            ),
             "wall_time_seconds_total": sum(
                 float(value.get("wall_time_seconds", 0)) for value in values
             ),
             "wall_time_seconds_mean": (
                 sum(float(value.get("wall_time_seconds", 0)) for value in values)
+                / len(values)
+                if values
+                else 0.0
+            ),
+            "summary_wall_time_seconds_total": sum(
+                float(value.get("summary_wall_time_seconds", 0)) for value in values
+            ),
+            "summary_wall_time_seconds_mean": (
+                sum(
+                    float(value.get("summary_wall_time_seconds", 0)) for value in values
+                )
+                / len(values)
+                if values
+                else 0.0
+            ),
+            "agent_only_wall_time_seconds_mean": (
+                sum(
+                    max(
+                        0.0,
+                        float(value.get("wall_time_seconds", 0))
+                        - float(value.get("summary_wall_time_seconds", 0)),
+                    )
+                    for value in values
+                )
                 / len(values)
                 if values
                 else 0.0
@@ -862,13 +995,19 @@ def _model_token_usage(values: list[dict[str, Any]]) -> dict[str, dict[str, int]
         usage_key="graph_usage",
         include_cache=False,
     )
+    summary_model = _aggregate_model_tokens(
+        values,
+        usage_key="summary_usage",
+        include_cache=True,
+    )
     combined = {
-        key: agent_model[key] + graph_model[key]
+        key: agent_model[key] + graph_model[key] + summary_model[key]
         for key in ("input_tokens", "reasoning_tokens", "output_tokens")
     }
     return {
         "agent_model": agent_model,
         "graph_model": graph_model,
+        "summary_model": summary_model,
         "combined": combined,
     }
 
@@ -878,6 +1017,13 @@ def _int(value: Any) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _float(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _group_accuracy(
@@ -937,8 +1083,11 @@ def _unexpected_failure(
         "error": str(exc),
         "usage": TokenUsage().as_dict(),
         "graph_usage": TokenUsage().as_dict(),
+        "summary_usage": TokenUsage().as_dict(),
         "wall_time_seconds": 0.0,
+        "summary_wall_time_seconds": 0.0,
         "graph_fallback": False,
+        "summary_fallback": False,
         "tool_calls": {},
         "search_calls": 0,
         "metrics": {},

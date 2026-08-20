@@ -155,6 +155,7 @@ export type AgentSessionEvent =
 	| { type: "session_info_changed"; name: string | undefined }
 	| { type: "thinking_level_changed"; level: ThinkingLevel }
 	| { type: "graph_usage"; usage: Record<string, unknown> }
+	| { type: "summary_usage"; usage: Record<string, unknown> }
 	| {
 			type: "compaction_end";
 			reason: "manual" | "threshold" | "overflow";
@@ -556,6 +557,11 @@ export class AgentSession {
 	/** Publish finalized Graph-model usage to JSON/event-stream consumers. */
 	emitGraphUsage(usage: Record<string, unknown>): void {
 		this._emit({ type: "graph_usage", usage });
+	}
+
+	/** Publish finalized rolling-summary model usage to JSON/event-stream consumers. */
+	emitSummaryUsage(usage: Record<string, unknown>): void {
+		this._emit({ type: "summary_usage", usage });
 	}
 
 	private _emitQueueUpdate(): void {
@@ -1769,8 +1775,9 @@ export class AgentSession {
 	 * @param customInstructions Optional instructions for the compaction summary
 	 */
 	async compact(customInstructions?: string): Promise<CompactionResult> {
-		if (getSessionContextMode(this.sessionManager) === "bcg") {
-			throw new Error("Traditional compaction is disabled in BCG mode.");
+		const contextMode = getSessionContextMode(this.sessionManager);
+		if (contextMode === "bcg" || contextMode === "summary") {
+			throw new Error("Traditional compaction is disabled in BCG and Summary modes.");
 		}
 		this._disconnectFromAgent();
 		await this.abort();
@@ -1942,7 +1949,8 @@ export class AgentSession {
 	 * @param skipAbortedCheck If false, include aborted messages (for pre-prompt check). Default: true
 	 */
 	private async _checkCompaction(assistantMessage: AssistantMessage, skipAbortedCheck = true): Promise<boolean> {
-		if (getSessionContextMode(this.sessionManager) === "bcg") {
+		const contextMode = getSessionContextMode(this.sessionManager);
+		if (contextMode === "bcg" || contextMode === "summary") {
 			return false;
 		}
 		const settings = this.settingsManager.getCompactionSettings();
@@ -2217,7 +2225,8 @@ export class AgentSession {
 
 	/** Whether auto-compaction is enabled */
 	get autoCompactionEnabled(): boolean {
-		return getSessionContextMode(this.sessionManager) !== "bcg" && this.settingsManager.getCompactionEnabled();
+		const contextMode = getSessionContextMode(this.sessionManager);
+		return contextMode !== "bcg" && contextMode !== "summary" && this.settingsManager.getCompactionEnabled();
 	}
 
 	async bindExtensions(bindings: ExtensionBindings): Promise<void> {

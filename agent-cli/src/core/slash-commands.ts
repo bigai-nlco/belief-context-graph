@@ -19,7 +19,11 @@ export interface BuiltinSlashCommand {
 export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "help", description: "Show BCG commands and keyboard controls" },
 	{ name: "model", description: "Select the inference model", argumentHint: "<provider/model>" },
-	{ name: "mode", description: "Switch between Default and BCG context", argumentHint: "<default|bcg>" },
+	{
+		name: "mode",
+		description: "Choose Default, BCG, or Summary context",
+		argumentHint: "<default|bcg|summary>",
+	},
 	{ name: "login", description: "Configure the model API key", argumentHint: "<provider>" },
 	{ name: "logout", description: "Remove a saved model API key" },
 	{ name: "new", description: "Start a fresh BCG session" },

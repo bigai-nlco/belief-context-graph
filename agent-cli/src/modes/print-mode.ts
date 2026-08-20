@@ -42,9 +42,8 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 		disposed = true;
 		try {
 			// Keep the JSON listener attached while session-owned resources are
-			// finalized so the terminal graph_usage event reaches benchmark runs.
-			// The event reports only Graph work used by Agent requests; the final
-			// persistence-only Graph update is intentionally excluded.
+			// finalized so graph_usage and summary_usage reach benchmark runs.
+			// Graph usage excludes the final persistence-only update.
 			await runtimeHost.dispose();
 		} finally {
 			unsubscribe?.();
