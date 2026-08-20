@@ -15,6 +15,9 @@ def _clean_generated_runtime_environment(monkeypatch) -> None:
         "BCG_AGENT_PROVIDER",
         "BCG_CONTEXT_MODE",
         "BCG_GRAPH_AUTOSTART",
+        "BCG_SUMMARY_MODEL",
+        "BCG_SUMMARY_BASE_URL",
+        "BCG_SUMMARY_API_KEY",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -48,6 +51,14 @@ def test_agent_configuration_enables_bcg_and_references_env_key(
             "includeRelations": True,
             "graphView": "full",
         },
+        "summary": {
+            "provider": "bcg-summary",
+            "model": "test-model",
+            "recentTurns": 2,
+            "timeoutMs": 300000,
+            "maxTokens": 2048,
+            "thinkingLevel": "off",
+        },
     }
     assert settings["defaultProvider"] == "bcg"
     assert settings["defaultModel"] == "test-model"
@@ -58,7 +69,56 @@ def test_agent_configuration_enables_bcg_and_references_env_key(
     assert "bcg-openai" not in models["providers"]
     assert provider["baseUrl"] == "https://example.test/v1"
     assert provider["apiKey"] == "$OPENAI_API_KEY"
+    assert models["providers"]["bcg-summary"]["apiKey"] == "$BCG_SUMMARY_API_KEY"
     assert "secret-that-must-not-be-written" not in models_text
+
+
+def test_summary_context_uses_independent_model_configuration(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("BCG_HOME", str(tmp_path))
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://agent.test/v1")
+    monkeypatch.setenv("OPENAI_MODEL", "agent-model")
+    monkeypatch.setenv("BCG_CONTEXT_MODE", "summary")
+    monkeypatch.setenv("BCG_SUMMARY_BASE_URL", "https://summary.test/v1")
+    monkeypatch.setenv("BCG_SUMMARY_MODEL", "summary-model")
+    monkeypatch.setenv("BCG_SUMMARY_THINKING", "low")
+
+    agent_dir = agent_runtime.ensure_agent_configuration("http://127.0.0.1:8848")
+
+    settings = json.loads((agent_dir / "settings.json").read_text())
+    models = json.loads((agent_dir / "models.json").read_text())
+    assert settings["contextManagement"]["provider"] == "summary"
+    assert settings["contextManagement"]["summary"] == {
+        "provider": "bcg-summary",
+        "model": "summary-model",
+        "recentTurns": 2,
+        "timeoutMs": 300000,
+        "maxTokens": 2048,
+        "thinkingLevel": "low",
+    }
+    assert models["providers"]["bcg-summary"]["baseUrl"] == ("https://summary.test/v1")
+    assert models["providers"]["bcg-summary"]["models"][0]["id"] == ("summary-model")
+
+
+def test_summary_provider_is_generated_when_agent_uses_login(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("BCG_HOME", str(tmp_path))
+    monkeypatch.setenv("OPENAI_MODEL", "agent-login-model")
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.setenv("BCG_AGENT_PROVIDER", "openai")
+    monkeypatch.setenv("BCG_SUMMARY_BASE_URL", "https://summary.test/v1")
+    monkeypatch.setenv("BCG_SUMMARY_MODEL", "summary-model")
+
+    agent_dir = agent_runtime.ensure_agent_configuration("http://127.0.0.1:8848")
+
+    settings = json.loads((agent_dir / "settings.json").read_text())
+    models = json.loads((agent_dir / "models.json").read_text())
+    assert settings["defaultProvider"] == "openai"
+    assert models["providers"]["bcg-summary"]["baseUrl"] == ("https://summary.test/v1")
 
 
 def test_existing_agent_settings_are_preserved(
@@ -225,6 +285,33 @@ def test_launch_selects_generated_bcg_model(monkeypatch, tmp_path: Path) -> None
             "test-model",
         ]
     ]
+
+
+def test_summary_mode_does_not_start_graph_server(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("BCG_HOME", str(tmp_path))
+    monkeypatch.setenv("BCG_CONTEXT_MODE", "summary")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.test/v1")
+    monkeypatch.setenv("OPENAI_MODEL", "test-model")
+    monkeypatch.setattr(
+        agent_runtime,
+        "ensure_graph_server",
+        lambda _url: (_ for _ in ()).throw(
+            AssertionError("Summary mode must not start Graph Construction")
+        ),
+    )
+    monkeypatch.setattr("bcg.apps.setup.ensure_user_setup", lambda: ({}, False))
+    monkeypatch.setattr(agent_runtime, "_resolve_agent_command", lambda: ["bcg-agent"])
+
+    class Result:
+        returncode = 0
+
+    monkeypatch.setattr(
+        agent_runtime.subprocess,
+        "run",
+        lambda *_args, **_kwargs: Result(),
+    )
+
+    assert agent_runtime.launch_interactive([]) == 0
 
 
 def test_agent_help_does_not_start_graph_server(monkeypatch, tmp_path: Path) -> None:

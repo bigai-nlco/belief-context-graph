@@ -107,7 +107,7 @@ function compactJson(value: unknown): string {
 	}
 }
 
-function contentToText(content: unknown): string {
+export function contextContentToText(content: unknown): string {
 	if (typeof content === "string") {
 		return content;
 	}
@@ -142,19 +142,19 @@ function contentToText(content: unknown): string {
 	return parts.join("\n\n").trim();
 }
 
-function messageText(message: AgentMessage): string {
+export function contextMessageText(message: AgentMessage): string {
 	switch (message.role) {
 		case "user":
 		case "assistant":
-			return contentToText(message.content);
+			return contextContentToText(message.content);
 		case "toolResult": {
-			const result = contentToText(message.content);
+			const result = contextContentToText(message.content);
 			return result ? `[Tool result: ${message.toolName}]\n${result}` : `[Tool result: ${message.toolName}]`;
 		}
 		case "bashExecution":
 			return bashExecutionToText(message);
 		case "custom":
-			return contentToText(message.content);
+			return contextContentToText(message.content);
 		case "branchSummary":
 			return message.summary;
 		case "compactionSummary":
@@ -177,9 +177,9 @@ function graphRole(message: AgentMessage): BcgTurnPayload["role"] | undefined {
 	}
 }
 
-function messageKey(message: AgentMessage): string {
+export function contextMessageKey(message: AgentMessage): string {
 	const timestamp = "timestamp" in message ? String(message.timestamp) : "";
-	return `${message.role}\u0000${timestamp}\u0000${messageText(message)}`;
+	return `${message.role}\u0000${timestamp}\u0000${contextMessageText(message)}`;
 }
 
 function hasAssistant(messages: AgentMessage[]): boolean {
@@ -219,7 +219,7 @@ export function splitBcgTurns(messages: AgentMessage[]): AgentMessage[][] {
 	return turns;
 }
 
-function partitionTurns(
+export function partitionContextTurns(
 	turns: AgentMessage[][],
 	recentTurns: number,
 ): {
@@ -570,7 +570,7 @@ export class BcgContextManager {
 
 			if (!this.seeded) {
 				const snapshot = await this.postTurns(
-					[this.turnPayload("system", this.getSystemPrompt()), this.turnPayload("user", messageText(initialUser))],
+					[this.turnPayload("system", this.getSystemPrompt()), this.turnPayload("user", contextMessageText(initialUser))],
 					signal,
 				);
 				this.updateSnapshot(snapshot);
@@ -578,16 +578,16 @@ export class BcgContextManager {
 				this.sentMessages.add(initialUser);
 			}
 
-			const initialKey = messageKey(initialUser);
+			const initialKey = contextMessageKey(initialUser);
 			let removedInitial = false;
 			const rest = messages.filter((message) => {
-				if (!removedInitial && messageKey(message) === initialKey) {
+				if (!removedInitial && contextMessageKey(message) === initialKey) {
 					removedInitial = true;
 					return false;
 				}
 				return true;
 			});
-			const { evicted, retained } = partitionTurns(splitBcgTurns(rest), this.recentTurns);
+			const { evicted, retained } = partitionContextTurns(splitBcgTurns(rest), this.recentTurns);
 			const serialized = evicted.flatMap((turn) => turn.map((message) => this.serialize(message)));
 			const unsent = serialized.filter((message) => !this.sentMessages.has(message.message));
 			const payloads = unsent.flatMap((message) => (message.payload ? [message.payload] : []));
@@ -639,11 +639,11 @@ export class BcgContextManager {
 		if (messages.length > 0) {
 			try {
 				const initialUser = this.resolveInitialUser(messages);
-				const initialKey = initialUser ? messageKey(initialUser) : undefined;
+				const initialKey = initialUser ? contextMessageKey(initialUser) : undefined;
 				let removedInitial = false;
 				const unsent = messages
 					.filter((message) => {
-						if (!removedInitial && initialKey !== undefined && messageKey(message) === initialKey) {
+						if (!removedInitial && initialKey !== undefined && contextMessageKey(message) === initialKey) {
 							removedInitial = true;
 							return false;
 						}
@@ -698,7 +698,7 @@ export class BcgContextManager {
 
 	private serialize(message: AgentMessage): SerializedMessage {
 		const role = graphRole(message);
-		const content = messageText(message);
+		const content = contextMessageText(message);
 		return {
 			message,
 			payload: role && content ? this.turnPayload(role, content) : undefined,

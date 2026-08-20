@@ -76,6 +76,20 @@ BCG_RECENT_TURNS
 
 Overrides the number of most-recent completed turns the terminal Agent keeps as raw messages in BCG context mode. Defaults to `2`. See [Reference Terminal Agent](/guides/reference-agent).
 
+## Rolling-Summary context
+
+```text
+BCG_SUMMARY_API_KEY
+BCG_SUMMARY_BASE_URL
+BCG_SUMMARY_MODEL
+BCG_SUMMARY_THINKING
+BCG_SUMMARY_RECENT_TURNS
+BCG_SUMMARY_TIMEOUT_MS
+BCG_SUMMARY_MAX_TOKENS
+```
+
+These configure the independent OpenAI-compatible model used by Summary context mode. When setup is told to reuse the Agent endpoint, it writes matching values automatically. The defaults are thinking off, a 300-second request timeout, and 2,048 output tokens per update.
+
 ## Web search and benchmarking
 
 ```text

@@ -22,7 +22,12 @@ export class ContextModeSelectorComponent extends Container {
 			{
 				value: "bcg",
 				label: "BCG",
-				description: "Graph memory · initial request + 2 recent turns",
+				description: "Graph memory · initial request + configured recent turns",
+			},
+			{
+				value: "summary",
+				label: "Summary",
+				description: "Rolling LLM summary · initial request + recent turns",
 			},
 			{
 				value: "default",
@@ -33,7 +38,7 @@ export class ContextModeSelectorComponent extends Container {
 
 		this.addChild(new DynamicBorder());
 		this.selectList = new SelectList(items, 5, getSelectListTheme(), CONTEXT_MODE_SELECT_LIST_LAYOUT);
-		this.selectList.setSelectedIndex(currentMode === "bcg" ? 0 : 1);
+		this.selectList.setSelectedIndex(currentMode === "bcg" ? 0 : currentMode === "summary" ? 1 : 2);
 		this.selectList.onSelect = (item) => {
 			onSelect(item.value as ContextManagementProvider);
 		};

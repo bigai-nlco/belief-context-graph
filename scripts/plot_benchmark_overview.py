@@ -38,11 +38,13 @@ def compose(summary: Path, horizon: Path, output: Path) -> None:
         },
     )
     title = ET.SubElement(root, _tag("title"), {"id": "title"})
-    title.text = "BrowseComp benchmark accuracy and token-cost overview"
+    title.text = "Benchmark accuracy and token-cost overview"
     description = ET.SubElement(root, _tag("desc"), {"id": "desc"})
     description.text = (
-        "Full-dataset accuracy, mean token cost, and cumulative token cost by "
-        "Agent model-call depth for BrowseComp and BrowseComp-ZH."
+        "Full-dataset accuracy and mean token cost for BrowseComp and "
+        "BrowseComp-ZH with GPT-5.6-luna, plus BrowseComp with Kimi K3; "
+        "cumulative token cost by Agent model-call depth is shown for the "
+        "GPT-5.6-luna evaluations."
     )
     ET.SubElement(
         root,

@@ -23,6 +23,7 @@ DEFAULT_RECENT_TURNS = 2
 DEFAULT_GRAPH_MAX_TURNS = 160
 DEFAULT_GRAPH_TIMEOUT_MS = 300_000
 GENERATED_PROVIDER = "bcg"
+GENERATED_SUMMARY_PROVIDER = "bcg-summary"
 LEGACY_GENERATED_PROVIDER = "bcg-openai"
 
 
@@ -83,11 +84,24 @@ def ensure_agent_configuration(graph_url: str) -> Path:
     bcg_settings = context.get("bcg")
     if not isinstance(bcg_settings, dict):
         bcg_settings = {}
+    summary_settings = context.get("summary")
+    if not isinstance(summary_settings, dict):
+        summary_settings = {}
 
     try:
         recent_turns = int(
             os.environ.get("BCG_RECENT_TURNS", str(DEFAULT_RECENT_TURNS))
         )
+        summary_recent_turns = int(
+            os.environ.get("BCG_SUMMARY_RECENT_TURNS", str(recent_turns))
+        )
+        summary_timeout_ms = int(
+            os.environ.get(
+                "BCG_SUMMARY_TIMEOUT_MS",
+                str(DEFAULT_GRAPH_TIMEOUT_MS),
+            )
+        )
+        summary_max_tokens = int(os.environ.get("BCG_SUMMARY_MAX_TOKENS", "2048"))
         timeout_ms = int(
             os.environ.get(
                 "BCG_GRAPH_TIMEOUT_MS",
@@ -102,8 +116,9 @@ def ensure_agent_configuration(graph_url: str) -> Path:
         )
     except ValueError as exc:
         raise AgentLaunchError(
-            "BCG_RECENT_TURNS, BCG_GRAPH_MAX_TURNS, and "
-            "BCG_GRAPH_TIMEOUT_MS must be integers."
+            "BCG_RECENT_TURNS, BCG_GRAPH_MAX_TURNS, BCG_GRAPH_TIMEOUT_MS, "
+            "BCG_SUMMARY_RECENT_TURNS, BCG_SUMMARY_TIMEOUT_MS, and "
+            "BCG_SUMMARY_MAX_TOKENS must be integers."
         ) from exc
 
     bcg_settings.update(
@@ -119,12 +134,32 @@ def ensure_agent_configuration(graph_url: str) -> Path:
             else "full",
         }
     )
+    summary_model = (
+        os.environ.get("BCG_SUMMARY_MODEL")
+        or os.environ.get("BCG_AGENT_MODEL")
+        or os.environ.get("OPENAI_MODEL")
+        or os.environ.get("MODEL")
+        or ""
+    ).strip()
+    summary_settings.update(
+        {
+            "provider": GENERATED_SUMMARY_PROVIDER,
+            "model": summary_model,
+            "recentTurns": max(-1, summary_recent_turns),
+            "timeoutMs": max(1, summary_timeout_ms),
+            "maxTokens": max(1, summary_max_tokens),
+            "thinkingLevel": os.environ.get("BCG_SUMMARY_THINKING", "off")
+            .strip()
+            .lower(),
+        }
+    )
     configured_context_provider = os.environ.get("BCG_CONTEXT_MODE", "").strip()
-    if configured_context_provider in {"default", "bcg"}:
+    if configured_context_provider in {"default", "bcg", "summary"}:
         context["provider"] = configured_context_provider
-    elif context.get("provider") not in {"default", "bcg"}:
+    elif context.get("provider") not in {"default", "bcg", "summary"}:
         context["provider"] = "bcg"
     context["bcg"] = bcg_settings
+    context["summary"] = summary_settings
     settings["contextManagement"] = context
     settings.setdefault("defaultThinkingLevel", "off")
     settings["enableInstallTelemetry"] = False
@@ -136,14 +171,15 @@ def ensure_agent_configuration(graph_url: str) -> Path:
         or ""
     ).strip()
     base_url = os.environ.get("OPENAI_BASE_URL", "").strip()
+    summary_base_url = (os.environ.get("BCG_SUMMARY_BASE_URL") or base_url).strip()
     agent_provider = os.environ.get("BCG_AGENT_PROVIDER", "").strip()
+    models_path = agent_dir / "models.json"
+    models = _read_json(models_path)
+    providers = models.get("providers")
+    if not isinstance(providers, dict):
+        providers = {}
+    providers.pop(LEGACY_GENERATED_PROVIDER, None)
     if model_id and base_url:
-        models_path = agent_dir / "models.json"
-        models = _read_json(models_path)
-        providers = models.get("providers")
-        if not isinstance(providers, dict):
-            providers = {}
-        providers.pop(LEGACY_GENERATED_PROVIDER, None)
         providers[GENERATED_PROVIDER] = {
             "baseUrl": base_url,
             "api": "openai-completions",
@@ -151,13 +187,32 @@ def ensure_agent_configuration(graph_url: str) -> Path:
             "authHeader": True,
             "models": [{"id": model_id, "name": model_id}],
         }
-        models["providers"] = providers
-        _write_json(models_path, models)
         settings["defaultProvider"] = GENERATED_PROVIDER
         settings["defaultModel"] = model_id
     elif model_id:
         settings["defaultProvider"] = agent_provider or "openai"
         settings["defaultModel"] = model_id
+
+    if summary_model and summary_base_url:
+        summary_definition: dict[str, Any] = {
+            "id": summary_model,
+            "name": summary_model,
+            "reasoning": os.environ.get("BCG_SUMMARY_THINKING", "off").strip().lower()
+            != "off"
+            or "gpt-5.6" in summary_model.casefold(),
+        }
+        if "gpt-5.6" in summary_model.casefold():
+            summary_definition["thinkingLevelMap"] = {"off": "none"}
+        providers[GENERATED_SUMMARY_PROVIDER] = {
+            "baseUrl": summary_base_url,
+            "api": "openai-completions",
+            "apiKey": "$BCG_SUMMARY_API_KEY",
+            "authHeader": True,
+            "models": [summary_definition],
+        }
+    if (model_id and base_url) or (summary_model and summary_base_url):
+        models["providers"] = providers
+        _write_json(models_path, models)
 
     _write_json(settings_path, settings)
     return agent_dir
@@ -384,13 +439,16 @@ def launch_interactive(arguments: list[str] | None = None) -> int:
 
         setup_config, _created = ensure_user_setup()
         graph_url = os.environ.get("BELIEF_GRAPH_URL", DEFAULT_GRAPH_URL).strip()
-        ensure_graph_server(graph_url)
+        if os.environ.get("BCG_CONTEXT_MODE", "bcg").strip() == "bcg":
+            ensure_graph_server(graph_url)
         agent_dir = ensure_agent_configuration(graph_url)
         model_arguments = _configured_model_arguments(agent_arguments)
 
     environment = os.environ.copy()
     environment["BELIEF_GRAPH_URL"] = graph_url
     environment["BCG_CODING_AGENT_DIR"] = str(agent_dir)
+    if not environment.get("BCG_SUMMARY_API_KEY") and environment.get("OPENAI_API_KEY"):
+        environment["BCG_SUMMARY_API_KEY"] = environment["OPENAI_API_KEY"]
     pending_login: str | None = None
     if not informational:
         from bcg.apps.setup import pending_login_provider

@@ -203,6 +203,44 @@ def test_setup_persists_serper_key_for_web_search(
     assert "SERPER_API_KEY=serper-secret\n" in credentials
 
 
+def test_setup_configures_summary_mode_with_agent_endpoint(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("BCG_HOME", str(tmp_path))
+    answers = iter(
+        [
+            "1",  # API key authentication
+            "https://agent.test/v1",
+            "agent-model",
+            "2",  # disable Serper
+            "3",  # summary context
+            "",  # two recent turns
+            "",  # reuse Agent endpoint/model/key
+            "",  # summary thinking off
+            "2",  # existing Graph server (not used by Summary mode)
+            "https://graph.test",
+        ]
+    )
+
+    config = setup.run_setup(
+        input_fn=lambda _prompt: next(answers),
+        secret_fn=lambda _prompt: "agent-secret",
+    )
+
+    assert config["context"] == {"mode": "summary", "recentTurns": 2}
+    assert config["summary"] == {
+        "baseUrl": "https://agent.test/v1",
+        "model": "agent-model",
+        "thinking": "off",
+        "recentTurns": 2,
+        "timeoutMs": 300000,
+        "maxTokens": 2048,
+    }
+    credentials = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "BCG_SUMMARY_API_KEY=agent-secret\n" in credentials
+
+
 def test_apply_user_configuration_uses_global_values(
     monkeypatch,
     tmp_path: Path,

@@ -9,9 +9,11 @@ import { AgentSession } from "./agent-session.ts";
 import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import { BcgContextManager } from "./context/bcg-context.ts";
 import { ensureSessionContextMode, getSessionContextMode } from "./context/context-mode.ts";
+import { SummaryContextManager } from "./context/summary-context.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ExtensionRunner, LoadExtensionsResult, SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
 import { convertToLlm } from "./messages.ts";
+import { ModelIoTraceRecorder } from "./model-io-trace.ts";
 import { findInitialModel } from "./model-resolver.ts";
 import { ModelRuntime } from "./model-runtime.ts";
 import { mergeProviderAttributionHeaders } from "./provider-attribution.ts";
@@ -305,7 +307,19 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	ensureSessionContextMode(sessionManager, settingsManager.getContextManagementSettings().provider);
 	const bcgProblemId = `${sessionManager.getSessionId()}:${randomUUID()}`;
 	const graphTracePath = process.env.BCG_GRAPH_TRACE_PATH?.trim();
+	const summaryTracePath = process.env.BCG_SUMMARY_TRACE_PATH?.trim();
+	const modelIoTracePath = process.env.BCG_MODEL_IO_TRACE_PATH?.trim();
+	const modelIoTrace = modelIoTracePath ? new ModelIoTraceRecorder(modelIoTracePath) : undefined;
 	let bcgContextManager: BcgContextManager | undefined;
+	let summaryContextManager: SummaryContextManager | undefined;
+	const getInitialUserMessage = (): AgentMessage | undefined => {
+		for (const entry of sessionManager.getBranch()) {
+			if (entry.type === "message" && entry.message.role === "user") {
+				return entry.message;
+			}
+		}
+		return undefined;
+	};
 	const getBcgContextManager = (): BcgContextManager | undefined => {
 		if (getSessionContextMode(sessionManager) !== "bcg") {
 			return undefined;
@@ -316,14 +330,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			baseUrl: contextManagementSettings.bcg.url,
 			problemId: bcgProblemId,
 			getSystemPrompt: () => agent.state.systemPrompt,
-			getInitialUserMessage: () => {
-				for (const entry of sessionManager.getBranch()) {
-					if (entry.type === "message" && entry.message.role === "user") {
-						return entry.message;
-					}
-				}
-				return undefined;
-			},
+			getInitialUserMessage,
 			onGraphContext: graphTracePath
 				? (trace) => {
 						mkdirSync(dirname(graphTracePath), { recursive: true });
@@ -337,6 +344,70 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		});
 		return bcgContextManager;
 	};
+	const getSummaryContextManager = (): SummaryContextManager | undefined => {
+		if (getSessionContextMode(sessionManager) !== "summary") {
+			return undefined;
+		}
+		const contextManagementSettings = settingsManager.getContextManagementSettings();
+		const summarySettings = contextManagementSettings.summary;
+		summaryContextManager ??= new SummaryContextManager({
+			recentTurns: summarySettings.recentTurns,
+			getInitialUserMessage,
+			complete: async (context, signal) => {
+				const summaryModel = modelRuntime.getModel(
+					summarySettings.provider,
+					summarySettings.model,
+				);
+				if (!summaryModel) {
+					throw new Error(
+						`summary model ${summarySettings.provider}/${summarySettings.model || "<unset>"} is not configured`,
+					);
+				}
+				const summaryReasoning = clampThinkingLevel(
+					summaryModel,
+					summarySettings.thinkingLevel,
+				);
+				const callId = modelIoTrace?.beginCall();
+				try {
+					const response = await modelRuntime.completeSimple(summaryModel, context, {
+						signal,
+						reasoning: summaryReasoning === "off" ? undefined : summaryReasoning,
+						maxTokens: summarySettings.maxTokens,
+						timeoutMs: summarySettings.timeoutMs,
+						maxRetries: settingsManager.getProviderRetrySettings().maxRetries,
+						maxRetryDelayMs: settingsManager.getProviderRetrySettings().maxRetryDelayMs,
+						onPayload: (payload, payloadModel) => {
+							if (callId !== undefined) {
+								modelIoTrace?.recordRequest(callId, payloadModel, payload);
+							}
+							return payload;
+						},
+					});
+					if (callId !== undefined) {
+						modelIoTrace?.recordResponse(callId, response);
+					}
+					return response;
+				} catch (error) {
+					if (callId !== undefined) {
+						modelIoTrace?.recordError(callId, error);
+					}
+					throw error;
+				}
+			},
+			onSummaryContext: summaryTracePath
+				? (trace) => {
+						mkdirSync(dirname(summaryTracePath), { recursive: true });
+						appendFileSync(
+							summaryTracePath,
+							`${JSON.stringify({ timestamp: new Date().toISOString(), ...trace })}\n`,
+							"utf8",
+						);
+					}
+				: undefined,
+		});
+		return summaryContextManager;
+	};
+	const getActiveContextManager = () => getBcgContextManager() ?? getSummaryContextManager();
 
 	agent = new Agent({
 		initialState: {
@@ -356,19 +427,32 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			const websocketConnectTimeoutMs =
 				options?.websocketConnectTimeoutMs ?? settingsManager.getWebSocketConnectTimeoutMs();
 			const headerRunner = extensionRunnerRef.current;
-			const activeBcgContextManager = getBcgContextManager();
-			const effectiveContext = activeBcgContextManager
+			const activeContextManager = getActiveContextManager();
+			const effectiveContext = activeContextManager
 				? {
 						...context,
-						systemPrompt: activeBcgContextManager.augmentSystemPrompt(context.systemPrompt),
+						systemPrompt: activeContextManager.augmentSystemPrompt(context.systemPrompt),
 					}
 				: context;
-			return modelRuntime.streamSimple(model, effectiveContext, {
+			const callId = modelIoTrace?.beginCall();
+			const upstreamOnPayload = options?.onPayload;
+			const stream = modelRuntime.streamSimple(model, effectiveContext, {
 				...options,
 				timeoutMs,
 				websocketConnectTimeoutMs,
 				maxRetries: options?.maxRetries ?? providerRetrySettings.maxRetries,
 				maxRetryDelayMs: options?.maxRetryDelayMs ?? providerRetrySettings.maxRetryDelayMs,
+				onPayload: async (payload, payloadModel) => {
+					const replacement = await upstreamOnPayload?.(payload, payloadModel);
+					if (callId !== undefined) {
+						modelIoTrace?.recordRequest(
+							callId,
+							payloadModel,
+							replacement === undefined ? payload : replacement,
+						);
+					}
+					return replacement;
+				},
 				transformHeaders: async (requestHeaders) => {
 					const headers = mergeProviderAttributionHeaders(
 						model,
@@ -381,6 +465,13 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 						: (headers ?? {});
 				},
 			});
+			if (callId !== undefined) {
+				void stream.result().then(
+					(message) => modelIoTrace?.recordResponse(callId, message),
+					(error) => modelIoTrace?.recordError(callId, error),
+				);
+			}
+			return stream;
 		},
 		onPayload: async (payload, _model) => {
 			const runner = extensionRunnerRef.current;
@@ -402,9 +493,9 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		},
 		sessionId: sessionManager.getSessionId(),
 		transformContext: async (messages, signal) => {
-			const activeBcgContextManager = getBcgContextManager();
-			const contextMessages = activeBcgContextManager
-				? await activeBcgContextManager.transform(messages, signal)
+			const activeContextManager = getActiveContextManager();
+			const contextMessages = activeContextManager
+				? await activeContextManager.transform(messages, signal)
 				: messages;
 			const runner = extensionRunnerRef.current;
 			if (!runner) return contextMessages;
@@ -456,6 +547,10 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			const graphUsage = await bcgContextManager?.release(agent.state.messages);
 			if (graphUsage) {
 				session.emitGraphUsage(graphUsage);
+			}
+			const summaryUsage = summaryContextManager?.release();
+			if (summaryUsage) {
+				session.emitSummaryUsage({ ...summaryUsage });
 			}
 		},
 	};

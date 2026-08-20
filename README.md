@@ -43,12 +43,12 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 
 <p align="center">
   <a href="assert/benchmark_overview.svg">
-    <img src="assert/benchmark_overview.svg" width="100%" alt="Full-dataset accuracy and token-cost overview for BrowseComp and BrowseComp-ZH">
+    <img src="assert/benchmark_overview.svg" width="100%" alt="Full-dataset accuracy and token-cost overview for BrowseComp and BrowseComp-ZH with GPT-5.6-luna, plus BrowseComp with Kimi K3">
   </a>
 </p>
 
 <p align="left">
-  <sub><sub>Evaluation: GPT-5.6-luna Agent with <code>thinking=low</code> · compact Graph Context, two recent completed turns, GPT-5.6-luna Graph Construction with reasoning disabled, and local <code>all-MiniLM-L6-v2</code> embeddings</sub></sub>
+  <sub><sub>Full-dataset evaluation · Agent: GPT-5.6-luna on BrowseComp and BrowseComp-ZH; Kimi K3 on BrowseComp · <code>thinking=low</code> · compact Graph Context with two recent completed turns · GPT-5.6-luna Graph Construction with reasoning disabled · local <code>all-MiniLM-L6-v2</code> embeddings</sub></sub>
 </p>
 
 
@@ -105,17 +105,28 @@ BCG is an optional context layer between an Agent and its model. In BCG mode, th
 
 ## Benchmark Adapter
 
-The reference Agent can be evaluated head-to-head in Default mode vs. BCG mode against **BrowseComp** and **BrowseComp (ZH)**, using the same Agent model, prompt, and scorer in both modes — isolating the effect of graph-backed context from every other variable.
+The reference Agent can be evaluated head-to-head in Default, BCG, and rolling-Summary modes against **BrowseComp** and **BrowseComp (ZH)**. All modes use the same Agent model, prompt, and scorer; only context management changes. Summary mode follows the same pinned initial question, recent-turn retention, eviction, and batching rules as BCG, but replaces the Graph with one rolling LLM summary injected into the system prompt.
 
 ```bash
-bcg benchmark run browsecomp browsecomp_zh --modes default,bcg \
+bcg benchmark run browsecomp browsecomp_zh --modes default,bcg,summary \
     --thinking off \
+    --summary-model gpt-4.1-mini \
+    --summary-thinking off \
     --max-problems 100 \
     --workers 8 \
     --output-dir results/browsecomp-comparison
 ```
 
-See [Evaluate with benchmarks](https://belief-context-graph.docs.buildwithfern.com/operate/benchmarking) in the documentation for dataset setup, scoring, output artifacts, and every `bcg benchmark run` option.
+By default, Summary mode reuses the Agent API endpoint and key. Use `--summary-base-url`, `--summary-model`, and `--summary-api-key-env` to give it an independent OpenAI-compatible model. Result artifacts and the final table report Agent, Graph, Summary, and combined token usage separately, plus Summary-model latency. See [Evaluate with benchmarks](https://belief-context-graph.docs.buildwithfern.com/operate/benchmarking) for dataset setup, scoring, output artifacts, and every `bcg benchmark run` option.
+
+Every new benchmark task also records the exact provider payload and finalized assistant response for each model call. Open a result directory to browse its tasks from the Task ID dropdown; traces are loaded only when selected. `--task` optionally chooses the initial task. A single task result or trace file can still be exported as a portable HTML viewer.
+
+```bash
+bcg viewer results/browsecomp-comparison/browsecomp/bcg/tasks/browsecomp-0001.json
+bcg viewer results/browsecomp-comparison --task browsecomp-0001
+```
+
+The local `model-io/` artifacts include complete prompts and tool results, so treat them as potentially sensitive experiment data.
 
 ---
 

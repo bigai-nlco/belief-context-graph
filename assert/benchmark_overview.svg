@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1145" viewBox="0 0 1280 1145" role="img" aria-labelledby="title desc">
-  <title id="title">BrowseComp benchmark accuracy and token-cost overview</title>
-  <desc id="desc">Full-dataset accuracy, mean token cost, and cumulative token cost by Agent model-call depth for BrowseComp and BrowseComp-ZH.</desc>
+  <title id="title">Benchmark accuracy and token-cost overview</title>
+  <desc id="desc">Full-dataset accuracy and mean token cost for BrowseComp and BrowseComp-ZH with GPT-5.6-luna, plus BrowseComp with Kimi K3; cumulative token cost by Agent model-call depth is shown for the GPT-5.6-luna evaluations.</desc>
   <rect width="1280" height="1145" fill="#ffffff" />
   <g font-family="Inter,Arial,sans-serif">
     <text x="640" y="39" text-anchor="middle" fill="#0f172a" font-size="27" font-weight="700">Accuracy and mean token cost by benchmark</text>
@@ -10,92 +10,135 @@
     <text x="572" y="75" fill="#0f172a" font-size="15" font-weight="600">BCG</text>
     <rect x="638" y="62" width="14" height="14" rx="3" fill="#aaa8f4" />
     <text x="662" y="75" fill="#0f172a" font-size="15" font-weight="600">Graph portion</text>
-    <text x="88" y="116" fill="#0f172a" font-size="21" font-weight="700">BrowseComp</text>
-    <text x="613" y="116" text-anchor="end" fill="#64748b" font-size="13">1,266 tasks / mode</text>
-    <text x="136.0" y="171" fill="#475569" font-size="14" font-weight="700">Accuracy</text>
-    <text x="565.0" y="171" text-anchor="end" fill="#475569" font-size="14" font-weight="700">Mean tokens / task</text>
-    <path d="M136.0 475.0H565.0" stroke="#e2e8f0" stroke-width="1" />
-    <text x="575.0" y="480.0" fill="#64748b" font-size="13">0</text>
-    <path d="M136.0 418.0H565.0" stroke="#e2e8f0" stroke-width="1" />
-    <text x="575.0" y="423.0" fill="#64748b" font-size="13">10K</text>
-    <path d="M136.0 361.0H565.0" stroke="#e2e8f0" stroke-width="1" />
-    <text x="575.0" y="366.0" fill="#64748b" font-size="13">20K</text>
-    <path d="M136.0 304.0H565.0" stroke="#e2e8f0" stroke-width="1" />
-    <text x="575.0" y="309.0" fill="#64748b" font-size="13">30K</text>
-    <path d="M136.0 247.0H565.0" stroke="#e2e8f0" stroke-width="1" />
-    <text x="575.0" y="252.0" fill="#64748b" font-size="13">40K</text>
-    <path d="M136.0 190.0H565.0" stroke="#e2e8f0" stroke-width="1" />
-    <text x="575.0" y="195.0" fill="#64748b" font-size="13">50K</text>
-    <path d="M129.0 475.0H136.0" stroke="#64748b" stroke-width="1" />
-    <text x="124.0" y="480.0" text-anchor="end" fill="#64748b" font-size="13">0%</text>
-    <path d="M129.0 418.0H136.0" stroke="#64748b" stroke-width="1" />
-    <text x="124.0" y="423.0" text-anchor="end" fill="#64748b" font-size="13">10%</text>
-    <path d="M129.0 361.0H136.0" stroke="#64748b" stroke-width="1" />
-    <text x="124.0" y="366.0" text-anchor="end" fill="#64748b" font-size="13">20%</text>
-    <path d="M129.0 304.0H136.0" stroke="#64748b" stroke-width="1" />
-    <text x="124.0" y="309.0" text-anchor="end" fill="#64748b" font-size="13">30%</text>
-    <path d="M129.0 247.0H136.0" stroke="#64748b" stroke-width="1" />
-    <text x="124.0" y="252.0" text-anchor="end" fill="#64748b" font-size="13">40%</text>
-    <path d="M129.0 190.0H136.0" stroke="#64748b" stroke-width="1" />
-    <text x="124.0" y="195.0" text-anchor="end" fill="#64748b" font-size="13">50%</text>
-    <path d="M136.0 190.0V475.0H565.0V190.0" fill="none" stroke="#cbd5e1" stroke-width="1.2" />
-    <path d="M177.0 475.0V292.0a7 7 0 0 1 7 -7h46.0a7 7 0 0 1 7 7V475.0Z" fill="#64748b" />
-    <text x="207.0" y="273.0" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">33.33%</text>
-    <text x="207.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Default</text>
-    <path d="M249.0 475.0V270.4a7 7 0 0 1 7 -7h46.0a7 7 0 0 1 7 7V475.0Z" fill="#5b5bd6" />
-    <text x="279.0" y="251.4" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">37.12%</text>
-    <text x="279.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">BCG</text>
-    <path d="M393.0 475.0V280.3a7 7 0 0 1 7 -7h46.0a7 7 0 0 1 7 7V475.0Z" fill="#64748b" />
-    <rect x="465.0" y="346.5" width="60.0" height="128.5" fill="#5b5bd6" />
-    <path d="M465.0 346.5V313.1a7 7 0 0 1 7 -7h46.0a7 7 0 0 1 7 7V346.5Z" fill="#aaa8f4" />
-    <text x="423.0" y="261.3" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">35.39K</text>
-    <text x="495.0" y="294.1" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">29.64K</text>
-    <text x="495.0" y="415.8" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="700">22.54K</text>
-    <text x="495.0" y="331.3" text-anchor="middle" fill="#312e81" font-size="13" font-weight="700">7.10K</text>
-    <text x="423.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Default</text>
-    <text x="495.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">BCG</text>
-    <text x="243.0" y="536" text-anchor="middle" fill="#0f172a" font-size="16" font-weight="700">Accuracy</text>
-    <text x="459.0" y="536" text-anchor="middle" fill="#0f172a" font-size="16" font-weight="700">Token cost</text>
-    <text x="703" y="116" fill="#0f172a" font-size="21" font-weight="700">BrowseComp-ZH</text>
-    <text x="1228" y="116" text-anchor="end" fill="#64748b" font-size="13">289 tasks / mode</text>
-    <text x="751.0" y="171" fill="#475569" font-size="14" font-weight="700">Accuracy</text>
-    <text x="1180.0" y="171" text-anchor="end" fill="#475569" font-size="14" font-weight="700">Mean tokens / task</text>
-    <path d="M751.0 475.0H1180.0" stroke="#e2e8f0" stroke-width="1" />
-    <text x="1190.0" y="480.0" fill="#64748b" font-size="13">0</text>
-    <path d="M751.0 403.8H1180.0" stroke="#e2e8f0" stroke-width="1" />
-    <text x="1190.0" y="408.8" fill="#64748b" font-size="13">10K</text>
-    <path d="M751.0 332.5H1180.0" stroke="#e2e8f0" stroke-width="1" />
-    <text x="1190.0" y="337.5" fill="#64748b" font-size="13">20K</text>
-    <path d="M751.0 261.2H1180.0" stroke="#e2e8f0" stroke-width="1" />
-    <text x="1190.0" y="266.2" fill="#64748b" font-size="13">30K</text>
-    <path d="M751.0 190.0H1180.0" stroke="#e2e8f0" stroke-width="1" />
-    <text x="1190.0" y="195.0" fill="#64748b" font-size="13">40K</text>
-    <path d="M744.0 475.0H751.0" stroke="#64748b" stroke-width="1" />
-    <text x="739.0" y="480.0" text-anchor="end" fill="#64748b" font-size="13">0%</text>
-    <path d="M744.0 380.0H751.0" stroke="#64748b" stroke-width="1" />
-    <text x="739.0" y="385.0" text-anchor="end" fill="#64748b" font-size="13">25%</text>
-    <path d="M744.0 285.0H751.0" stroke="#64748b" stroke-width="1" />
-    <text x="739.0" y="290.0" text-anchor="end" fill="#64748b" font-size="13">50%</text>
-    <path d="M744.0 190.0H751.0" stroke="#64748b" stroke-width="1" />
-    <text x="739.0" y="195.0" text-anchor="end" fill="#64748b" font-size="13">75%</text>
-    <path d="M751.0 190.0V475.0H1180.0V190.0" fill="none" stroke="#cbd5e1" stroke-width="1.2" />
-    <path d="M792.0 475.0V294.0a7 7 0 0 1 7 -7h46.0a7 7 0 0 1 7 7V475.0Z" fill="#64748b" />
-    <text x="822.0" y="275.0" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">49.48%</text>
-    <text x="822.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Default</text>
-    <path d="M864.0 475.0V257.2a7 7 0 0 1 7 -7h46.0a7 7 0 0 1 7 7V475.0Z" fill="#5b5bd6" />
-    <text x="894.0" y="238.2" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">59.17%</text>
-    <text x="894.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">BCG</text>
-    <path d="M1008.0 475.0V262.3a7 7 0 0 1 7 -7h46.0a7 7 0 0 1 7 7V475.0Z" fill="#64748b" />
-    <rect x="1080.0" y="321.5" width="60.0" height="153.5" fill="#5b5bd6" />
-    <path d="M1080.0 321.5V283.2a7 7 0 0 1 7 -7h46.0a7 7 0 0 1 7 7V321.5Z" fill="#aaa8f4" />
-    <text x="1038.0" y="243.3" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">30.84K</text>
-    <text x="1110.0" y="264.2" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">27.90K</text>
-    <text x="1110.0" y="403.2" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="700">21.55K</text>
-    <text x="1110.0" y="303.8" text-anchor="middle" fill="#312e81" font-size="13" font-weight="700">6.35K</text>
-    <text x="1038.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Default</text>
-    <text x="1110.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">BCG</text>
-    <text x="858.0" y="536" text-anchor="middle" fill="#0f172a" font-size="16" font-weight="700">Accuracy</text>
-    <text x="1074.0" y="536" text-anchor="middle" fill="#0f172a" font-size="16" font-weight="700">Token cost</text>
+    <text x="54" y="112" fill="#0f172a" font-size="19" font-weight="700">BrowseComp</text>
+    <text x="402" y="112" text-anchor="end" fill="#64748b" font-size="12">1,266 tasks / mode</text>
+    <text x="54" y="137" fill="#475569" font-size="14" font-weight="600">Agent: GPT-5.6-luna</text>
+    <text x="97.0" y="171" fill="#475569" font-size="14" font-weight="700">Accuracy</text>
+    <text x="364.0" y="171" text-anchor="end" fill="#475569" font-size="14" font-weight="700">Mean tokens / task</text>
+    <path d="M97.0 475.0H364.0" stroke="#e2e8f0" stroke-width="1" />
+    <text x="372.0" y="480.0" fill="#64748b" font-size="12">0</text>
+    <path d="M97.0 418.0H364.0" stroke="#e2e8f0" stroke-width="1" />
+    <text x="372.0" y="423.0" fill="#64748b" font-size="12">10K</text>
+    <path d="M97.0 361.0H364.0" stroke="#e2e8f0" stroke-width="1" />
+    <text x="372.0" y="366.0" fill="#64748b" font-size="12">20K</text>
+    <path d="M97.0 304.0H364.0" stroke="#e2e8f0" stroke-width="1" />
+    <text x="372.0" y="309.0" fill="#64748b" font-size="12">30K</text>
+    <path d="M97.0 247.0H364.0" stroke="#e2e8f0" stroke-width="1" />
+    <text x="372.0" y="252.0" fill="#64748b" font-size="12">40K</text>
+    <path d="M97.0 190.0H364.0" stroke="#e2e8f0" stroke-width="1" />
+    <text x="372.0" y="195.0" fill="#64748b" font-size="12">50K</text>
+    <path d="M90.0 475.0H97.0" stroke="#64748b" stroke-width="1" />
+    <text x="87.0" y="480.0" text-anchor="end" fill="#64748b" font-size="12">0%</text>
+    <path d="M90.0 418.0H97.0" stroke="#64748b" stroke-width="1" />
+    <text x="87.0" y="423.0" text-anchor="end" fill="#64748b" font-size="12">10%</text>
+    <path d="M90.0 361.0H97.0" stroke="#64748b" stroke-width="1" />
+    <text x="87.0" y="366.0" text-anchor="end" fill="#64748b" font-size="12">20%</text>
+    <path d="M90.0 304.0H97.0" stroke="#64748b" stroke-width="1" />
+    <text x="87.0" y="309.0" text-anchor="end" fill="#64748b" font-size="12">30%</text>
+    <path d="M90.0 247.0H97.0" stroke="#64748b" stroke-width="1" />
+    <text x="87.0" y="252.0" text-anchor="end" fill="#64748b" font-size="12">40%</text>
+    <path d="M90.0 190.0H97.0" stroke="#64748b" stroke-width="1" />
+    <text x="87.0" y="195.0" text-anchor="end" fill="#64748b" font-size="12">50%</text>
+    <path d="M97.0 190.0V475.0H364.0V190.0" fill="none" stroke="#cbd5e1" stroke-width="1.2" />
+    <path d="M117.0 475.0V292.0a7 7 0 0 1 7 -7h28.0a7 7 0 0 1 7 7V475.0Z" fill="#64748b" />
+    <text x="138.0" y="274.0" text-anchor="middle" fill="#0f172a" font-size="14" font-weight="700">33.33%</text>
+    <text x="138.0" y="500" text-anchor="middle" fill="#64748b" font-size="12" font-weight="600">Default</text>
+    <path d="M169.0 475.0V270.4a7 7 0 0 1 7 -7h28.0a7 7 0 0 1 7 7V475.0Z" fill="#5b5bd6" />
+    <text x="190.0" y="252.4" text-anchor="middle" fill="#0f172a" font-size="14" font-weight="700">37.12%</text>
+    <text x="190.0" y="500" text-anchor="middle" fill="#64748b" font-size="12" font-weight="600">BCG</text>
+    <path d="M271.0 475.0V280.3a7 7 0 0 1 7 -7h28.0a7 7 0 0 1 7 7V475.0Z" fill="#64748b" />
+    <rect x="323.0" y="346.5" width="42.0" height="128.5" fill="#5b5bd6" />
+    <path d="M323.0 346.5V313.1a7 7 0 0 1 7 -7h28.0a7 7 0 0 1 7 7V346.5Z" fill="#aaa8f4" />
+    <text x="292.0" y="262.3" text-anchor="middle" fill="#0f172a" font-size="14" font-weight="700">35.39K</text>
+    <text x="344.0" y="295.1" text-anchor="middle" fill="#0f172a" font-size="14" font-weight="700">29.64K</text>
+    <text x="344.0" y="415.8" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="700">22.54K</text>
+    <text x="344.0" y="330.3" text-anchor="middle" fill="#312e81" font-size="11" font-weight="700">7.10K</text>
+    <text x="292.0" y="500" text-anchor="middle" fill="#64748b" font-size="12" font-weight="600">Default</text>
+    <text x="344.0" y="500" text-anchor="middle" fill="#64748b" font-size="12" font-weight="600">BCG</text>
+    <text x="164.0" y="536" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">Accuracy</text>
+    <text x="318.0" y="536" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">Token cost</text>
+    <text x="441" y="112" fill="#0f172a" font-size="19" font-weight="700">BrowseComp-ZH</text>
+    <text x="789" y="112" text-anchor="end" fill="#64748b" font-size="12">289 tasks / mode</text>
+    <text x="441" y="137" fill="#475569" font-size="14" font-weight="600">Agent: GPT-5.6-luna</text>
+    <text x="484.0" y="171" fill="#475569" font-size="14" font-weight="700">Accuracy</text>
+    <text x="751.0" y="171" text-anchor="end" fill="#475569" font-size="14" font-weight="700">Mean tokens / task</text>
+    <path d="M484.0 475.0H751.0" stroke="#e2e8f0" stroke-width="1" />
+    <text x="759.0" y="480.0" fill="#64748b" font-size="12">0</text>
+    <path d="M484.0 403.8H751.0" stroke="#e2e8f0" stroke-width="1" />
+    <text x="759.0" y="408.8" fill="#64748b" font-size="12">10K</text>
+    <path d="M484.0 332.5H751.0" stroke="#e2e8f0" stroke-width="1" />
+    <text x="759.0" y="337.5" fill="#64748b" font-size="12">20K</text>
+    <path d="M484.0 261.2H751.0" stroke="#e2e8f0" stroke-width="1" />
+    <text x="759.0" y="266.2" fill="#64748b" font-size="12">30K</text>
+    <path d="M484.0 190.0H751.0" stroke="#e2e8f0" stroke-width="1" />
+    <text x="759.0" y="195.0" fill="#64748b" font-size="12">40K</text>
+    <path d="M477.0 475.0H484.0" stroke="#64748b" stroke-width="1" />
+    <text x="474.0" y="480.0" text-anchor="end" fill="#64748b" font-size="12">0%</text>
+    <path d="M477.0 380.0H484.0" stroke="#64748b" stroke-width="1" />
+    <text x="474.0" y="385.0" text-anchor="end" fill="#64748b" font-size="12">25%</text>
+    <path d="M477.0 285.0H484.0" stroke="#64748b" stroke-width="1" />
+    <text x="474.0" y="290.0" text-anchor="end" fill="#64748b" font-size="12">50%</text>
+    <path d="M477.0 190.0H484.0" stroke="#64748b" stroke-width="1" />
+    <text x="474.0" y="195.0" text-anchor="end" fill="#64748b" font-size="12">75%</text>
+    <path d="M484.0 190.0V475.0H751.0V190.0" fill="none" stroke="#cbd5e1" stroke-width="1.2" />
+    <path d="M504.0 475.0V294.0a7 7 0 0 1 7 -7h28.0a7 7 0 0 1 7 7V475.0Z" fill="#64748b" />
+    <text x="525.0" y="276.0" text-anchor="middle" fill="#0f172a" font-size="14" font-weight="700">49.48%</text>
+    <text x="525.0" y="500" text-anchor="middle" fill="#64748b" font-size="12" font-weight="600">Default</text>
+    <path d="M556.0 475.0V257.2a7 7 0 0 1 7 -7h28.0a7 7 0 0 1 7 7V475.0Z" fill="#5b5bd6" />
+    <text x="577.0" y="239.2" text-anchor="middle" fill="#0f172a" font-size="14" font-weight="700">59.17%</text>
+    <text x="577.0" y="500" text-anchor="middle" fill="#64748b" font-size="12" font-weight="600">BCG</text>
+    <path d="M658.0 475.0V262.3a7 7 0 0 1 7 -7h28.0a7 7 0 0 1 7 7V475.0Z" fill="#64748b" />
+    <rect x="710.0" y="321.5" width="42.0" height="153.5" fill="#5b5bd6" />
+    <path d="M710.0 321.5V283.2a7 7 0 0 1 7 -7h28.0a7 7 0 0 1 7 7V321.5Z" fill="#aaa8f4" />
+    <text x="679.0" y="244.3" text-anchor="middle" fill="#0f172a" font-size="14" font-weight="700">30.84K</text>
+    <text x="731.0" y="265.2" text-anchor="middle" fill="#0f172a" font-size="14" font-weight="700">27.90K</text>
+    <text x="731.0" y="403.2" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="700">21.55K</text>
+    <text x="731.0" y="302.8" text-anchor="middle" fill="#312e81" font-size="11" font-weight="700">6.35K</text>
+    <text x="679.0" y="500" text-anchor="middle" fill="#64748b" font-size="12" font-weight="600">Default</text>
+    <text x="731.0" y="500" text-anchor="middle" fill="#64748b" font-size="12" font-weight="600">BCG</text>
+    <text x="551.0" y="536" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">Accuracy</text>
+    <text x="705.0" y="536" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">Token cost</text>
+    <text x="828" y="112" fill="#0f172a" font-size="19" font-weight="700">BrowseComp</text>
+    <text x="1176" y="112" text-anchor="end" fill="#64748b" font-size="12">1,266 tasks / mode</text>
+    <text x="828" y="137" fill="#475569" font-size="14" font-weight="600">Agent: Kimi K3</text>
+    <text x="871.0" y="171" fill="#475569" font-size="14" font-weight="700">Accuracy</text>
+    <text x="1138.0" y="171" text-anchor="end" fill="#475569" font-size="14" font-weight="700">Mean tokens / task</text>
+    <path d="M871.0 475.0H1138.0" stroke="#e2e8f0" stroke-width="1" />
+    <text x="1146.0" y="480.0" fill="#64748b" font-size="12">0</text>
+    <path d="M871.0 393.6H1138.0" stroke="#e2e8f0" stroke-width="1" />
+    <text x="1146.0" y="398.6" fill="#64748b" font-size="12">20K</text>
+    <path d="M871.0 312.1H1138.0" stroke="#e2e8f0" stroke-width="1" />
+    <text x="1146.0" y="317.1" fill="#64748b" font-size="12">40K</text>
+    <path d="M871.0 230.7H1138.0" stroke="#e2e8f0" stroke-width="1" />
+    <text x="1146.0" y="235.7" fill="#64748b" font-size="12">60K</text>
+    <path d="M864.0 475.0H871.0" stroke="#64748b" stroke-width="1" />
+    <text x="861.0" y="480.0" text-anchor="end" fill="#64748b" font-size="12">0%</text>
+    <path d="M864.0 403.8H871.0" stroke="#64748b" stroke-width="1" />
+    <text x="861.0" y="408.8" text-anchor="end" fill="#64748b" font-size="12">15%</text>
+    <path d="M864.0 332.5H871.0" stroke="#64748b" stroke-width="1" />
+    <text x="861.0" y="337.5" text-anchor="end" fill="#64748b" font-size="12">30%</text>
+    <path d="M864.0 261.2H871.0" stroke="#64748b" stroke-width="1" />
+    <text x="861.0" y="266.2" text-anchor="end" fill="#64748b" font-size="12">45%</text>
+    <path d="M864.0 190.0H871.0" stroke="#64748b" stroke-width="1" />
+    <text x="861.0" y="195.0" text-anchor="end" fill="#64748b" font-size="12">60%</text>
+    <path d="M871.0 190.0V475.0H1138.0V190.0" fill="none" stroke="#cbd5e1" stroke-width="1.2" />
+    <path d="M891.0 475.0V259.5a7 7 0 0 1 7 -7h28.0a7 7 0 0 1 7 7V475.0Z" fill="#64748b" />
+    <text x="912.0" y="241.5" text-anchor="middle" fill="#0f172a" font-size="14" font-weight="700">46.84%</text>
+    <text x="912.0" y="500" text-anchor="middle" fill="#64748b" font-size="12" font-weight="600">Default</text>
+    <path d="M943.0 475.0V233.2a7 7 0 0 1 7 -7h28.0a7 7 0 0 1 7 7V475.0Z" fill="#5b5bd6" />
+    <text x="964.0" y="215.2" text-anchor="middle" fill="#0f172a" font-size="14" font-weight="700">52.37%</text>
+    <text x="964.0" y="500" text-anchor="middle" fill="#64748b" font-size="12" font-weight="600">BCG</text>
+    <path d="M1045.0 475.0V252.4a7 7 0 0 1 7 -7h28.0a7 7 0 0 1 7 7V475.0Z" fill="#64748b" />
+    <rect x="1097.0" y="351.8" width="42.0" height="123.2" fill="#5b5bd6" />
+    <path d="M1097.0 351.8V329.4a7 7 0 0 1 7 -7h28.0a7 7 0 0 1 7 7V351.8Z" fill="#aaa8f4" />
+    <text x="1066.0" y="234.4" text-anchor="middle" fill="#0f172a" font-size="14" font-weight="700">56.40K</text>
+    <text x="1118.0" y="311.4" text-anchor="middle" fill="#0f172a" font-size="14" font-weight="700">37.49K</text>
+    <text x="1118.0" y="418.4" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="700">30.26K</text>
+    <text x="1118.0" y="341.1" text-anchor="middle" fill="#312e81" font-size="11" font-weight="700">7.23K</text>
+    <text x="1066.0" y="500" text-anchor="middle" fill="#64748b" font-size="12" font-weight="600">Default</text>
+    <text x="1118.0" y="500" text-anchor="middle" fill="#64748b" font-size="12" font-weight="600">BCG</text>
+    <text x="938.0" y="536" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">Accuracy</text>
+    <text x="1092.0" y="536" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">Token cost</text>
   </g>
   <g font-family="Inter,Arial,sans-serif" transform="translate(0 540)">
     <text x="640" y="39" text-anchor="middle" fill="#0f172a" font-size="27" font-weight="700">Cumulative total tokens across the task horizon</text>
