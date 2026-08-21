@@ -87,6 +87,9 @@ uv run bcg
 The first run walks you through model credentials, context mode, and Graph Construction backend, and saves your choices under `~/.bcg`. See the [documentation](https://belief-context-graph.docs.buildwithfern.com/) for everything else.
 
 
+> 🔨 &ensp;`BCGRunner` — build the first belief context graph &ensp;→&ensp; [**Construct the first BCG**](https://belief-context-graph.docs.buildwithfern.com/quickstart) · [**Understand your graph**](https://belief-context-graph.docs.buildwithfern.com/first-graph)
+>
+> 🧠 &ensp;`BCGMemory` — query beliefs and assemble context;→&ensp; [**Read Memory**](https://belief-context-graph.docs.buildwithfern.com/guides/python) · [**Memory Methods**](https://belief-context-graph.docs.buildwithfern.com/sdk/memory/observe-belief)
 ---
 
 ## Architecture
@@ -99,23 +102,6 @@ BCG is an optional context layer between an Agent and its model. In BCG mode, th
   </a>
 </p>
 
----
-
-## Benchmark Adapter
-
-The reference Agent can be evaluated head-to-head in Default, BCG, and Summary modes against **BrowseComp** and **BrowseComp (ZH)**. All modes use the same Agent model, prompt, and scorer; only context management changes.
-
-```bash
-bcg benchmark run browsecomp browsecomp_zh --modes default,bcg,summary \
-    --thinking off \
-    --summary-model gpt-4.1-mini \
-    --summary-thinking off \
-    --max-problems 100 \
-    --workers 8 \
-    --output-dir results/browsecomp-comparison
-```
-
-See [Evaluate with benchmarks](https://belief-context-graph.docs.buildwithfern.com/operate/benchmarking) for dataset setup, scoring, output artifacts, and every `bcg benchmark run` option.
 
 ---
 
