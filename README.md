@@ -121,7 +121,7 @@ See [Evaluate with benchmarks](https://belief-context-graph.docs.buildwithfern.c
 
 ---
 
-## An Evidence of Belief Context Graph Usage
+## Gains of BCG for Agentic Tasks
 
 This successful BrowseComp case (`browsecomp-0836`) shows Kimi K3 using belief identities and confidence from BCG instead of repeating an already completed search.
 
