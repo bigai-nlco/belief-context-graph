@@ -123,7 +123,7 @@
 <text x="1125.0" y="405.5" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="700">21.55K</text>
 <text x="1125.0" y="302.7" text-anchor="middle" fill="#312e81" font-size="12" font-weight="700">6.35K</text>
 <text x="1125.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">BCG</text>
-<path d="M1013.0 228.1 C1025.0 219.0, 1113.0 219.0, 1125.0 237.9" fill="none" stroke="#4338ca" stroke-width="1.8" stroke-linecap="round" marker-end="url(#improvement-arrow)"/>
+<path d="M1013.0 228.1 C1025.0 209.4, 1113.0 209.4, 1125.0 237.9" fill="none" stroke="#4338ca" stroke-width="1.8" stroke-linecap="round" marker-end="url(#improvement-arrow)"/>
 <rect x="1035.0" y="193.0" width="68.0" height="20" rx="10" fill="#ffffff" stroke="#c7d2fe"/>
 <text x="1069.0" y="208.0" text-anchor="middle" fill="#4338ca" font-size="11.5" font-weight="700">−9.5%</text>
 </g>

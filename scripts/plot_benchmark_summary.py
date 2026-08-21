@@ -98,6 +98,7 @@ def _change_arrow(
     label: str,
     *,
     plot_top: float,
+    middle_y: float | None = None,
 ) -> list[str]:
     """Draw a compact curved comparison arrow above two adjacent bars."""
     # Value labels sit 12 px above each bar. Keep the complete arrow another
@@ -107,6 +108,10 @@ def _change_arrow(
     arrow_start_y = arrow_y - tilt / 2
     arrow_end_y = arrow_y + tilt / 2
     curve_y = max(plot_top + 34, min(arrow_start_y, arrow_end_y) - 14)
+    if middle_y is not None:
+        # Default and BCG surround Summary in the bar order. Lift the arc when
+        # the middle bar is tall enough for its value label to intersect it.
+        curve_y = min(curve_y, middle_y - 32)
     label_x = (start_x + end_x) / 2
     label_y = plot_top + 8
     label_width = max(68.0, len(label) * 7.2 + 18)
@@ -214,6 +219,7 @@ def render_svg(output: Path) -> None:
                 accuracy_tops[2],
                 f"+{item.accuracy_bcg - item.accuracy_default:.2f} pp",
                 plot_top=plot_top,
+                middle_y=accuracy_tops[1],
             )
         )
 
@@ -268,6 +274,7 @@ def render_svg(output: Path) -> None:
                 token_tops[2],
                 f"−{token_reduction:.1%}",
                 plot_top=plot_top,
+                middle_y=token_tops[1],
             )
         )
 
