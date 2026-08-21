@@ -125,16 +125,16 @@ def render_svg(output: Path) -> None:
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-labelledby="title desc">',
         '<title id="title">Accuracy and mean token cost by benchmark</title>',
-        '<desc id="desc">Full-dataset Default, BCG, and Summary accuracy and mean token cost for BrowseComp and BrowseComp-ZH. The light BCG segment is Graph Construction, and the light Summary segment is Summary Generation.</desc>',
+        '<desc id="desc">Full-dataset Default, Summary, and BCG accuracy and mean token cost for BrowseComp and BrowseComp-ZH. The light Summary segment is Summary Generation, and the light BCG segment is Graph Construction.</desc>',
         '<rect width="1280" height="620" fill="#ffffff"/>',
         '<g font-family="Inter,Arial,sans-serif">',
         f'<defs><marker id="improvement-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0L8 4L0 8Z" fill="{IMPROVEMENT_COLOR}"/></marker></defs>',
         f'<text x="640" y="39" text-anchor="middle" fill="{TEXT_COLOR}" font-size="27" font-weight="700">Accuracy and mean token cost by benchmark</text>',
         f'<rect x="296" y="62" width="14" height="14" rx="3" fill="{DEFAULT_COLOR}"/><text x="320" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">Default</text>',
-        f'<rect x="400" y="62" width="14" height="14" rx="3" fill="{BCG_COLOR}"/><text x="424" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">BCG</text>',
-        f'<rect x="480" y="62" width="14" height="14" rx="3" fill="{GRAPH_COLOR}"/><text x="504" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">BCG Graph Construction</text>',
-        f'<rect x="704" y="62" width="14" height="14" rx="3" fill="{SUMMARY_COLOR}"/><text x="728" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">Summary</text>',
-        f'<rect x="816" y="62" width="14" height="14" rx="3" fill="{SUMMARY_MODEL_COLOR}"/><text x="840" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">Summary Generation</text>',
+        f'<rect x="400" y="62" width="14" height="14" rx="3" fill="{SUMMARY_COLOR}"/><text x="424" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">Summary</text>',
+        f'<rect x="512" y="62" width="14" height="14" rx="3" fill="{SUMMARY_MODEL_COLOR}"/><text x="536" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">Summary Generation</text>',
+        f'<rect x="704" y="62" width="14" height="14" rx="3" fill="{BCG_COLOR}"/><text x="728" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">BCG</text>',
+        f'<rect x="784" y="62" width="14" height="14" rx="3" fill="{GRAPH_COLOR}"/><text x="808" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">BCG Graph Construction</text>',
     ]
 
     for panel_index, item in enumerate(BENCHMARKS):
@@ -180,15 +180,15 @@ def render_svg(output: Path) -> None:
 
         accuracy_values = (
             item.accuracy_default,
-            item.accuracy_bcg,
             item.accuracy_summary,
+            item.accuracy_bcg,
         )
         for index, (x, value, color, mode) in enumerate(
             zip(
                 accuracy_x,
                 accuracy_values,
-                (DEFAULT_COLOR, BCG_COLOR, SUMMARY_COLOR),
-                ("Default", "BCG", "Summary"),
+                (DEFAULT_COLOR, SUMMARY_COLOR, BCG_COLOR),
+                ("Default", "Summary", "BCG"),
                 strict=True,
             )
         ):
@@ -210,8 +210,8 @@ def render_svg(output: Path) -> None:
             _change_arrow(
                 accuracy_x[0] + bar_width / 2,
                 accuracy_tops[0],
-                accuracy_x[1] + bar_width / 2,
-                accuracy_tops[1],
+                accuracy_x[2] + bar_width / 2,
+                accuracy_tops[2],
                 f"+{item.accuracy_bcg - item.accuracy_default:.2f} pp",
                 plot_top=plot_top,
             )
@@ -232,11 +232,11 @@ def render_svg(output: Path) -> None:
 
         for x, total, memory, color, memory_color, mode in zip(
             token_x[1:],
-            (item.tokens_bcg, item.tokens_summary),
-            (item.graph_tokens, item.summary_tokens),
-            (BCG_COLOR, SUMMARY_COLOR),
-            (GRAPH_COLOR, SUMMARY_MODEL_COLOR),
-            ("BCG", "Summary"),
+            (item.tokens_summary, item.tokens_bcg),
+            (item.summary_tokens, item.graph_tokens),
+            (SUMMARY_COLOR, BCG_COLOR),
+            (SUMMARY_MODEL_COLOR, GRAPH_COLOR),
+            ("Summary", "BCG"),
             strict=True,
         ):
             total_y = _y(total, item.token_max, plot_top, plot_bottom)
@@ -256,6 +256,7 @@ def render_svg(output: Path) -> None:
 
         token_tops = (
             _y(item.tokens_default, item.token_max, plot_top, plot_bottom),
+            _y(item.tokens_summary, item.token_max, plot_top, plot_bottom),
             _y(item.tokens_bcg, item.token_max, plot_top, plot_bottom),
         )
         token_reduction = 1 - item.tokens_bcg / item.tokens_default
@@ -263,8 +264,8 @@ def render_svg(output: Path) -> None:
             _change_arrow(
                 token_x[0] + bar_width / 2,
                 token_tops[0],
-                token_x[1] + bar_width / 2,
-                token_tops[1],
+                token_x[2] + bar_width / 2,
+                token_tops[2],
                 f"−{token_reduction:.1%}",
                 plot_top=plot_top,
             )
