@@ -43,13 +43,11 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 
 <p align="center">
   <a href="assert/benchmark_overview.svg">
-    <img src="assert/benchmark_overview.svg" width="100%" alt="Full-dataset accuracy and token-cost overview for BrowseComp and BrowseComp-ZH with GPT-5.6-luna, plus BrowseComp with Kimi K3">
+    <img src="assert/benchmark_overview.svg" width="100%" alt="Full-dataset Default, BCG, and Summary accuracy and mean token cost for BrowseComp and BrowseComp-ZH, followed by the unchanged Default-versus-BCG token-horizon comparison">
   </a>
 </p>
 
-<p align="left">
-  <sub><sub>Full-dataset evaluation · Agent: GPT-5.6-luna on BrowseComp and BrowseComp-ZH; Kimi K3 on BrowseComp · <code>thinking=low</code> · compact Graph Context with two recent completed turns · GPT-5.6-luna Graph Construction with reasoning disabled · local <code>all-MiniLM-L6-v2</code> embeddings</sub></sub>
-</p>
+<p align="left"><sub><sub>Agent: gpt-5.6-luna with low-effort thinking · Graph/Summary: gpt-5.6-luna with thinking disabled · Harness: <a href="agent-cli/packages/agent-core/src/harness">repository harness</a> · BCG: compact Graph Context with two recent completed turns</sub></sub></p>
 
 
 ## Live Demo
