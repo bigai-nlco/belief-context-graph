@@ -14,6 +14,9 @@ GRID_COLOR = "#e2e8f0"
 DEFAULT_COLOR = "#64748b"
 BCG_COLOR = "#5b5bd6"
 GRAPH_COLOR = "#aaa8f4"
+SUMMARY_COLOR = "#0f9f8f"
+SUMMARY_MODEL_COLOR = "#99ded3"
+IMPROVEMENT_COLOR = "#4338ca"
 
 
 @dataclass(frozen=True)
@@ -22,11 +25,14 @@ class Benchmark:
     task_count: int
     accuracy_default: float
     accuracy_bcg: float
+    accuracy_summary: float
     accuracy_max: float
     accuracy_ticks: tuple[float, ...]
     tokens_default: float
     tokens_bcg: float
     graph_tokens: float
+    tokens_summary: float
+    summary_tokens: float
     token_max: float
     token_ticks: tuple[float, ...]
 
@@ -37,11 +43,14 @@ BENCHMARKS = (
         task_count=1266,
         accuracy_default=33.33,
         accuracy_bcg=37.12,
+        accuracy_summary=34.76,
         accuracy_max=50,
         accuracy_ticks=(0, 10, 20, 30, 40, 50),
-        tokens_default=35_390,
-        tokens_bcg=29_640,
-        graph_tokens=7_100,
+        tokens_default=35_388.39,
+        tokens_bcg=29_643.74,
+        graph_tokens=7_098.74,
+        tokens_summary=31_810.35,
+        summary_tokens=10_450.00,
         token_max=50_000,
         token_ticks=(0, 10_000, 20_000, 30_000, 40_000, 50_000),
     ),
@@ -50,11 +59,14 @@ BENCHMARKS = (
         task_count=289,
         accuracy_default=49.48,
         accuracy_bcg=59.17,
+        accuracy_summary=52.94,
         accuracy_max=75,
         accuracy_ticks=(0, 25, 50, 75),
-        tokens_default=30_840,
-        tokens_bcg=27_900,
-        graph_tokens=6_350,
+        tokens_default=30_839.81,
+        tokens_bcg=27_900.56,
+        graph_tokens=6_353.08,
+        tokens_summary=32_347.75,
+        summary_tokens=9_670.52,
         token_max=40_000,
         token_ticks=(0, 10_000, 20_000, 30_000, 40_000),
     ),
@@ -78,21 +90,51 @@ def _format_tokens(value: float) -> str:
     return f"{value / 1000:.2f}K"
 
 
+def _change_arrow(
+    start_x: float,
+    start_y: float,
+    end_x: float,
+    end_y: float,
+    label: str,
+    *,
+    plot_top: float,
+) -> list[str]:
+    """Draw a compact curved comparison arrow above two adjacent bars."""
+    # Value labels sit 12 px above each bar. Keep the complete arrow another
+    # small step above those labels instead of terminating on the bar tops.
+    arrow_y = max(plot_top + 48, min(start_y, end_y) - 34)
+    tilt = max(-16.0, min(16.0, (end_y - start_y) * 0.45))
+    arrow_start_y = arrow_y - tilt / 2
+    arrow_end_y = arrow_y + tilt / 2
+    curve_y = max(plot_top + 34, min(arrow_start_y, arrow_end_y) - 14)
+    label_x = (start_x + end_x) / 2
+    label_y = plot_top + 8
+    label_width = max(68.0, len(label) * 7.2 + 18)
+    return [
+        f'<path d="M{start_x:.1f} {arrow_start_y:.1f} C{start_x + 12:.1f} {curve_y:.1f}, {end_x - 12:.1f} {curve_y:.1f}, {end_x:.1f} {arrow_end_y:.1f}" fill="none" stroke="{IMPROVEMENT_COLOR}" stroke-width="1.8" stroke-linecap="round" marker-end="url(#improvement-arrow)"/>',
+        f'<rect x="{label_x - label_width / 2:.1f}" y="{label_y:.1f}" width="{label_width:.1f}" height="20" rx="10" fill="#ffffff" stroke="#c7d2fe"/>',
+        f'<text x="{label_x:.1f}" y="{label_y + 15:.1f}" text-anchor="middle" fill="{IMPROVEMENT_COLOR}" font-size="11.5" font-weight="700">{html.escape(label)}</text>',
+    ]
+
+
 def render_svg(output: Path) -> None:
     width, height = 1280, 620
-    plot_top, plot_bottom = 190.0, 475.0
+    plot_top, plot_bottom = 185.0, 480.0
     panel_lefts = (88.0, 703.0)
     panel_width = 525.0
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-labelledby="title desc">',
         '<title id="title">Accuracy and mean token cost by benchmark</title>',
-        '<desc id="desc">Full-dataset Default and BCG accuracy and mean token cost for BrowseComp and BrowseComp-ZH. BCG token cost is divided into Agent and Graph Construction tokens.</desc>',
+        '<desc id="desc">Full-dataset Default, BCG, and Summary accuracy and mean token cost for BrowseComp and BrowseComp-ZH. The light BCG segment is Graph Construction, and the light Summary segment is Summary Generation.</desc>',
         '<rect width="1280" height="620" fill="#ffffff"/>',
         '<g font-family="Inter,Arial,sans-serif">',
+        f'<defs><marker id="improvement-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0L8 4L0 8Z" fill="{IMPROVEMENT_COLOR}"/></marker></defs>',
         f'<text x="640" y="39" text-anchor="middle" fill="{TEXT_COLOR}" font-size="27" font-weight="700">Accuracy and mean token cost by benchmark</text>',
-        f'<rect x="438" y="62" width="14" height="14" rx="3" fill="{DEFAULT_COLOR}"/><text x="462" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">Default</text>',
-        f'<rect x="548" y="62" width="14" height="14" rx="3" fill="{BCG_COLOR}"/><text x="572" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">BCG</text>',
-        f'<rect x="638" y="62" width="14" height="14" rx="3" fill="{GRAPH_COLOR}"/><text x="662" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">Graph portion</text>',
+        f'<rect x="296" y="62" width="14" height="14" rx="3" fill="{DEFAULT_COLOR}"/><text x="320" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">Default</text>',
+        f'<rect x="400" y="62" width="14" height="14" rx="3" fill="{BCG_COLOR}"/><text x="424" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">BCG</text>',
+        f'<rect x="480" y="62" width="14" height="14" rx="3" fill="{GRAPH_COLOR}"/><text x="504" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">BCG Graph Construction</text>',
+        f'<rect x="704" y="62" width="14" height="14" rx="3" fill="{SUMMARY_COLOR}"/><text x="728" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">Summary</text>',
+        f'<rect x="816" y="62" width="14" height="14" rx="3" fill="{SUMMARY_MODEL_COLOR}"/><text x="840" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">Summary Generation</text>',
     ]
 
     for panel_index, item in enumerate(BENCHMARKS):
@@ -100,9 +142,9 @@ def render_svg(output: Path) -> None:
         right = left + panel_width
         axis_left = left + 48
         axis_right = right - 48
-        accuracy_x = (left + 89, left + 161)
-        token_x = (left + 305, left + 377)
-        bar_width = 60.0
+        accuracy_x = (left + 80, left + 136, left + 192)
+        token_x = (left + 286, left + 342, left + 398)
+        bar_width = 48.0
 
         parts.extend(
             [
@@ -136,13 +178,17 @@ def render_svg(output: Path) -> None:
             f'<path d="M{axis_left:.1f} {plot_top:.1f}V{plot_bottom:.1f}H{axis_right:.1f}V{plot_top:.1f}" fill="none" stroke="#cbd5e1" stroke-width="1.2"/>'
         )
 
-        accuracy_values = (item.accuracy_default, item.accuracy_bcg)
+        accuracy_values = (
+            item.accuracy_default,
+            item.accuracy_bcg,
+            item.accuracy_summary,
+        )
         for index, (x, value, color, mode) in enumerate(
             zip(
                 accuracy_x,
                 accuracy_values,
-                (DEFAULT_COLOR, BCG_COLOR),
-                ("Default", "BCG"),
+                (DEFAULT_COLOR, BCG_COLOR, SUMMARY_COLOR),
+                ("Default", "BCG", "Summary"),
                 strict=True,
             )
         ):
@@ -151,33 +197,77 @@ def render_svg(output: Path) -> None:
             parts.extend(
                 [
                     _rounded_bar(x, bar_y, bar_width, plot_bottom, color),
-                    f'<text x="{x + bar_width / 2:.1f}" y="{bar_y - 12:.1f}" text-anchor="middle" fill="{TEXT_COLOR}" font-size="15" font-weight="700">{value:.2f}%</text>',
+                    f'<text x="{x + bar_width / 2:.1f}" y="{bar_y - 6:.1f}" text-anchor="middle" fill="{TEXT_COLOR}" font-size="15" font-weight="700">{value:.2f}%</text>',
                     f'<text x="{x + bar_width / 2:.1f}" y="500" text-anchor="middle" fill="{MUTED_COLOR}" font-size="13" font-weight="600">{mode}</text>',
                 ]
             )
 
+        accuracy_tops = tuple(
+            _y(value, item.accuracy_max, plot_top, plot_bottom)
+            for value in accuracy_values
+        )
+        parts.extend(
+            _change_arrow(
+                accuracy_x[0] + bar_width / 2,
+                accuracy_tops[0],
+                accuracy_x[1] + bar_width / 2,
+                accuracy_tops[1],
+                f"+{item.accuracy_bcg - item.accuracy_default:.2f} pp",
+                plot_top=plot_top,
+            )
+        )
+
         default_y = _y(item.tokens_default, item.token_max, plot_top, plot_bottom)
-        bcg_y = _y(item.tokens_bcg, item.token_max, plot_top, plot_bottom)
-        agent_tokens = item.tokens_bcg - item.graph_tokens
-        graph_boundary_y = _y(agent_tokens, item.token_max, plot_top, plot_bottom)
         parts.extend(
             [
                 _rounded_bar(
                     token_x[0], default_y, bar_width, plot_bottom, DEFAULT_COLOR
                 ),
-                f'<rect x="{token_x[1]:.1f}" y="{graph_boundary_y:.1f}" width="{bar_width:.1f}" height="{plot_bottom - graph_boundary_y:.1f}" fill="{BCG_COLOR}"/>',
-                _rounded_bar(
-                    token_x[1], bcg_y, bar_width, graph_boundary_y, GRAPH_COLOR
-                ),
-                f'<text x="{token_x[0] + bar_width / 2:.1f}" y="{default_y - 12:.1f}" text-anchor="middle" fill="{TEXT_COLOR}" font-size="15" font-weight="700">{_format_tokens(item.tokens_default)}</text>',
-                f'<text x="{token_x[1] + bar_width / 2:.1f}" y="{bcg_y - 12:.1f}" text-anchor="middle" fill="{TEXT_COLOR}" font-size="15" font-weight="700">{_format_tokens(item.tokens_bcg)}</text>',
-                f'<text x="{token_x[1] + bar_width / 2:.1f}" y="{(graph_boundary_y + plot_bottom) / 2 + 5:.1f}" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="700">{_format_tokens(agent_tokens)}</text>',
-                f'<text x="{token_x[1] + bar_width / 2:.1f}" y="{(bcg_y + graph_boundary_y) / 2 + 5:.1f}" text-anchor="middle" fill="#312e81" font-size="13" font-weight="700">{_format_tokens(item.graph_tokens)}</text>',
+                f'<text x="{token_x[0] + bar_width / 2:.1f}" y="{default_y - 6:.1f}" text-anchor="middle" fill="{TEXT_COLOR}" font-size="15" font-weight="700">{_format_tokens(item.tokens_default)}</text>',
                 f'<text x="{token_x[0] + bar_width / 2:.1f}" y="500" text-anchor="middle" fill="{MUTED_COLOR}" font-size="13" font-weight="600">Default</text>',
-                f'<text x="{token_x[1] + bar_width / 2:.1f}" y="500" text-anchor="middle" fill="{MUTED_COLOR}" font-size="13" font-weight="600">BCG</text>',
-                f'<text x="{sum(accuracy_x) / 2 + bar_width / 2:.1f}" y="536" text-anchor="middle" fill="{TEXT_COLOR}" font-size="16" font-weight="700">Accuracy</text>',
-                f'<text x="{sum(token_x) / 2 + bar_width / 2:.1f}" y="536" text-anchor="middle" fill="{TEXT_COLOR}" font-size="16" font-weight="700">Token cost</text>',
+                f'<text x="{sum(accuracy_x) / len(accuracy_x) + bar_width / 2:.1f}" y="536" text-anchor="middle" fill="{TEXT_COLOR}" font-size="16" font-weight="700">Accuracy</text>',
+                f'<text x="{sum(token_x) / len(token_x) + bar_width / 2:.1f}" y="536" text-anchor="middle" fill="{TEXT_COLOR}" font-size="16" font-weight="700">Token cost</text>',
             ]
+        )
+
+        for x, total, memory, color, memory_color, mode in zip(
+            token_x[1:],
+            (item.tokens_bcg, item.tokens_summary),
+            (item.graph_tokens, item.summary_tokens),
+            (BCG_COLOR, SUMMARY_COLOR),
+            (GRAPH_COLOR, SUMMARY_MODEL_COLOR),
+            ("BCG", "Summary"),
+            strict=True,
+        ):
+            total_y = _y(total, item.token_max, plot_top, plot_bottom)
+            agent_tokens = total - memory
+            boundary_y = _y(agent_tokens, item.token_max, plot_top, plot_bottom)
+            memory_text_color = "#312e81" if mode == "BCG" else "#115e59"
+            parts.extend(
+                [
+                    f'<rect x="{x:.1f}" y="{boundary_y:.1f}" width="{bar_width:.1f}" height="{plot_bottom - boundary_y:.1f}" fill="{color}"/>',
+                    _rounded_bar(x, total_y, bar_width, boundary_y, memory_color),
+                    f'<text x="{x + bar_width / 2:.1f}" y="{total_y - 6:.1f}" text-anchor="middle" fill="{TEXT_COLOR}" font-size="15" font-weight="700">{_format_tokens(total)}</text>',
+                    f'<text x="{x + bar_width / 2:.1f}" y="{(boundary_y + plot_bottom) / 2 + 5:.1f}" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="700">{_format_tokens(agent_tokens)}</text>',
+                    f'<text x="{x + bar_width / 2:.1f}" y="{(total_y + boundary_y) / 2 + 5:.1f}" text-anchor="middle" fill="{memory_text_color}" font-size="12" font-weight="700">{_format_tokens(memory)}</text>',
+                    f'<text x="{x + bar_width / 2:.1f}" y="500" text-anchor="middle" fill="{MUTED_COLOR}" font-size="13" font-weight="600">{mode}</text>',
+                ]
+            )
+
+        token_tops = (
+            _y(item.tokens_default, item.token_max, plot_top, plot_bottom),
+            _y(item.tokens_bcg, item.token_max, plot_top, plot_bottom),
+        )
+        token_reduction = 1 - item.tokens_bcg / item.tokens_default
+        parts.extend(
+            _change_arrow(
+                token_x[0] + bar_width / 2,
+                token_tops[0],
+                token_x[1] + bar_width / 2,
+                token_tops[1],
+                f"−{token_reduction:.1%}",
+                plot_top=plot_top,
+            )
         )
 
     parts.extend(["</g>", "</svg>"])

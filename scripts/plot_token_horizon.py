@@ -241,9 +241,11 @@ def _axis_scale(values: tuple[float, ...]) -> tuple[float, tuple[float, ...]]:
 
 def render_svg(series: tuple[BenchmarkSeries, ...], output: Path) -> None:
     width, height = 1280, 620
-    plot_top, plot_bottom = 166.0, 510.0
-    plot_width = 525.0
-    plot_lefts = (88.0, 703.0)
+    plot_top, plot_bottom = 185.0, 480.0
+    panel_lefts = (88.0, 703.0)
+    panel_width = 525.0
+    plot_width = 429.0
+    plot_lefts = (136.0, 751.0)
     plot_rights = tuple(left + plot_width for left in plot_lefts)
     horizon = len(series[0].default)
     x_ticks = (1, 5, 10, 15, 20, horizon)
@@ -251,18 +253,20 @@ def render_svg(series: tuple[BenchmarkSeries, ...], output: Path) -> None:
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-labelledby="title desc">',
         '<title id="title">Cumulative total tokens across the task horizon</title>',
-        '<desc id="desc">Full-dataset comparison of Default and BCG cumulative total tokens by model call for BrowseComp and BrowseComp-ZH. BCG includes Agent and Graph Construction tokens.</desc>',
+        '<desc id="desc">Full-dataset comparison of Default and BCG cumulative total tokens by Agent step for BrowseComp and BrowseComp-ZH. BCG includes Agent and Graph Construction tokens.</desc>',
         '<rect width="1280" height="620" fill="#ffffff"/>',
         '<g font-family="Inter,Arial,sans-serif">',
         f'<text x="640" y="39" text-anchor="middle" fill="{TEXT_COLOR}" font-size="27" font-weight="700">Cumulative total tokens across the task horizon</text>',
         f'<path d="M474 69H510" stroke="{DEFAULT_COLOR}" stroke-width="5" stroke-linecap="round"/><text x="522" y="75" fill="{TEXT_COLOR}" font-size="16" font-weight="600">Default</text>',
         f'<path d="M644 69H680" stroke="{BCG_COLOR}" stroke-width="5" stroke-linecap="round"/><text x="692" y="75" fill="{TEXT_COLOR}" font-size="16" font-weight="600">BCG</text>',
-        f'<text x="24" y="338" transform="rotate(-90 24 338)" text-anchor="middle" fill="{TEXT_COLOR}" font-size="17" font-weight="600">Mean cumulative total tokens / task</text>',
+        f'<text x="24" y="332.5" transform="rotate(-90 24 332.5)" text-anchor="middle" fill="{TEXT_COLOR}" font-size="17" font-weight="600">Mean cumulative total tokens / task</text>',
     ]
 
     for panel_index, item in enumerate(series):
         left = plot_lefts[panel_index]
         right = plot_rights[panel_index]
+        panel_left = panel_lefts[panel_index]
+        panel_right = panel_left + panel_width
         y_max, y_ticks = _axis_scale(item.default + item.bcg)
         default_points = _points(
             item.default,
@@ -288,8 +292,8 @@ def render_svg(series: tuple[BenchmarkSeries, ...], output: Path) -> None:
 
         parts.extend(
             [
-                f'<text x="{left:.0f}" y="116" fill="{TEXT_COLOR}" font-size="21" font-weight="700">{html.escape(item.title)}</text>',
-                f'<text x="{right:.0f}" y="116" text-anchor="end" fill="{MUTED_COLOR}" font-size="13">{item.task_count:,} tasks / mode</text>',
+                f'<text x="{panel_left:.0f}" y="116" fill="{TEXT_COLOR}" font-size="21" font-weight="700">{html.escape(item.title)}</text>',
+                f'<text x="{panel_right:.0f}" y="116" text-anchor="end" fill="{MUTED_COLOR}" font-size="13">{item.task_count:,} tasks / mode</text>',
             ]
         )
 
@@ -315,7 +319,7 @@ def render_svg(series: tuple[BenchmarkSeries, ...], output: Path) -> None:
                 ]
             )
 
-        break_even_label = f"Break-even at ~{round(break_even_call)} calls"
+        break_even_label = f"Break-even at ~{round(break_even_call)} steps"
         parts.extend(
             [
                 f'<path d="M{break_even_x:.1f} {plot_top:.1f}V{plot_bottom:.1f}" stroke="{BCG_COLOR}" stroke-opacity="0.55" stroke-width="1.5" stroke-dasharray="5 5"/>',
@@ -350,7 +354,7 @@ def render_svg(series: tuple[BenchmarkSeries, ...], output: Path) -> None:
                 ]
             )
 
-        badge_x = left + 334
+        badge_x = right - 191
         badge_y = plot_bottom - 58
         parts.extend(
             [
@@ -360,7 +364,7 @@ def render_svg(series: tuple[BenchmarkSeries, ...], output: Path) -> None:
         )
 
         parts.append(
-            f'<text x="{(left + right) / 2:.1f}" y="580" text-anchor="middle" fill="{TEXT_COLOR}" font-size="17" font-weight="600">Agent model calls</text>'
+            f'<text x="{(left + right) / 2:.1f}" y="545" text-anchor="middle" fill="{TEXT_COLOR}" font-size="17" font-weight="600">Agent steps</text>'
         )
 
     parts.extend(["</g>", "</svg>"])
