@@ -131,7 +131,7 @@ This successful BrowseComp case (`browsecomp-0836`) shows Kimi K3 using belief i
 
 ---
 
-## Comparison with Existing Memory Solutions
+## Comparison with Relevant Solutions
 
 Agent memory systems serve different purposes. Below is a feature-level comparison of BCG against the most widely-used memory and knowledge graph solutions in the LLM agent ecosystem.
 
