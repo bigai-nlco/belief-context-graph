@@ -43,12 +43,12 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 
 <p align="center">
   <a href="assert/benchmark_overview.svg">
-    <img src="assert/benchmark_overview.svg" width="100%" alt="Full-dataset accuracy and token-cost overview for BrowseComp and BrowseComp-ZH">
+    <img src="assert/benchmark_overview.svg" width="100%" alt="Full-dataset accuracy and token-cost overview for BrowseComp and BrowseComp-ZH with GPT-5.6-luna, plus BrowseComp with Kimi K3">
   </a>
 </p>
 
 <p align="left">
-  <sub><sub>Evaluation: GPT-5.6-luna Agent with <code>thinking=low</code> · compact Graph Context, two recent completed turns, GPT-5.6-luna Graph Construction with reasoning disabled, and local <code>all-MiniLM-L6-v2</code> embeddings</sub></sub>
+  <sub><sub>Full-dataset evaluation · Agent: GPT-5.6-luna on BrowseComp and BrowseComp-ZH; Kimi K3 on BrowseComp · <code>thinking=low</code> · compact Graph Context with two recent completed turns · GPT-5.6-luna Graph Construction with reasoning disabled · local <code>all-MiniLM-L6-v2</code> embeddings</sub></sub>
 </p>
 
 
@@ -61,7 +61,7 @@ https://github.com/user-attachments/assets/fa10c247-7f6f-4567-9a1f-648c79b1df44
 <p align="center">
   <strong><a href="#quick-start">Quick Start</a></strong> &nbsp;·&nbsp;
   <strong><a href="#architecture">Architecture</a></strong> &nbsp;·&nbsp;
-  <strong><a href="#case-study-turning-graph-uncertainty-into-a-targeted-search">Case Study</a></strong> &nbsp;·&nbsp;
+  <strong><a href="#an-evidence-of-belief-context-graph-usage">Case Study</a></strong> &nbsp;·&nbsp;
   <strong><a href="#comparison-with-existing-memory-solutions">Comparison</a></strong> &nbsp;·&nbsp;
   <strong><a href="#contributing">Contributing</a></strong>
 </p>
@@ -105,58 +105,31 @@ BCG is an optional context layer between an Agent and its model. In BCG mode, th
 
 ## Benchmark Adapter
 
-The reference Agent can be evaluated head-to-head in Default mode vs. BCG mode against **BrowseComp** and **BrowseComp (ZH)**, using the same Agent model, prompt, and scorer in both modes — isolating the effect of graph-backed context from every other variable.
+The reference Agent can be evaluated head-to-head in Default, BCG, and Summary modes against **BrowseComp** and **BrowseComp (ZH)**. All modes use the same Agent model, prompt, and scorer; only context management changes.
 
 ```bash
-bcg benchmark run browsecomp browsecomp_zh --modes default,bcg \
+bcg benchmark run browsecomp browsecomp_zh --modes default,bcg,summary \
     --thinking off \
+    --summary-model gpt-4.1-mini \
+    --summary-thinking off \
     --max-problems 100 \
     --workers 8 \
     --output-dir results/browsecomp-comparison
 ```
 
-See [Evaluate with benchmarks](https://belief-context-graph.docs.buildwithfern.com/operate/benchmarking) in the documentation for dataset setup, scoring, output artifacts, and every `bcg benchmark run` option.
+See [Evaluate with benchmarks](https://belief-context-graph.docs.buildwithfern.com/operate/benchmarking) for dataset setup, scoring, output artifacts, and every `bcg benchmark run` option.
 
 ---
 
-## Case Study: Turning graph uncertainty into a targeted search
+## An Evidence of Belief Context Graph Usage
 
-This BrowseComp case shows how BCG can influence an Agent's next action, rather than simply supplying retrieved text.
+This successful BrowseComp case (`browsecomp-0836`) shows Kimi K3 using belief identities and confidence from BCG instead of repeating an already completed search.
 
-> **Task**
->
-> Identify a 1940s short story from clues involving a man in sandals, a stamp collector, and a 64-page magazine published by a company whose name contains *Pendulum*.
+<p align="center">
+  <img src="assert/case_study.svg" alt="BrowseComp task, injected graph beliefs, and selected Kimi K3 thinking passages with graph references highlighted in red" width="100%">
+</p>
 
-> **Graph state**
->
-> After several searches, the Agent's system context contained two high-confidence beliefs pointing toward a candidate, but neither belief directly established the distinctive plot connection:
->
-> ```text
-> [B72] A 1946 pulp-fiction listing identifies "White Mouse" as by Thornton Ayre, the pen name associated with John Russell Fearn. (confidence 0.98)
->
-> [B73] A search result for The Multi-Man by John Russell Fearn mentions a white mouse being given the correct treatment. (confidence 0.98)
-> ```
-
-> **Agent decision**
->
-> Graph decision: The leading candidate is “White Mouse” (B72/B73), while the plot evidence is indirect; I’ll search the distinctive breath/death wording to test that candidate against alternatives.
->
-> **Tool call**
->
-> ```json
-> {
->   "name": "web_search",
->   "arguments": {"query": "\"stamp collector's breath\" story"}
-> }
-> ```
-
-**What BCG contributed**
-
-The Agent did not treat `confidence 0.98` as proof that the candidate was correct. It separated confidence in the recorded metadata from confidence in the missing plot-level connection, cited the beliefs behind its current hypothesis, and searched for the exact evidence needed to distinguish that hypothesis from alternatives. The resulting Graph-to-action path is explicit and auditable.
-
-The displayed statement is a concise decision summary emitted for this case study, not the model's private chain-of-thought.
-
-<sub>This diagnostic trace demonstrates observability rather than answer quality; the task's final answer was incorrect.</sub>
+---
 
 ## Comparison with Existing Memory Solutions
 
