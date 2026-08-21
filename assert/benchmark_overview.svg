@@ -11,14 +11,14 @@
     <text x="640" y="39" text-anchor="middle" fill="#0f172a" font-size="27" font-weight="700">Accuracy and mean token cost by benchmark</text>
     <rect x="296" y="62" width="14" height="14" rx="3" fill="#64748b" />
     <text x="320" y="75" fill="#0f172a" font-size="15" font-weight="600">Default</text>
-    <rect x="400" y="62" width="14" height="14" rx="3" fill="#5b5bd6" />
-    <text x="424" y="75" fill="#0f172a" font-size="15" font-weight="600">BCG</text>
-    <rect x="480" y="62" width="14" height="14" rx="3" fill="#aaa8f4" />
-    <text x="504" y="75" fill="#0f172a" font-size="15" font-weight="600">BCG Graph Construction</text>
-    <rect x="704" y="62" width="14" height="14" rx="3" fill="#0f9f8f" />
-    <text x="728" y="75" fill="#0f172a" font-size="15" font-weight="600">Summary</text>
-    <rect x="816" y="62" width="14" height="14" rx="3" fill="#99ded3" />
-    <text x="840" y="75" fill="#0f172a" font-size="15" font-weight="600">Summary Generation</text>
+    <rect x="400" y="62" width="14" height="14" rx="3" fill="#0f9f8f" />
+    <text x="424" y="75" fill="#0f172a" font-size="15" font-weight="600">Summary</text>
+    <rect x="512" y="62" width="14" height="14" rx="3" fill="#99ded3" />
+    <text x="536" y="75" fill="#0f172a" font-size="15" font-weight="600">Summary Generation</text>
+    <rect x="704" y="62" width="14" height="14" rx="3" fill="#5b5bd6" />
+    <text x="728" y="75" fill="#0f172a" font-size="15" font-weight="600">BCG</text>
+    <rect x="784" y="62" width="14" height="14" rx="3" fill="#aaa8f4" />
+    <text x="808" y="75" fill="#0f172a" font-size="15" font-weight="600">BCG Graph Construction</text>
     <text x="88" y="116" fill="#0f172a" font-size="21" font-weight="700">BrowseComp</text>
     <text x="613" y="116" text-anchor="end" fill="#64748b" font-size="13">1,266 tasks / mode</text>
     <text x="136.0" y="171" fill="#475569" font-size="14" font-weight="700">Accuracy</text>
@@ -51,35 +51,35 @@
     <path d="M168.0 480.0V290.4a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V480.0Z" fill="#64748b" />
     <text x="192.0" y="277.4" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">33.33%</text>
     <text x="192.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Default</text>
-    <path d="M224.0 480.0V268.0a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V480.0Z" fill="#5b5bd6" />
-    <text x="248.0" y="255.0" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">37.12%</text>
-    <text x="248.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">BCG</text>
-    <path d="M280.0 480.0V281.9a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V480.0Z" fill="#0f9f8f" />
-    <text x="304.0" y="268.9" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">34.76%</text>
-    <text x="304.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Summary</text>
-    <path d="M192.0 238.0 C204.0 219.0, 236.0 219.0, 248.0 228.0" fill="none" stroke="#4338ca" stroke-width="1.8" stroke-linecap="round" marker-end="url(#improvement-arrow)" />
-    <rect x="182.2" y="193.0" width="75.6" height="20" rx="10" fill="#ffffff" stroke="#c7d2fe" />
-    <text x="220.0" y="208.0" text-anchor="middle" fill="#4338ca" font-size="11.5" font-weight="700">+3.79 pp</text>
+    <path d="M224.0 480.0V281.9a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V480.0Z" fill="#0f9f8f" />
+    <text x="248.0" y="268.9" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">34.76%</text>
+    <text x="248.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Summary</text>
+    <path d="M280.0 480.0V268.0a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V480.0Z" fill="#5b5bd6" />
+    <text x="304.0" y="255.0" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">37.12%</text>
+    <text x="304.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">BCG</text>
+    <path d="M192.0 238.0 C204.0 219.0, 292.0 219.0, 304.0 228.0" fill="none" stroke="#4338ca" stroke-width="1.8" stroke-linecap="round" marker-end="url(#improvement-arrow)" />
+    <rect x="210.2" y="193.0" width="75.6" height="20" rx="10" fill="#ffffff" stroke="#c7d2fe" />
+    <text x="248.0" y="208.0" text-anchor="middle" fill="#4338ca" font-size="11.5" font-weight="700">+3.79 pp</text>
     <path d="M374.0 480.0V278.2a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V480.0Z" fill="#64748b" />
     <text x="398.0" y="265.2" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">35.39K</text>
     <text x="398.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Default</text>
     <text x="248.0" y="536" text-anchor="middle" fill="#0f172a" font-size="16" font-weight="700">Accuracy</text>
     <text x="454.0" y="536" text-anchor="middle" fill="#0f172a" font-size="16" font-weight="700">Token cost</text>
-    <rect x="430.0" y="347.0" width="48.0" height="133.0" fill="#5b5bd6" />
-    <path d="M430.0 347.0V312.1a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V347.0Z" fill="#aaa8f4" />
-    <text x="454.0" y="299.1" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">29.64K</text>
-    <text x="454.0" y="418.5" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="700">22.55K</text>
-    <text x="454.0" y="331.0" text-anchor="middle" fill="#312e81" font-size="12" font-weight="700">7.10K</text>
-    <text x="454.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">BCG</text>
-    <rect x="486.0" y="354.0" width="48.0" height="126.0" fill="#0f9f8f" />
-    <path d="M486.0 354.0V299.3a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V354.0Z" fill="#99ded3" />
-    <text x="510.0" y="286.3" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">31.81K</text>
-    <text x="510.0" y="422.0" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="700">21.36K</text>
-    <text x="510.0" y="328.1" text-anchor="middle" fill="#115e59" font-size="12" font-weight="700">10.45K</text>
-    <text x="510.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Summary</text>
-    <path d="M398.0 229.6 C410.0 219.0, 442.0 219.0, 454.0 244.8" fill="none" stroke="#4338ca" stroke-width="1.8" stroke-linecap="round" marker-end="url(#improvement-arrow)" />
-    <rect x="392.0" y="193.0" width="68.0" height="20" rx="10" fill="#ffffff" stroke="#c7d2fe" />
-    <text x="426.0" y="208.0" text-anchor="middle" fill="#4338ca" font-size="11.5" font-weight="700">−16.2%</text>
+    <rect x="430.0" y="354.0" width="48.0" height="126.0" fill="#0f9f8f" />
+    <path d="M430.0 354.0V299.3a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V354.0Z" fill="#99ded3" />
+    <text x="454.0" y="286.3" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">31.81K</text>
+    <text x="454.0" y="422.0" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="700">21.36K</text>
+    <text x="454.0" y="328.1" text-anchor="middle" fill="#115e59" font-size="12" font-weight="700">10.45K</text>
+    <text x="454.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Summary</text>
+    <rect x="486.0" y="347.0" width="48.0" height="133.0" fill="#5b5bd6" />
+    <path d="M486.0 347.0V312.1a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V347.0Z" fill="#aaa8f4" />
+    <text x="510.0" y="299.1" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">29.64K</text>
+    <text x="510.0" y="418.5" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="700">22.55K</text>
+    <text x="510.0" y="331.0" text-anchor="middle" fill="#312e81" font-size="12" font-weight="700">7.10K</text>
+    <text x="510.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">BCG</text>
+    <path d="M398.0 229.6 C410.0 219.0, 498.0 219.0, 510.0 244.8" fill="none" stroke="#4338ca" stroke-width="1.8" stroke-linecap="round" marker-end="url(#improvement-arrow)" />
+    <rect x="420.0" y="193.0" width="68.0" height="20" rx="10" fill="#ffffff" stroke="#c7d2fe" />
+    <text x="454.0" y="208.0" text-anchor="middle" fill="#4338ca" font-size="11.5" font-weight="700">−16.2%</text>
     <text x="703" y="116" fill="#0f172a" font-size="21" font-weight="700">BrowseComp-ZH</text>
     <text x="1228" y="116" text-anchor="end" fill="#64748b" font-size="13">289 tasks / mode</text>
     <text x="751.0" y="171" fill="#475569" font-size="14" font-weight="700">Accuracy</text>
@@ -106,35 +106,35 @@
     <path d="M783.0 480.0V292.4a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V480.0Z" fill="#64748b" />
     <text x="807.0" y="279.4" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">49.48%</text>
     <text x="807.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Default</text>
-    <path d="M839.0 480.0V254.3a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V480.0Z" fill="#5b5bd6" />
-    <text x="863.0" y="241.3" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">59.17%</text>
-    <text x="863.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">BCG</text>
-    <path d="M895.0 480.0V278.8a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V480.0Z" fill="#0f9f8f" />
-    <text x="919.0" y="265.8" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">52.94%</text>
-    <text x="919.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Summary</text>
-    <path d="M807.0 241.0 C819.0 219.0, 851.0 219.0, 863.0 225.0" fill="none" stroke="#4338ca" stroke-width="1.8" stroke-linecap="round" marker-end="url(#improvement-arrow)" />
-    <rect x="797.2" y="193.0" width="75.6" height="20" rx="10" fill="#ffffff" stroke="#c7d2fe" />
-    <text x="835.0" y="208.0" text-anchor="middle" fill="#4338ca" font-size="11.5" font-weight="700">+9.69 pp</text>
+    <path d="M839.0 480.0V278.8a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V480.0Z" fill="#0f9f8f" />
+    <text x="863.0" y="265.8" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">52.94%</text>
+    <text x="863.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Summary</text>
+    <path d="M895.0 480.0V254.3a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V480.0Z" fill="#5b5bd6" />
+    <text x="919.0" y="241.3" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">59.17%</text>
+    <text x="919.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">BCG</text>
+    <path d="M807.0 241.0 C819.0 219.0, 907.0 219.0, 919.0 225.0" fill="none" stroke="#4338ca" stroke-width="1.8" stroke-linecap="round" marker-end="url(#improvement-arrow)" />
+    <rect x="825.2" y="193.0" width="75.6" height="20" rx="10" fill="#ffffff" stroke="#c7d2fe" />
+    <text x="863.0" y="208.0" text-anchor="middle" fill="#4338ca" font-size="11.5" font-weight="700">+9.69 pp</text>
     <path d="M989.0 480.0V259.6a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V480.0Z" fill="#64748b" />
     <text x="1013.0" y="246.6" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">30.84K</text>
     <text x="1013.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Default</text>
     <text x="863.0" y="536" text-anchor="middle" fill="#0f172a" font-size="16" font-weight="700">Accuracy</text>
     <text x="1069.0" y="536" text-anchor="middle" fill="#0f172a" font-size="16" font-weight="700">Token cost</text>
-    <rect x="1045.0" y="321.1" width="48.0" height="158.9" fill="#5b5bd6" />
-    <path d="M1045.0 321.1V281.2a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V321.1Z" fill="#aaa8f4" />
-    <text x="1069.0" y="268.2" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">27.90K</text>
-    <text x="1069.0" y="405.5" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="700">21.55K</text>
-    <text x="1069.0" y="302.7" text-anchor="middle" fill="#312e81" font-size="12" font-weight="700">6.35K</text>
-    <text x="1069.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">BCG</text>
-    <rect x="1101.0" y="312.8" width="48.0" height="167.2" fill="#0f9f8f" />
-    <path d="M1101.0 312.8V248.4a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V312.8Z" fill="#99ded3" />
-    <text x="1125.0" y="235.4" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">32.35K</text>
-    <text x="1125.0" y="401.4" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="700">22.68K</text>
-    <text x="1125.0" y="282.1" text-anchor="middle" fill="#115e59" font-size="12" font-weight="700">9.67K</text>
-    <text x="1125.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Summary</text>
-    <path d="M1013.0 228.1 C1025.0 219.0, 1057.0 219.0, 1069.0 237.9" fill="none" stroke="#4338ca" stroke-width="1.8" stroke-linecap="round" marker-end="url(#improvement-arrow)" />
-    <rect x="1007.0" y="193.0" width="68.0" height="20" rx="10" fill="#ffffff" stroke="#c7d2fe" />
-    <text x="1041.0" y="208.0" text-anchor="middle" fill="#4338ca" font-size="11.5" font-weight="700">−9.5%</text>
+    <rect x="1045.0" y="312.8" width="48.0" height="167.2" fill="#0f9f8f" />
+    <path d="M1045.0 312.8V248.4a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V312.8Z" fill="#99ded3" />
+    <text x="1069.0" y="235.4" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">32.35K</text>
+    <text x="1069.0" y="401.4" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="700">22.68K</text>
+    <text x="1069.0" y="282.1" text-anchor="middle" fill="#115e59" font-size="12" font-weight="700">9.67K</text>
+    <text x="1069.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">Summary</text>
+    <rect x="1101.0" y="321.1" width="48.0" height="158.9" fill="#5b5bd6" />
+    <path d="M1101.0 321.1V281.2a7 7 0 0 1 7 -7h34.0a7 7 0 0 1 7 7V321.1Z" fill="#aaa8f4" />
+    <text x="1125.0" y="268.2" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">27.90K</text>
+    <text x="1125.0" y="405.5" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="700">21.55K</text>
+    <text x="1125.0" y="302.7" text-anchor="middle" fill="#312e81" font-size="12" font-weight="700">6.35K</text>
+    <text x="1125.0" y="500" text-anchor="middle" fill="#64748b" font-size="13" font-weight="600">BCG</text>
+    <path d="M1013.0 228.1 C1025.0 209.4, 1113.0 209.4, 1125.0 237.9" fill="none" stroke="#4338ca" stroke-width="1.8" stroke-linecap="round" marker-end="url(#improvement-arrow)" />
+    <rect x="1035.0" y="193.0" width="68.0" height="20" rx="10" fill="#ffffff" stroke="#c7d2fe" />
+    <text x="1069.0" y="208.0" text-anchor="middle" fill="#4338ca" font-size="11.5" font-weight="700">−9.5%</text>
   </g>
   <g font-family="Inter,Arial,sans-serif" transform="translate(0 540)">
     <text x="640" y="39" text-anchor="middle" fill="#0f172a" font-size="27" font-weight="700">Cumulative total tokens across the task horizon</text>
