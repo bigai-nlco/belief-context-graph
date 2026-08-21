@@ -89,7 +89,7 @@ The first run walks you through model credentials, context mode, and Graph Const
 
 > 🔨 &ensp;`BCGRunner` — build the first belief context graph &ensp;→&ensp; [**Construct the first BCG**](https://belief-context-graph.docs.buildwithfern.com/quickstart) · [**Understand your graph**](https://belief-context-graph.docs.buildwithfern.com/first-graph)
 >
-> 🧠 &ensp;`BCGMemory` — query beliefs and assemble context;→&ensp; [**Read Memory**](https://belief-context-graph.docs.buildwithfern.com/guides/python) · [**Memory Methods**](https://belief-context-graph.docs.buildwithfern.com/sdk/memory/observe-belief)
+> 🧠 &ensp;`BCGMemory` — query beliefs and assemble context  &ensp;→&ensp; [**Read Memory**](https://belief-context-graph.docs.buildwithfern.com/guides/python) · [**Memory Methods**](https://belief-context-graph.docs.buildwithfern.com/sdk/memory/observe-belief)
 ---
 
 ## Architecture
