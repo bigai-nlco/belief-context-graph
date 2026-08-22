@@ -1,12 +1,15 @@
-name: Deploy BCG documentation
+name: Deploy BCG website
 
 on:
   push:
     branches:
       - main
-      - master
     paths:
-      - "docs/**"
+      - "website/**"
+      - "assert/architecture.svg"
+      - "assert/benchmark_overview.svg"
+      - "assert/case_study.svg"
+      - "scripts/build-pages-site.sh"
       - ".github/workflows/deploy-docs.yml"
   workflow_dispatch:
 
@@ -29,10 +32,13 @@ jobs:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload documentation artifact
+      - name: Build static website
+        run: sh scripts/build-pages-site.sh
+
+      - name: Upload website artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: ./docs
+          path: ./_site
           include-hidden-files: true
 
   deploy:

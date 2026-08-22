@@ -1,0 +1,16 @@
+{
+  "name": "Belief Context Graph",
+  "short_name": "BCG",
+  "description": "Memory that knows why it believes.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f7f8fc",
+  "theme_color": "#11122b",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
