@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#11122b">
+    <meta name="description" content="Belief Context Graph turns agent trajectories into inspectable beliefs, evidence, confidence, and relationships—then returns the right graph context to the next model call.">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Belief Context Graph">
+    <meta property="og:description" content="Memory that knows why it believes.">
+    <meta property="og:url" content="https://bigai-nlco.github.io/belief-context-graph/">
+    <title>Belief Context Graph — Memory that knows why it believes</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="manifest" href="site.webmanifest">
+    <link rel="preconnect" href="https://miaoda.feishu.cn">
+    <link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Manrope:wght@400;500;600;700;800&amp;display=swap">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="responsive.css">
+    <script src="main.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header" data-header>
+      <div class="shell nav-shell">
+        <a class="brand" href="#top" aria-label="Belief Context Graph home">
+          <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+            <path d="M9 11.5 20 5l11 6.5v17L20 35 9 28.5Z"></path>
+            <circle cx="14" cy="16" r="2.8"></circle>
+            <circle cx="26" cy="14" r="2.8"></circle>
+            <circle cx="21" cy="27" r="2.8"></circle>
+            <path d="m16.4 16 7-1.4M15.5 18.2l4.2 6.4m5-8.2-2.6 8.1"></path>
+          </svg>
+          <span>Belief Context Graph</span>
+        </a>
+
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" data-nav-toggle>
+          <span></span><span></span><span></span>
+          <span class="sr-only">Toggle navigation</span>
+        </button>
+
+        <nav class="site-nav" id="site-nav" aria-label="Primary navigation" data-nav>
+          <a href="#why">Why BCG</a>
+          <a href="#benchmarks">Benchmarks</a>
+          <a href="#architecture">Architecture</a>
+          <a href="#integrate">Integrate</a>
+          <a href="https://belief-context-graph.docs.buildwithfern.com/" target="_blank" rel="noreferrer">Docs</a>
+          <a class="nav-github" href="https://github.com/bigai-nlco/belief-context-graph" target="_blank" rel="noreferrer">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.87c-2.78.6-3.37-1.18-3.37-1.18-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.34 1.09 2.91.83.09-.65.35-1.09.64-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02A9.6 9.6 0 0 1 12 6.82a9.6 9.6 0 0 1 2.5.34c1.92-1.3 2.76-1.02 2.76-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.35 4.68-4.58 4.93.36.31.68.92.68 1.86V21c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"></path></svg>
+            GitHub
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top">
+        <div class="hero-grid shell">
+          <div class="hero-copy reveal">
+            <div class="eyebrow"><span class="signal-dot"></span> Open-source context infrastructure</div>
+            <h1>Memory that knows <span>why</span> it believes.</h1>
+            <p class="hero-lede">BCG turns agent trajectories into inspectable beliefs, evidence, confidence, and relationships—then returns the right graph state to the next model call.</p>
+            <div class="hero-actions">
+              <a class="button button-primary" href="https://belief-context-graph.docs.buildwithfern.com/quickstart" target="_blank" rel="noreferrer">Build your first graph <span aria-hidden="true">→</span></a>
+              <a class="button button-ghost" href="https://github.com/bigai-nlco/belief-context-graph" target="_blank" rel="noreferrer">Explore the repository</a>
+            </div>
+            <dl class="hero-facts" aria-label="Project properties">
+              <div><dt>Integration</dt><dd>Python SDK · HTTP</dd></div>
+              <div><dt>Runtime</dt><dd>Agent-agnostic</dd></div>
+              <div><dt>Artifacts</dt><dd>Local-first</dd></div>
+            </dl>
+          </div>
+
+          <div class="graph-instrument reveal" data-graph-stage>
+            <div class="instrument-head">
+              <div><span class="instrument-kicker">Graph state</span><strong>research-run / 08</strong></div>
+              <span class="status-pill"><span></span> Live context</span>
+            </div>
+
+            <div class="graph-canvas" aria-label="Interactive illustrative belief graph">
+              <svg class="graph-edges" viewBox="0 0 620 360" preserveAspectRatio="none" aria-hidden="true">
+                <path class="edge edge-support" d="M112 190C185 110 215 95 290 110"></path>
+                <path class="edge edge-context" d="M112 190C190 235 225 245 310 242"></path>
+                <path class="edge edge-support" d="M302 110C385 112 400 160 484 176"></path>
+                <path class="edge edge-conflict" d="M310 242C388 235 410 198 484 176"></path>
+              </svg>
+
+              <button class="belief-node node-query" style="--x: 8%; --y: 44%" type="button" data-belief="query" aria-pressed="false">
+                <span class="node-id">B17</span><span class="node-label">Search strategy</span><span class="node-score">0.62</span>
+              </button>
+              <button class="belief-node node-evidence is-active" style="--x: 38%; --y: 18%" type="button" data-belief="evidence" aria-pressed="true">
+                <span class="node-id">B25</span><span class="node-label">Source evidence</span><span class="node-score">0.78</span>
+              </button>
+              <button class="belief-node node-conflict" style="--x: 41%; --y: 61%" type="button" data-belief="conflict" aria-pressed="false">
+                <span class="node-id">B38</span><span class="node-label">Conflicting clue</span><span class="node-score">0.31</span>
+              </button>
+              <button class="belief-node node-decision" style="--x: 73%; --y: 39%" type="button" data-belief="decision" aria-pressed="false">
+                <span class="node-id">D04</span><span class="node-label">Final decision</span><span class="node-score">0.84</span>
+              </button>
+            </div>
+
+            <div class="graph-readout" aria-live="polite">
+              <div class="readout-main">
+                <span class="readout-label" data-readout-label>Selected belief · B25</span>
+                <p data-readout-text>Two independent records identify the same person and location.</p>
+              </div>
+              <div class="confidence-meter">
+                <div><span>Confidence</span><strong data-readout-confidence>0.78</strong></div>
+                <div class="meter-track"><span data-readout-meter style="width: 78%"></span></div>
+              </div>
+              <div class="readout-meta"><span data-readout-relation>supports → D04</span><span data-readout-source>source: search result</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="hero-rule shell" aria-hidden="true"><span>trajectory</span><i></i><span>belief state</span><i></i><span>next action</span></div>
+      </section>
+
+      <section class="section problem-section" id="why">
+        <div class="shell">
+          <div class="section-intro reveal">
+            <span class="section-tag">The missing layer</span>
+            <h2>Retrieval finds text.<br>Agents need belief state.</h2>
+            <p>Conversation memory preserves history. Vector memory finds similarity. BCG maintains what an agent currently believes—and makes the path to that belief inspectable.</p>
+          </div>
+
+          <div class="question-ledger reveal">
+            <div class="ledger-heading"><span>Questions before an agent acts</span><span>BCG state</span></div>
+            <div class="ledger-row"><span>Should I trust this claim?</span><strong>confidence</strong></div>
+            <div class="ledger-row"><span>Where did it come from?</span><strong>provenance</strong></div>
+            <div class="ledger-row"><span>Is another source in conflict?</span><strong>contradiction</strong></div>
+            <div class="ledger-row"><span>What conclusion depends on it?</span><strong>relations</strong></div>
+            <div class="ledger-row"><span>Is it still valid?</span><strong>time</strong></div>
+          </div>
+
+          <div class="capability-grid">
+            <article class="capability reveal">
+              <span class="cap-index">01</span>
+              <h3>Belief-native extraction</h3>
+              <p>Turn raw trajectories into knowledge and decision nodes that preserve source offsets.</p>
+            </article>
+            <article class="capability reveal">
+              <span class="cap-index">02</span>
+              <h3>Deterministic confidence</h3>
+              <p>Inspect the initial score, evidence contribution, and relation-derived factors separately.</p>
+            </article>
+            <article class="capability reveal">
+              <span class="cap-index">03</span>
+              <h3>Typed relationships</h3>
+              <p>Read how beliefs depend on, add context to, or contradict one another.</p>
+            </article>
+            <article class="capability reveal">
+              <span class="cap-index">04</span>
+              <h3>Temporal lifecycle</h3>
+              <p>Track when knowledge formed, how it changed, and which session produced it.</p>
+            </article>
+            <article class="capability reveal">
+              <span class="cap-index">05</span>
+              <h3>Merge and deduplication</h3>
+              <p>Canonicalize repeated beliefs before linking to keep downstream structure compact.</p>
+            </article>
+            <article class="capability reveal">
+              <span class="cap-index">06</span>
+              <h3>Inspectable artifacts</h3>
+              <p>Persist JSON and JSONL state for replay, visualization, and trajectory audits.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section benchmark-section" id="benchmarks">
+        <div class="shell">
+          <div class="benchmark-heading reveal">
+            <div>
+              <span class="section-tag section-tag-light">Full-dataset evaluation</span>
+              <h2>Less context.<br>More useful state.</h2>
+            </div>
+            <p>Default, Summary, and BCG use the same agent model and harness. Only context management changes.</p>
+          </div>
+
+          <div class="benchmark-stats reveal">
+            <article>
+              <span class="benchmark-name">BrowseComp</span>
+              <strong>+3.79<span>pp</span></strong>
+              <p>accuracy over Default</p>
+              <div class="benchmark-foot"><span>1,266 tasks</span><span>16.2% fewer total tokens</span></div>
+            </article>
+            <article>
+              <span class="benchmark-name">BrowseComp-ZH</span>
+              <strong>+9.69<span>pp</span></strong>
+              <p>accuracy over Default</p>
+              <div class="benchmark-foot"><span>289 tasks</span><span>9.5% fewer total tokens</span></div>
+            </article>
+          </div>
+
+          <figure class="benchmark-figure reveal">
+            <a href="assets/benchmark-overview.svg" target="_blank" rel="noreferrer">
+              <img src="assets/benchmark-overview.svg" alt="Full-dataset accuracy, mean token cost, and cumulative token cost comparisons for BrowseComp and BrowseComp-ZH" loading="lazy">
+            </a>
+            <figcaption>Agent: gpt-5.6-luna with low-effort thinking. BCG keeps two recent completed turns and injects compact Graph Context. Token Cost includes Agent and Graph Construction tokens.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section architecture-section" id="architecture">
+        <div class="shell">
+          <div class="section-intro architecture-copy reveal">
+            <span class="section-tag">How it works</span>
+            <h2>A context layer,<br>not another agent framework.</h2>
+            <p>Use BCG beneath your own runtime through Python or HTTP. The bundled terminal agent is only a reference integration.</p>
+          </div>
+
+          <ol class="pipeline reveal">
+            <li><span>01</span><div><strong>Observe</strong><p>Stream trajectory turns or load a completed run.</p></div></li>
+            <li><span>02</span><div><strong>Construct</strong><p>Extract, merge, link, and update confidence.</p></div></li>
+            <li><span>03</span><div><strong>Select</strong><p>Build compact graph state for the task at hand.</p></div></li>
+            <li><span>04</span><div><strong>Inject</strong><p>Return belief context to the next model call.</p></div></li>
+          </ol>
+
+          <figure class="architecture-figure reveal">
+            <a href="assets/architecture.svg" target="_blank" rel="noreferrer">
+              <img src="assets/architecture.svg" alt="BCG architecture showing agent context management, Python SDK, construction backends, graph pipeline, and graph snapshots" loading="lazy">
+            </a>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section evidence-section">
+        <div class="shell evidence-grid">
+          <div class="evidence-copy reveal">
+            <span class="section-tag">Graph-backed reasoning</span>
+            <h2>The agent can use what the graph already resolved.</h2>
+            <p>In a successful BrowseComp trajectory, the model explicitly referenced stored belief IDs and confidence, then avoided repeating a completed search.</p>
+            <blockquote>
+              <span>Model trace</span>
+              “Memory explicitly B53 says age 4, confidence .78, then B51. Answer.”
+            </blockquote>
+            <a class="text-link" href="assets/case-study.svg" target="_blank" rel="noreferrer">Open the complete case study <span aria-hidden="true">↗</span></a>
+          </div>
+          <div class="evidence-card reveal">
+            <div class="evidence-id">B53 · confidence 0.78</div>
+            <p>The search result identifies Johanna Catharina Stoffelina Engelbrecht as age 4 and as the daughter of Mrs Alida Maria Hendrika Aletta Engelbrecht.</p>
+            <div class="evidence-source"><span>provenance</span><strong>search result</strong></div>
+            <div class="evidence-relation"><span></span> supports final answer</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section integration-section" id="integrate">
+        <div class="shell">
+          <div class="integration-heading reveal">
+            <span class="section-tag">Integrate your way</span>
+            <h2>One graph layer.<br>Three entry points.</h2>
+          </div>
+
+          <div class="integration-panel reveal">
+            <div class="code-tabs" role="tablist" aria-label="Integration examples">
+              <button type="button" role="tab" aria-selected="true" aria-controls="code-python" id="tab-python" data-code-tab="python">Python SDK</button>
+              <button type="button" role="tab" aria-selected="false" aria-controls="code-http" id="tab-http" data-code-tab="http">HTTP service</button>
+              <button type="button" role="tab" aria-selected="false" aria-controls="code-cli" id="tab-cli" data-code-tab="cli">Reference Agent</button>
+            </div>
+
+            <div class="code-panel is-active" role="tabpanel" id="code-python" aria-labelledby="tab-python" data-code-panel="python">
+              <button class="copy-button" type="button" data-copy-target="snippet-python">Copy</button>
+              <pre><code id="snippet-python"><span class="code-key">from</span> bcg <span class="code-key">import</span> BCG, BCGMemory, BCGRunner, LLMClient
+
+memory = BCGMemory(graph=BCG())
+runner = BCGRunner(
+    memory=memory,
+    llm=LLMClient(),
+    backend=<span class="code-string">"unified"</span>,
+)
+
+result = <span class="code-key">await</span> runner.observe_trajectory(turns)
+context = memory.context(task=<span class="code-string">"Decide the next action"</span>)</code></pre>
+            </div>
+
+            <div class="code-panel" role="tabpanel" id="code-http" aria-labelledby="tab-http" data-code-panel="http" hidden>
+              <button class="copy-button" type="button" data-copy-target="snippet-http">Copy</button>
+              <pre><code id="snippet-http"><span class="code-comment"># Start an OpenAI-compatible construction backend</span>
+bcg construct server unified \
+  --config ~/.bcg/config.yaml \
+  --host 127.0.0.1 \
+  --port 8848
+
+<span class="code-comment"># Stream one turn from any agent runtime</span>
+curl -X POST http://127.0.0.1:8848/turn \
+  -H <span class="code-string">"Content-Type: application/json"</span> \
+  -d <span class="code-string">'{"problem_id":"case-42","role":"user","content":"..."}'</span></code></pre>
+            </div>
+
+            <div class="code-panel" role="tabpanel" id="code-cli" aria-labelledby="tab-cli" data-code-panel="cli" hidden>
+              <button class="copy-button" type="button" data-copy-target="snippet-cli">Copy</button>
+              <pre><code id="snippet-cli"><span class="code-comment"># Install from source</span>
+git clone https://github.com/bigai-nlco/belief-context-graph.git
+cd belief-context-graph
+make install
+
+<span class="code-comment"># Launch the optional reference terminal Agent</span>
+uv run bcg</code></pre>
+            </div>
+          </div>
+
+          <div class="integration-links reveal">
+            <a href="https://belief-context-graph.docs.buildwithfern.com/guides/python" target="_blank" rel="noreferrer"><span>Python SDK</span><strong>Run in process</strong><i aria-hidden="true">→</i></a>
+            <a href="https://belief-context-graph.docs.buildwithfern.com/guides/http-streaming" target="_blank" rel="noreferrer"><span>HTTP streaming</span><strong>Connect any runtime</strong><i aria-hidden="true">→</i></a>
+            <a href="https://belief-context-graph.docs.buildwithfern.com/guides/batch" target="_blank" rel="noreferrer"><span>Batch construction</span><strong>Process saved traces</strong><i aria-hidden="true">→</i></a>
+          </div>
+        </div>
+      </section>
+
+      <section class="cta-section">
+        <div class="shell cta-shell reveal">
+          <div>
+            <span class="section-tag section-tag-light">Start with one trajectory</span>
+            <h2>Make agent memory<br>inspectable.</h2>
+          </div>
+          <div class="cta-actions">
+            <div class="install-command"><code>curl -LsSf https://raw.githubusercontent.com/bigai-nlco/belief-context-graph/main/install.sh | sh</code><button type="button" data-copy-install>Copy</button></div>
+            <div>
+              <a class="button button-light" href="https://belief-context-graph.docs.buildwithfern.com/quickstart" target="_blank" rel="noreferrer">Read the quickstart</a>
+              <a class="button button-outline-light" href="https://github.com/bigai-nlco/belief-context-graph" target="_blank" rel="noreferrer">Star on GitHub</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-grid">
+        <div>
+          <a class="brand footer-brand" href="#top">
+            <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><path d="M9 11.5 20 5l11 6.5v17L20 35 9 28.5Z"></path><circle cx="14" cy="16" r="2.8"></circle><circle cx="26" cy="14" r="2.8"></circle><circle cx="21" cy="27" r="2.8"></circle><path d="m16.4 16 7-1.4M15.5 18.2l4.2 6.4m5-8.2-2.6 8.1"></path></svg>
+            <span>Belief Context Graph</span>
+          </a>
+          <p>Probabilistic · Temporal · Explainable · Stateful</p>
+        </div>
+        <div class="footer-links">
+          <div><strong>Project</strong><a href="https://github.com/bigai-nlco/belief-context-graph">GitHub</a><a href="https://github.com/bigai-nlco/belief-context-graph/releases">Releases</a><a href="https://github.com/bigai-nlco/belief-context-graph/blob/main/CONTRIBUTING.md">Contributing</a></div>
+          <div><strong>Learn</strong><a href="https://belief-context-graph.docs.buildwithfern.com/">Documentation</a><a href="https://belief-context-graph.docs.buildwithfern.com/quickstart">Quickstart</a><a href="https://belief-context-graph.docs.buildwithfern.com/sdk">SDK reference</a></div>
+        </div>
+      </div>
+      <div class="shell footer-bottom"><span>MIT licensed · BIGAI NLCO</span><span>© <span data-year>2026</span> Belief Context Graph</span></div>
+    </footer>
+  </body>
+</html>
