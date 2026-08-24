@@ -24,6 +24,8 @@ GRAPH_MODEL_KEY = "graph-model"
 EMBEDDING_KEY = "embedding"
 DEFAULT_AGENT_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_AGENT_MODEL = "gpt-4.1-mini"
+DEFAULT_SUMMARY_MAX_TOKENS = 2048
+DEFAULT_SUMMARY_TIMEOUT_MS = 300_000
 DEFAULT_GRAPH_URL = "http://127.0.0.1:8848"
 DEFAULT_VLLM_URL = "http://127.0.0.1:8001/v1"
 DEFAULT_VLLM_MODEL = "Qwen3.5-4B"
@@ -521,10 +523,13 @@ def apply_user_configuration(
     agent = config.get("agent")
     context = config.get("context")
     graph = config.get("graph")
+    summary = config.get("summary")
     if not isinstance(agent, dict) or not isinstance(context, dict):
         raise SetupError("Global BCG config is missing agent/context settings.")
     if not isinstance(graph, dict):
         raise SetupError("Global BCG config is missing graph settings.")
+    if not isinstance(summary, dict):
+        summary = {}
 
     values = {
         "BCG_AGENT_PROVIDER": str(agent.get("provider") or ""),
@@ -541,6 +546,20 @@ def apply_user_configuration(
         "BCG_GRAPH_EMBEDDING_KEY": str(graph.get("embeddingKey") or EMBEDDING_KEY),
         "BCG_RECENT_TURNS": str(context.get("recentTurns", 2)),
         "BCG_CONTEXT_MODE": str(context.get("mode") or "bcg"),
+        "BCG_SUMMARY_MODEL": str(summary.get("model") or agent.get("model") or ""),
+        "BCG_SUMMARY_BASE_URL": str(
+            summary.get("baseUrl") or agent.get("baseUrl") or ""
+        ),
+        "BCG_SUMMARY_THINKING": str(summary.get("thinking") or "off"),
+        "BCG_SUMMARY_RECENT_TURNS": str(
+            summary.get("recentTurns", context.get("recentTurns", 2))
+        ),
+        "BCG_SUMMARY_TIMEOUT_MS": str(
+            summary.get("timeoutMs", DEFAULT_SUMMARY_TIMEOUT_MS)
+        ),
+        "BCG_SUMMARY_MAX_TOKENS": str(
+            summary.get("maxTokens", DEFAULT_SUMMARY_MAX_TOKENS)
+        ),
     }
     for name, value in values.items():
         if value and (override or name not in os.environ):
@@ -691,14 +710,15 @@ def run_setup(
         [
             ("bcg", "BCG graph-backed context"),
             ("default", "Default full-context agent with compaction"),
+            ("summary", "Rolling LLM summary with recent raw turns"),
         ],
         default=_current_default(current, "context", "mode", "bcg"),
         input_fn=input_fn,
     )
     recent_turns = 2
-    if context_mode == "bcg":
+    if context_mode in {"bcg", "summary"}:
         recent_turns_text = _ask(
-            "Recent completed turns kept verbatim in BCG mode",
+            f"Recent completed turns kept verbatim in {context_mode} mode",
             default=str(
                 current.get("context", {}).get("recentTurns", 2)
                 if isinstance(current.get("context"), dict)
@@ -710,6 +730,65 @@ def run_setup(
             recent_turns = max(0, int(recent_turns_text))
         except ValueError as exc:
             raise SetupError("Recent turns must be an integer.") from exc
+
+    summary_base_url = _current_default(
+        current,
+        "summary",
+        "baseUrl",
+        agent_base_url or DEFAULT_AGENT_BASE_URL,
+    )
+    summary_model = _current_default(
+        current,
+        "summary",
+        "model",
+        agent_model,
+    )
+    summary_thinking = _current_default(
+        current,
+        "summary",
+        "thinking",
+        "off",
+    )
+    if context_mode == "summary":
+        reuse_agent_summary = auth_method == "api_key" and _confirm(
+            "Reuse the Agent API endpoint, model, and key for rolling summaries?",
+            default=True,
+            input_fn=input_fn,
+        )
+        if reuse_agent_summary:
+            summary_base_url = agent_base_url
+            summary_model = agent_model
+            credentials["BCG_SUMMARY_API_KEY"] = credentials["OPENAI_API_KEY"]
+        else:
+            summary_base_url = _ask(
+                "Summary model API base URL",
+                default=summary_base_url,
+                input_fn=input_fn,
+            )
+            summary_model = _ask(
+                "Rolling-summary model",
+                default=summary_model,
+                input_fn=input_fn,
+            )
+            credentials["BCG_SUMMARY_API_KEY"] = _ask_secret(
+                "Summary model API key",
+                existing=credentials.get("BCG_SUMMARY_API_KEY"),
+                secret_fn=secret_fn,
+            )
+        summary_thinking = _choose(
+            "Summary model thinking level",
+            [
+                ("off", "Off (recommended for low latency and cost)"),
+                ("low", "Low"),
+                ("medium", "Medium"),
+            ],
+            default=summary_thinking
+            if summary_thinking in {"off", "low", "medium"}
+            else "off",
+            input_fn=input_fn,
+        )
+    elif auth_method == "api_key" and "BCG_SUMMARY_API_KEY" not in credentials:
+        credentials["BCG_SUMMARY_API_KEY"] = credentials["OPENAI_API_KEY"]
 
     graph_server_mode = _choose(
         "How should BCG connect to the Graph server?",
@@ -868,6 +947,14 @@ def run_setup(
             "mode": context_mode,
             "recentTurns": recent_turns,
         },
+        "summary": {
+            "baseUrl": summary_base_url,
+            "model": summary_model,
+            "thinking": summary_thinking,
+            "recentTurns": recent_turns,
+            "timeoutMs": DEFAULT_SUMMARY_TIMEOUT_MS,
+            "maxTokens": DEFAULT_SUMMARY_MAX_TOKENS,
+        },
         "search": {
             "provider": search_provider,
             "configured": search_provider == "serper",
@@ -900,6 +987,8 @@ def run_setup(
             "Serper web search" if search_provider == "serper" else "disabled",
         )
         summary.add_row("Context", context_mode)
+        if context_mode == "summary":
+            summary.add_row("Summary", f"{summary_model} / {summary_thinking}")
         summary.add_row(
             "Graph",
             (

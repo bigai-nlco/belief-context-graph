@@ -4,7 +4,7 @@ import type { ContextManagementProvider } from "../settings-manager.ts";
 export const CONTEXT_MODE_ENTRY_TYPE = "bcg.context_mode";
 
 function isContextManagementProvider(value: unknown): value is ContextManagementProvider {
-	return value === "default" || value === "bcg";
+	return value === "default" || value === "bcg" || value === "summary";
 }
 
 export function getSessionContextMode(sessionManager: SessionManager): ContextManagementProvider | undefined {

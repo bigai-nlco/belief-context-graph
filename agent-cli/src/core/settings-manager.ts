@@ -14,7 +14,7 @@ export interface CompactionSettings {
 	keepRecentTokens?: number; // default: 20000
 }
 
-export type ContextManagementProvider = "default" | "bcg";
+export type ContextManagementProvider = "default" | "bcg" | "summary";
 export type BcgGraphView = "full" | "compact";
 
 export interface BcgContextSettings {
@@ -26,20 +26,38 @@ export interface BcgContextSettings {
 	graphView?: BcgGraphView; // default: "full"; compact is the low-token search-ledger view
 }
 
+export interface SummaryContextSettings {
+	provider?: string; // default: "summary"
+	model?: string; // default: BCG_SUMMARY_MODEL or the Agent default model
+	recentTurns?: number; // default: 2; -1 keeps all raw turns
+	timeoutMs?: number; // default: 300000
+	maxTokens?: number; // default: 2048
+	thinkingLevel?: ThinkingLevel; // default: "off"
+}
+
 export interface ContextManagementSettings {
 	provider?: ContextManagementProvider; // default: "default"
 	bcg?: BcgContextSettings;
+	summary?: SummaryContextSettings;
 }
 
 export interface ResolvedContextManagementSettings {
 	provider: ContextManagementProvider;
-		bcg: {
-			url: string;
-			recentTurns: number;
-			maxTurns: number;
-			timeoutMs: number;
-			includeRelations: boolean;
-			graphView: BcgGraphView;
+	bcg: {
+		url: string;
+		recentTurns: number;
+		maxTurns: number;
+		timeoutMs: number;
+		includeRelations: boolean;
+		graphView: BcgGraphView;
+	};
+	summary: {
+		provider: string;
+		model: string;
+		recentTurns: number;
+		timeoutMs: number;
+		maxTokens: number;
+		thinkingLevel: ThinkingLevel;
 	};
 }
 
@@ -840,9 +858,28 @@ export class SettingsManager {
 			typeof configuredMaxTurns === "number" && Number.isFinite(configuredMaxTurns)
 				? Math.max(1, Math.trunc(configuredMaxTurns))
 				: 160;
+		const configuredSummaryRecentTurns = settings?.summary?.recentTurns;
+		const summaryRecentTurns =
+			typeof configuredSummaryRecentTurns === "number" && Number.isFinite(configuredSummaryRecentTurns)
+				? Math.max(-1, Math.trunc(configuredSummaryRecentTurns))
+				: recentTurns;
+		const configuredSummaryTimeoutMs = settings?.summary?.timeoutMs;
+		const summaryTimeoutMs =
+			typeof configuredSummaryTimeoutMs === "number" && Number.isFinite(configuredSummaryTimeoutMs)
+				? Math.max(1, Math.trunc(configuredSummaryTimeoutMs))
+				: 300000;
+		const configuredSummaryMaxTokens = settings?.summary?.maxTokens;
+		const summaryMaxTokens =
+			typeof configuredSummaryMaxTokens === "number" && Number.isFinite(configuredSummaryMaxTokens)
+				? Math.max(1, Math.trunc(configuredSummaryMaxTokens))
+				: 2048;
+		const configuredProvider = settings?.provider;
 
 		return {
-			provider: settings?.provider === "bcg" ? "bcg" : "default",
+			provider:
+				configuredProvider === "bcg" || configuredProvider === "summary"
+					? configuredProvider
+					: "default",
 			bcg: {
 				url: settings?.bcg?.url || process.env.BELIEF_GRAPH_URL || DEFAULT_BCG_GRAPH_URL,
 				recentTurns,
@@ -850,6 +887,18 @@ export class SettingsManager {
 				timeoutMs,
 				includeRelations: settings?.bcg?.includeRelations ?? true,
 				graphView: settings?.bcg?.graphView === "compact" ? "compact" : "full",
+			},
+			summary: {
+				provider: settings?.summary?.provider?.trim() || "summary",
+				model:
+					settings?.summary?.model?.trim() ||
+					process.env.BCG_SUMMARY_MODEL?.trim() ||
+					this.settings.defaultModel?.trim() ||
+					"",
+				recentTurns: summaryRecentTurns,
+				timeoutMs: summaryTimeoutMs,
+				maxTokens: summaryMaxTokens,
+				thinkingLevel: settings?.summary?.thinkingLevel ?? "off",
 			},
 		};
 	}

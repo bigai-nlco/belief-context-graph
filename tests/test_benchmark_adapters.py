@@ -81,6 +81,36 @@ def test_benchmark_gpt_56_off_is_sent_as_reasoning_none(tmp_path: Path) -> None:
     assert definition["thinkingLevelMap"] == {"off": "none"}
 
 
+def test_benchmark_summary_uses_an_independent_model_configuration(
+    tmp_path: Path,
+) -> None:
+    config = RunConfig(
+        output_dir=tmp_path,
+        model="agent-model",
+        base_url="https://agent.test/v1",
+        summary_model="summary-model",
+        summary_base_url="https://summary.test/v1",
+        summary_thinking="low",
+        summary_max_tokens=1024,
+    )
+
+    agent_dir = _write_agent_configuration(tmp_path, config, "summary")
+    settings = json.loads((agent_dir / "settings.json").read_text(encoding="utf-8"))
+    models = json.loads((agent_dir / "models.json").read_text(encoding="utf-8"))
+
+    assert settings["contextManagement"]["provider"] == "summary"
+    assert settings["contextManagement"]["summary"] == {
+        "provider": "summary",
+        "model": "summary-model",
+        "recentTurns": 2,
+        "timeoutMs": 300000,
+        "maxTokens": 1024,
+        "thinkingLevel": "low",
+    }
+    assert models["providers"]["summary"]["baseUrl"] == "https://summary.test/v1"
+    assert models["providers"]["summary"]["models"][0]["id"] == "summary-model"
+
+
 def test_loads_all_supported_benchmark_schemas(tmp_path: Path) -> None:
     _write_json(
         tmp_path / "browse_comp" / "data.json",
@@ -373,6 +403,39 @@ def test_agent_json_events_capture_graph_model_usage() -> None:
     assert parsed["graph_usage"].output == 12
 
 
+def test_agent_json_events_capture_summary_model_usage_and_latency() -> None:
+    event = {
+        "type": "summary_usage",
+        "usage": {
+            "llm_totals": {
+                "input_tokens": 50,
+                "output_tokens": 15,
+                "cache_read_tokens": 7,
+                "cache_write_tokens": 2,
+                "reasoning_tokens": 3,
+                "total_tokens": 74,
+            },
+            "cost": {
+                "input": 0.1,
+                "output": 0.2,
+                "cache_read": 0.01,
+                "cache_write": 0.02,
+                "total": 0.33,
+            },
+            "wall_time_seconds": 1.25,
+            "updates": 4,
+        },
+    }
+
+    parsed = parse_agent_events(json.dumps(event))
+
+    assert parsed["summary_usage"].input == 50
+    assert parsed["summary_usage"].cache_read == 7
+    assert parsed["summary_usage"].reasoning == 3
+    assert parsed["summary_usage"].total_cost == pytest.approx(0.33)
+    assert parsed["summary_wall_time_seconds"] == pytest.approx(1.25)
+
+
 def test_runner_stops_before_starting_more_tasks_after_quota(
     tmp_path: Path,
 ) -> None:
@@ -496,6 +559,78 @@ print(json.dumps({{
     assert result["correct"] is True
 
 
+def test_runner_persists_per_task_model_io_trace_reference(tmp_path: Path) -> None:
+    fake_agent = tmp_path / "trace_agent.py"
+    fake_agent.write_text(
+        """
+import json
+import os
+from pathlib import Path
+
+trace = Path(os.environ["BCG_MODEL_IO_TRACE_PATH"])
+trace.parent.mkdir(parents=True, exist_ok=True)
+records = [
+    {
+        "schema": "bcg.model_io.v1",
+        "type": "request",
+        "call_id": 1,
+        "payload": {"messages": [{"role": "user", "content": "question"}]},
+    },
+    {
+        "schema": "bcg.model_io.v1",
+        "type": "response",
+        "call_id": 1,
+        "message": {"role": "assistant", "content": [{"type": "text", "text": "FINAL ANSWER: A"}]},
+    },
+]
+trace.write_text("\\n".join(json.dumps(record) for record in records) + "\\n", encoding="utf-8")
+print(json.dumps({
+    "type": "message_end",
+    "message": {
+        "role": "assistant",
+        "content": [{"type": "text", "text": "FINAL ANSWER: A"}],
+        "usage": {},
+        "stopReason": "stop",
+    },
+}))
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    task = BenchmarkTask(
+        benchmark="mmlu_pro",
+        task_id="trace",
+        question="Question\n\nA. yes\nB. no",
+        answers=("A",),
+    )
+    output = tmp_path / "results"
+    config = RunConfig(
+        output_dir=output,
+        model="fake",
+        base_url="https://unused.test/v1",
+        modes=("default",),
+        workers=1,
+        agent_command=(sys.executable, str(fake_agent)),
+    )
+
+    run_benchmarks({"mmlu_pro": [task]}, config, judge=None)
+
+    result_path = output / "mmlu_pro" / "default" / "tasks" / "trace.json"
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    trace_path = Path(result["model_io_trace"])
+    assert (
+        trace_path
+        == (
+            output
+            / "mmlu_pro"
+            / "default"
+            / "model-io"
+            / "mmlu_pro-default-trace.jsonl"
+        ).resolve()
+    )
+    assert trace_path.is_file()
+
+
 def test_runner_interleaves_benchmarks_before_modes() -> None:
     browsecomp = [
         BenchmarkTask("browsecomp", f"bc-{index}", "Question", ("answer",))
@@ -602,6 +737,12 @@ def test_summary_separates_agent_graph_and_combined_model_tokens() -> None:
                     "output": 10,
                     "reasoning": 4,
                 },
+                "summary_usage": {
+                    "input": 30,
+                    "cache_read": 5,
+                    "output": 8,
+                    "reasoning": 2,
+                },
                 "metrics": {},
                 "metadata": {"category": "math"},
             }
@@ -620,10 +761,15 @@ def test_summary_separates_agent_graph_and_combined_model_tokens() -> None:
             "reasoning_tokens": 4,
             "output_tokens": 6,
         },
+        "summary_model": {
+            "input_tokens": 35,
+            "reasoning_tokens": 2,
+            "output_tokens": 6,
+        },
         "combined": {
-            "input_tokens": 165,
-            "reasoning_tokens": 16,
-            "output_tokens": 24,
+            "input_tokens": 200,
+            "reasoning_tokens": 18,
+            "output_tokens": 30,
         },
     }
     assert run_summary["model_token_usage"] == summary["model_token_usage"]

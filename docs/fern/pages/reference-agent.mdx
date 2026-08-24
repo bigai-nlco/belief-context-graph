@@ -37,7 +37,7 @@ On first launch, the setup guide asks for:
     Serper credentials, required for BrowseComp and used by the `web_search` tool.
   </Step>
   <Step title="Default context mode">
-    **BCG** or **Default** — see [Context modes](#context-modes-bcg-vs-default) below.
+    **BCG**, **Summary**, or **Default** — see [Context modes](#context-modes) below. Summary can reuse the Agent endpoint/model/key or use an independent OpenAI-compatible model.
   </Step>
   <Step title="Graph server ownership">
     Whether BCG should manage a local Graph Construction server or connect to an existing one.
@@ -60,7 +60,7 @@ Run `bcg setup` at any time to change these settings.
 
 ## Managed Graph Construction
 
-When a managed Graph backend is selected, `bcg` automatically:
+When BCG context mode and a managed Graph backend are selected, `bcg` automatically:
 
 <Steps>
   <Step title="Check health">
@@ -85,17 +85,18 @@ To connect to Graph Construction hosted elsewhere instead of managing a local se
 | --- | --- |
 | `/help` | Show commands and essential keyboard controls |
 | `/model` | Select the inference model |
-| `/mode` | Choose Default or BCG context before the session's first message |
+| `/mode` | Choose Default, BCG, or Summary context before the session's first message |
 | `/login` / `/logout` | Configure or remove the model API key |
 | `/new` / `/resume` | Start or restore a BCG session |
 | `/graph` | Check Graph connectivity and context policy |
 | `/exit` | Exit BCG |
 
-## Context modes: BCG vs Default
+## Context modes
 
-Context mode is fixed after the first user message. Use `/new` to start a session with another mode, or select one directly with `/mode bcg` / `/mode default`.
+Context mode is fixed after the first user message. Use `/new` to start a session with another mode, or select one directly with `/mode bcg`, `/mode summary`, or `/mode default`.
 
 - **BCG** permanently retains the initial user input and keeps the latest two completed turns as raw messages. On the first request, the system prompt and initial user input seed the Graph. Messages leaving the two-turn raw window are then added incrementally, and the current Graph is encoded into the system prompt as context. Traditional compaction is disabled in this mode.
+- **Summary** uses the same pinned initial input, recent-turn window, eviction boundary, and tool-result batching as BCG. The first summary is seeded from the initial question. Each later update receives only the previous summary and the newest evicted message batch, then replaces the summary block in the system prompt. It never calls the Graph server.
 - **Default** uses the full normal Agent conversation with automatic compaction. Graph context is not injected.
 
 ### Graph presentation: full vs compact
@@ -114,7 +115,7 @@ export BCG_GRAPH_VIEW=compact
 Unset it, or set it to `full`, to restore the complete graph rendering. The same setting is available as `--graph-view` on `bcg benchmark run` — see [Evaluate with benchmarks](/operate/benchmarking).
 
 <Info>
-`BCG_RECENT_TURNS` overrides the default raw window of `2`. See [CLI and environment](/reference/cli-and-environment).
+`BCG_RECENT_TURNS` overrides the default BCG raw window of `2`; `BCG_SUMMARY_RECENT_TURNS` independently controls Summary mode. See [CLI and environment](/reference/cli-and-environment).
 </Info>
 
 <Note>
@@ -123,4 +124,4 @@ The Agent is a reference integration, not a requirement for the Python SDK or HT
 
 ## See also
 
-[Evaluate with benchmarks](/operate/benchmarking) runs this same terminal Agent against BrowseComp and BrowseComp (ZH) to measure BCG mode against Default mode.
+[Evaluate with benchmarks](/operate/benchmarking) runs this same terminal Agent against BrowseComp and BrowseComp (ZH) in Default, BCG, and Summary modes.

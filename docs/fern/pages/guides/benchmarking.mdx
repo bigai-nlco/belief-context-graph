@@ -1,10 +1,10 @@
 ---
 title: Evaluate with Benchmarks
-description: Run BrowseComp and BrowseComp (ZH) against the reference Agent in Default and BCG context modes.
+description: Run BrowseComp and BrowseComp (ZH) against the reference Agent in Default, BCG, and rolling-Summary context modes.
 icon: chart-line
 ---
 
-The reference Agent can evaluate **BrowseComp** and its Chinese-language counterpart, **BrowseComp (ZH)**, in Default mode, BCG mode, or both. The same Agent model, prompt, tool policy, task selection, and scorer are used for both modes; only context management changes. This isolates the effect of graph-backed context from every other variable.
+The reference Agent can evaluate **BrowseComp** and its Chinese-language counterpart, **BrowseComp (ZH)**, in Default, BCG, and rolling-Summary modes. The same Agent model, prompt, tool policy, task selection, and scorer are used for every mode; only context management changes.
 
 <Note>
 Benchmarking runs the bundled reference Agent, not the Python SDK or HTTP construction service directly. It is a way to evaluate BCG's effect on that Agent, not a required step for integrating BCG.
@@ -48,14 +48,16 @@ SERPER_MAX_CALLS=20     # hard web_search budget per Agent session
 
 ```bash
 bcg benchmark run browsecomp browsecomp_zh \
-  --modes default,bcg \
+  --modes default,bcg,summary \
   --thinking off \
   --max-problems 100 \
   --workers 8 \
   --output-dir results/browsecomp-comparison
 ```
 
-This runs the same selected examples in both context modes.
+This runs the same selected examples in all three context modes.
+
+Summary mode uses the same initial-question pinning, recent raw-turn window, eviction boundary, and tool-result batching as BCG. Instead of calling the Graph server, it sends the previous rolling summary plus the newest evicted messages to a summary model and replaces the summary block in the system prompt. It reuses the Agent endpoint and key by default; configure an independent model with `--summary-model`, `--summary-base-url`, and `--summary-api-key-env`.
 
 <Info>
 Use `--graph-view compact` in BCG mode to inject the low-token belief projection while keeping the same dialogue-style chat markers. The default is `full`. See [Graph presentation](/guides/reference-agent#graph-presentation-full-vs-compact) for what each option changes.
@@ -95,7 +97,8 @@ Every task runs in an isolated working directory. Artifacts are resumable and co
 └── <benchmark>/<mode>/
     ├── tasks/<task-id>.json
     ├── trajectories/<task-id>.jsonl
-    └── graph-contexts/<task-id>.jsonl   # BCG mode only: exact graph text injected per request
+    ├── graph-contexts/<task-id>.jsonl   # BCG mode: exact graph text injected per request
+    └── summary-contexts/<task-id>.jsonl # Summary mode: rolling summary revisions
 ```
 
 Each BCG task record links to its graph-context trace. The JSONL entries include the renderer (`full` or `compact`), graph size, character count, stream position, and exact role-marked text — enough to align a specific graph injection with the Agent action that followed it during trajectory audits.
@@ -106,7 +109,7 @@ Dataset files and benchmark results are ignored by Git because task artifacts co
 
 ## Reading `summary.json`
 
-`summary.json` separates Agent input, output, cache-read, cache-write, reasoning, and total tokens. Judge input/output tokens are reported separately when the judge endpoint returns usage. It also records:
+`summary.json` reports Agent, Graph, Summary, and combined model tokens separately. Summary-model latency is separated from end-to-end task time. Judge input/output tokens are reported separately when the judge endpoint returns usage. It also records:
 
 - wall time;
 - tool/search call counts;
