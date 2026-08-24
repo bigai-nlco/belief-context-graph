@@ -90,6 +90,18 @@ def _format_tokens(value: float) -> str:
     return f"{value / 1000:.2f}K"
 
 
+def _mode_tick(x: float, width: float, label: str) -> str:
+    """Render a 45-degree mode label below a bar."""
+    anchor_x = x + width / 2 + 14
+    anchor_y = 518.0
+    return (
+        f'<text x="{anchor_x:.1f}" y="{anchor_y:.1f}" text-anchor="end" '
+        f'transform="rotate(45 {anchor_x:.1f} {anchor_y:.1f})" '
+        f'fill="{MUTED_COLOR}" font-size="13" font-weight="600">'
+        f"{html.escape(label)}</text>"
+    )
+
+
 def _change_arrow(
     start_x: float,
     start_y: float,
@@ -203,7 +215,7 @@ def render_svg(output: Path) -> None:
                 [
                     _rounded_bar(x, bar_y, bar_width, plot_bottom, color),
                     f'<text x="{x + bar_width / 2:.1f}" y="{bar_y - 6:.1f}" text-anchor="middle" fill="{TEXT_COLOR}" font-size="15" font-weight="700">{value:.2f}%</text>',
-                    f'<text x="{x + bar_width / 2:.1f}" y="500" text-anchor="middle" fill="{MUTED_COLOR}" font-size="13" font-weight="600">{mode}</text>',
+                    _mode_tick(x, bar_width, mode),
                 ]
             )
 
@@ -230,7 +242,7 @@ def render_svg(output: Path) -> None:
                     token_x[0], default_y, bar_width, plot_bottom, DEFAULT_COLOR
                 ),
                 f'<text x="{token_x[0] + bar_width / 2:.1f}" y="{default_y - 6:.1f}" text-anchor="middle" fill="{TEXT_COLOR}" font-size="15" font-weight="700">{_format_tokens(item.tokens_default)}</text>',
-                f'<text x="{token_x[0] + bar_width / 2:.1f}" y="500" text-anchor="middle" fill="{MUTED_COLOR}" font-size="13" font-weight="600">Default</text>',
+                _mode_tick(token_x[0], bar_width, "Default"),
                 f'<text x="{sum(accuracy_x) / len(accuracy_x) + bar_width / 2:.1f}" y="536" text-anchor="middle" fill="{TEXT_COLOR}" font-size="16" font-weight="700">Accuracy</text>',
                 f'<text x="{sum(token_x) / len(token_x) + bar_width / 2:.1f}" y="536" text-anchor="middle" fill="{TEXT_COLOR}" font-size="16" font-weight="700">Token cost</text>',
             ]
@@ -256,7 +268,7 @@ def render_svg(output: Path) -> None:
                     f'<text x="{x + bar_width / 2:.1f}" y="{total_y - 6:.1f}" text-anchor="middle" fill="{TEXT_COLOR}" font-size="15" font-weight="700">{_format_tokens(total)}</text>',
                     f'<text x="{x + bar_width / 2:.1f}" y="{(boundary_y + plot_bottom) / 2 + 5:.1f}" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="700">{_format_tokens(agent_tokens)}</text>',
                     f'<text x="{x + bar_width / 2:.1f}" y="{(total_y + boundary_y) / 2 + 5:.1f}" text-anchor="middle" fill="{memory_text_color}" font-size="12" font-weight="700">{_format_tokens(memory)}</text>',
-                    f'<text x="{x + bar_width / 2:.1f}" y="500" text-anchor="middle" fill="{MUTED_COLOR}" font-size="13" font-weight="600">{mode}</text>',
+                    _mode_tick(x, bar_width, mode),
                 ]
             )
 
