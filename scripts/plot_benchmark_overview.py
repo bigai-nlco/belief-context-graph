@@ -25,8 +25,8 @@ def _visible_group(path: Path) -> ET.Element:
 
 
 def compose(summary: Path, horizon: Path, output: Path) -> None:
-    width, height = 1280, 1145
-    horizon_offset = 540
+    width, height = 1280, 1205
+    horizon_offset = 600
     root = ET.Element(
         _tag("svg"),
         {

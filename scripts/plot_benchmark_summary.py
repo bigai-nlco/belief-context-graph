@@ -91,12 +91,12 @@ def _format_tokens(value: float) -> str:
 
 
 def _mode_tick(x: float, width: float, label: str) -> str:
-    """Render a 45-degree mode label below a bar."""
-    anchor_x = x + width / 2 + 14
-    anchor_y = 518.0
+    """Render a left-leaning 45-degree mode label clear of the bar baseline."""
+    anchor_x = x + width / 2 - 14
+    anchor_y = 542.0
     return (
-        f'<text x="{anchor_x:.1f}" y="{anchor_y:.1f}" text-anchor="end" '
-        f'transform="rotate(45 {anchor_x:.1f} {anchor_y:.1f})" '
+        f'<text x="{anchor_x:.1f}" y="{anchor_y:.1f}" text-anchor="start" '
+        f'transform="rotate(-45 {anchor_x:.1f} {anchor_y:.1f})" '
         f'fill="{MUTED_COLOR}" font-size="13" font-weight="600">'
         f"{html.escape(label)}</text>"
     )
@@ -243,8 +243,8 @@ def render_svg(output: Path) -> None:
                 ),
                 f'<text x="{token_x[0] + bar_width / 2:.1f}" y="{default_y - 6:.1f}" text-anchor="middle" fill="{TEXT_COLOR}" font-size="15" font-weight="700">{_format_tokens(item.tokens_default)}</text>',
                 _mode_tick(token_x[0], bar_width, "Default"),
-                f'<text x="{sum(accuracy_x) / len(accuracy_x) + bar_width / 2:.1f}" y="536" text-anchor="middle" fill="{TEXT_COLOR}" font-size="16" font-weight="700">Accuracy</text>',
-                f'<text x="{sum(token_x) / len(token_x) + bar_width / 2:.1f}" y="536" text-anchor="middle" fill="{TEXT_COLOR}" font-size="16" font-weight="700">Token cost</text>',
+                f'<text x="{sum(accuracy_x) / len(accuracy_x) + bar_width / 2:.1f}" y="582" text-anchor="middle" fill="{TEXT_COLOR}" font-size="16" font-weight="700">Accuracy</text>',
+                f'<text x="{sum(token_x) / len(token_x) + bar_width / 2:.1f}" y="582" text-anchor="middle" fill="{TEXT_COLOR}" font-size="16" font-weight="700">Token cost</text>',
             ]
         )
 
