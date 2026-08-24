@@ -36,6 +36,7 @@
   .graph-readout { grid-template-columns: 1fr; }
   .readout-meta { grid-column: 1; align-items: flex-start; flex-direction: column; }
   .section { padding: 95px 0; }
+  .evidence-section { padding-bottom: 72px; }
   .capability-grid { grid-template-columns: 1fr 1fr; }
   .benchmark-stats { grid-template-columns: 1fr; }
   .integration-links { grid-template-columns: 1fr; }

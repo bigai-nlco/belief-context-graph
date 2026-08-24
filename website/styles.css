@@ -788,6 +788,7 @@ svg {
 }
 
 .evidence-section {
+  padding-bottom: 88px;
   color: var(--white);
   background: var(--bcg);
 }
