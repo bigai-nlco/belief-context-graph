@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1420" viewBox="0 0 1500 1420" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1320" viewBox="0 0 1500 1320" role="img" aria-labelledby="title desc">
   <title id="title">BCG case study with task, graph, and Kimi K3 response excerpts</title>
   <desc id="desc">A three-row table showing the BrowseComp task, the BCG beliefs injected between the task and response, and selected raw Kimi K3 thinking passages in order. References to beliefs B25, B53, B51, and confidence 0.78 are highlighted in red.</desc>
-  <rect width="1500" height="1420" fill="#ffffff"/>
-  <foreignObject x="32" y="24" width="1436" height="1360">
+  <rect width="1500" height="1320" fill="#ffffff"/>
+  <foreignObject x="32" y="24" width="1436" height="1272">
     <div xmlns="http://www.w3.org/1999/xhtml" class="frame">
       <style>
         * { box-sizing: border-box; }
