@@ -141,27 +141,10 @@ svg {
 }
 
 .brand-mark {
+  display: block;
   width: 34px;
   height: 34px;
-  color: var(--bcg);
-}
-
-.brand-mark > path:first-child {
-  fill: rgba(91, 91, 214, 0.08);
-  stroke: currentColor;
-  stroke-width: 1.6;
-}
-
-.brand-mark circle {
-  fill: var(--paper);
-  stroke: currentColor;
-  stroke-width: 1.7;
-}
-
-.brand-mark > path:last-child {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.4;
+  flex: 0 0 auto;
 }
 
 .site-nav {
@@ -942,7 +925,6 @@ svg {
 
 .footer-grid { display: grid; grid-template-columns: 1fr 0.7fr; gap: 80px; }
 .footer-brand { color: var(--white); }
-.footer-brand .brand-mark circle { fill: #0b0c20; }
 .footer-grid > div:first-child > p { margin: 14px 0 0; font-family: var(--mono); font-size: 10px; letter-spacing: 0.07em; }
 .footer-links { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
 .footer-links > div { display: grid; align-content: start; gap: 8px; }
