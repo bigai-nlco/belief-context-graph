@@ -91,11 +91,11 @@ def _format_tokens(value: float) -> str:
 
 
 def _mode_tick(x: float, width: float, label: str) -> str:
-    """Render a left-leaning 45-degree mode label clear of the bar baseline."""
-    anchor_x = x + width / 2 - 14
-    anchor_y = 542.0
+    """Align a left-leaning label's trailing edge with its bar center."""
+    anchor_x = x + width / 2
+    anchor_y = 518.0
     return (
-        f'<text x="{anchor_x:.1f}" y="{anchor_y:.1f}" text-anchor="start" '
+        f'<text x="{anchor_x:.1f}" y="{anchor_y:.1f}" text-anchor="end" '
         f'transform="rotate(-45 {anchor_x:.1f} {anchor_y:.1f})" '
         f'fill="{MUTED_COLOR}" font-size="13" font-weight="600">'
         f"{html.escape(label)}</text>"
