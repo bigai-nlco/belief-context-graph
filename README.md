@@ -103,21 +103,6 @@ BCG is an optional context layer between an Agent and its model. In BCG mode, th
   </a>
 </p>
 
-### Summary context mode
-
-The reference Agent also includes a rolling-Summary baseline for controlled comparisons with BCG. It pins the initial user request, retains the same configurable recent-turn window, and replaces evicted turns with one LLM-generated summary in the system prompt. Summary mode does not start or call the Graph server.
-
-```bash
-bcg benchmark run browsecomp browsecomp_zh \
-    --modes default,bcg,summary \
-    --summary-model gpt-5.6-luna \
-    --summary-thinking off \
-    --workers 8 \
-    --output-dir results/context-comparison
-```
-
-By default, Summary reuses the Agent endpoint and API key. Use `--summary-base-url`, `--summary-model`, and `--summary-api-key-env` for an independent OpenAI-compatible model. Benchmark results report Agent, Graph, Summary, and combined token usage separately. Use `bcg viewer <result-directory>` to inspect the exact model input and output recorded for each task; these traces can contain sensitive prompts and tool results.
-
 
 ---
 
