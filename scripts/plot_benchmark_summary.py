@@ -93,7 +93,7 @@ def _format_tokens(value: float) -> str:
 def _mode_tick(x: float, width: float, label: str) -> str:
     """Align a left-leaning label's trailing edge with its bar center."""
     anchor_x = x + width / 2
-    anchor_y = 500.0
+    anchor_y = 494.0
     return (
         f'<text x="{anchor_x:.1f}" y="{anchor_y:.1f}" text-anchor="end" '
         f'transform="rotate(-45 {anchor_x:.1f} {anchor_y:.1f})" '
