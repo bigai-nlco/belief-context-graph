@@ -16,7 +16,6 @@
           width: 100%;
           border-collapse: collapse;
           border-top: 3px solid #171717;
-          border-bottom: 3px solid #171717;
         }
         td {
           padding: 20px 24px 22px;
@@ -99,4 +98,5 @@
       </table>
     </div>
   </foreignObject>
+  <line x1="32" y1="1280.5" x2="1468" y2="1280.5" stroke="#171717" stroke-width="3" shape-rendering="crispEdges"/>
 </svg>
