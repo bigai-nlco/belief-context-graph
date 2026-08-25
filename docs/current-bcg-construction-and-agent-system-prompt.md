@@ -15,7 +15,6 @@
 | Compact Graph 最大长度 | 18,000 characters |
 | Graph Server | `http://127.0.0.1:8850` |
 | Graph builder | `unified` |
-| Construction mode | `token_efficient` |
 | Graph model | `gpt-5.6-luna` |
 | Graph model reasoning | `none`（关闭 thinking） |
 | Embedding | 本地 `all-MiniLM-L6-v2` |
@@ -32,8 +31,8 @@ Graph Server 实际由以下形式的命令启动：
 bcg construct server unified \
   --host 127.0.0.1 \
   --port 8850 \
-  --config results/token-efficient-config.yaml \
-  --output-dir results/token-efficient-final-graphs-20260812
+  --config ~/.bcg/config.yaml \
+  --output-dir ~/.bcg/graphs
 ```
 
 虽然配置文件顶层仍写有 `backend: light`，当前进程通过 CLI 显式选择的是 `unified` builder。模型推理通过 OpenAI-compatible API 完成，embedding 在本地运行，因此这是“远程 Graph LLM + 本地 embedding”的部署组合。
@@ -47,7 +46,7 @@ bcg construct server unified \
 5. 仍保留在原始 context 中的 turn 不会同时出现在 Graph 中，因此设计目标是：近期信息保留原文，较早信息由 Graph 接管。
 6. 同一 assistant message 如果包含多个并行 tool calls，它们的 tool results 会作为同一批次提交，Graph model 最多调用一次，而不是每个 result 单独调用一次。
 
-## 3. Token-efficient 抽点方案
+## 3. 抽点方案
 
 整个 Graph 中只有一种对 Agent 可见的节点类型：belief。不同消息按以下规则处理。
 
@@ -81,12 +80,12 @@ The assistant is using web_search to search for "Bantry hospital acute psychiatr
 
 ## 4. 边、合并与置信度
 
-### 4.1 确定性 provenance edges
+### 4.1 Tool provenance 与语义边
 
-在 `token_efficient` 模式下，tool 相关边不调用 Graph model：
-
-- tool-result belief `depends_on` 对应的 query belief；
-- 后续 assistant action/conclusion `depends_on` 最近的 tool evidence 或 user request。
+- Thinking 与 Tool Call 属于同一个 Assistant turn，并通过 Graph model 与前一层 beliefs 建边；
+- 每条 tool-result belief 根据 `tool_call_id` 确定性地 `depends_on` 对应 Tool Call；
+- 存在 Thinking 时，Tool Result beliefs 再通过一次 Graph model 请求与 Thinking beliefs 建立语义关系；
+- 同一并行批次内的不同 Tool Result beliefs 不互相建边。
 
 这些边表示来源关系，不代表 epistemic support，因此权重为 0，不会因为“搜索结果来自某个 query”而提高结果可信度。Relation 只保存一次，不再同时生成一份 incoming relation。
 
@@ -95,7 +94,7 @@ The assistant is using web_search to search for "Bantry hospital acute psychiatr
 - 使用本地 `all-MiniLM-L6-v2` embedding 查找语义重复节点；
 - 当前阈值为 0.76；
 - query 和确定性 raw tool-result provenance nodes 不参与普通语义合并，以免丢失精确的 query/result 对应关系；
-- `token_efficient` 模式不会再用 LLM 做 merge verification/rewrite。
+- embedding 找到候选后，按配置使用 LLM 做 merge verification/rewrite。
 
 ### 4.3 Confidence
 

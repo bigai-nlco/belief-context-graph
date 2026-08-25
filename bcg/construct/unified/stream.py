@@ -37,7 +37,11 @@ from pathlib import Path
 from typing import Any
 
 from .._shared.roles import normalize_role
+from .._shared.tool_queries import extract_tool_calls
+from .._shared.tool_results import extract_tool_results
 from .._shared.writers import ArtifactWriter, EventRecorder
+from ..hybrid.named_entities import normalize_entity_config
+from ..hybrid.stance import normalize_stance_config
 from . import llm
 from .confidence import (
     init_belief_confidence,
@@ -52,6 +56,7 @@ from .evidence import (
     source_descriptor,
 )
 from .extract import (
+    extract_assistant_tool_result_nodes_batch,
     extract_compact_tool_result_nodes,
     extract_compact_tool_result_nodes_batch,
     extract_nodes,
@@ -81,7 +86,7 @@ class StreamOptions:
     # (apply-time gate: only LLM-confirmed groups are merged) and (2) rewrite the
     # surviving node's content so it covers the full meaning of all merged nodes.
     # Needs an embedder (same as incremental_merge).
-    verify_merge: bool = True
+    verify_merge: bool = False
     # prompt budgets
     context_chars: int = 100000  # existing-nodes context budget
     # Maximum number of non-empty historical turn windows inspected while
@@ -92,15 +97,16 @@ class StreamOptions:
     reasoning_effort: str | None = None
     # skip turns whose content is shorter than this (0 = never skip)
     min_content_len: int = 0
-    # ``llm`` is the canonical path. ``token_efficient`` keeps that path
-    # available while replacing structured tool-result extraction, relation
-    # generation, and merge verification with deterministic/local operations.
-    construction_mode: str = "llm"
-    token_efficient_max_search_results: int = 10
-    token_efficient_max_snippet_chars: int = 240
-    token_efficient_semantic_tool_results: bool = True
-    token_efficient_max_facts: int = 3
-    token_efficient_max_semantic_calls: int = 12
+    # Bounded, history-free semantic extraction for structured Tool Results.
+    tool_result_max_search_results: int = 10
+    tool_result_max_snippet_chars: int = 240
+    tool_result_semantic_extraction: bool = True
+    tool_result_max_facts: int = 3
+    tool_result_max_semantic_calls: int = 12
+    # Retained for configuration compatibility with the hybrid backend. Unified
+    # extraction asks the graph model to emit stance and entities with each node.
+    stance_config: dict[str, Any] = field(default_factory=dict)
+    entity_config: dict[str, Any] = field(default_factory=dict)
     confidence_config: dict[str, Any] = field(default_factory=dict)
 
     def apply_belief_graph_config(self, cfg: dict[str, Any] | None) -> None:
@@ -118,29 +124,47 @@ class StreamOptions:
             and edge_cfg.get("max_previous_windows") is not None
         ):
             self.max_previous_windows = max(1, int(edge_cfg["max_previous_windows"]))
-        runtime_cfg = cfg.get("runtime") or {}
-        if isinstance(runtime_cfg, dict) and runtime_cfg.get("construction_mode"):
-            self.construction_mode = str(runtime_cfg["construction_mode"])
-        efficient_cfg = cfg.get("token_efficient") or {}
-        if isinstance(efficient_cfg, dict):
-            if efficient_cfg.get("max_search_results") is not None:
-                self.token_efficient_max_search_results = max(
-                    1, int(efficient_cfg["max_search_results"])
+        tool_result_cfg = cfg.get("tool_results") or {}
+        if isinstance(tool_result_cfg, dict):
+            if tool_result_cfg.get("max_search_results") is not None:
+                self.tool_result_max_search_results = max(
+                    1, int(tool_result_cfg["max_search_results"])
                 )
-            if efficient_cfg.get("max_snippet_chars") is not None:
-                self.token_efficient_max_snippet_chars = max(
-                    40, int(efficient_cfg["max_snippet_chars"])
+            if tool_result_cfg.get("max_snippet_chars") is not None:
+                self.tool_result_max_snippet_chars = max(
+                    40, int(tool_result_cfg["max_snippet_chars"])
                 )
-            if efficient_cfg.get("semantic_tool_results") is not None:
-                self.token_efficient_semantic_tool_results = bool(
-                    efficient_cfg["semantic_tool_results"]
+            if tool_result_cfg.get("semantic_extraction") is not None:
+                self.tool_result_semantic_extraction = bool(
+                    tool_result_cfg["semantic_extraction"]
                 )
-            if efficient_cfg.get("max_facts") is not None:
-                self.token_efficient_max_facts = max(1, int(efficient_cfg["max_facts"]))
-            if efficient_cfg.get("max_semantic_calls") is not None:
-                self.token_efficient_max_semantic_calls = max(
-                    0, int(efficient_cfg["max_semantic_calls"])
+            if tool_result_cfg.get("max_facts") is not None:
+                self.tool_result_max_facts = max(1, int(tool_result_cfg["max_facts"]))
+            if tool_result_cfg.get("max_semantic_calls") is not None:
+                self.tool_result_max_semantic_calls = max(
+                    0, int(tool_result_cfg["max_semantic_calls"])
                 )
+        stance_cfg = cfg.get("stance") or {}
+        if isinstance(stance_cfg, dict):
+            merged_stance_cfg = dict(self.stance_config or {})
+            if isinstance(stance_cfg.get("labels"), dict):
+                merged_labels = dict(merged_stance_cfg.get("labels") or {})
+                merged_labels.update(stance_cfg.get("labels") or {})
+                merged_stance_cfg["labels"] = merged_labels
+                stance_cfg = {
+                    key: value for key, value in stance_cfg.items() if key != "labels"
+                }
+            merged_stance_cfg.update(stance_cfg)
+            self.stance_config = normalize_stance_config(merged_stance_cfg)
+        else:
+            self.stance_config = normalize_stance_config(self.stance_config)
+        entity_cfg = cfg.get("entities") or {}
+        if isinstance(entity_cfg, dict):
+            merged_entity_cfg = dict(self.entity_config or {})
+            merged_entity_cfg.update(entity_cfg)
+            self.entity_config = normalize_entity_config(merged_entity_cfg)
+        else:
+            self.entity_config = normalize_entity_config(self.entity_config)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -152,12 +176,13 @@ class StreamOptions:
             "max_previous_windows": self.max_previous_windows,
             "reasoning_effort": self.reasoning_effort,
             "min_content_len": self.min_content_len,
-            "construction_mode": self.construction_mode,
-            "token_efficient_max_search_results": self.token_efficient_max_search_results,
-            "token_efficient_max_snippet_chars": self.token_efficient_max_snippet_chars,
-            "token_efficient_semantic_tool_results": self.token_efficient_semantic_tool_results,
-            "token_efficient_max_facts": self.token_efficient_max_facts,
-            "token_efficient_max_semantic_calls": self.token_efficient_max_semantic_calls,
+            "tool_result_max_search_results": self.tool_result_max_search_results,
+            "tool_result_max_snippet_chars": self.tool_result_max_snippet_chars,
+            "tool_result_semantic_extraction": self.tool_result_semantic_extraction,
+            "tool_result_max_facts": self.tool_result_max_facts,
+            "tool_result_max_semantic_calls": self.tool_result_max_semantic_calls,
+            "stance": normalize_stance_config(self.stance_config),
+            "entities": normalize_entity_config(self.entity_config),
             "confidence_config": normalize_confidence_config(self.confidence_config),
         }
 
@@ -172,6 +197,8 @@ class StreamingBeliefBuilder:
         out_dir: Path,
         options: StreamOptions | None = None,
         embedder=None,
+        stance_classifier=None,
+        entity_recognizer=None,
         item_meta: dict[str, Any] | None = None,
         max_tokens: int | None = None,
     ) -> None:
@@ -184,17 +211,18 @@ class StreamingBeliefBuilder:
         self.options.max_previous_windows = max(
             1, int(self.options.max_previous_windows)
         )
-        self.options.construction_mode = (
-            str(self.options.construction_mode).strip().lower()
-        )
-        if self.options.construction_mode not in {"llm", "token_efficient"}:
-            raise ValueError("construction_mode must be 'llm' or 'token_efficient'")
         self.options.reasoning_effort = llm.resolve_reasoning_effort(
             model, self.options.reasoning_effort
         )
         self.options.confidence_config = normalize_confidence_config(
             self.options.confidence_config
         )
+        self.options.stance_config = normalize_stance_config(self.options.stance_config)
+        self.options.entity_config = normalize_entity_config(self.options.entity_config)
+        # These optional arguments remain accepted for API compatibility, but
+        # Unified now obtains both metadata fields from the graph-model response.
+        self.stance_classifier = stance_classifier
+        self.entity_recognizer = entity_recognizer
         self.embedder = embedder
 
         self.graph = BeliefGraph(confidence_config=self.options.confidence_config)
@@ -217,13 +245,19 @@ class StreamingBeliefBuilder:
 
         # Per-turn sub-step timing (seconds). One record per NON-skipped turn:
         #   {turn_index, role, node_generation, merging, llm_check,
-        #    edge_generation, turn_total}. Populated in ingest_turn.
+        #    entity_extraction, edge_generation, turn_total}. Populated in ingest_turn.
         self._turn_timings: list[dict[str, Any]] = []
         self._semantic_tool_result_calls = 0
         # Results prepared by one batch extraction call and consumed later by
         # the normal per-turn pipeline. Keys are future flat turn indices;
         # values retain independent nodes/evidence for exactly one tool turn.
-        self._prepared_tool_results: dict[int, tuple[dict[str, Any] | None, float]] = {}
+        self._prepared_tool_results: dict[
+            int,
+            tuple[
+                dict[str, Any] | None,
+                float,
+            ],
+        ] = {}
         # Final (trajectory-end) merge timing; filled in finalize(). Always
         # zero now that the trajectory-end global merge has been removed.
         self._final_merge_timing: dict[str, Any] = {
@@ -308,7 +342,13 @@ class StreamingBeliefBuilder:
             st = report.get("timing") or {}
             st = {
                 k: round(float(st.get(k, 0.0) or 0.0), 6)
-                for k in ("node_generation", "merging", "llm_check", "edge_generation")
+                for k in (
+                    "node_generation",
+                    "merging",
+                    "llm_check",
+                    "entity_extraction",
+                    "edge_generation",
+                )
             }
             st["turn_total"] = round(turn_total, 6)
             report["timing"] = st
@@ -331,10 +371,10 @@ class StreamingBeliefBuilder:
                 "effective_role": eff_role,
                 "content_chars": len(content),
                 "skip_reason": skip_reason,
-                "construction_mode": self.options.construction_mode,
                 "semantic_tool_result_calls": self._semantic_tool_result_calls,
                 "split": report.get("split"),
                 "raw_output": report.get("raw_output"),
+                "stance_classification": report.get("stance_classification"),
                 "raw_relation_output": report.get("raw_relation_output"),
                 "new_node_ids": [b["id"] for b in new_nodes],
                 "new_belief_ids": [
@@ -355,6 +395,7 @@ class StreamingBeliefBuilder:
                 ),
                 "edge_skip_reason": report.get("edge_skip_reason"),
                 "incremental_merge": report.get("incremental_merge"),
+                "entity_extraction": report.get("entity_extraction"),
                 "timing": report.get("timing"),
             },
         )
@@ -369,7 +410,7 @@ class StreamingBeliefBuilder:
         """
 
         opt = self.options
-        if opt.construction_mode != "token_efficient" or len(contents) < 2:
+        if len(contents) < 2:
             return 0
         if self._prepared_tool_results:
             # A caller must consume one batch before preparing another one.
@@ -377,13 +418,10 @@ class StreamingBeliefBuilder:
 
         remaining = max(
             0,
-            int(opt.token_efficient_max_semantic_calls)
-            - self._semantic_tool_result_calls,
+            int(opt.tool_result_max_semantic_calls) - self._semantic_tool_result_calls,
         )
         semantic_count = (
-            min(len(contents), remaining)
-            if opt.token_efficient_semantic_tool_results
-            else 0
+            min(len(contents), remaining) if opt.tool_result_semantic_extraction else 0
         )
         active_nodes = self.graph.active()
         batch_items: list[dict[str, Any]] = []
@@ -416,9 +454,9 @@ class StreamingBeliefBuilder:
                 self.model,
                 items=batch_items[:semantic_count],
                 mode=opt.evidence_mode,
-                max_results=opt.token_efficient_max_search_results,
-                max_snippet_chars=opt.token_efficient_max_snippet_chars,
-                max_facts=opt.token_efficient_max_facts,
+                max_results=opt.tool_result_max_search_results,
+                max_snippet_chars=opt.tool_result_max_snippet_chars,
+                max_facts=opt.tool_result_max_facts,
                 max_tokens=self.max_tokens,
                 reasoning_effort=opt.reasoning_effort,
             )
@@ -430,8 +468,8 @@ class StreamingBeliefBuilder:
                     content=contents[offset],
                     mode=opt.evidence_mode,
                     sentences=sentence_lists[offset],
-                    max_results=opt.token_efficient_max_search_results,
-                    max_snippet_chars=opt.token_efficient_max_snippet_chars,
+                    max_results=opt.tool_result_max_search_results,
+                    max_snippet_chars=opt.tool_result_max_snippet_chars,
                 )
             )
         elapsed = time.perf_counter() - _t_batch
@@ -449,6 +487,317 @@ class StreamingBeliefBuilder:
             )
         return len(prepared)
 
+    def prepare_assistant_tool_result_batch(
+        self,
+        assistant_content: str,
+        tool_contents: list[str],
+    ) -> int:
+        """Prepare ``Assistant -> Tool Result(s)`` with one extraction call.
+
+        The model response is partitioned by source.  Prepared node results are
+        then consumed by the normal sequential ``ingest_turn`` path, which is
+        what keeps source turn ids, evidence, merging, and edge construction on
+        their original Assistant and Tool layers.
+        """
+
+        if not tool_contents or self._prepared_tool_results:
+            return 0
+
+        opt = self.options
+        assistant_sentences = (
+            [sentence.text for sentence in split_sentences(assistant_content)]
+            if opt.evidence_mode == "sentence"
+            else None
+        )
+        calls = extract_tool_calls(assistant_content)
+        query_by_call_id = {
+            str(call.tool_call_id): call.query
+            for call in calls
+            if call.tool_call_id is not None and call.query is not None
+        }
+
+        flat_items: list[dict[str, Any]] = []
+        flat_sources: list[dict[str, Any]] = []
+        for tool_turn_offset, content in enumerate(tool_contents):
+            turn_sentences = (
+                [sentence.text for sentence in split_sentences(content)]
+                if opt.evidence_mode == "sentence"
+                else None
+            )
+            parsed_results = extract_tool_results(content)
+            if parsed_results:
+                for result_index, parsed in enumerate(parsed_results):
+                    flat_index = len(flat_items)
+                    query = (
+                        query_by_call_id.get(str(parsed.tool_call_id))
+                        if parsed.tool_call_id is not None
+                        else None
+                    )
+                    if query is None and calls:
+                        query = calls[min(flat_index, len(calls) - 1)].query
+                    flat_items.append(
+                        {
+                            "content": parsed.source_block or content,
+                            "sentences": turn_sentences,
+                            "query": query,
+                        }
+                    )
+                    flat_sources.append(
+                        {
+                            "tool_turn_offset": tool_turn_offset,
+                            "result_index": result_index,
+                            "parsed": parsed,
+                            "grouped": True,
+                        }
+                    )
+                continue
+
+            flat_index = len(flat_items)
+            query = calls[min(flat_index, len(calls) - 1)].query if calls else None
+            flat_items.append(
+                {
+                    "content": content,
+                    "sentences": turn_sentences,
+                    "query": query,
+                }
+            )
+            flat_sources.append(
+                {
+                    "tool_turn_offset": tool_turn_offset,
+                    "result_index": 0,
+                    "parsed": None,
+                    "grouped": False,
+                }
+            )
+
+        remaining = max(
+            0,
+            int(opt.tool_result_max_semantic_calls) - self._semantic_tool_result_calls,
+        )
+        semantic_count = (
+            min(len(flat_items), remaining)
+            if opt.tool_result_semantic_extraction
+            else 0
+        )
+
+        _t_batch = time.perf_counter()
+        USAGE.set_label(
+            f"t{self._flat_turn}.extract:assistant_tool_batch:{semantic_count}"
+        )
+        assistant_result, semantic_results = extract_assistant_tool_result_nodes_batch(
+            self.client,
+            self.model,
+            assistant_content=assistant_content,
+            assistant_sentences=assistant_sentences,
+            graph_nodes_str=format_graph_nodes(
+                self.graph.active(), char_budget=opt.context_chars
+            ),
+            items=flat_items[:semantic_count],
+            mode=opt.evidence_mode,
+            max_results=opt.tool_result_max_search_results,
+            max_snippet_chars=opt.tool_result_max_snippet_chars,
+            max_facts=opt.tool_result_max_facts,
+            max_tokens=self.max_tokens,
+            reasoning_effort=opt.reasoning_effort,
+        )
+        flat_results: list[dict[str, Any] | None] = list(semantic_results)
+        for item in flat_items[semantic_count:]:
+            flat_results.append(
+                extract_rule_tool_result_nodes(
+                    role="tool",
+                    content=str(item.get("content") or ""),
+                    mode=opt.evidence_mode,
+                    sentences=item.get("sentences"),
+                    max_results=opt.tool_result_max_search_results,
+                    max_snippet_chars=opt.tool_result_max_snippet_chars,
+                )
+            )
+        self._semantic_tool_result_calls += sum(
+            1
+            for result in semantic_results
+            if result is not None
+            and result.get("extraction_method") == "compact_llm_tool_result"
+        )
+
+        per_turn_nodes: list[list[dict[str, Any]]] = [[] for _ in tool_contents]
+        per_turn_raw: list[list[str]] = [[] for _ in tool_contents]
+        per_turn_grouped = [False for _ in tool_contents]
+        per_turn_fallback: list[dict[str, Any] | None] = [None for _ in tool_contents]
+        for source, result in zip(flat_sources, flat_results, strict=True):
+            turn_offset = int(source["tool_turn_offset"])
+            if result is None:
+                continue
+            if not source["grouped"]:
+                per_turn_fallback[turn_offset] = result
+                continue
+            per_turn_grouped[turn_offset] = True
+            raw = result.get("raw_output")
+            if isinstance(raw, str) and raw not in per_turn_raw[turn_offset]:
+                per_turn_raw[turn_offset].append(raw)
+            parsed = source["parsed"]
+            result_index = int(source["result_index"])
+            for fact_index, original in enumerate(result.get("nodes") or []):
+                node = dict(original)
+                node["tmp_id"] = f"n{len(per_turn_nodes[turn_offset])}"
+                node["tool_name"] = parsed.tool_name
+                node["tool_result_index"] = result_index
+                node["tool_result_fact_index"] = fact_index
+                if parsed.tool_call_id is not None:
+                    node["tool_call_id"] = parsed.tool_call_id
+                per_turn_nodes[turn_offset].append(node)
+
+        prepared_tools: list[dict[str, Any] | None] = []
+        for offset in range(len(tool_contents)):
+            if per_turn_grouped[offset]:
+                nodes = per_turn_nodes[offset]
+                prepared_tools.append(
+                    {
+                        "nodes": nodes,
+                        "beliefs": nodes,
+                        "decisions": [],
+                        "relations": [],
+                        "raw_output": "\n".join(per_turn_raw[offset]),
+                        "skipped": False,
+                        "extraction_method": "grouped_tool_result",
+                    }
+                )
+            else:
+                prepared_tools.append(per_turn_fallback[offset])
+
+        elapsed = time.perf_counter() - _t_batch
+
+        self._prepared_tool_results[self._flat_turn] = (
+            assistant_result,
+            elapsed,
+        )
+        for offset, result in enumerate(prepared_tools, start=1):
+            self._prepared_tool_results[self._flat_turn + offset] = (
+                result,
+                0.0,
+            )
+        return 1 + len(tool_contents)
+
+    def _extract_grouped_tool_results(
+        self,
+        *,
+        content: str,
+        mode: str,
+        sentences: list[str] | None,
+        flat_idx: int,
+    ) -> dict[str, Any] | None:
+        """Extract one canonical parallel-result turn with at most one LLM call.
+
+        The model sees bounded snippets and a code-owned ``item_index`` only.
+        Exact tool names and call IDs are copied back from the wire payload, so
+        every extracted fact remains pairable with its originating Tool Call.
+        """
+
+        parsed_results = extract_tool_results(content)
+        if not parsed_results:
+            return None
+
+        opt = self.options
+        active_nodes = self.graph.active()
+        query_by_call_id = {
+            str(node["tool_call_id"]): str(node["query"])
+            for node in active_nodes
+            if node.get("extraction_method") == "rule_tool_call"
+            and isinstance(node.get("tool_call_id"), str)
+            and isinstance(node.get("query"), str)
+        }
+        items: list[dict[str, Any]] = []
+        for result_index, parsed in enumerate(parsed_results):
+            query = (
+                query_by_call_id.get(parsed.tool_call_id)
+                if parsed.tool_call_id is not None
+                else None
+            )
+            if query is None:
+                query = self._tool_result_query_text(
+                    active_nodes,
+                    flat_idx,
+                    additional_prior_tool_results=result_index,
+                )
+            items.append(
+                {
+                    "content": parsed.source_block or content,
+                    "sentences": sentences,
+                    "query": query,
+                }
+            )
+
+        remaining = max(
+            0,
+            int(opt.tool_result_max_semantic_calls) - self._semantic_tool_result_calls,
+        )
+        semantic_count = (
+            min(len(items), remaining) if opt.tool_result_semantic_extraction else 0
+        )
+        extracted: list[dict[str, Any] | None] = []
+        if semantic_count:
+            USAGE.set_label(f"t{flat_idx}.extract:tool_group:{semantic_count}")
+            extracted.extend(
+                extract_compact_tool_result_nodes_batch(
+                    self.client,
+                    self.model,
+                    items=items[:semantic_count],
+                    mode=mode,
+                    max_results=opt.tool_result_max_search_results,
+                    max_snippet_chars=opt.tool_result_max_snippet_chars,
+                    max_facts=opt.tool_result_max_facts,
+                    max_tokens=self.max_tokens,
+                    reasoning_effort=opt.reasoning_effort,
+                )
+            )
+        for result_index in range(semantic_count, len(items)):
+            extracted.append(
+                extract_rule_tool_result_nodes(
+                    role="tool",
+                    content=str(items[result_index]["content"]),
+                    mode=mode,
+                    sentences=sentences,
+                    max_results=opt.tool_result_max_search_results,
+                    max_snippet_chars=opt.tool_result_max_snippet_chars,
+                )
+            )
+
+        self._semantic_tool_result_calls += sum(
+            1
+            for result in extracted[:semantic_count]
+            if result is not None
+            and result.get("extraction_method") == "compact_llm_tool_result"
+        )
+
+        nodes: list[dict[str, Any]] = []
+        raw_outputs: list[str] = []
+        for result_index, (parsed, result) in enumerate(
+            zip(parsed_results, extracted, strict=True)
+        ):
+            if result is None:
+                continue
+            raw = result.get("raw_output")
+            if isinstance(raw, str) and raw not in raw_outputs:
+                raw_outputs.append(raw)
+            for fact_index, original in enumerate(result.get("nodes") or []):
+                node = dict(original)
+                node["tmp_id"] = f"n{len(nodes)}"
+                node["tool_name"] = parsed.tool_name
+                node["tool_result_index"] = result_index
+                node["tool_result_fact_index"] = fact_index
+                if parsed.tool_call_id is not None:
+                    node["tool_call_id"] = parsed.tool_call_id
+                nodes.append(node)
+
+        return {
+            "nodes": nodes,
+            "beliefs": nodes,
+            "decisions": [],
+            "relations": [],
+            "raw_output": "\n".join(raw_outputs),
+            "skipped": False,
+            "extraction_method": "grouped_tool_result",
+        }
+
     # ------------------------------------------ per-turn three-phase pipeline
     def _update_from_turn(
         self,
@@ -460,7 +809,7 @@ class StreamingBeliefBuilder:
         has_answer: bool | None,
     ):
         """Three-phase per-turn update:
-        Phase 1 — extract belief/decision nodes (one LLM call)
+        Phase 1 — extract belief/decision text, stance, and entities together
         Phase 2 — incremental merge for belief nodes only (embedding, optionally
                   LLM-verified); decision nodes are preserved as extracted
         Phase 3 — extract relations on the post-merge graph (one LLM call)
@@ -474,6 +823,7 @@ class StreamingBeliefBuilder:
             "node_generation": 0.0,
             "merging": 0.0,
             "llm_check": 0.0,
+            "entity_extraction": 0.0,
             "edge_generation": 0.0,
         }
         report["timing"] = timing
@@ -487,10 +837,12 @@ class StreamingBeliefBuilder:
             has_answer=has_answer,
         )
 
-        # Node extraction sees every historical node so it can resolve references
-        # and preserve naming, but historical edges belong exclusively to the
-        # separate relation phase and are deliberately omitted here.
-        graph_nodes_str = format_graph_nodes(self.graph.active(), char_budget=None)
+        # Node extraction receives the newest historical nodes that fit the same
+        # context budget used by relation extraction. Historical edges belong
+        # exclusively to the separate relation phase and are omitted here.
+        graph_nodes_str = format_graph_nodes(
+            self.graph.active(), char_budget=opt.context_chars
+        )
         graph_edges_str = "[]"
 
         # ---- prepare evidence mode
@@ -504,8 +856,8 @@ class StreamingBeliefBuilder:
             self._last_sentences = []
 
         # ---- PHASE 1: extract nodes only (beliefs + decisions, no relations)
-        # The opt-in token-efficient policy parses canonical tool-result messages
-        # directly. All other turns retain the canonical model extractor.
+        # Structured tool results use a bounded, history-free semantic extractor
+        # in both construction modes. Other roles retain the canonical extractor.
         USAGE.set_label(f"t{turn_idx}.extract:{role}")
         _t_nodes = time.perf_counter()
         node_res = None
@@ -514,14 +866,21 @@ class StreamingBeliefBuilder:
             node_res, prepared_seconds = prepared
             timing["node_generation"] = prepared_seconds
             report["_prepared_batch_seconds"] = prepared_seconds
-        if opt.construction_mode == "token_efficient" and prepared is None:
+        if prepared is None and role == "tool" and "<tool_result>" in content.lower():
+            node_res = self._extract_grouped_tool_results(
+                content=content,
+                mode=opt.evidence_mode,
+                sentences=sentences,
+                flat_idx=flat_idx,
+            )
+        if role == "tool" and prepared is None and node_res is None:
             tool_result_query = self._tool_result_query_text(
                 self.graph.active(), flat_idx
             )
             semantic_enabled = (
-                opt.token_efficient_semantic_tool_results
+                opt.tool_result_semantic_extraction
                 and self._semantic_tool_result_calls
-                < opt.token_efficient_max_semantic_calls
+                < opt.tool_result_max_semantic_calls
             )
             if semantic_enabled:
                 node_res = extract_compact_tool_result_nodes(
@@ -532,9 +891,9 @@ class StreamingBeliefBuilder:
                     mode=opt.evidence_mode,
                     query=tool_result_query,
                     sentences=sentences,
-                    max_results=opt.token_efficient_max_search_results,
-                    max_snippet_chars=opt.token_efficient_max_snippet_chars,
-                    max_facts=opt.token_efficient_max_facts,
+                    max_results=opt.tool_result_max_search_results,
+                    max_snippet_chars=opt.tool_result_max_snippet_chars,
+                    max_facts=opt.tool_result_max_facts,
                     max_tokens=self.max_tokens,
                     reasoning_effort=opt.reasoning_effort,
                 )
@@ -549,8 +908,8 @@ class StreamingBeliefBuilder:
                     content=content,
                     mode=opt.evidence_mode,
                     sentences=sentences,
-                    max_results=opt.token_efficient_max_search_results,
-                    max_snippet_chars=opt.token_efficient_max_snippet_chars,
+                    max_results=opt.tool_result_max_search_results,
+                    max_snippet_chars=opt.tool_result_max_snippet_chars,
                 )
         used_fallback_extractor = node_res is None
         if used_fallback_extractor:
@@ -578,17 +937,42 @@ class StreamingBeliefBuilder:
         if node_res.get("skip_reason"):
             report["skip_reason"] = node_res["skip_reason"]
 
+        # Semantic nodes already carry stance and entities from the same graph
+        # model response that extracted their text. Deterministic Tool Call nodes
+        # remain asserted and retain their code-owned exact tool-name entity.
+        extracted_nodes = list(node_res.get("nodes", []))
+        for node in extracted_nodes:
+            if node.get("extraction_method") == "rule_tool_call":
+                node["stance_confidence"] = 1.0
+                node["stance_scores"] = {
+                    "asserted": 1.0,
+                    "recalled": 0.0,
+                    "judged": 0.0,
+                    "speculated": 0.0,
+                }
+                node["stance_model"] = "rule_tool_call"
+            else:
+                # The extraction contract intentionally asks for a label but no
+                # numerical probability; confidence remains code-owned.
+                node["stance_confidence"] = 0.0
+                node["stance_scores"] = {}
+                node["stance_model"] = f"graph_model:{self.model}"
+        report["stance_classification"] = {
+            "source": "graph_model",
+            "model": self.model,
+            "stances": [node.get("stance", "asserted") for node in extracted_nodes],
+        }
+
         # ---- allocate ids + attach evidence (in output order, so n0<n1<… in id)
         tmp_to_gid: dict[str, int] = {}
         new_nodes: list[dict[str, Any]] = []
         new_node_ids: set = set()
-        for cb in node_res.get("nodes", []):
+        for cb in extracted_nodes:
             evid = self._evidence_for(cb, content, src, opt.evidence_mode, role)
             node = self._make_node(cb, src, evid, role)
             tmp_to_gid[cb["tmp_id"]] = node["id"]
             new_nodes.append(node)
             new_node_ids.add(node["id"])
-
         # ---- PHASE 2: incremental merge (before relation extraction so that
         #      relations are drawn against a deduplicated graph). Decision nodes
         #      are excluded from incremental merge entirely: intermediate answers
@@ -596,25 +980,22 @@ class StreamingBeliefBuilder:
         #      final decision is retained as a decision at trajectory end.
         if new_nodes and self.options.incremental_merge and self.embedder is not None:
             USAGE.set_label(f"t{turn_idx}.merge")
-            verify_merge = (
-                self.options.verify_merge and self.options.construction_mode == "llm"
-            )
+            verify_merge = self.options.verify_merge
             decision_ids = {
                 node["id"]
                 for node in self.graph.active()
                 if isinstance(node.get("id"), int)
                 and node.get("node_type") == "decision"
             }
-            if self.options.construction_mode == "token_efficient":
-                # Provenance nodes are stable anchors. Merging them would erase
-                # the exact query/result turn needed for deterministic linking.
-                decision_ids |= {
-                    node["id"]
-                    for node in self.graph.active()
-                    if isinstance(node.get("id"), int)
-                    and node.get("extraction_method")
-                    in {"rule_tool_call", "rule_tool_result"}
-                }
+            # Provenance nodes are stable anchors in every construction mode.
+            # Merging them would erase exact call/result identity.
+            decision_ids |= {
+                node["id"]
+                for node in self.graph.active()
+                if isinstance(node.get("id"), int)
+                and node.get("extraction_method")
+                in {"rule_tool_call", "rule_tool_result"}
+            }
             inc = run_merge_pass(
                 graph=self.graph,
                 strategy="embedding",
@@ -670,10 +1051,18 @@ class StreamingBeliefBuilder:
         active_ids = set(self.graph.ids())
         surviving_new_ids = new_node_ids & active_ids
         report["edge_attempts"] = []
+        active_nodes_by_id = {
+            node.get("id"): node
+            for node in active_nodes
+            if isinstance(node.get("id"), int)
+        }
 
-        if opt.construction_mode == "token_efficient":
-            relations_added, deterministic_report = self._add_deterministic_relations(
-                role=role,
+        if role == "tool" and any(
+            active_nodes_by_id.get(node_id, {}).get("extraction_method")
+            in {"rule_tool_result", "compact_llm_tool_result"}
+            for node_id in surviving_new_ids
+        ):
+            relations_added, deterministic_report = self._add_tool_result_relations(
                 flat_idx=flat_idx,
                 active_nodes=active_nodes,
                 surviving_new_ids=surviving_new_ids,
@@ -682,6 +1071,29 @@ class StreamingBeliefBuilder:
             report["edge_linked_previous_trajectory_index"] = deterministic_report.get(
                 "previous_trajectory_index"
             )
+            thinking_ids = set(deterministic_report.get("thinking_node_ids") or [])
+            if surviving_new_ids and thinking_ids:
+                _t_edge = time.perf_counter()
+                added, _added_cross, attempt = self._extract_relations_for_edge_window(
+                    role=role,
+                    content=content,
+                    turn_idx=turn_idx,
+                    previous_trajectory_index=deterministic_report.get(
+                        "previous_trajectory_index"
+                    ),
+                    active_nodes=active_nodes,
+                    active_ids=active_ids,
+                    surviving_new_ids=surviving_new_ids,
+                    previous_node_ids=thinking_ids,
+                    date=date,
+                    context_chars=opt.context_chars,
+                    allow_current_to_current=False,
+                )
+                timing["edge_generation"] += time.perf_counter() - _t_edge
+                attempt["strategy"] = "tool_results_to_prior_thinking"
+                report["edge_attempts"].append(attempt)
+                report["raw_relation_output"] = attempt.get("raw_relation_output")
+                relations_added += added
             if not surviving_new_ids:
                 report["edge_skip_reason"] = (
                     "no active current-turn nodes after incremental merge"
@@ -740,7 +1152,7 @@ class StreamingBeliefBuilder:
             # If this is the first node-producing turn, or every earlier turn's
             # nodes have been merged away, still make one current-only attempt so
             # valid current new <-> current new edges are not lost.
-            if not tried_prior_window:
+            if not tried_prior_window and role != "assistant":
                 _t_edge = time.perf_counter()
                 added, _added_cross, attempt = self._extract_relations_for_edge_window(
                     role=role,
@@ -769,52 +1181,105 @@ class StreamingBeliefBuilder:
 
         return new_nodes, relations_added, report
 
-    def _add_deterministic_relations(
+    def _add_tool_result_relations(
         self,
         *,
-        role: str,
         flat_idx: int,
         active_nodes: list[dict[str, Any]],
         surviving_new_ids: set,
     ) -> tuple[int, dict[str, Any]]:
-        """Link provenance-bearing turns without a graph-model call."""
+        """Pair every result with its exact call and expose prior thinking ids."""
 
         previous_idx: int | None = None
-        previous_ids: set[int] = set()
-        relation_type = "depends_on"
-        note = ""
+        previous_nodes: list[dict[str, Any]] = []
+        for candidate_idx in range(flat_idx - 1, -1, -1):
+            if (
+                normalize_role(str(self._trajectory[candidate_idx].get("role") or ""))
+                != "assistant"
+            ):
+                continue
+            candidate_ids = self._node_ids_from_trajectory_index(
+                active_nodes, candidate_idx
+            )
+            if candidate_ids:
+                previous_idx = candidate_idx
+                previous_nodes = [
+                    node for node in active_nodes if node.get("id") in candidate_ids
+                ]
+                break
 
-        if role == "tool":
-            previous_idx, previous_ids = self._query_nodes_for_tool_result(
-                active_nodes, flat_idx
+        calls_by_id = {
+            str(node.get("tool_call_id")): int(node["id"])
+            for node in previous_nodes
+            if node.get("extraction_method") == "rule_tool_call"
+            and isinstance(node.get("tool_call_id"), str)
+            and isinstance(node.get("id"), int)
+        }
+        calls_by_index = sorted(
+            (
+                node
+                for node in previous_nodes
+                if node.get("extraction_method") == "rule_tool_call"
+                and isinstance(node.get("id"), int)
+            ),
+            key=lambda node: int(node.get("tool_call_index") or 0),
+        )
+        thinking_ids = {
+            int(node["id"])
+            for node in previous_nodes
+            if node.get("source_component") == "thinking"
+            and isinstance(node.get("id"), int)
+        }
+        proposed: list[dict[str, Any]] = []
+        pairings: list[dict[str, Any]] = []
+        for result_id in sorted(surviving_new_ids):
+            result = next(
+                (node for node in active_nodes if node.get("id") == result_id), None
             )
-            note = "The tool result was produced by the preceding tool call."
-        elif role == "assistant":
-            previous_idx, previous_ids = self._nearest_previous_nodes(
-                active_nodes, flat_idx, roles={"tool"}
+            if result is None or result.get("extraction_method") not in {
+                "rule_tool_result",
+                "compact_llm_tool_result",
+            }:
+                continue
+            raw_call_id = result.get("tool_call_id")
+            call_id = (
+                calls_by_id.get(str(raw_call_id))
+                if isinstance(raw_call_id, str)
+                else None
             )
-            if not previous_ids:
-                previous_idx, previous_ids = self._nearest_previous_nodes(
-                    active_nodes, flat_idx, roles={"user"}
+            if call_id is None and not isinstance(raw_call_id, str):
+                _legacy_idx, legacy_ids = self._query_nodes_for_tool_result(
+                    active_nodes, flat_idx
                 )
-            note = "The assistant action or conclusion uses the preceding evidence or request."
-
-        proposed = [
-            {
-                "from_id": current_id,
-                "to_id": previous_id,
-                "type": relation_type,
-                "note": note,
-                # Deterministic edges are provenance only. A zero weight keeps
-                # later global confidence recomputations from treating them as
-                # epistemic support.
-                "weight": 0.0,
-                "activated_condition": {"input_conf_threshold": 1.0},
-            }
-            for current_id in sorted(surviving_new_ids)
-            for previous_id in sorted(previous_ids)
-            if current_id != previous_id
-        ]
+                if len(legacy_ids) == 1:
+                    call_id = next(iter(legacy_ids))
+            if call_id is None and calls_by_index:
+                result_index = int(result.get("tool_result_index") or 0)
+                call_id = int(
+                    calls_by_index[min(result_index, len(calls_by_index) - 1)]["id"]
+                )
+            if call_id is None or call_id == result_id:
+                continue
+            proposed.append(
+                {
+                    "from_id": result_id,
+                    "to_id": call_id,
+                    "type": "depends_on",
+                    "note": "The tool result was produced by the preceding tool call.",
+                    # Deterministic edges are provenance only. A zero weight keeps
+                    # later global confidence recomputations from treating them as
+                    # epistemic support.
+                    "weight": 0.0,
+                    "activated_condition": {"input_conf_threshold": 1.0},
+                }
+            )
+            pairings.append(
+                {
+                    "tool_call_id": raw_call_id,
+                    "result_node_id": result_id,
+                    "call_node_id": call_id,
+                }
+            )
         added = self.graph.add_relations(proposed)
         # These edges encode provenance (result came from query / action used
         # prior evidence), not epistemic support. Propagating confidence across
@@ -822,33 +1287,22 @@ class StreamingBeliefBuilder:
         # Agent to over-trust noisy retrieval results.
         report: dict[str, Any] = {
             "strategy": "deterministic_provenance",
+            "pairing_strategy": "tool_call_id",
             "previous_trajectory_index": previous_idx,
-            "previous_node_ids": sorted(previous_ids),
+            "previous_node_ids": sorted(
+                int(node["id"])
+                for node in previous_nodes
+                if isinstance(node.get("id"), int)
+            ),
             "new_node_ids": sorted(surviving_new_ids),
+            "thinking_node_ids": sorted(thinking_ids),
+            "pairings": pairings,
             "relations_added": added,
             "cross_turn_relations_added": added,
         }
         if not proposed:
             report["skip_reason"] = "no deterministic provenance target"
         return added, report
-
-    def _nearest_previous_nodes(
-        self,
-        active_nodes: list[dict[str, Any]],
-        flat_idx: int,
-        *,
-        roles: set[str],
-    ) -> tuple[int | None, set[int]]:
-        for candidate_idx in range(flat_idx - 1, -1, -1):
-            candidate_role = normalize_role(
-                str(self._trajectory[candidate_idx].get("role") or "")
-            )
-            if candidate_role not in roles:
-                continue
-            node_ids = self._node_ids_from_trajectory_index(active_nodes, candidate_idx)
-            if node_ids:
-                return candidate_idx, node_ids
-        return None, set()
 
     def _query_nodes_for_tool_result(
         self,
@@ -919,6 +1373,7 @@ class StreamingBeliefBuilder:
         previous_node_ids: set,
         date: str | None,
         context_chars: int,
+        allow_current_to_current: bool = True,
     ):
         """Run one relation-extraction attempt for current nodes + one prior turn.
 
@@ -963,6 +1418,7 @@ class StreamingBeliefBuilder:
             active_ids,
             new_node_ids=surviving_new_ids,
             previous_node_ids=previous_node_ids,
+            allow_current_to_current=allow_current_to_current,
         )
 
         existing_keys = {
@@ -1066,6 +1522,7 @@ class StreamingBeliefBuilder:
         *,
         new_node_ids=None,
         previous_node_ids=None,
+        allow_current_to_current: bool = True,
     ):
         """Keep only current-turn ↔ previous-turn or current-turn ↔ current-turn edges."""
         new_gids = set(tmp_to_gid.values())
@@ -1103,6 +1560,8 @@ class StreamingBeliefBuilder:
             if fid not in edge_window_ids or tid not in edge_window_ids:
                 continue
             if fid not in new_gids and tid not in new_gids:
+                continue
+            if not allow_current_to_current and fid in new_gids and tid in new_gids:
                 continue
             rtype = r.get("type")
             if rtype not in valid_types:
@@ -1170,6 +1629,9 @@ class StreamingBeliefBuilder:
             "node_type": node_type,
             primary_text_key: primary_text,
             "stance": cleaned["stance"],
+            "stance_confidence": float(cleaned.get("stance_confidence") or 0.0),
+            "stance_scores": dict(cleaned.get("stance_scores") or {}),
+            "stance_model": str(cleaned.get("stance_model") or ""),
             "role": role,
             "entities": list(cleaned.get("entities") or []),
             # Match the hybrid backend: event_time records graph-node creation
@@ -1182,14 +1644,19 @@ class StreamingBeliefBuilder:
         if cleaned.get("query"):
             node["tool_name"] = str(cleaned.get("tool_name") or "tool")
             node["query"] = str(cleaned["query"])
+        if cleaned.get("source_component"):
+            node["source_component"] = str(cleaned["source_component"])
         if cleaned.get("extraction_method") == "rule_tool_call":
             node["tool_name"] = str(cleaned.get("tool_name") or "tool")
             node["tool_arguments"] = dict(cleaned.get("tool_arguments") or {})
             node["tool_call_index"] = int(cleaned.get("tool_call_index") or 0)
             node["extraction_method"] = "rule_tool_call"
-            node["tool_call_id"] = (
-                f"{src.get('item_id', self.item_id)}:"
-                f"t{src.get('turn_id', -1)}:c{node['tool_call_index']}"
+            node["tool_call_id"] = str(
+                cleaned.get("tool_call_id")
+                or (
+                    f"{src.get('item_id', self.item_id)}:"
+                    f"t{src.get('turn_id', -1)}:c{node['tool_call_index']}"
+                )
             )
         if cleaned.get("extraction_method") in {
             "rule_tool_result",
@@ -1202,8 +1669,22 @@ class StreamingBeliefBuilder:
                 cleaned.get("tool_result_truncated_count") or 0
             )
             node["extraction_method"] = str(cleaned["extraction_method"])
+            if cleaned.get("tool_call_id"):
+                node["tool_call_id"] = str(cleaned["tool_call_id"])
+            node["tool_result_index"] = int(cleaned.get("tool_result_index") or 0)
+            node["tool_result_fact_index"] = int(
+                cleaned.get("tool_result_fact_index") or 0
+            )
+            result_suffix = (
+                f":{node['tool_result_index']}"
+                if cleaned.get("tool_call_id") or node["tool_result_index"] > 0
+                else ""
+            )
+            if node["tool_result_fact_index"] > 0:
+                result_suffix += f":{node['tool_result_fact_index']}"
             node["tool_result_id"] = (
-                f"{src.get('item_id', self.item_id)}:t{src.get('turn_id', -1)}:result"
+                f"{src.get('item_id', self.item_id)}:t{src.get('turn_id', -1)}:"
+                f"result{result_suffix}"
             )
         if node_type == "decision":
             node["decision_history"] = []
@@ -1381,6 +1862,7 @@ class StreamingBeliefBuilder:
             "node_generation",
             "merging",
             "llm_check",
+            "entity_extraction",
             "edge_generation",
             "turn_total",
         )
@@ -1478,6 +1960,7 @@ class StreamingBeliefBuilder:
                 "node_generation",
                 "merging",
                 "llm_check",
+                "entity_extraction",
                 "edge_generation",
                 "turn_total",
                 "n_nodes",
@@ -1508,6 +1991,7 @@ class StreamingBeliefBuilder:
                             _f(t.get("node_generation")),
                             _f(t.get("merging")),
                             _f(t.get("llm_check")),
+                            _f(t.get("entity_extraction")),
                             _f(t.get("edge_generation")),
                             _f(t.get("turn_total")),
                             "",
@@ -1531,6 +2015,7 @@ class StreamingBeliefBuilder:
                         _f(fm.get("merging")),
                         _f(fm.get("llm_check")),
                         _f(0.0),
+                        _f(0.0),
                         _f(fm.get("total")),
                         "",
                         "",
@@ -1551,6 +2036,7 @@ class StreamingBeliefBuilder:
                         _f(by_step["node_generation"]["total_seconds"]),
                         _f(by_step["merging"]["total_seconds"]),
                         _f(by_step["llm_check"]["total_seconds"]),
+                        _f(by_step["entity_extraction"]["total_seconds"]),
                         _f(by_step["edge_generation"]["total_seconds"]),
                         _f(by_step["turn_total"]["total_seconds"]),
                         len(nodes),

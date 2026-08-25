@@ -387,6 +387,18 @@ class StreamingTrajectorySession:
             return False
         return bool(turn.get("is_message_end", True))
 
+    @staticmethod
+    def _batchable_assistant(turn: dict[str, Any]) -> bool:
+        """Whether an Assistant turn can anchor a combined extraction batch."""
+
+        if not isinstance(turn, dict):
+            return False
+        if normalize_role(str(turn.get("role") or "user")) != "assistant":
+            return False
+        if bool(turn.get("is_trajectory_end", False)):
+            return False
+        return bool(turn.get("is_message_end", True))
+
     def push_many(self, turns: list[dict[str, Any]]) -> dict[str, Any]:
         """Push an atomic ordered batch, coalescing consecutive tool results.
 
@@ -399,6 +411,45 @@ class StreamingTrajectorySession:
         with self._lock:
             index = 0
             while index < len(turns):
+                if not self._buf_parts and self._batchable_assistant(turns[index]):
+                    run_end = index + 1
+                    while run_end < len(turns) and self._batchable_tool_result(
+                        turns[run_end]
+                    ):
+                        run_end += 1
+                    if run_end > index + 1:
+                        builder = self._ensure_builder()
+                        prepare_pair = getattr(
+                            builder,
+                            "prepare_assistant_tool_result_batch",
+                            None,
+                        )
+                        if callable(prepare_pair):
+                            assistant_content = str(turns[index].get("content") or "")
+                            tool_contents = [
+                                str(turn.get("content") or "")
+                                for turn in turns[index + 1 : run_end]
+                            ]
+                            try:
+                                with self._engine():
+                                    prepared_count = prepare_pair(
+                                        assistant_content,
+                                        tool_contents,
+                                    )
+                            except Exception as exc:
+                                prepared_count = 0
+                                print(
+                                    f"  [warn] {self.problem_id}: Assistant/Tool "
+                                    f"batch preparation failed ({exc}); using "
+                                    "sequential extraction",
+                                    file=sys.stderr,
+                                )
+                            if prepared_count == run_end - index:
+                                for turn in turns[index:run_end]:
+                                    latest = self._push_locked(turn)
+                                index = run_end
+                                continue
+
                 run_end = index
                 if not self._buf_parts and self._batchable_tool_result(turns[index]):
                     while run_end < len(turns) and self._batchable_tool_result(

@@ -559,6 +559,56 @@ print(json.dumps({{
     assert result["correct"] is True
 
 
+def test_final_graph_warning_is_not_runtime_graph_fallback(tmp_path: Path) -> None:
+    fake_agent = tmp_path / "final_warning_agent.py"
+    fake_agent.write_text(
+        """
+import json
+import sys
+
+print("[BCG finalization] failed to ingest final unsent messages: timeout", file=sys.stderr)
+print(json.dumps({
+    "type": "message_end",
+    "message": {
+        "role": "assistant",
+        "content": [{"type": "text", "text": "FINAL ANSWER: A"}],
+        "usage": {},
+        "stopReason": "stop",
+    },
+}))
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    task = BenchmarkTask(
+        benchmark="mmlu_pro",
+        task_id="final-warning",
+        question="Question\n\nA. yes\nB. no",
+        answers=("A",),
+    )
+    output = tmp_path / "results"
+    config = RunConfig(
+        output_dir=output,
+        model="fake",
+        base_url="https://unused.test/v1",
+        modes=("bcg",),
+        workers=1,
+        agent_command=(sys.executable, str(fake_agent)),
+    )
+
+    run_benchmarks({"mmlu_pro": [task]}, config, judge=None)
+
+    result = json.loads(
+        (output / "mmlu_pro" / "bcg" / "tasks" / "final-warning.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert result["status"] == "completed"
+    assert result["correct"] is True
+    assert result["graph_fallback"] is False
+    assert result["graph_finalization_warning"] is True
+
+
 def test_runner_persists_per_task_model_io_trace_reference(tmp_path: Path) -> None:
     fake_agent = tmp_path / "trace_agent.py"
     fake_agent.write_text(

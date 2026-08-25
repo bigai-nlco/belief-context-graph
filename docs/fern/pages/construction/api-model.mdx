@@ -27,6 +27,11 @@ bcg
 
 No separate vLLM process is required when the configured API endpoint is already available. If a server for this backend is already healthy, a later `bcg` invocation reuses it instead of starting a new one.
 
+The Graph LLM emits each node's text, four-way stance label, entities, and
+evidence references in one extraction response. Confidence values are never
+accepted from the model; code derives them from role, stance, evidence, and
+relations. Relation extraction remains a separate model phase.
+
 ## Server
 
 ```bash
@@ -39,29 +44,33 @@ bcg construct server unified \
   --output-dir ~/.bcg/graphs
 ```
 
-## Construction modes
+## Tool Result extraction
 
-This backend has two switchable implementations, set with `pipeline.runtime.construction_mode` in `~/.bcg/config.yaml`:
+Structured Tool Results use one bounded, history-free semantic extraction path. Configure it under `pipeline.tool_results` in `~/.bcg/config.yaml`:
 
 ```yaml
 pipeline:
-  runtime:
-    construction_mode: llm  # canonical/default implementation
-  token_efficient:
+  tool_results:
     max_search_results: 10
     max_snippet_chars: 240
-    semantic_tool_results: true
+    semantic_extraction: true
     max_facts: 3
     max_semantic_calls: 12
 ```
 
-- **`llm`** (default) is the canonical model-extraction and model-linking implementation described above.
-- **`token_efficient`** parses canonical Agent tool calls and tool results in code, distills a bounded number of non-empty tool results with a short current-query-only prompt, creates provenance edges deterministically, and uses embedding-only merge without LLM verification. Raw tool output remains attached as evidence. After `max_semantic_calls`, later tool results automatically fall back to the zero-LLM rule path; set `semantic_tool_results: false` to use that path from the start.
+Parallel Tool Results are distilled in one model request while remaining isolated by a code-owned item index. Every extracted belief retains its exact `tool_call_id` and is linked to the originating Tool Call. Raw output remains attached as evidence. After `max_semantic_calls`, later results fall back to the zero-LLM rule summary; set `semantic_extraction: false` to use that path from the start.
 
-Restart the Graph Construction server after changing `construction_mode`.
+## Stance and entity metadata
+
+Unified asks the configured Graph LLM to produce `asserted`, `recalled`,
+`judged`, or `speculated` for every semantic node and to list its salient named
+entities. Invalid or missing stance labels fall back to `asserted`; malformed or
+missing entity lists fall back to an empty list. Deterministic Tool Call nodes
+remain code-owned: their stance is `asserted` and their exact tool name is kept
+as an entity.
 
 <Note>
-This setting controls how the Graph is *built*. How much of it gets *rendered* into the Agent's context (`full` vs `compact`) is a separate, independent setting — see [Graph presentation](/guides/reference-agent#graph-presentation-full-vs-compact).
+How much of the Graph gets *rendered* into the Agent's context (`full` vs `compact`) is a separate setting — see [Graph presentation](/guides/reference-agent#graph-presentation-full-vs-compact).
 </Note>
 
 ## Python
@@ -80,7 +89,7 @@ Relevant runner controls include:
 evidence_mode="sentence"
 incremental_merge=True
 incremental_merge_threshold=0.86
-verify_merge=True
+verify_merge=False  # pass True or use --verify-merge to enable LLM verification
 context_chars=100000
 io_context_chars=6000
 min_content_len=0

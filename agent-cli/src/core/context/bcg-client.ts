@@ -37,12 +37,16 @@ export class BcgClient {
 	}
 
 	/** POST /turns and resolve the caller's snapshot from the envelope. */
-	async postTurns(payloads: BcgTurnPayload[], signal?: AbortSignal): Promise<BcgSnapshot> {
+	async postTurns(
+		payloads: BcgTurnPayload[],
+		signal?: AbortSignal,
+		timeoutMs = this.timeoutMs,
+	): Promise<BcgSnapshot> {
 		const response = await this.fetchImpl(`${this.baseUrl}/turns`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify(payloads),
-			signal: this.composeSignal(signal),
+			signal: this.composeSignal(signal, timeoutMs),
 		});
 		if (!response.ok) {
 			throw await this.httpError(response);
@@ -55,12 +59,12 @@ export class BcgClient {
 	}
 
 	/** POST /finalize and return the final persisted graph snapshot. */
-	async finalize(): Promise<BcgSnapshot> {
+	async finalize(timeoutMs = this.timeoutMs): Promise<BcgSnapshot> {
 		const response = await this.fetchImpl(`${this.baseUrl}/finalize`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ problem_id: this.problemId }),
-			signal: AbortSignal.timeout(this.timeoutMs),
+			signal: AbortSignal.timeout(this.normalizeTimeout(timeoutMs)),
 		});
 		if (!response.ok) {
 			throw await this.httpError(response);
@@ -76,12 +80,12 @@ export class BcgClient {
 	 * POST /release. Idempotent per contract: 404 (already released or unknown)
 	 * is tolerated, and the response body reports the released flag.
 	 */
-	async release(): Promise<BcgReleaseResponse> {
+	async release(timeoutMs = this.timeoutMs): Promise<BcgReleaseResponse> {
 		const response = await this.fetchImpl(`${this.baseUrl}/release`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ problem_id: this.problemId }),
-			signal: AbortSignal.timeout(this.timeoutMs),
+			signal: AbortSignal.timeout(this.normalizeTimeout(timeoutMs)),
 		});
 		if (!response.ok && response.status !== 404) {
 			throw await this.httpError(response);
@@ -93,12 +97,16 @@ export class BcgClient {
 		};
 	}
 
-	private composeSignal(signal?: AbortSignal): AbortSignal {
-		const signals = [AbortSignal.timeout(this.timeoutMs)];
+	private composeSignal(signal?: AbortSignal, timeoutMs = this.timeoutMs): AbortSignal {
+		const signals = [AbortSignal.timeout(this.normalizeTimeout(timeoutMs))];
 		if (signal) {
 			signals.push(signal);
 		}
 		return AbortSignal.any(signals);
+	}
+
+	private normalizeTimeout(timeoutMs: number): number {
+		return Math.max(1, Math.trunc(timeoutMs));
 	}
 
 	private async httpError(response: Response): Promise<Error> {

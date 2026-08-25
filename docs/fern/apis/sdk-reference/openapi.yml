@@ -2771,7 +2771,7 @@ paths:
                   description: Incremental merge threshold.
                 verify_merge:
                   type: boolean
-                  default: true
+                  default: false
                   description: Whether merge candidates are verified.
                 context_chars:
                   type: integer
@@ -2916,7 +2916,7 @@ paths:
                   description: Incremental merge threshold.
                 verify_merge:
                   type: boolean
-                  default: true
+                  default: false
                   description: Whether merge candidates are verified.
                 context_chars:
                   type: integer
@@ -4186,7 +4186,7 @@ paths:
                       evidence_mode: sentence
                       incremental_merge: true
                       incremental_merge_threshold: 0.86
-                      verify_merge: true
+                      verify_merge: false
                       context_chars: 100000
                       io_context_chars: 6000
                       min_content_len: 0

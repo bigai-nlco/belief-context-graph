@@ -27,7 +27,7 @@ from bcg.construct.hybrid.llm import (
 )
 from bcg.construct.hybrid.online import SessionManager as HybridSessionManager
 from bcg.construct.hybrid.split import semantic_breakpoint_chunks, split_sentences
-from bcg.construct.hybrid.stance import StancePrediction
+from bcg.construct.hybrid.stance import LocalZeroShotStanceClassifier, StancePrediction
 from bcg.construct.unified import BeliefGraphPipeline
 from bcg.construct.unified.confidence import (
     init_belief_confidence,
@@ -217,6 +217,8 @@ def test_unified_event_time_is_assigned_by_graph_builder(tmp_path: Path) -> None
     assert prompt is not None
     assert '"event_time"' not in prompt
     assert '"time_text"' not in prompt
+    assert '"entities"' in prompt
+    assert '"stance"' in prompt
     assert "The current turn is dated" not in prompt
 
     builder = UnifiedStreamingBeliefBuilder(
@@ -243,6 +245,60 @@ def test_unified_event_time_is_assigned_by_graph_builder(tmp_path: Path) -> None
     assert node["event_time"] != "1900-01-01T00:00:00Z"
     assert node["event_time"].endswith("+00:00")
     assert "time_text" not in node
+
+
+def test_unified_uses_stance_and_entities_from_graph_model(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_nodes",
+        lambda *args, **kwargs: {
+            "nodes": [
+                {
+                    "tmp_id": "n0",
+                    "node_type": "belief",
+                    "belief": "Alice may prefer green tea.",
+                    "stance": "speculated",
+                    "entities": ["Alice", "green tea"],
+                    "supporting_sentence_indices": [0],
+                }
+            ],
+            "beliefs": [],
+            "decisions": [],
+            "raw_output": '{"beliefs":[{"belief":"Alice may prefer green tea.","stance":"speculated","entities":["Alice","green tea"]}]}',
+            "skipped": False,
+        },
+    )
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_relations",
+        lambda *args, **kwargs: {
+            "relations": [],
+            "raw_output": '{"relations":[]}',
+            "skipped": False,
+        },
+    )
+    builder = UnifiedStreamingBeliefBuilder(
+        client=object(),
+        model="graph-model",
+        item_id="graph-model-metadata",
+        out_dir=tmp_path,
+        options=UnifiedStreamOptions(
+            incremental_merge=False,
+            stance_config={"model_path": "local-stance"},
+            entity_config={"method": "ml"},
+        ),
+        stance_classifier=object(),
+        entity_recognizer=object(),
+    )
+
+    builder.ingest_turn("user", "Alice may prefer green tea.")
+
+    node = builder.graph.active()[0]
+    assert node["stance"] == "speculated"
+    assert node["stance_confidence"] == 0.0
+    assert node["stance_model"] == "graph_model:graph-model"
+    assert node["entities"] == ["Alice", "green tea"]
 
 
 def test_unified_query_tool_call_is_never_dropped(
@@ -462,7 +518,7 @@ def test_unified_relation_search_stops_after_four_non_empty_windows(
     assert event["edge_window_limit_reached"] is True
 
 
-def test_unified_node_extraction_context_keeps_all_nodes_and_omits_edges() -> None:
+def test_unified_node_extraction_prompt_omits_edges() -> None:
     nodes = [
         {"id": 1, "node_type": "belief", "belief": "The earliest node."},
         {"id": 2, "node_type": "belief", "belief": "The latest node."},
@@ -483,7 +539,62 @@ def test_unified_node_extraction_context_keeps_all_nodes_and_omits_edges() -> No
     assert '"from": 1' not in prompt
 
 
-def test_token_efficient_tool_result_is_compact_and_structured() -> None:
+def test_stream_node_extraction_respects_context_chars(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    extraction_contexts: list[str] = []
+
+    def fake_extract_nodes(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args
+        content = str(kwargs["content"])
+        extraction_contexts.append(str(kwargs["graph_nodes_str"]))
+        return {
+            "nodes": [
+                {
+                    "tmp_id": "n0",
+                    "node_type": "belief",
+                    "belief": content,
+                    "stance": "asserted",
+                    "entities": [],
+                    "supporting_excerpts": [content],
+                }
+            ],
+            "raw_output": "{}",
+            "skipped": False,
+        }
+
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_nodes", fake_extract_nodes
+    )
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_relations",
+        lambda *args, **kwargs: {"relations": [], "raw_output": "{}", "skipped": False},
+    )
+    options = UnifiedStreamOptions(
+        evidence_mode="excerpt",
+        incremental_merge=False,
+        context_chars=450,
+    )
+    assert options.verify_merge is False
+    builder = UnifiedStreamingBeliefBuilder(
+        client=object(),
+        model="graph-model",
+        item_id="bounded-node-extraction",
+        out_dir=tmp_path,
+        options=options,
+    )
+    builder.ingest_turn("user", "oldest " + "a" * 260)
+    builder.ingest_turn("user", "newest " + "b" * 260)
+    expected = format_graph_nodes(builder.graph.active(), char_budget=450)
+    builder.ingest_turn("user", "current")
+
+    assert extraction_contexts[-1] == expected
+    assert "oldest" not in extraction_contexts[-1]
+    assert "newest" in extraction_contexts[-1]
+
+
+def test_rule_tool_result_is_compact_and_structured() -> None:
     content = """[Tool result: web_search]
 [1] First result
 URL: https://example.com/one
@@ -524,7 +635,312 @@ Source type: organic
     assert node["supporting_excerpts"] == [content]
 
 
-def test_token_efficient_semantic_tool_result_uses_small_query_only_prompt(
+def test_mixed_thinking_and_tool_calls_use_one_assistant_turn_with_exact_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompts: list[str] = []
+
+    def fake_call(*args: Any, **kwargs: Any) -> str:
+        prompt = str(kwargs.get("prompt") or (args[2] if len(args) > 2 else ""))
+        prompts.append(prompt)
+        return json.dumps(
+            {
+                "beliefs": [
+                    {
+                        "belief": "The assistant is comparing the candidates.",
+                        "stance": "judged",
+                        "entities": [],
+                        "supporting_excerpts": [
+                            "<thinking>Compare the candidates.</thinking>"
+                        ],
+                    }
+                ],
+                "decisions": [],
+            }
+        )
+
+    monkeypatch.setattr("bcg.construct.unified.extract.llm.call_model", fake_call)
+    content = """<thinking>Compare the candidates.</thinking>
+<tool_call>{"id":"call-a","name":"web_search","arguments":{"query":"alpha"}}</tool_call>
+<tool_call>{"id":"call-b","name":"web_search","arguments":{"query":"beta"}}</tool_call>"""
+
+    result = extract_nodes(
+        client=object(),
+        model="gpt-5.6-luna",
+        role="assistant",
+        mode="excerpt",
+        content=content,
+    )
+
+    thinking = [
+        node for node in result["nodes"] if node.get("source_component") == "thinking"
+    ]
+    calls = [
+        node
+        for node in result["nodes"]
+        if node.get("extraction_method") == "rule_tool_call"
+    ]
+    assert len(thinking) == 1
+    assert [node["tool_call_id"] for node in calls] == ["call-a", "call-b"]
+    assert [node["tool_call_index"] for node in calls] == [0, 1]
+    current_turn = prompts[0].split("## Current turn content", 1)[1]
+    assert "<thinking>Compare the candidates.</thinking>" in current_turn
+    assert "<tool_call>" not in current_turn
+
+
+def test_grouped_parallel_results_pair_exact_calls_then_model_link_thinking(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    relation_windows: list[str] = []
+
+    def fake_extract_nodes(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args
+        role = str(kwargs["role"])
+        content = str(kwargs["content"])
+        if role == "user":
+            nodes = [
+                {
+                    "tmp_id": "n0",
+                    "node_type": "belief",
+                    "belief": content,
+                    "stance": "asserted",
+                    "entities": [],
+                    "supporting_excerpts": [content],
+                }
+            ]
+        else:
+            nodes = [
+                {
+                    "tmp_id": "n0",
+                    "node_type": "belief",
+                    "belief": "The assistant is comparing alpha and beta.",
+                    "stance": "judged",
+                    "entities": [],
+                    "source_component": "thinking",
+                    "supporting_excerpts": ["compare alpha and beta"],
+                },
+                {
+                    "tmp_id": "n1",
+                    "node_type": "belief",
+                    "belief": "The assistant is using web_search to search for alpha.",
+                    "stance": "asserted",
+                    "entities": ["web_search"],
+                    "tool_name": "web_search",
+                    "tool_arguments": {"query": "alpha"},
+                    "tool_call_index": 0,
+                    "tool_call_id": "call-a",
+                    "extraction_method": "rule_tool_call",
+                    "supporting_excerpts": [content],
+                },
+                {
+                    "tmp_id": "n2",
+                    "node_type": "belief",
+                    "belief": "The assistant is using web_search to search for beta.",
+                    "stance": "asserted",
+                    "entities": ["web_search"],
+                    "tool_name": "web_search",
+                    "tool_arguments": {"query": "beta"},
+                    "tool_call_index": 1,
+                    "tool_call_id": "call-b",
+                    "extraction_method": "rule_tool_call",
+                    "supporting_excerpts": [content],
+                },
+            ]
+        return {"nodes": nodes, "raw_output": "{}", "skipped": False}
+
+    thinking_id: int | None = None
+
+    def fake_extract_relations(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args
+        graph_nodes = str(kwargs["graph_nodes_str"])
+        relation_windows.append(graph_nodes)
+        if thinking_id is not None and "Alpha result" in graph_nodes:
+            current_ids = sorted(kwargs["new_node_ids"])
+            return {
+                "relations": [
+                    {
+                        "from": current_ids[0],
+                        "to": thinking_id,
+                        "type": "supplements",
+                        "note": "The result informs the prior comparison.",
+                    },
+                    {
+                        "from": current_ids[0],
+                        "to": current_ids[1],
+                        "type": "supplements",
+                        "note": "This invalid cross-result edge must be rejected.",
+                    },
+                ],
+                "raw_output": "{}",
+                "skipped": False,
+            }
+        return {"relations": [], "raw_output": "{}", "skipped": False}
+
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_nodes", fake_extract_nodes
+    )
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_relations", fake_extract_relations
+    )
+    builder = UnifiedStreamingBeliefBuilder(
+        client=object(),
+        model="gpt-5.6-luna",
+        item_id="parallel-pairing",
+        out_dir=tmp_path,
+        options=UnifiedStreamOptions(incremental_merge=False, evidence_mode="excerpt"),
+    )
+    builder.ingest_turn("user", "Compare alpha and beta.")
+    builder.ingest_turn("assistant", "thinking plus two tool calls")
+    thinking_id = next(
+        node["id"]
+        for node in builder.graph.active()
+        if node.get("source_component") == "thinking"
+    )
+    relation_windows.clear()
+    grouped = """<tool_result>
+{"tool_call_id":"call-a","name":"web_search","is_error":false,"content":"[1] Alpha result\\nURL: https://a.example"}
+</tool_result>
+<tool_result>
+{"tool_call_id":"call-b","name":"web_search","is_error":false,"content":"[1] Beta result\\nURL: https://b.example"}
+</tool_result>"""
+    event = builder.ingest_turn("tool", grouped)
+
+    results = [
+        node
+        for node in builder.graph.active()
+        if node.get("extraction_method") == "rule_tool_result"
+    ]
+    calls = {
+        node["tool_call_id"]: node["id"]
+        for node in builder.graph.active()
+        if node.get("extraction_method") == "rule_tool_call"
+    }
+    assert len(results) == 2
+    assert {node["source"]["turn_id"] for node in results} == {2}
+    paired = {
+        (relation["from_id"], relation["to_id"])
+        for relation in builder.graph.relations
+        if relation["type"] == "depends_on"
+    }
+    assert (results[0]["id"], calls["call-a"]) in paired
+    assert (results[1]["id"], calls["call-b"]) in paired
+    assert not any(
+        relation["from_id"] in {node["id"] for node in results}
+        and relation["to_id"] in {node["id"] for node in results}
+        for relation in builder.graph.relations
+    )
+    assert len(relation_windows) == 1
+    assert "The assistant is comparing alpha and beta." in relation_windows[0]
+    assert "using web_search" not in relation_windows[0]
+    assert event["edge_attempts"][0]["pairing_strategy"] == "tool_call_id"
+
+
+def test_grouped_results_without_thinking_only_pair_exact_calls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    relation_roles: list[str] = []
+
+    def fake_extract_nodes(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args
+        role = str(kwargs["role"])
+        content = str(kwargs["content"])
+        if role == "assistant":
+            nodes = [
+                {
+                    "tmp_id": "n0",
+                    "node_type": "belief",
+                    "belief": "The assistant is using web_search to search for alpha.",
+                    "stance": "asserted",
+                    "entities": ["web_search"],
+                    "tool_name": "web_search",
+                    "tool_arguments": {"query": "alpha"},
+                    "tool_call_index": 0,
+                    "tool_call_id": "call-a",
+                    "extraction_method": "rule_tool_call",
+                    "supporting_excerpts": [content],
+                },
+                {
+                    "tmp_id": "n1",
+                    "node_type": "belief",
+                    "belief": "The assistant is using web_search to search for beta.",
+                    "stance": "asserted",
+                    "entities": ["web_search"],
+                    "tool_name": "web_search",
+                    "tool_arguments": {"query": "beta"},
+                    "tool_call_index": 1,
+                    "tool_call_id": "call-b",
+                    "extraction_method": "rule_tool_call",
+                    "supporting_excerpts": [content],
+                },
+            ]
+        else:
+            nodes = [
+                {
+                    "tmp_id": "n0",
+                    "node_type": "belief",
+                    "belief": content,
+                    "stance": "asserted",
+                    "entities": [],
+                    "supporting_excerpts": [content],
+                }
+            ]
+        return {"nodes": nodes, "raw_output": "{}", "skipped": False}
+
+    def fake_extract_relations(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args
+        relation_roles.append(str(kwargs["role"]))
+        return {"relations": [], "raw_output": "{}", "skipped": False}
+
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_nodes", fake_extract_nodes
+    )
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_relations", fake_extract_relations
+    )
+    builder = UnifiedStreamingBeliefBuilder(
+        client=object(),
+        model="gpt-5.6-luna",
+        item_id="parallel-pairing-no-thinking",
+        out_dir=tmp_path,
+        options=UnifiedStreamOptions(incremental_merge=False, evidence_mode="excerpt"),
+    )
+    builder.ingest_turn("user", "Find alpha and beta.")
+    builder.ingest_turn("assistant", "two tool calls")
+    relation_roles.clear()
+    grouped = """<tool_result>
+{"tool_call_id":"call-a","name":"web_search","is_error":false,"content":"Alpha result"}
+</tool_result>
+<tool_result>
+{"tool_call_id":"call-b","name":"web_search","is_error":false,"content":"Beta result"}
+</tool_result>"""
+    event = builder.ingest_turn("tool", grouped)
+
+    results = {
+        node["tool_call_id"]: node["id"]
+        for node in builder.graph.active()
+        if node.get("extraction_method") == "rule_tool_result"
+    }
+    calls = {
+        node["tool_call_id"]: node["id"]
+        for node in builder.graph.active()
+        if node.get("extraction_method") == "rule_tool_call"
+    }
+    pairings = {
+        (relation["from_id"], relation["to_id"])
+        for relation in builder.graph.relations
+        if relation["type"] == "depends_on"
+    }
+    assert pairings >= {
+        (results["call-a"], calls["call-a"]),
+        (results["call-b"], calls["call-b"]),
+    }
+    assert relation_roles == []
+    assert len(event["edge_attempts"]) == 1
+
+
+def test_semantic_tool_result_uses_small_query_only_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     prompts: list[str] = []
@@ -534,7 +950,7 @@ def test_token_efficient_semantic_tool_result_uses_small_query_only_prompt(
         assert kwargs["max_tokens"] == 768
         return (
             '{"beliefs":[{"belief":"The exact answer is SAS 9.1.",'
-            '"entities":["SAS 9.1"]}]}'
+            '"stance":"asserted","entities":["SAS 9.1"]}]}'
         )
 
     monkeypatch.setattr("bcg.construct.unified.extract.llm.call_model", fake_call)
@@ -556,13 +972,16 @@ Source type: organic
     assert result is not None
     assert result["nodes"][0]["belief"] == "The exact answer is SAS 9.1."
     assert result["nodes"][0]["extraction_method"] == "compact_llm_tool_result"
-    assert result["nodes"][0]["stance"] == "recalled"
+    assert result["nodes"][0]["stance"] == "asserted"
+    assert result["nodes"][0]["entities"] == ["SAS 9.1"]
     assert len(prompts) == 1
     assert "earliest possible SAS version" in prompts[0]
     assert "Existing belief nodes" not in prompts[0]
+    assert '"entities"' in prompts[0]
+    assert '"stance"' in prompts[0]
 
 
-def test_token_efficient_tool_result_batch_uses_one_call_and_keeps_items_separate(
+def test_tool_result_batch_uses_one_call_and_keeps_items_separate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     prompts: list[str] = []
@@ -629,7 +1048,7 @@ Snippet: Beta was founded in 2007.
     )
 
 
-def test_token_efficient_builder_batches_results_and_links_each_query(
+def test_builder_batches_results_and_links_each_query(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -662,7 +1081,6 @@ def test_token_efficient_builder_batches_results_and_links_each_query(
         out_dir=tmp_path,
         options=UnifiedStreamOptions(
             incremental_merge=False,
-            construction_mode="token_efficient",
             evidence_mode="excerpt",
         ),
     )
@@ -695,12 +1113,12 @@ def test_token_efficient_builder_batches_results_and_links_each_query(
     assert (beta_fact["id"], alpha_query["id"]) not in relation_pairs
 
 
-def test_token_efficient_stream_bypasses_tool_llm_and_links_provenance(
+def test_rule_tool_result_bypasses_llm_and_links_provenance(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fail_relations(*args: Any, **kwargs: Any) -> dict[str, Any]:
-        raise AssertionError("token-efficient relations must not call the model")
+        raise AssertionError("rule Tool Results must not call the relation model")
 
     monkeypatch.setattr(
         "bcg.construct.unified.stream.extract_relations", fail_relations
@@ -712,8 +1130,7 @@ def test_token_efficient_stream_bypasses_tool_llm_and_links_provenance(
         out_dir=tmp_path,
         options=UnifiedStreamOptions(
             incremental_merge=False,
-            construction_mode="token_efficient",
-            token_efficient_semantic_tool_results=False,
+            tool_result_semantic_extraction=False,
             evidence_mode="excerpt",
         ),
     )
@@ -751,11 +1168,150 @@ Source type: organic
             "activated_condition": {"input_conf_threshold": 1.0},
         }
     ]
-    assert event["construction_mode"] == "token_efficient"
     assert event["edge_attempts"][0]["strategy"] == "deterministic_provenance"
 
 
-def test_token_efficient_semantic_call_cap_falls_back_to_rules(
+def test_assistant_and_tool_result_share_one_extraction_but_keep_turn_sources(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    extraction_calls = 0
+
+    def fake_call(*args: Any, **kwargs: Any) -> str:
+        nonlocal extraction_calls
+        del args, kwargs
+        extraction_calls += 1
+        return json.dumps(
+            {
+                "assistant": {
+                    "beliefs": [
+                            {
+                                "tmp_id": "n0",
+                                "belief": "The assistant hypothesizes that Alpha is relevant.",
+                                "stance": "speculated",
+                                "entities": ["Alpha"],
+                                "supporting_sentence_indices": [0],
+                        }
+                    ],
+                    "decisions": [],
+                },
+                "tool_items": [
+                    {
+                        "item_index": 0,
+                        "beliefs": [
+                            {
+                                "belief": "Alpha fact.",
+                                "stance": "asserted",
+                                "entities": ["Alpha"],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+    def no_relations(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args, kwargs
+        return {"relations": [], "raw_output": '{"relations":[]}'}
+
+    monkeypatch.setattr("bcg.construct.unified.extract.llm.call_model", fake_call)
+    monkeypatch.setattr("bcg.construct.unified.stream.extract_relations", no_relations)
+    builder = UnifiedStreamingBeliefBuilder(
+        client=object(),
+        model="unused-model",
+        item_id="assistant-tool-combined",
+        out_dir=tmp_path,
+        options=UnifiedStreamOptions(
+            incremental_merge=False,
+            evidence_mode="sentence",
+        ),
+    )
+    assistant = """<thinking>Alpha may be relevant.</thinking>
+<tool_call>{"name":"web_search","arguments":{"query":"alpha query"}}</tool_call>"""
+    tool = """[Tool result: web_search]
+[1] Alpha
+URL: https://alpha.example
+Snippet: Alpha fact."""
+
+    assert builder.prepare_assistant_tool_result_batch(assistant, [tool]) == 2
+    builder.ingest_turn("assistant", assistant)
+    builder.ingest_turn("tool", tool)
+
+    assert extraction_calls == 1
+    nodes = builder.graph.active()
+    reasoning = next(
+        node
+        for node in nodes
+        if node.get("belief") == "The assistant hypothesizes that Alpha is relevant."
+    )
+    query = next(node for node in nodes if node.get("query") == "alpha query")
+    fact = next(node for node in nodes if node.get("belief") == "Alpha fact.")
+    assert reasoning["source"]["turn_id"] == 0
+    assert query["source"]["turn_id"] == 0
+    assert fact["source"]["turn_id"] == 1
+    assert reasoning.get("source_component") == "thinking"
+    assert reasoning["stance"] == "speculated"
+    assert reasoning["entities"] == ["Alpha"]
+    assert fact["stance"] == "asserted"
+    assert fact["entities"] == ["Alpha"]
+
+
+def test_stance_classifier_dynamically_batches_concurrent_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    classifier = LocalZeroShotStanceClassifier(
+        {
+            "model_path": "unused",
+            "local_files_only": False,
+            "dynamic_batching": True,
+            "dynamic_batch_wait_ms": 50,
+            "dynamic_batch_max_texts": 16,
+        }
+    )
+    physical_batches: list[list[str]] = []
+
+    def fake_direct(texts: list[str]) -> list[StancePrediction]:
+        physical_batches.append(list(texts))
+        return [
+            StancePrediction(
+                stance="asserted",
+                confidence=1.0,
+                scores={
+                    "asserted": 1.0,
+                    "recalled": 0.0,
+                    "judged": 0.0,
+                    "speculated": 0.0,
+                },
+                model_path="fake",
+            )
+            for _ in texts
+        ]
+
+    monkeypatch.setattr(classifier, "_classify_texts_direct", fake_direct)
+    barrier = threading.Barrier(3)
+    results: dict[str, list[StancePrediction]] = {}
+
+    def classify(key: str, texts: list[str]) -> None:
+        barrier.wait()
+        results[key] = classifier.classify_texts(texts)
+
+    left = threading.Thread(target=classify, args=("left", ["a", "b"]))
+    right = threading.Thread(target=classify, args=("right", ["c"]))
+    left.start()
+    right.start()
+    barrier.wait()
+    left.join(timeout=2)
+    right.join(timeout=2)
+
+    assert not left.is_alive()
+    assert not right.is_alive()
+    assert len(physical_batches) == 1
+    assert sorted(physical_batches[0]) == ["a", "b", "c"]
+    assert len(results["left"]) == 2
+    assert len(results["right"]) == 1
+
+
+def test_semantic_tool_result_call_cap_falls_back_to_rules(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -787,8 +1343,7 @@ def test_token_efficient_semantic_call_cap_falls_back_to_rules(
         out_dir=tmp_path,
         options=UnifiedStreamOptions(
             incremental_merge=False,
-            construction_mode="token_efficient",
-            token_efficient_max_semantic_calls=1,
+            tool_result_max_semantic_calls=1,
             evidence_mode="excerpt",
         ),
     )
@@ -805,7 +1360,7 @@ def test_token_efficient_semantic_call_cap_falls_back_to_rules(
     assert second_event["semantic_tool_result_calls"] == 1
 
 
-def test_llm_construction_mode_keeps_existing_tool_result_path(
+def test_tool_result_path_uses_bounded_extraction(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -843,15 +1398,185 @@ def test_llm_construction_mode_keeps_existing_tool_result_path(
         out_dir=tmp_path,
         options=UnifiedStreamOptions(
             incremental_merge=False,
-            construction_mode="llm",
             evidence_mode="excerpt",
         ),
     )
     content = "[Tool result: web_search]\nNo web results were returned."
     builder.ingest_turn("tool", content)
 
-    assert calls == [content]
-    assert builder.graph.active()[0]["belief"] == "Model-extracted tool result."
+    assert calls == []
+    node = builder.graph.active()[0]
+    assert node["belief"] == "The web_search tool returned no results."
+    assert node["extraction_method"] == "rule_tool_result"
+
+
+def test_parallel_tool_result_facts_are_extracted_once_and_paired_by_call_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompts: list[str] = []
+
+    def fake_call(*args: Any, **kwargs: Any) -> str:
+        del kwargs
+        prompts.append(str(args[2]))
+        return json.dumps(
+            {
+                "items": [
+                    {
+                        "item_index": 0,
+                        "beliefs": [
+                            {
+                                "belief": "Alpha was founded in 1999.",
+                                "entities": ["Alpha"],
+                            },
+                            {
+                                "belief": "Alpha is based in Paris.",
+                                "entities": ["Alpha", "Paris"],
+                            },
+                        ],
+                    },
+                    {
+                        "item_index": 1,
+                        "beliefs": [
+                            {
+                                "belief": "Beta was founded in 2007.",
+                                "entities": ["Beta"],
+                            },
+                            {
+                                "belief": "Beta is based in Rome.",
+                                "entities": ["Beta", "Rome"],
+                            },
+                        ],
+                    },
+                ]
+            }
+        )
+
+    monkeypatch.setattr("bcg.construct.unified.extract.llm.call_model", fake_call)
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_relations",
+        lambda *args, **kwargs: {"relations": [], "raw_output": "{}", "skipped": False},
+    )
+    builder = UnifiedStreamingBeliefBuilder(
+        client=object(),
+        model="graph-model",
+        item_id="llm-parallel-facts",
+        out_dir=tmp_path,
+        options=UnifiedStreamOptions(
+            incremental_merge=False,
+            evidence_mode="excerpt",
+            tool_result_max_facts=3,
+        ),
+    )
+    builder.ingest_turn(
+        "assistant",
+        """<tool_call>{"id":"call-a","name":"web_search","arguments":{"query":"alpha query"}}</tool_call>
+<tool_call>{"id":"call-b","name":"web_search","arguments":{"query":"beta query"}}</tool_call>""",
+    )
+    grouped = """<tool_result>
+{"tool_call_id":"call-a","name":"web_search","is_error":false,"content":"[1] Alpha profile\\nURL: https://alpha.example\\nSnippet: Alpha was founded in 1999 and is based in Paris."}
+</tool_result>
+<tool_result>
+{"tool_call_id":"call-b","name":"web_search","is_error":false,"content":"[1] Beta profile\\nURL: https://beta.example\\nSnippet: Beta was founded in 2007 and is based in Rome."}
+</tool_result>"""
+    event = builder.ingest_turn("tool", grouped)
+
+    assert len(prompts) == 1
+    assert "Treat every item independently" in prompts[0]
+    assert "alpha query" in prompts[0]
+    assert "beta query" in prompts[0]
+    facts = [
+        node
+        for node in builder.graph.active()
+        if node.get("extraction_method") == "compact_llm_tool_result"
+    ]
+    assert len(facts) == 4
+    assert [node["tool_call_id"] for node in facts] == [
+        "call-a",
+        "call-a",
+        "call-b",
+        "call-b",
+    ]
+    assert len({node["tool_result_id"] for node in facts}) == 4
+    calls = {
+        node["tool_call_id"]: node["id"]
+        for node in builder.graph.active()
+        if node.get("extraction_method") == "rule_tool_call"
+    }
+    paired = {
+        (relation["from_id"], relation["to_id"])
+        for relation in builder.graph.relations
+        if relation["type"] == "depends_on"
+    }
+    assert all((node["id"], calls[node["tool_call_id"]]) in paired for node in facts)
+    assert event["semantic_tool_result_calls"] == 2
+
+
+def test_grouped_results_fall_back_to_rules_after_semantic_cap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompts: list[str] = []
+
+    def fake_call(*args: Any, **kwargs: Any) -> str:
+        del kwargs
+        prompts.append(str(args[2]))
+        return json.dumps(
+            {
+                "items": [
+                    {
+                        "item_index": 0,
+                        "beliefs": [{"belief": "Alpha fact.", "entities": ["Alpha"]}],
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr("bcg.construct.unified.extract.llm.call_model", fake_call)
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_relations",
+        lambda *args, **kwargs: {"relations": [], "raw_output": "{}", "skipped": False},
+    )
+    builder = UnifiedStreamingBeliefBuilder(
+        client=object(),
+        model="graph-model",
+        item_id="llm-semantic-cap",
+        out_dir=tmp_path,
+        options=UnifiedStreamOptions(
+            incremental_merge=False,
+            evidence_mode="excerpt",
+            tool_result_max_semantic_calls=1,
+        ),
+    )
+    builder.ingest_turn(
+        "assistant",
+        """<tool_call>{"id":"call-a","name":"web_search","arguments":{"query":"alpha"}}</tool_call>
+<tool_call>{"id":"call-b","name":"web_search","arguments":{"query":"beta"}}</tool_call>""",
+    )
+    event = builder.ingest_turn(
+        "tool",
+        """<tool_result>
+{"tool_call_id":"call-a","name":"web_search","content":"[1] Alpha\\nURL: https://a.example\\nSnippet: Alpha fact."}
+</tool_result>
+<tool_result>
+{"tool_call_id":"call-b","name":"web_search","content":"[1] Beta\\nURL: https://b.example\\nSnippet: Beta fact."}
+</tool_result>""",
+    )
+
+    assert len(prompts) == 1
+    result_nodes = [
+        node
+        for node in builder.graph.active()
+        if node.get("extraction_method")
+        in {"compact_llm_tool_result", "rule_tool_result"}
+    ]
+    assert [
+        (node["tool_call_id"], node["extraction_method"]) for node in result_nodes
+    ] == [
+        ("call-a", "compact_llm_tool_result"),
+        ("call-b", "rule_tool_result"),
+    ]
+    assert event["semantic_tool_result_calls"] == 1
 
 
 def test_hybrid_call_model_reduces_output_budget_after_context_overflow(

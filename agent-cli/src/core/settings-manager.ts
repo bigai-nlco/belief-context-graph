@@ -22,6 +22,7 @@ export interface BcgContextSettings {
 	recentTurns?: number; // default: 2; -1 keeps all raw turns
 	maxTurns?: number; // default: 160 Graph messages, including the system/user seed
 	timeoutMs?: number; // default: 300000
+	finalizationTimeoutMs?: number; // default: 900000; final unsent turns/finalize/release only
 	includeRelations?: boolean; // default: true
 	graphView?: BcgGraphView; // default: "full"; compact is the low-token search-ledger view
 }
@@ -48,6 +49,7 @@ export interface ResolvedContextManagementSettings {
 		recentTurns: number;
 		maxTurns: number;
 		timeoutMs: number;
+		finalizationTimeoutMs: number;
 		includeRelations: boolean;
 		graphView: BcgGraphView;
 	};
@@ -853,6 +855,11 @@ export class SettingsManager {
 			typeof configuredTimeoutMs === "number" && Number.isFinite(configuredTimeoutMs)
 				? Math.max(1, Math.trunc(configuredTimeoutMs))
 				: 300000;
+		const configuredFinalizationTimeoutMs = settings?.bcg?.finalizationTimeoutMs;
+		const finalizationTimeoutMs =
+			typeof configuredFinalizationTimeoutMs === "number" && Number.isFinite(configuredFinalizationTimeoutMs)
+				? Math.max(1, Math.trunc(configuredFinalizationTimeoutMs))
+				: 900000;
 		const configuredMaxTurns = settings?.bcg?.maxTurns;
 		const maxTurns =
 			typeof configuredMaxTurns === "number" && Number.isFinite(configuredMaxTurns)
@@ -885,6 +892,7 @@ export class SettingsManager {
 				recentTurns,
 				maxTurns,
 				timeoutMs,
+				finalizationTimeoutMs,
 				includeRelations: settings?.bcg?.includeRelations ?? true,
 				graphView: settings?.bcg?.graphView === "compact" ? "compact" : "full",
 			},

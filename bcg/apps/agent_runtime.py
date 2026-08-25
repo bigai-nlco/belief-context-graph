@@ -108,6 +108,9 @@ def ensure_agent_configuration(graph_url: str) -> Path:
                 str(DEFAULT_GRAPH_TIMEOUT_MS),
             )
         )
+        finalization_timeout_ms = int(
+            os.environ.get("BCG_GRAPH_FINALIZATION_TIMEOUT_MS", "900000")
+        )
         max_turns = int(
             os.environ.get(
                 "BCG_GRAPH_MAX_TURNS",
@@ -117,6 +120,7 @@ def ensure_agent_configuration(graph_url: str) -> Path:
     except ValueError as exc:
         raise AgentLaunchError(
             "BCG_RECENT_TURNS, BCG_GRAPH_MAX_TURNS, BCG_GRAPH_TIMEOUT_MS, "
+            "BCG_GRAPH_FINALIZATION_TIMEOUT_MS, "
             "BCG_SUMMARY_RECENT_TURNS, BCG_SUMMARY_TIMEOUT_MS, and "
             "BCG_SUMMARY_MAX_TOKENS must be integers."
         ) from exc
@@ -127,6 +131,7 @@ def ensure_agent_configuration(graph_url: str) -> Path:
             "recentTurns": recent_turns,
             "maxTurns": max(1, max_turns),
             "timeoutMs": timeout_ms,
+            "finalizationTimeoutMs": max(1, finalization_timeout_ms),
             "includeRelations": True,
             "graphView": os.environ.get("BCG_GRAPH_VIEW", "full").strip().lower()
             if os.environ.get("BCG_GRAPH_VIEW", "full").strip().lower()

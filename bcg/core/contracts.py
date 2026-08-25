@@ -17,7 +17,7 @@ class RunOptions:
     evidence_mode: str = "sentence"
     incremental_merge: bool = True
     incremental_merge_threshold: float = 0.86
-    verify_merge: bool = True
+    verify_merge: bool = False
     context_chars: int = 100000
     io_context_chars: int = 6000
     min_content_len: int = 0

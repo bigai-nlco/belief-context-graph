@@ -17,9 +17,9 @@ Two independent backends implement this, side by side, under
 - **`hybrid`** — local models only: a small generative model (Qwen) extracts
   nodes, a local classifier assigns stance, local NER assigns entities, and a
   second small model draws relations.
-- **`unified`** — one general-purpose graph LLM does node extraction and
-  relation extraction (as two separate calls), returning stance and entities
-  together with the nodes.
+- **`unified`** — one general-purpose graph LLM does node-text and relation
+  extraction (as separate calls); the same local stance classifier and NER
+  components as `hybrid` attach metadata without spending Graph-LLM tokens.
 
 Pick **one backend per run**. They share the same *shape* of entry points
 (`pipeline.run_input` / `pipeline.run_item`, `online.SessionManager`,
@@ -53,10 +53,10 @@ You can drive either backend two ways:
 
 | | `bcg.construct.hybrid` | `bcg.construct.unified` |
 |---|---|---|
-| Node extraction | Small generative model (Qwen), one concurrent call **per semantic chunk** | One general-purpose graph LLM, one call **per turn** (returns nodes + stance + entities together) |
+| Node extraction | Small generative model (Qwen), one concurrent call **per semantic chunk** | One general-purpose graph LLM, normally one call **per turn**, returning node text, stance, entities, and evidence together |
 | Chunking | Semantic breakpoint chunking (adjacent-window embedding distance) + `<think>`/`<tool_call>`/`<tool_response>` isolation | Whole-turn sentence splitting (no chunking) |
-| Stance | Local DeBERTa zero-shot 4-class classifier, run on every extracted node's text | Returned directly by the node-extraction call |
-| Entities | Local spaCy NER (or HF token-classification), run **after** that turn's merge is complete | Returned directly by the node-extraction call |
+| Stance | Local DeBERTa zero-shot 4-class classifier, run on every extracted node's text | Emitted by the Graph LLM in the node-extraction response; confidence remains code-owned |
+| Entities | Local spaCy NER (or HF token-classification), run **after** that turn's merge is complete | Emitted by the Graph LLM in the same node-extraction response |
 | Relations | Separate non-thinking Qwen model; backward window is either the immediately-previous turn only (`search_previous_turns: false`) or a full backward walk (`true`, the example config's default) | Same model, always a full backward walk: current turn vs. the immediately-previous turn's surviving nodes, walking further back one turn at a time until a cross-turn edge lands (or no turn remains) |
 | Evidence granularity | Whole semantic chunk (exact offsets) | Whole sentence (exact offsets, default) or model-quoted excerpt (`--evidence-mode excerpt`, located by a 3-stage exact→normalised→fuzzy matcher) |
 | Confidence policy | `unified`: hardcoded `(role, stance)` table; `hybrid`: config-driven prior — both plus evidence + relation factor confidence in `confidence.py` | Role/stance prior table plus the same evidence and relation factor confidence fields in `confidence.py` |
@@ -70,9 +70,8 @@ You can drive either backend two ways:
 Each non-skipped turn (`extract.py` + `stream.py`) runs:
 
 1. **Node extraction** (`extract.extract_nodes`, one LLM call) — returns new
-   **belief nodes** and **decision nodes**, each already carrying its
-   `stance` (`asserted` / `recalled` / `judged` / `speculated`) and
-   `entities`. Decision nodes are only meaningful for the assistant's final
+   **belief nodes** and **decision nodes** as text, `stance`, `entities`, and
+   evidence references in the same response. Decision nodes are only meaningful for the assistant's final
    answer (e.g. wrapped in `\boxed{...}`); no relations yet.
 2. **Incremental merge** (`merge.run_merge_pass`, `strategy="embedding"`) —
    new belief nodes are deduplicated against the graph immediately, before
@@ -217,12 +216,13 @@ entries (e.g. `"gpt-5.5"`), plus two reserved keys:
   Used by both backends for merge-candidate scoring, and by `hybrid` for
   semantic chunking. If this entry is absent, incremental merge (and, for
   `hybrid`, chunking) is skipped with a warning rather than an error.
-- **`"belief_graph"`** — **`hybrid`-only.** `extractor` / `stance` /
-  `edge_generation` / `entities` / `confidence` / `chunking` / `runtime` /
-  `incremental_merge` settings, loaded by `load_belief_graph_config()` from
+- **`"belief_graph"`** — shared construction settings. `stance`, `entities`,
+  `confidence`, `tool_results`, and `edge_generation.max_previous_windows`
+  are consumed by `unified`; `hybrid` additionally consumes extractor,
+  chunking, merge, runtime, and edge-model routing settings. They are loaded by
+  `load_belief_graph_config()` from
   (in merge order) the top-level `belief_graph` key, then the selected
-  chat-model entry's own `belief_graph` override if present. `unified`
-  never reads this section at all.
+  chat-model entry's own `belief_graph` override if present.
 
 **API keys**: both backends resolve them identically, through the shared
 `bcg/env.py`. Which `.env` file gets read is resolved in this priority
@@ -306,7 +306,9 @@ Every field under `belief_graph`'s sub-sections is **required** — each
 normaliser (`normalize_extractor_config`, `normalize_edge_config`, ...)
 raises `ValueError` listing exactly which key is missing, so copy from
 `model_config.example.json` rather than writing a section from scratch.
-`unified` reads `belief_graph.confidence` for relation-confidence propagation so batch `run.py` and `online_server.py` use the same thresholds; the rest of the `belief_graph` block is hybrid-only.
+`unified` reads `belief_graph.stance`, `entities`, `confidence`,
+`tool_results`, and the edge-window limit. Hybrid additionally consumes the
+semantic chunker, generative extractor, and independently routed edge-model settings.
 
 ---
 

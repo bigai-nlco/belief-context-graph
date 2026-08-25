@@ -121,6 +121,13 @@ def run(
         int,
         typer.Option(min=1, help="Graph request timeout in milliseconds."),
     ] = 300_000,
+    graph_finalization_timeout_ms: Annotated[
+        int,
+        typer.Option(
+            min=1,
+            help="Final Graph supplement/finalize timeout in milliseconds.",
+        ),
+    ] = 900_000,
     graph_max_turns: Annotated[
         int,
         typer.Option(
@@ -342,6 +349,7 @@ def run(
         timeout=timeout,
         graph_url=graph_url,
         graph_timeout_ms=graph_timeout_ms,
+        graph_finalization_timeout_ms=graph_finalization_timeout_ms,
         graph_max_turns=graph_max_turns,
         recent_turns=recent_turns,
         graph_view=graph_view,

@@ -26,6 +26,7 @@ class ToolCall:
     arguments: dict[str, Any]
     excerpt: str
     query: str | None = None
+    tool_call_id: str | None = None
 
 
 QueryToolCall = ToolCall
@@ -50,6 +51,7 @@ def extract_tool_calls(content: str) -> list[ToolCall]:
             raw_query = arguments.get("q")
         query = raw_query if isinstance(raw_query, str) and raw_query.strip() else None
         name = payload.get("name")
+        raw_id = payload.get("id", payload.get("tool_call_id"))
         calls.append(
             ToolCall(
                 name=str(name).strip()
@@ -58,9 +60,27 @@ def extract_tool_calls(content: str) -> list[ToolCall]:
                 arguments=dict(arguments),
                 excerpt=match.group(0),
                 query=query,
+                tool_call_id=(
+                    raw_id.strip()
+                    if isinstance(raw_id, str) and raw_id.strip()
+                    else None
+                ),
             )
         )
     return calls
+
+
+def strip_valid_tool_calls(content: str) -> str:
+    """Remove valid canonical tool-call blocks, preserving reasoning/text."""
+
+    def _replace(match: re.Match[str]) -> str:
+        try:
+            payload: Any = json.loads(match.group(1))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return match.group(0)
+        return "" if isinstance(payload, dict) else match.group(0)
+
+    return _TOOL_CALL_RE.sub(_replace, content or "").strip()
 
 
 def extract_pure_tool_calls(content: str) -> list[ToolCall] | None:

@@ -6,7 +6,7 @@ All LLM prompts, organised by function.
 This version updates the prompt contract toward the new belief-graph design:
 * belief granularity is relaxed from sentence-level atomic shards to coherent,
   self-contained reasoning/memory units;
-* every belief/decision is asked to include ``entities``;
+* every belief/decision is asked to include ``stance`` and ``entities``;
 * assistant final answers wrapped in ``\\boxed{...}`` are extracted as
   separate ``decisions`` rather than ordinary beliefs;
 * relation semantics are expressed with the three target edge types:
@@ -92,8 +92,7 @@ Do NOT include:
 - generic filler: "the content", "this turn", "the answer", "the issue", "the thing", "the result";
 - bare generic nouns: car, file, code, graph, node, edge, model, prompt, time, data, message, unless they are qualified enough to be identifiable;
 - abstract feelings or vague concepts unless the belief is specifically about that concept;
-- temporal expressions as entities; preserve temporal information in the belief
-  or decision text instead (event metadata is assigned by the graph builder);
+- temporal expressions as entities; preserve temporal information in the belief or decision text instead (event metadata is assigned by the graph builder);
 - duplicate surface forms referring to the same entity in one belief.
 
 Use the most specific form supported by the CURRENT turn and existing graph context.
@@ -112,7 +111,8 @@ Rules:
 - If the assistant gives a final answer without ``\\boxed{...}``, extract it as a decision only
   when it is clearly the final selected answer rather than an intermediate claim.
 - Do not duplicate the same final answer as both a belief and a decision.
-- Decisions also need ``entities``, stance, evidence, and time fields.
+- Decisions also need ``stance`` and ``entities``. Event time is assigned
+  deterministically by the graph builder and must not be generated here.
 """
 
 _STANCE_DEFINITION = """\
@@ -240,10 +240,10 @@ _OUTPUT_FORMAT_EXCERPT = """\
     {
       "tmp_id": "n0",
       "belief": "<self-contained coherent belief>",
+      "stance": "asserted | recalled | speculated | judged",
+      "entities": ["<specific entity>", "..."],
       "tool_name": "<exact tool name; include only for a query-derived belief>",
       "query": "<exact query string; include only for a query-derived belief>",
-      "entities": ["<entity mentioned in this belief>", "<another entity>"],
-      "stance": "asserted | recalled | speculated | judged",
       "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
     }
   ],
@@ -251,8 +251,8 @@ _OUTPUT_FORMAT_EXCERPT = """\
     {
       "tmp_id": "d0",
       "decision": "<final selected answer, especially content inside \\boxed{...}>",
-      "entities": ["<entity mentioned in this decision>"],
       "stance": "asserted | recalled | speculated | judged",
+      "entities": ["<specific entity>", "..."],
       "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
     }
   ],
@@ -269,10 +269,10 @@ _OUTPUT_FORMAT_SENTENCES = """\
     {
       "tmp_id": "n0",
       "belief": "<self-contained coherent belief>",
+      "stance": "asserted | recalled | speculated | judged",
+      "entities": ["<specific entity>", "..."],
       "tool_name": "<exact tool name; include only for a query-derived belief>",
       "query": "<exact query string; include only for a query-derived belief>",
-      "entities": ["<entity mentioned in this belief>", "<another entity>"],
-      "stance": "asserted | recalled | speculated | judged",
       "supporting_sentence_indices": [0, 2]
     }
   ],
@@ -280,8 +280,8 @@ _OUTPUT_FORMAT_SENTENCES = """\
     {
       "tmp_id": "d0",
       "decision": "<final selected answer, especially content inside \\boxed{...}>",
-      "entities": ["<entity mentioned in this decision>"],
       "stance": "asserted | recalled | speculated | judged",
+      "entities": ["<specific entity>", "..."],
       "supporting_sentence_indices": [3]
     }
   ],
@@ -299,9 +299,8 @@ _HARD_CONSTRAINTS_EXCERPT = """\
    character-for-character from the content. No excerpt → drop that node.
 4. Each new belief needs a unique "tmp_id": n0, n1, n2, … in output order.
 5. Each new decision needs a unique "tmp_id": d0, d1, d2, … in output order.
-6. Every belief and decision MUST include "entities" as a list, even if empty.
-7. Empty beliefs / decisions / relations lists are OK when the content expresses none.
-8. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
+6. Empty beliefs / decisions / relations lists are OK when the content expresses none.
+7. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
 """
 
 _HARD_CONSTRAINTS_SENTENCES = """\
@@ -313,9 +312,8 @@ _HARD_CONSTRAINTS_SENTENCES = """\
    If the whole group supports it, list all its indices.
 4. Each new belief needs a unique "tmp_id": n0, n1, n2, … in output order.
 5. Each new decision needs a unique "tmp_id": d0, d1, d2, … in output order.
-6. Every belief and decision MUST include "entities" as a list, even if empty.
-7. Empty beliefs / decisions / relations lists are OK when the sentences express none.
-8. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
+6. Empty beliefs / decisions / relations lists are OK when the sentences express none.
+7. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
 """
 
 
@@ -439,7 +437,7 @@ def build_update_prompt(
     key = _resolve_role(role)
     if key is None:
         return None
-    task_line, guidance, stance_hint = _GUIDANCE[key]
+    task_line, guidance, _stance_hint = _GUIDANCE[key]
 
     parts: list[str] = [
         "# Task",
@@ -447,8 +445,8 @@ def build_update_prompt(
         "\nYou maintain a belief graph INCREMENTALLY. From the CURRENT turn, output only the NEW "
         "belief/decision nodes and NEW typed relations. Existing nodes/relations (shown below) must not be repeated.\n",
         _BELIEF_DEFINITION,
+        _STANCE_DEFINITION,
         guidance + "\n",
-        _STANCE_DEFINITION + stance_hint + "\n",
         _GRAPH_CONTEXT_BLOCK,
         _FORWARD_EDGE_RULES,
     ]
@@ -490,10 +488,10 @@ _OUTPUT_FORMAT_EXCERPT_NODES = """\
     {
       "tmp_id": "n0",
       "belief": "<self-contained coherent belief>",
+      "stance": "asserted | recalled | speculated | judged",
+      "entities": ["<specific entity>", "..."],
       "tool_name": "<exact tool name; include only for a query-derived belief>",
       "query": "<exact query string; include only for a query-derived belief>",
-      "entities": ["<entity mentioned in this belief>", "<another entity>"],
-      "stance": "asserted | recalled | speculated | judged",
       "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
     }
   ],
@@ -501,8 +499,8 @@ _OUTPUT_FORMAT_EXCERPT_NODES = """\
     {
       "tmp_id": "d0",
       "decision": "<final selected answer, especially content inside \\boxed{...}>",
-      "entities": ["<entity mentioned in this decision>"],
       "stance": "asserted | recalled | speculated | judged",
+      "entities": ["<specific entity>", "..."],
       "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
     }
   ]
@@ -516,10 +514,10 @@ _OUTPUT_FORMAT_SENTENCES_NODES = """\
     {
       "tmp_id": "n0",
       "belief": "<self-contained coherent belief>",
+      "stance": "asserted | recalled | speculated | judged",
+      "entities": ["<specific entity>", "..."],
       "tool_name": "<exact tool name; include only for a query-derived belief>",
       "query": "<exact query string; include only for a query-derived belief>",
-      "entities": ["<entity mentioned in this belief>", "<another entity>"],
-      "stance": "asserted | recalled | speculated | judged",
       "supporting_sentence_indices": [0, 2]
     }
   ],
@@ -527,8 +525,8 @@ _OUTPUT_FORMAT_SENTENCES_NODES = """\
     {
       "tmp_id": "d0",
       "decision": "<final selected answer, especially content inside \\boxed{...}>",
-      "entities": ["<entity mentioned in this decision>"],
       "stance": "asserted | recalled | speculated | judged",
+      "entities": ["<specific entity>", "..."],
       "supporting_sentence_indices": [3]
     }
   ]
@@ -543,9 +541,8 @@ _HARD_CONSTRAINTS_EXCERPT_NODES = """\
    character-for-character from the content. No excerpt → drop that node.
 4. Each new belief needs a unique "tmp_id": n0, n1, n2, … in output order.
 5. Each new decision needs a unique "tmp_id": d0, d1, d2, … in output order.
-6. Every belief and decision MUST include "entities" as a list, even if empty.
-7. Empty beliefs / decisions lists are OK when the content expresses none.
-8. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
+6. Empty beliefs / decisions lists are OK when the content expresses none.
+7. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
 """
 
 _HARD_CONSTRAINTS_SENTENCES_NODES = """\
@@ -557,9 +554,8 @@ _HARD_CONSTRAINTS_SENTENCES_NODES = """\
    If the whole group supports it, list all its indices.
 4. Each new belief needs a unique "tmp_id": n0, n1, n2, … in output order.
 5. Each new decision needs a unique "tmp_id": d0, d1, d2, … in output order.
-6. Every belief and decision MUST include "entities" as a list, even if empty.
-7. Empty beliefs / decisions lists are OK when the sentences express none.
-8. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
+6. Empty beliefs / decisions lists are OK when the sentences express none.
+7. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
 """
 
 
@@ -578,7 +574,7 @@ def build_node_extraction_prompt(
     key = _resolve_role(role)
     if key is None:
         return None
-    task_line, guidance, stance_hint = _GUIDANCE[key]
+    task_line, guidance, _stance_hint = _GUIDANCE[key]
 
     parts: list[str] = [
         "# Task",
@@ -587,8 +583,8 @@ def build_node_extraction_prompt(
         "belief/decision nodes. Relations will be extracted in a separate step. "
         "Existing nodes (shown below) must not be repeated.\n",
         _BELIEF_DEFINITION,
+        _STANCE_DEFINITION,
         guidance + "\n",
-        _STANCE_DEFINITION + stance_hint + "\n",
         _NODE_GRAPH_CONTEXT_BLOCK,
     ]
     if mode == "excerpt":
@@ -618,6 +614,111 @@ def build_node_extraction_prompt(
     else:
         prompt = prompt.replace(SENTENCES_PLACEHOLDER, sentences_block or "")
     return prompt
+
+
+def build_assistant_tool_result_extraction_prompt(
+    *,
+    mode: str,
+    assistant_content: str | None = None,
+    assistant_sentences_block: str | None = None,
+    tool_items: str = "[]",
+    graph_nodes: str = "[]",
+) -> str:
+    """Extract an Assistant turn and its Tool Results in one model call.
+
+    The response keeps two explicit source partitions.  The caller validates
+    and allocates each partition independently, so batching never collapses the
+    original Assistant and Tool turns into one graph layer.
+    """
+
+    _task_line, assistant_guidance, _stance_hint = _GUIDANCE["assistant"]
+    evidence_field = (
+        '"supporting_excerpts": ["<verbatim Assistant excerpt>"]'
+        if mode == "excerpt"
+        else '"supporting_sentence_indices": [0, 2]'
+    )
+    assistant_input = (
+        f"## Assistant turn content\n{assistant_content or ''}"
+        if mode == "excerpt"
+        else (
+            "## Assistant turn sentences\n"
+            "Indices are local to this Assistant turn.\n"
+            f"{assistant_sentences_block or ''}"
+        )
+    )
+    return f"""# Task
+Extract belief/decision nodes from TWO ORDERED SOURCE LAYERS in one response:
+1. the Assistant turn;
+2. the Tool Result items produced by that Assistant turn.
+
+The layers are batched only to save a model call. NEVER merge evidence or a
+belief across the Assistant and Tool partitions. Relations are extracted later.
+Existing nodes are read-only and must not be repeated.
+
+{_BELIEF_DEFINITION}
+{_DECISION_DEFINITION}
+{_STANCE_DEFINITION}
+{assistant_guidance}
+
+Assistant tool-call JSON is handled deterministically by code. Extract the
+Assistant's substantive reasoning, hypotheses, conclusions, and decisions, but
+do not copy raw tool-call syntax as semantic beliefs.
+
+## Existing belief nodes (read only)
+{graph_nodes or "[]"}
+
+{assistant_input}
+
+## Tool Result items
+Each item is independent and belongs to the following Tool Result layer. Extract
+at most the requested fact_limit facts per item. Use only that item's query and
+results. Preserve exact names, dates, quantities, and versions. Prefer relevant,
+self-contained facts that prevent repeating the search. Never transfer evidence
+between item_index values.
+{tool_items or "[]"}
+
+## Output (JSON only)
+{{
+  "assistant": {{
+    "beliefs": [
+      {{
+        "tmp_id": "n0",
+        "belief": "<self-contained Assistant belief>",
+        "stance": "asserted | recalled | speculated | judged",
+        "entities": ["<specific entity>", "..."],
+        {evidence_field}
+      }}
+    ],
+    "decisions": [
+      {{
+        "tmp_id": "d0",
+        "decision": "<final selected answer only>",
+        "stance": "asserted | recalled | speculated | judged",
+        "entities": ["<specific entity>", "..."],
+        {evidence_field}
+      }}
+    ]
+  }},
+  "tool_items": [
+    {{
+      "item_index": 0,
+      "beliefs": [{{
+        "belief": "<self-contained fact from this item only>",
+        "stance": "asserted | recalled | speculated | judged",
+        "entities": ["<specific entity>", "..."]
+      }}]
+    }}
+  ]
+}}
+
+Hard constraints:
+- Preserve named entities, numbers, dates, and quantities exactly.
+- Do not add outside knowledge.
+- Assistant evidence indices/excerpts may reference only the Assistant input.
+- Tool facts may use only their own item.
+- Return every Tool Result item_index exactly once, even with an empty beliefs list.
+- Empty Assistant beliefs/decisions are allowed.
+"""
 
 
 # =====================================================================

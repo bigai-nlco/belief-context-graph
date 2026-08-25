@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
@@ -11,6 +12,9 @@ _HEADER_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _RESULT_START_RE = re.compile(r"(?m)^\[(\d+)\]\s+")
+_TOOL_RESULT_RE = re.compile(
+    r"<tool_result>\s*(.*?)\s*</tool_result>", re.DOTALL | re.IGNORECASE
+)
 
 
 @dataclass(frozen=True)
@@ -28,6 +32,9 @@ class ToolResult:
     body: str
     results: tuple[SearchResult, ...]
     no_results: bool
+    tool_call_id: str | None = None
+    is_error: bool = False
+    source_block: str | None = None
 
 
 def _field(block: str, name: str) -> str | None:
@@ -41,14 +48,14 @@ def _field(block: str, name: str) -> str | None:
     return value or None
 
 
-def parse_tool_result(content: str) -> ToolResult | None:
-    """Parse the canonical ``[Tool result: name]`` agent wire format."""
-
-    match = _HEADER_RE.match(content or "")
-    if match is None:
-        return None
-    tool_name = match.group(1).strip() or "tool"
-    body = match.group(2).strip()
+def _parse_body(
+    tool_name: str,
+    body: str,
+    *,
+    tool_call_id: str | None = None,
+    is_error: bool = False,
+    source_block: str | None = None,
+) -> ToolResult:
     starts = list(_RESULT_START_RE.finditer(body))
     results: list[SearchResult] = []
     for position, start in enumerate(starts):
@@ -75,6 +82,59 @@ def parse_tool_result(content: str) -> ToolResult | None:
         body=body,
         results=tuple(results),
         no_results="no web results were returned" in body.lower(),
+        tool_call_id=tool_call_id,
+        is_error=is_error,
+        source_block=source_block,
+    )
+
+
+def extract_tool_results(content: str) -> list[ToolResult]:
+    """Parse every ID-bearing ``<tool_result>`` block in one tool turn."""
+
+    parsed: list[ToolResult] = []
+    for match in _TOOL_RESULT_RE.finditer(content or ""):
+        try:
+            payload = json.loads(match.group(1))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        raw_name = payload.get("name", payload.get("tool_name"))
+        raw_id = payload.get("tool_call_id", payload.get("id"))
+        raw_content = payload.get("content")
+        parsed.append(
+            _parse_body(
+                raw_name.strip()
+                if isinstance(raw_name, str) and raw_name.strip()
+                else "tool",
+                raw_content if isinstance(raw_content, str) else str(raw_content or ""),
+                tool_call_id=(
+                    raw_id.strip()
+                    if isinstance(raw_id, str) and raw_id.strip()
+                    else None
+                ),
+                is_error=bool(payload.get("is_error", False)),
+                source_block=match.group(0),
+            )
+        )
+    return parsed
+
+
+def parse_tool_result(content: str) -> ToolResult | None:
+    """Parse one canonical XML or legacy bracketed tool result."""
+
+    grouped = extract_tool_results(content)
+    if len(grouped) == 1:
+        return grouped[0]
+    if grouped:
+        return None
+    match = _HEADER_RE.match(content or "")
+    if match is None:
+        return None
+    return _parse_body(
+        match.group(1).strip() or "tool",
+        match.group(2).strip(),
+        source_block=content,
     )
 
 
@@ -145,5 +205,6 @@ __all__ = [
     "SearchResult",
     "ToolResult",
     "compact_tool_result",
+    "extract_tool_results",
     "parse_tool_result",
 ]
