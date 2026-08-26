@@ -115,6 +115,7 @@ class EdgeGenerationSettings(_ForbidExtra):
 class RuntimeSettings(_ForbidExtra):
     evidence_mode: Literal["sentence", "excerpt", "chunk"]
     context_chars: int = Field(ge=0)
+    extraction_history_turns: int = Field(ge=0)
     min_content_len: int = Field(ge=0)
 
 

@@ -30,6 +30,7 @@ Relation schema:
 from __future__ import annotations
 
 import csv
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -56,7 +57,6 @@ from .evidence import (
     source_descriptor,
 )
 from .extract import (
-    extract_assistant_tool_result_nodes_batch,
     extract_compact_tool_result_nodes,
     extract_compact_tool_result_nodes_batch,
     extract_nodes,
@@ -89,6 +89,9 @@ class StreamOptions:
     verify_merge: bool = False
     # prompt budgets
     context_chars: int = 100000  # existing-nodes context budget
+    # Limit node-extraction history to the latest N non-empty Graph turns before
+    # applying ``context_chars``. Zero preserves the character-budget-only path.
+    extraction_history_turns: int = 0
     # Maximum number of non-empty historical turn windows inspected while
     # looking for a current-to-prior relation.
     max_previous_windows: int = 4
@@ -124,6 +127,14 @@ class StreamOptions:
             and edge_cfg.get("max_previous_windows") is not None
         ):
             self.max_previous_windows = max(1, int(edge_cfg["max_previous_windows"]))
+        runtime_cfg = cfg.get("runtime") or {}
+        if (
+            isinstance(runtime_cfg, dict)
+            and runtime_cfg.get("extraction_history_turns") is not None
+        ):
+            self.extraction_history_turns = max(
+                0, int(runtime_cfg["extraction_history_turns"])
+            )
         tool_result_cfg = cfg.get("tool_results") or {}
         if isinstance(tool_result_cfg, dict):
             if tool_result_cfg.get("max_search_results") is not None:
@@ -173,6 +184,7 @@ class StreamOptions:
             "incremental_merge_threshold": self.incremental_merge_threshold,
             "verify_merge": self.verify_merge,
             "context_chars": self.context_chars,
+            "extraction_history_turns": self.extraction_history_turns,
             "max_previous_windows": self.max_previous_windows,
             "reasoning_effort": self.reasoning_effort,
             "min_content_len": self.min_content_len,
@@ -239,6 +251,11 @@ class StreamingBeliefBuilder:
 
         self._trajectory: list[dict[str, Any]] = []  # flat, ALL turns (incl. system)
         self._flat_turn = 0
+        # The first user turn establishes the problem beliefs.  Those beliefs
+        # intentionally remain an unconnected root layer: relation generation
+        # starts only when a later turn can connect new evidence/reasoning back
+        # to an existing layer.
+        self._has_extracted_user_beliefs = False
         self._finalized = False
         self._start_time = datetime.now(UTC)
         self._end_time: datetime | None = None
@@ -265,6 +282,37 @@ class StreamingBeliefBuilder:
             "llm_check": 0.0,
             "total": 0.0,
         }
+
+    def _node_extraction_history(self) -> list[dict[str, Any]]:
+        """Return active nodes from the configured latest Graph-turn window."""
+        nodes = self.graph.active()
+        turn_limit = int(self.options.extraction_history_turns)
+        if turn_limit <= 0 or not nodes:
+            return nodes
+
+        turn_ids = sorted(
+            {
+                int(turn_id)
+                for node in nodes
+                if (turn_id := (node.get("source") or {}).get("turn_id"))
+                is not None
+            }
+        )
+        if len(turn_ids) <= turn_limit:
+            return nodes
+
+        retained_turn_ids = set(turn_ids[-turn_limit:])
+        return [
+            node
+            for node in nodes
+            if (node.get("source") or {}).get("turn_id") in retained_turn_ids
+        ]
+
+    def _formatted_node_extraction_history(self) -> str:
+        return format_graph_nodes(
+            self._node_extraction_history(),
+            char_budget=self.options.context_chars,
+        )
 
     # ------------------------------------------------------------------ events
     def _propagate_relation_confidences(
@@ -492,12 +540,14 @@ class StreamingBeliefBuilder:
         assistant_content: str,
         tool_contents: list[str],
     ) -> int:
-        """Prepare ``Assistant -> Tool Result(s)`` with one extraction call.
+        """Prepare ``Assistant -> Tool Result(s)`` with split extraction paths.
 
-        The model response is partitioned by source.  Prepared node results are
-        then consumed by the normal sequential ``ingest_turn`` path, which is
-        what keeps source turn ids, evidence, merging, and edge construction on
-        their original Assistant and Tool layers.
+        Assistant reasoning is extracted independently with the canonical node
+        prompt and bounded historical graph context.  A pure Tool Call Assistant
+        turn is handled deterministically without a model call.  Tool Results
+        are distilled together by the compact history-free prompt.  Prepared
+        results are still consumed by sequential ``ingest_turn`` calls, keeping
+        every node on its original Assistant or Tool layer.
         """
 
         if not tool_contents or self._prepared_tool_results:
@@ -580,26 +630,104 @@ class StreamingBeliefBuilder:
             else 0
         )
 
-        _t_batch = time.perf_counter()
-        USAGE.set_label(
-            f"t{self._flat_turn}.extract:assistant_tool_batch:{semantic_count}"
+        # Extract Assistant reasoning separately only when the Agent supplied a
+        # visible <thinking> block. Tool Call beliefs are always deterministic
+        # and are merged back into the same Assistant turn by code; raw Tool Call
+        # JSON never enters the semantic node-extraction prompt.
+        _t_assistant = time.perf_counter()
+        USAGE.set_label(f"t{self._flat_turn}.extract:assistant")
+        thinking_blocks = re.findall(
+            r"<thinking>.*?</thinking>",
+            assistant_content,
+            flags=re.DOTALL | re.IGNORECASE,
         )
-        assistant_result, semantic_results = extract_assistant_tool_result_nodes_batch(
-            self.client,
-            self.model,
-            assistant_content=assistant_content,
-            assistant_sentences=assistant_sentences,
-            graph_nodes_str=format_graph_nodes(
-                self.graph.active(), char_budget=opt.context_chars
-            ),
-            items=flat_items[:semantic_count],
-            mode=opt.evidence_mode,
-            max_results=opt.tool_result_max_search_results,
-            max_snippet_chars=opt.tool_result_max_snippet_chars,
-            max_facts=opt.tool_result_max_facts,
-            max_tokens=self.max_tokens,
-            reasoning_effort=opt.reasoning_effort,
-        )
+        tool_call_content = "\n".join(call.excerpt for call in calls)
+        if calls:
+            tool_call_result = extract_nodes(
+                self.client,
+                self.model,
+                role="assistant",
+                mode=opt.evidence_mode,
+                content=tool_call_content,
+                sentences=assistant_sentences,
+                graph_nodes_str="[]",
+                graph_edges_str="[]",
+                max_tokens=self.max_tokens,
+                reasoning_effort=opt.reasoning_effort,
+            )
+        else:
+            tool_call_result = {
+                "nodes": [],
+                "beliefs": [],
+                "decisions": [],
+                "relations": [],
+                "raw_output": None,
+                "skipped": False,
+                "extraction_method": "no_tool_calls",
+            }
+        if thinking_blocks:
+            thinking_content = "\n".join(thinking_blocks)
+            thinking_sentences = (
+                [sentence.text for sentence in split_sentences(thinking_content)]
+                if opt.evidence_mode == "sentence"
+                else None
+            )
+            thinking_result = extract_nodes(
+                self.client,
+                self.model,
+                role="assistant",
+                mode=opt.evidence_mode,
+                content=thinking_content,
+                sentences=thinking_sentences,
+                graph_nodes_str=self._formatted_node_extraction_history(),
+                graph_edges_str="[]",
+                max_tokens=self.max_tokens,
+                reasoning_effort=opt.reasoning_effort,
+            )
+            thinking_nodes = [dict(node) for node in thinking_result.get("nodes", [])]
+            tool_call_nodes = [
+                dict(node) for node in tool_call_result.get("nodes", [])
+            ]
+            for node in tool_call_nodes:
+                node["tmp_id"] = f"n{len(thinking_nodes)}"
+                thinking_nodes.append(node)
+            assistant_result = {
+                "nodes": thinking_nodes,
+                "beliefs": [
+                    node
+                    for node in thinking_nodes
+                    if node.get("node_type", "belief") == "belief"
+                ],
+                "decisions": list(thinking_result.get("decisions", [])),
+                "relations": [],
+                "raw_output": thinking_result.get("raw_output"),
+                "skipped": bool(thinking_result.get("skipped", False)),
+                "extraction_method": "split_thinking_and_rule_tool_call",
+            }
+        else:
+            assistant_result = tool_call_result
+        assistant_elapsed = time.perf_counter() - _t_assistant
+
+        # Tool Results use the compact history-free extractor.  Multiple
+        # parallel results share this one request but remain partitioned by the
+        # code-owned item_index returned in the response.
+        _t_tools = time.perf_counter()
+        semantic_results: list[dict[str, Any] | None] = []
+        if semantic_count:
+            USAGE.set_label(
+                f"t{self._flat_turn + 1}.extract:tool_batch:{semantic_count}"
+            )
+            semantic_results = extract_compact_tool_result_nodes_batch(
+                self.client,
+                self.model,
+                items=flat_items[:semantic_count],
+                mode=opt.evidence_mode,
+                max_results=opt.tool_result_max_search_results,
+                max_snippet_chars=opt.tool_result_max_snippet_chars,
+                max_facts=opt.tool_result_max_facts,
+                max_tokens=self.max_tokens,
+                reasoning_effort=opt.reasoning_effort,
+            )
         flat_results: list[dict[str, Any] | None] = list(semantic_results)
         for item in flat_items[semantic_count:]:
             flat_results.append(
@@ -612,6 +740,7 @@ class StreamingBeliefBuilder:
                     max_snippet_chars=opt.tool_result_max_snippet_chars,
                 )
             )
+        tool_elapsed = time.perf_counter() - _t_tools
         self._semantic_tool_result_calls += sum(
             1
             for result in semantic_results
@@ -664,16 +793,14 @@ class StreamingBeliefBuilder:
             else:
                 prepared_tools.append(per_turn_fallback[offset])
 
-        elapsed = time.perf_counter() - _t_batch
-
         self._prepared_tool_results[self._flat_turn] = (
             assistant_result,
-            elapsed,
+            assistant_elapsed,
         )
         for offset, result in enumerate(prepared_tools, start=1):
             self._prepared_tool_results[self._flat_turn + offset] = (
                 result,
-                0.0,
+                tool_elapsed if offset == 1 else 0.0,
             )
         return 1 + len(tool_contents)
 
@@ -840,9 +967,7 @@ class StreamingBeliefBuilder:
         # Node extraction receives the newest historical nodes that fit the same
         # context budget used by relation extraction. Historical edges belong
         # exclusively to the separate relation phase and are omitted here.
-        graph_nodes_str = format_graph_nodes(
-            self.graph.active(), char_budget=opt.context_chars
-        )
+        graph_nodes_str = self._formatted_node_extraction_history()
         graph_edges_str = "[]"
 
         # ---- prepare evidence mode
@@ -1056,8 +1181,17 @@ class StreamingBeliefBuilder:
             for node in active_nodes
             if isinstance(node.get("id"), int)
         }
+        initial_user_belief_turn = (
+            role == "user"
+            and bool(surviving_new_ids)
+            and not self._has_extracted_user_beliefs
+        )
 
-        if role == "tool" and any(
+        if initial_user_belief_turn:
+            report["edge_skip_reason"] = (
+                "initial user belief turn does not create internal relations"
+            )
+        elif role == "tool" and any(
             active_nodes_by_id.get(node_id, {}).get("extraction_method")
             in {"rule_tool_result", "compact_llm_tool_result"}
             for node_id in surviving_new_ids
@@ -1178,6 +1312,9 @@ class StreamingBeliefBuilder:
                 if new_nodes
                 else "no current-turn nodes extracted"
             )
+
+        if role == "user" and new_nodes:
+            self._has_extracted_user_beliefs = True
 
         return new_nodes, relations_added, report
 

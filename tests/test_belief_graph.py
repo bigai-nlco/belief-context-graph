@@ -460,6 +460,75 @@ def test_unified_rule_tool_call_node_has_complete_graph_attributes(
     assert node["tool_call_id"] == "rule-complete:t0:c0"
 
 
+def test_unified_initial_user_beliefs_skip_internal_relation_generation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    relation_calls: list[str] = []
+
+    def fake_extract_nodes(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args
+        content = str(kwargs["content"])
+        return {
+            "nodes": [
+                {
+                    "tmp_id": "n0",
+                    "node_type": "belief",
+                    "belief": content,
+                    "stance": "asserted",
+                    "entities": [],
+                    "event_time": None,
+                    "time_text": None,
+                    "supporting_sentence_indices": [0],
+                },
+                {
+                    "tmp_id": "n1",
+                    "node_type": "belief",
+                    "belief": f"Supporting detail for {content}",
+                    "stance": "asserted",
+                    "entities": [],
+                    "event_time": None,
+                    "time_text": None,
+                    "supporting_sentence_indices": [0],
+                },
+            ],
+            "raw_output": "{}",
+            "skipped": False,
+        }
+
+    def fake_extract_relations(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args
+        relation_calls.append(str(kwargs["graph_nodes_str"]))
+        return {"relations": [], "raw_output": "{}", "skipped": False}
+
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_nodes", fake_extract_nodes
+    )
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_relations", fake_extract_relations
+    )
+    builder = UnifiedStreamingBeliefBuilder(
+        client=object(),
+        model="gpt-5.6-luna",
+        item_id="initial-user-root-layer",
+        out_dir=tmp_path,
+        options=UnifiedStreamOptions(incremental_merge=False),
+    )
+
+    initial = builder.ingest_turn("user", "Initial question beliefs.")
+
+    assert relation_calls == []
+    assert builder.graph.relations == []
+    assert initial["edge_attempts"] == []
+    assert (
+        initial["edge_skip_reason"]
+        == "initial user belief turn does not create internal relations"
+    )
+
+    builder.ingest_turn("user", "Later user evidence.")
+    assert len(relation_calls) == 1
+
+
 def test_unified_relation_search_stops_after_four_non_empty_windows(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -592,6 +661,72 @@ def test_stream_node_extraction_respects_context_chars(
     assert extraction_contexts[-1] == expected
     assert "oldest" not in extraction_contexts[-1]
     assert "newest" in extraction_contexts[-1]
+
+
+def test_stream_node_extraction_keeps_only_latest_graph_turns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    extraction_contexts: list[str] = []
+
+    def fake_extract_nodes(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args
+        content = str(kwargs["content"])
+        extraction_contexts.append(str(kwargs["graph_nodes_str"]))
+        return {
+            "nodes": [
+                {
+                    "tmp_id": "n0",
+                    "node_type": "belief",
+                    "belief": content,
+                    "stance": "asserted",
+                    "entities": [],
+                    "supporting_excerpts": [content],
+                }
+            ],
+            "raw_output": "{}",
+            "skipped": False,
+        }
+
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_nodes", fake_extract_nodes
+    )
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_relations",
+        lambda *args, **kwargs: {"relations": [], "raw_output": "{}", "skipped": False},
+    )
+    builder = UnifiedStreamingBeliefBuilder(
+        client=object(),
+        model="graph-model",
+        item_id="two-turn-node-extraction-history",
+        out_dir=tmp_path,
+        options=UnifiedStreamOptions(
+            evidence_mode="excerpt",
+            incremental_merge=False,
+            context_chars=100_000,
+            extraction_history_turns=2,
+        ),
+    )
+
+    builder.ingest_turn("user", "turn one")
+    builder.ingest_turn("user", "turn two")
+    builder.ingest_turn("user", "turn three")
+    builder.ingest_turn("user", "turn four")
+
+    assert "turn one" not in extraction_contexts[-1]
+    assert "turn two" in extraction_contexts[-1]
+    assert "turn three" in extraction_contexts[-1]
+
+
+def test_stream_options_load_extraction_history_turns() -> None:
+    options = UnifiedStreamOptions()
+
+    options.apply_belief_graph_config(
+        {"runtime": {"extraction_history_turns": 2}}
+    )
+
+    assert options.extraction_history_turns == 2
+    assert options.to_dict()["extraction_history_turns"] == 2
 
 
 def test_rule_tool_result_is_compact_and_structured() -> None:
@@ -1171,42 +1306,45 @@ Source type: organic
     assert event["edge_attempts"][0]["strategy"] == "deterministic_provenance"
 
 
-def test_assistant_and_tool_result_share_one_extraction_but_keep_turn_sources(
+def test_thinking_and_tool_results_use_separate_extraction_prompts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    extraction_calls = 0
+    extraction_prompts: list[str] = []
 
     def fake_call(*args: Any, **kwargs: Any) -> str:
-        nonlocal extraction_calls
-        del args, kwargs
-        extraction_calls += 1
+        del kwargs
+        prompt = str(args[2])
+        extraction_prompts.append(prompt)
+        if "Items:" in prompt:
+            return json.dumps(
+                {
+                    "items": [
+                        {
+                            "item_index": 0,
+                            "beliefs": [
+                                {
+                                    "belief": "Alpha fact.",
+                                    "stance": "asserted",
+                                    "entities": ["Alpha"],
+                                }
+                            ],
+                        }
+                    ]
+                }
+            )
         return json.dumps(
             {
-                "assistant": {
-                    "beliefs": [
-                            {
-                                "tmp_id": "n0",
-                                "belief": "The assistant hypothesizes that Alpha is relevant.",
-                                "stance": "speculated",
-                                "entities": ["Alpha"],
-                                "supporting_sentence_indices": [0],
-                        }
-                    ],
-                    "decisions": [],
-                },
-                "tool_items": [
+                "beliefs": [
                     {
-                        "item_index": 0,
-                        "beliefs": [
-                            {
-                                "belief": "Alpha fact.",
-                                "stance": "asserted",
-                                "entities": ["Alpha"],
-                            }
-                        ],
+                        "tmp_id": "n0",
+                        "belief": "The assistant hypothesizes that Alpha is relevant.",
+                        "stance": "speculated",
+                        "entities": ["Alpha"],
+                        "supporting_sentence_indices": [0],
                     }
                 ],
+                "decisions": [],
             }
         )
 
@@ -1237,7 +1375,13 @@ Snippet: Alpha fact."""
     builder.ingest_turn("assistant", assistant)
     builder.ingest_turn("tool", tool)
 
-    assert extraction_calls == 1
+    assert len(extraction_prompts) == 2
+    assistant_prompt, tool_prompt = extraction_prompts
+    assert "## Existing belief nodes" in assistant_prompt
+    assert "Alpha may be relevant." in assistant_prompt
+    assert "alpha query" not in assistant_prompt
+    assert "Items:" in tool_prompt
+    assert "Existing belief nodes" not in tool_prompt
     nodes = builder.graph.active()
     reasoning = next(
         node
@@ -1254,6 +1398,95 @@ Snippet: Alpha fact."""
     assert reasoning["entities"] == ["Alpha"]
     assert fact["stance"] == "asserted"
     assert fact["entities"] == ["Alpha"]
+
+
+def test_tool_call_without_thinking_skips_assistant_model_extraction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    extraction_prompts: list[str] = []
+
+    def fake_call(*args: Any, **kwargs: Any) -> str:
+        del kwargs
+        prompt = str(args[2])
+        extraction_prompts.append(prompt)
+        assert "Items:" in prompt
+        assert "Existing belief nodes" not in prompt
+        return json.dumps(
+            {
+                "items": [
+                    {
+                        "item_index": 0,
+                        "beliefs": [
+                            {
+                                "belief": "Alpha fact.",
+                                "stance": "asserted",
+                                "entities": ["Alpha"],
+                            }
+                        ],
+                    },
+                    {
+                        "item_index": 1,
+                        "beliefs": [
+                            {
+                                "belief": "Beta fact.",
+                                "stance": "asserted",
+                                "entities": ["Beta"],
+                            }
+                        ],
+                    },
+                ]
+            }
+        )
+
+    def no_relations(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args, kwargs
+        return {"relations": [], "raw_output": '{"relations":[]}'}
+
+    monkeypatch.setattr("bcg.construct.unified.extract.llm.call_model", fake_call)
+    monkeypatch.setattr("bcg.construct.unified.stream.extract_relations", no_relations)
+    builder = UnifiedStreamingBeliefBuilder(
+        client=object(),
+        model="unused-model",
+        item_id="assistant-tool-no-thinking",
+        out_dir=tmp_path,
+        options=UnifiedStreamOptions(
+            incremental_merge=False,
+            evidence_mode="sentence",
+        ),
+    )
+    assistant = (
+        '<tool_call>{"name":"web_search","arguments":'
+        '{"query":"alpha query"}}</tool_call>\n'
+        '<tool_call>{"name":"web_search","arguments":'
+        '{"query":"beta query"}}</tool_call>'
+    )
+    alpha_tool = """[Tool result: web_search]
+[1] Alpha
+URL: https://alpha.example
+Snippet: Alpha fact."""
+    beta_tool = """[Tool result: web_search]
+[1] Beta
+URL: https://beta.example
+Snippet: Beta fact."""
+
+    assert (
+        builder.prepare_assistant_tool_result_batch(
+            assistant,
+            [alpha_tool, beta_tool],
+        )
+        == 3
+    )
+    builder.ingest_turn("assistant", assistant)
+    builder.ingest_turn("tool", alpha_tool)
+    builder.ingest_turn("tool", beta_tool)
+
+    assert len(extraction_prompts) == 1
+    nodes = builder.graph.active()
+    assert any(node.get("query") == "alpha query" for node in nodes)
+    assert any(node.get("query") == "beta query" for node in nodes)
+    assert any(node.get("belief") == "Alpha fact." for node in nodes)
+    assert any(node.get("belief") == "Beta fact." for node in nodes)
 
 
 def test_stance_classifier_dynamically_batches_concurrent_sessions(
