@@ -1247,7 +1247,6 @@ class StreamingBeliefBuilder:
                 _t_edge = time.perf_counter()
                 added, attempt = self._extract_relations_for_layered_edge_window(
                     role=role,
-                    content=content,
                     turn_idx=turn_idx,
                     active_nodes=active_nodes,
                     active_ids=active_ids,
@@ -1533,7 +1532,6 @@ class StreamingBeliefBuilder:
         self,
         *,
         role: str,
-        content: str,
         turn_idx: int,
         active_nodes: list[dict[str, Any]],
         active_ids: set,
@@ -1634,8 +1632,6 @@ class StreamingBeliefBuilder:
             rel_res = extract_layered_relations(
                 self.client,
                 self.model,
-                role=role,
-                content=content,
                 graph_nodes_str=graph_nodes_post,
                 graph_edges_str=graph_edges_post,
                 new_node_ids=displayed_new_ids,

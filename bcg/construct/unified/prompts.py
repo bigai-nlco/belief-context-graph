@@ -864,8 +864,6 @@ Hard output constraints:
 
 def build_layered_relation_extraction_prompt(
     *,
-    role: str,
-    content: str,
     graph_nodes: str = "[]",
     graph_edges: str = "[]",
     new_node_ids: str = "[]",
@@ -885,7 +883,9 @@ def build_layered_relation_extraction_prompt(
         "shown together. Judge all candidates in one pass, select the single most "
         "semantically relevant previous layer, and connect the current nodes only "
         "to that layer. It is valid to select no previous layer.\n",
-        f"## Current turn ({role})\n" + CONTENT_PLACEHOLDER + "\n",
+        "The original Assistant message is intentionally omitted. Judge relations "
+        "only from the extracted belief-node content below; do not expect or infer "
+        "hidden Thinking or raw Tool Call JSON.\n",
         "## Candidate previous layers\n"
         "Layer 1 is the nearest non-empty previous Graph turn; larger layer numbers "
         "are progressively older. Node membership is authoritative.\n"
@@ -912,7 +912,6 @@ def build_layered_relation_extraction_prompt(
         )
     parts.append(_LAYERED_RELATION_OUTPUT_FORMAT)
     prompt = "\n".join(parts)
-    prompt = prompt.replace(CONTENT_PLACEHOLDER, content or "")
     prompt = prompt.replace(GRAPH_NODES_PLACEHOLDER, graph_nodes or "[]")
     prompt = prompt.replace(GRAPH_EDGES_PLACEHOLDER, graph_edges or "[]")
     prompt = prompt.replace(NEW_NODE_IDS_PLACEHOLDER, new_node_ids or "[]")
