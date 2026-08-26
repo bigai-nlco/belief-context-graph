@@ -592,6 +592,8 @@ def test_unified_relation_search_stops_after_four_non_empty_windows(
 
 def test_unified_layered_relation_prompt_requires_one_previous_layer() -> None:
     prompt = build_layered_relation_extraction_prompt(
+        role="assistant",
+        content="I will use the newest relevant evidence.",
         graph_nodes='[{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}]',
         graph_edges="[]",
         new_node_ids="[4]",
@@ -608,8 +610,6 @@ def test_unified_layered_relation_prompt_requires_one_previous_layer() -> None:
     assert "ZERO OR ONE previous layer" in prompt
     assert "Layer 1 is the nearest" in prompt
     assert "Never connect nodes from two different previous layers" in prompt
-    assert "## Current turn (assistant)" not in prompt
-    assert "Thinking or raw Tool Call JSON" in prompt
 
 
 def test_unified_assistant_relations_judge_three_layers_in_one_call(
@@ -642,7 +642,6 @@ def test_unified_assistant_relations_judge_three_layers_in_one_call(
 
     def fake_layered(*args: Any, **kwargs: Any) -> dict[str, Any]:
         del args
-        assert "content" not in kwargs
         layers = kwargs["candidate_layers"]
         layered_calls.append(layers)
         current_id = min(kwargs["new_node_ids"])

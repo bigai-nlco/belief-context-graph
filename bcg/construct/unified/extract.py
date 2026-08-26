@@ -1339,6 +1339,8 @@ def extract_layered_relations(
     client,
     model: str,
     *,
+    role: str,
+    content: str,
     graph_nodes_str: str = "[]",
     graph_edges_str: str = "[]",
     new_node_ids: set,
@@ -1350,6 +1352,8 @@ def extract_layered_relations(
 ) -> dict[str, Any]:
     """Extract Assistant relations while selecting at most one prior layer."""
     prompt = build_layered_relation_extraction_prompt(
+        role=role,
+        content=content or "",
         graph_nodes=graph_nodes_str,
         graph_edges=graph_edges_str,
         new_node_ids=json.dumps(sorted(new_node_ids)),
