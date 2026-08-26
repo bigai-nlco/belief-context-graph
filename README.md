@@ -115,8 +115,6 @@ This successful BrowseComp case (`browsecomp-0836`) shows Kimi K3 using belief i
   <img src="assert/case_study.svg" alt="BrowseComp task, injected graph beliefs, and selected Kimi K3 thinking passages with graph references highlighted in red" width="100%">
 </p>
 
-> **Project Status:** [Project Status](#project-status)
-
 ---
 
 ## Project Status
