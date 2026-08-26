@@ -60,8 +60,9 @@ https://github.com/user-attachments/assets/fa10c247-7f6f-4567-9a1f-648c79b1df44
 <p align="center">
   <strong><a href="#quick-start">Quick Start</a></strong> &nbsp;·&nbsp;
   <strong><a href="#architecture">Architecture</a></strong> &nbsp;·&nbsp;
-  <strong><a href="#an-evidence-of-belief-context-graph-usage">Case Study</a></strong> &nbsp;·&nbsp;
-  <strong><a href="#comparison-with-existing-memory-solutions">Comparison</a></strong> &nbsp;·&nbsp;
+  <strong><a href="#gains-of-bcg-for-agentic-tasks">Case Study</a></strong> &nbsp;·&nbsp;
+  <strong><a href="#project-status">Project Status</a></strong> &nbsp;·&nbsp;
+  <strong><a href="#comparison-with-relevant-solutions">Comparison</a></strong> &nbsp;·&nbsp;
   <strong><a href="#contributing">Contributing</a></strong>
 </p>
 
@@ -113,6 +114,17 @@ This successful BrowseComp case (`browsecomp-0836`) shows Kimi K3 using belief i
 <p align="center">
   <img src="assert/case_study.svg" alt="BrowseComp task, injected graph beliefs, and selected Kimi K3 thinking passages with graph references highlighted in red" width="100%">
 </p>
+
+> **Project Status:** [Project Status](#project-status)
+
+---
+
+## Project Status
+
+BCG currently provides a belief-native memory SDK, unified and hybrid graph-construction backends, an optional HTTP service, a reference Agent integration, reproducible benchmark tooling, and graph visualization support. The next development phase focuses on two directions:
+
+1. **A more principled probabilistic foundation.** Develop probability calculation and propagation methods that are more reasonable and better grounded in Bayesian inference or other mathematically justified uncertainty frameworks. This includes clarifying priors, likelihoods, evidence dependence, contradiction handling, graph-path effects, and calibration while preserving auditability.
+2. **Deep Research.** Extend BCG from belief-aware context management toward a Deep Research workflow that can plan investigations, track source provenance and temporal validity, reconcile conflicting findings, identify missing evidence, and produce auditable research outputs.
 
 ---
 
