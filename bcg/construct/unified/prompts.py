@@ -840,6 +840,85 @@ def build_relation_extraction_prompt(
     return prompt
 
 
+_LAYERED_RELATION_OUTPUT_FORMAT = """\
+## Output (JSON only — no markdown fences, no commentary)
+{
+  "selected_previous_layer": <integer layer number or null>,
+  "relations": [
+    { "from": <int node id>, "to": <int node id>, "type": "depends_on | supplements | contradicts", "note": "<one short sentence>" }
+  ]
+}
+
+Hard output constraints:
+- You may connect current-turn nodes to nodes from ZERO OR ONE previous layer.
+- If any current-to-previous relation is emitted, every such relation MUST use the
+  same previous layer and ``selected_previous_layer`` MUST equal that layer number.
+- If no current-to-previous relation is emitted, set ``selected_previous_layer`` to null.
+- Current-turn to current-turn relations are allowed and do not select a previous layer.
+- Never connect nodes from two different previous layers in the same response.
+- Every endpoint must be an integer node id shown in the candidate graph.
+- At least one endpoint of each relation must be from the current-turn node list.
+- Empty relations are valid: {"selected_previous_layer": null, "relations": []}.
+"""
+
+
+def build_layered_relation_extraction_prompt(
+    *,
+    role: str,
+    content: str,
+    graph_nodes: str = "[]",
+    graph_edges: str = "[]",
+    new_node_ids: str = "[]",
+    candidate_layers: str = "[]",
+    validation_feedback: str | None = None,
+) -> str:
+    """Build one relation prompt over several candidate previous-turn layers.
+
+    The model sees all bounded candidate layers at once, but must select at most
+    one of them for cross-turn relations.  This replaces sequential relation
+    calls over one previous turn at a time for Assistant turns.
+    """
+    parts: list[str] = [
+        "# Task",
+        "Extract typed relations for the current Assistant belief layer.",
+        "\nThe current-turn nodes and several previous-turn candidate layers are "
+        "shown together. Judge all candidates in one pass, select the single most "
+        "semantically relevant previous layer, and connect the current nodes only "
+        "to that layer. It is valid to select no previous layer.\n",
+        f"## Current turn ({role})\n" + CONTENT_PLACEHOLDER + "\n",
+        "## Candidate previous layers\n"
+        "Layer 1 is the nearest non-empty previous Graph turn; larger layer numbers "
+        "are progressively older. Node membership is authoritative.\n"
+        + candidate_layers
+        + "\n",
+        "## Candidate graph\n\n### Candidate nodes\n"
+        + GRAPH_NODES_PLACEHOLDER
+        + "\n\n### Existing relations\n"
+        + GRAPH_EDGES_PLACEHOLDER
+        + "\n",
+        "## Nodes from this turn\n" + NEW_NODE_IDS_PLACEHOLDER + "\n",
+        _RELATION_EDGE_RULES,
+        "## Single-layer selection rule\n"
+        "Previous layers are alternatives, not a combined history window. Compare "
+        "them, then emit cross-turn relations to at most ONE layer. Do not create "
+        "relations merely to use a layer. If no layer has a meaningful semantic "
+        "relation, select null.\n",
+    ]
+    if validation_feedback:
+        parts.append(
+            "## Validation feedback from the previous attempt\n"
+            + validation_feedback
+            + "\nReturn a corrected complete JSON response.\n"
+        )
+    parts.append(_LAYERED_RELATION_OUTPUT_FORMAT)
+    prompt = "\n".join(parts)
+    prompt = prompt.replace(CONTENT_PLACEHOLDER, content or "")
+    prompt = prompt.replace(GRAPH_NODES_PLACEHOLDER, graph_nodes or "[]")
+    prompt = prompt.replace(GRAPH_EDGES_PLACEHOLDER, graph_edges or "[]")
+    prompt = prompt.replace(NEW_NODE_IDS_PLACEHOLDER, new_node_ids or "[]")
+    return prompt
+
+
 # =====================================================================
 # Merge / dedup prompts (unchanged contract)
 # =====================================================================

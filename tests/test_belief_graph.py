@@ -45,7 +45,10 @@ from bcg.construct.unified.extract import (
 from bcg.construct.unified.graph import BeliefGraph
 from bcg.construct.unified.llm import call_model as call_api_model
 from bcg.construct.unified.online import SessionManager as UnifiedSessionManager
-from bcg.construct.unified.prompts import build_node_extraction_prompt
+from bcg.construct.unified.prompts import (
+    build_layered_relation_extraction_prompt,
+    build_node_extraction_prompt,
+)
 from bcg.construct.unified.stream import (
     StreamingBeliefBuilder as UnifiedStreamingBeliefBuilder,
 )
@@ -585,6 +588,199 @@ def test_unified_relation_search_stops_after_four_non_empty_windows(
     assert len(relation_calls) == 4
     assert len(event["edge_attempts"]) == 4
     assert event["edge_window_limit_reached"] is True
+
+
+def test_unified_layered_relation_prompt_requires_one_previous_layer() -> None:
+    prompt = build_layered_relation_extraction_prompt(
+        role="assistant",
+        content="I will use the newest relevant evidence.",
+        graph_nodes='[{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}]',
+        graph_edges="[]",
+        new_node_ids="[4]",
+        candidate_layers=json.dumps(
+            [
+                {"layer": 1, "trajectory_index": 2, "node_ids": [3]},
+                {"layer": 2, "trajectory_index": 1, "node_ids": [2]},
+                {"layer": 3, "trajectory_index": 0, "node_ids": [1]},
+            ]
+        ),
+    )
+
+    assert '"selected_previous_layer"' in prompt
+    assert "ZERO OR ONE previous layer" in prompt
+    assert "Layer 1 is the nearest" in prompt
+    assert "Never connect nodes from two different previous layers" in prompt
+
+
+def test_unified_assistant_relations_judge_three_layers_in_one_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    layered_calls: list[list[dict[str, Any]]] = []
+
+    def fake_extract_nodes(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args
+        content = str(kwargs["content"])
+        return {
+            "nodes": [
+                {
+                    "tmp_id": "n0",
+                    "node_type": "belief",
+                    "belief": content,
+                    "stance": "asserted",
+                    "entities": [],
+                    "supporting_sentence_indices": [0],
+                }
+            ],
+            "raw_output": "{}",
+            "skipped": False,
+        }
+
+    def no_relations(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args, kwargs
+        return {"relations": [], "raw_output": "{}", "skipped": False}
+
+    def fake_layered(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args
+        layers = kwargs["candidate_layers"]
+        layered_calls.append(layers)
+        current_id = min(kwargs["new_node_ids"])
+        nearest_id = layers[0]["node_ids"][0]
+        return {
+            "selected_previous_layer": 1,
+            "relations": [
+                {
+                    "from": current_id,
+                    "to": nearest_id,
+                    "type": "depends_on",
+                    "note": "The current reasoning uses the nearest evidence.",
+                }
+            ],
+            "raw_output": "{}",
+            "skipped": False,
+        }
+
+    monkeypatch.setattr("bcg.construct.unified.stream.extract_nodes", fake_extract_nodes)
+    monkeypatch.setattr("bcg.construct.unified.stream.extract_relations", no_relations)
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_layered_relations", fake_layered
+    )
+    builder = UnifiedStreamingBeliefBuilder(
+        client=object(),
+        model="gpt-5.6-luna",
+        item_id="assistant-layer-bundle",
+        out_dir=tmp_path,
+        options=UnifiedStreamOptions(
+            incremental_merge=False,
+            max_previous_windows=3,
+        ),
+    )
+    builder.ingest_turn("user", "Oldest evidence.")
+    builder.ingest_turn("user", "Middle evidence.")
+    builder.ingest_turn("user", "Nearest evidence.")
+    event = builder.ingest_turn("assistant", "Current reasoning.")
+
+    assert len(layered_calls) == 1
+    assert [layer["layer"] for layer in layered_calls[0]] == [1, 2, 3]
+    assert event["edge_attempts"][0]["validation_passed"] is True
+    assert event["edge_attempts"][0]["selected_previous_layer"] == 1
+    assert event["edge_linked_previous_trajectory_index"] == 2
+    assert event["relations_added"] == 1
+
+
+def test_unified_assistant_layer_bundle_retries_then_keeps_most_used_layer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    layered_calls: list[str | None] = []
+
+    def fake_extract_nodes(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args
+        content = str(kwargs["content"])
+        count = 2 if content == "Middle evidence." else 1
+        return {
+            "nodes": [
+                {
+                    "tmp_id": f"n{index}",
+                    "node_type": "belief",
+                    "belief": f"{content} fact {index}",
+                    "stance": "asserted",
+                    "entities": [],
+                    "supporting_sentence_indices": [0],
+                }
+                for index in range(count)
+            ],
+            "raw_output": "{}",
+            "skipped": False,
+        }
+
+    def no_relations(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args, kwargs
+        return {"relations": [], "raw_output": "{}", "skipped": False}
+
+    def invalid_layered(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args
+        layered_calls.append(kwargs.get("validation_feedback"))
+        layers = kwargs["candidate_layers"]
+        current_id = min(kwargs["new_node_ids"])
+        layer_1_id = layers[0]["node_ids"][0]
+        layer_2_ids = layers[1]["node_ids"]
+        return {
+            "selected_previous_layer": 1,
+            "relations": [
+                {
+                    "from": current_id,
+                    "to": layer_1_id,
+                    "type": "depends_on",
+                    "note": "One edge to the nearest layer.",
+                },
+                *[
+                    {
+                        "from": current_id,
+                        "to": node_id,
+                        "type": "supplements",
+                        "note": "Two edges to the second layer.",
+                    }
+                    for node_id in layer_2_ids
+                ],
+            ],
+            "raw_output": "{}",
+            "skipped": False,
+        }
+
+    monkeypatch.setattr("bcg.construct.unified.stream.extract_nodes", fake_extract_nodes)
+    monkeypatch.setattr("bcg.construct.unified.stream.extract_relations", no_relations)
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_layered_relations", invalid_layered
+    )
+    builder = UnifiedStreamingBeliefBuilder(
+        client=object(),
+        model="gpt-5.6-luna",
+        item_id="assistant-layer-bundle-fallback",
+        out_dir=tmp_path,
+        options=UnifiedStreamOptions(
+            incremental_merge=False,
+            max_previous_windows=3,
+        ),
+    )
+    builder.ingest_turn("user", "Oldest evidence.")
+    builder.ingest_turn("user", "Middle evidence.")
+    builder.ingest_turn("user", "Nearest evidence.")
+    event = builder.ingest_turn("assistant", "Current reasoning.")
+
+    attempt = event["edge_attempts"][0]
+    assert len(layered_calls) == 3
+    assert layered_calls[0] is None
+    assert all(feedback for feedback in layered_calls[1:])
+    assert attempt["validation_passed"] is False
+    assert attempt["fallback_pruned"] is True
+    assert attempt["selected_previous_layer"] == 2
+    assert attempt["selected_previous_trajectory_index"] == 1
+    assert attempt["relations_added"] == 2
+    retained_previous_ids = {
+        relation["to_id"] for relation in builder.graph.relations
+    }
+    assert retained_previous_ids == set(attempt["candidate_layers"][1]["node_ids"])
 
 
 def test_unified_node_extraction_prompt_omits_edges() -> None:
