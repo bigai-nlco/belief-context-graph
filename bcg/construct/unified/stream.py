@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from .._shared.roles import normalize_role
-from .._shared.tool_queries import extract_tool_calls
+from .._shared.tool_queries import extract_tool_calls, strip_valid_tool_calls
 from .._shared.tool_results import extract_tool_results
 from .._shared.writers import ArtifactWriter, EventRecorder
 from ..hybrid.named_entities import normalize_entity_config
@@ -63,6 +63,7 @@ from .extract import (
     extract_rule_tool_result_nodes,
     format_graph_edges,
     format_graph_nodes,
+    format_relation_nodes,
 )
 from .graph import BeliefGraph
 from .llm import USAGE
@@ -1551,11 +1552,11 @@ class StreamingBeliefBuilder:
         """
         previous_ids = set().union(*(ids for _idx, ids in candidate_layers))
         edge_window_ids = surviving_new_ids | previous_ids
-        graph_nodes_post = format_graph_nodes(
+        graph_nodes_post = format_relation_nodes(
             [node for node in active_nodes if node.get("id") in edge_window_ids],
             char_budget=context_chars,
         )
-        # ``format_graph_nodes`` drops the oldest nodes when over budget. Keep
+        # ``format_relation_nodes`` drops the oldest nodes when over budget. Keep
         # the layer manifest and edge window exactly aligned with what the model
         # can actually see.
         displayed_ids = {
@@ -1635,7 +1636,9 @@ class StreamingBeliefBuilder:
                 self.client,
                 self.model,
                 role=role,
-                content=content,
+                # Tool calls already have deterministic belief nodes. Keep only
+                # Thinking/plain reasoning as semantic evidence for relations.
+                content=strip_valid_tool_calls(content),
                 graph_nodes_str=graph_nodes_post,
                 graph_edges_str=graph_edges_post,
                 new_node_ids=displayed_new_ids,

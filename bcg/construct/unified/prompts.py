@@ -862,6 +862,25 @@ Hard output constraints:
 """
 
 
+_LAYERED_RELATION_EDGE_RULES = """\
+## Relation rules
+Judge meaningful semantic links using node ``content`` alone:
+- ``depends_on``: A requires B as a premise, input, evidence, constraint, or context.
+- ``supplements``: A adds useful detail or evidence to B without changing it.
+- ``contradicts``: A conflicts with, corrects, negates, or replaces B.
+
+Direction is literal: ``A -> B`` means A depends on, supplements, or contradicts B.
+Read each complete content field; a request to verify a claim does not assert it.
+Shared entities alone do not justify a relation.
+
+Constraints:
+- Every relation must contain at least one current-turn node.
+- Current-to-current relations are allowed; previous-to-previous relations are not.
+- Use only shown integer ids; no self-links or invented ids.
+- Prefer 0-4 high-value relations per current node. An empty result is valid.
+"""
+
+
 def build_layered_relation_extraction_prompt(
     *,
     role: str,
@@ -880,29 +899,23 @@ def build_layered_relation_extraction_prompt(
     """
     parts: list[str] = [
         "# Task",
-        "Extract typed relations for the current Assistant belief layer.",
-        "\nThe current-turn nodes and several previous-turn candidate layers are "
-        "shown together. Judge all candidates in one pass, select the single most "
-        "semantically relevant previous layer, and connect the current nodes only "
-        "to that layer. It is valid to select no previous layer.\n",
-        f"## Current turn ({role})\n" + CONTENT_PLACEHOLDER + "\n",
+        "Link the current Assistant belief nodes to the most relevant prior layer.",
+        f"## Current Assistant reasoning ({role})\n" + CONTENT_PLACEHOLDER + "\n",
         "## Candidate previous layers\n"
-        "Layer 1 is the nearest non-empty previous Graph turn; larger layer numbers "
-        "are progressively older. Node membership is authoritative.\n"
+        "Layer 1 is the nearest non-empty Graph turn; larger numbers are older. "
+        "Layer membership is authoritative.\n"
         + candidate_layers
         + "\n",
-        "## Candidate graph\n\n### Candidate nodes\n"
+        "## Candidate nodes\n"
         + GRAPH_NODES_PLACEHOLDER
-        + "\n\n### Existing relations\n"
+        + "\n\n## Existing relations\n"
         + GRAPH_EDGES_PLACEHOLDER
         + "\n",
-        "## Nodes from this turn\n" + NEW_NODE_IDS_PLACEHOLDER + "\n",
-        _RELATION_EDGE_RULES,
-        "## Single-layer selection rule\n"
-        "Previous layers are alternatives, not a combined history window. Compare "
-        "them, then emit cross-turn relations to at most ONE layer. Do not create "
-        "relations merely to use a layer. If no layer has a meaningful semantic "
-        "relation, select null.\n",
+        "## Current-turn node ids\n" + NEW_NODE_IDS_PLACEHOLDER + "\n",
+        _LAYERED_RELATION_EDGE_RULES,
+        "## Layer selection\n"
+        "Compare all candidates in one pass. Cross-turn relations may use ZERO OR "
+        "ONE previous layer, never a mixture. Select null when none is meaningful.\n",
     ]
     if validation_feedback:
         parts.append(

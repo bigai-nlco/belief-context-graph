@@ -41,6 +41,7 @@ from bcg.construct.unified.extract import (
     extract_nodes,
     extract_rule_tool_result_nodes,
     format_graph_nodes,
+    format_relation_nodes,
 )
 from bcg.construct.unified.graph import BeliefGraph
 from bcg.construct.unified.llm import call_model as call_api_model
@@ -610,13 +611,40 @@ def test_unified_layered_relation_prompt_requires_one_previous_layer() -> None:
     assert "ZERO OR ONE previous layer" in prompt
     assert "Layer 1 is the nearest" in prompt
     assert "Never connect nodes from two different previous layers" in prompt
+    assert "Shared entities alone do not justify a relation" in prompt
+    assert "The user can be charged a late fee" not in prompt
+
+
+def test_unified_relation_nodes_include_only_id_and_content() -> None:
+    rendered = format_relation_nodes(
+        [
+            {
+                "id": 7,
+                "node_type": "belief",
+                "belief": "A compact semantic fact.",
+                "role": "assistant",
+                "stance": "speculated",
+                "confidence": 0.6,
+                "entities": ["fact"],
+                "source": {"turn_index": 3},
+            }
+        ],
+        char_budget=None,
+    )
+
+    assert json.loads(rendered) == [
+        {"id": 7, "content": "A compact semantic fact."}
+    ]
+    assert "stance" not in rendered
+    assert "confidence" not in rendered
+    assert "entities" not in rendered
 
 
 def test_unified_assistant_relations_judge_three_layers_in_one_call(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    layered_calls: list[list[dict[str, Any]]] = []
+    layered_calls: list[dict[str, Any]] = []
 
     def fake_extract_nodes(*args: Any, **kwargs: Any) -> dict[str, Any]:
         del args
@@ -643,7 +671,7 @@ def test_unified_assistant_relations_judge_three_layers_in_one_call(
     def fake_layered(*args: Any, **kwargs: Any) -> dict[str, Any]:
         del args
         layers = kwargs["candidate_layers"]
-        layered_calls.append(layers)
+        layered_calls.append(kwargs)
         current_id = min(kwargs["new_node_ids"])
         nearest_id = layers[0]["node_ids"][0]
         return {
@@ -678,10 +706,25 @@ def test_unified_assistant_relations_judge_three_layers_in_one_call(
     builder.ingest_turn("user", "Oldest evidence.")
     builder.ingest_turn("user", "Middle evidence.")
     builder.ingest_turn("user", "Nearest evidence.")
-    event = builder.ingest_turn("assistant", "Current reasoning.")
+    event = builder.ingest_turn(
+        "assistant",
+        '<thinking>Current reasoning.</thinking>\n'
+        '<tool_call>{"name":"web_search","arguments":{"query":"secret query"}}</tool_call>\n'
+        "Visible reasoning.",
+    )
 
     assert len(layered_calls) == 1
-    assert [layer["layer"] for layer in layered_calls[0]] == [1, 2, 3]
+    assert [layer["layer"] for layer in layered_calls[0]["candidate_layers"]] == [
+        1,
+        2,
+        3,
+    ]
+    assert "<thinking>Current reasoning.</thinking>" in layered_calls[0]["content"]
+    assert "Visible reasoning." in layered_calls[0]["content"]
+    assert "<tool_call>" not in layered_calls[0]["content"]
+    assert "secret query" not in layered_calls[0]["content"]
+    assert '"stance"' not in layered_calls[0]["graph_nodes_str"]
+    assert '"entities"' not in layered_calls[0]["graph_nodes_str"]
     assert event["edge_attempts"][0]["validation_passed"] is True
     assert event["edge_attempts"][0]["selected_previous_layer"] == 1
     assert event["edge_linked_previous_trajectory_index"] == 2
