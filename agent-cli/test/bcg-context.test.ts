@@ -70,6 +70,16 @@ function assistantToolCalls(timestamp: number): AssistantMessage {
 	};
 }
 
+function assistantThinkingToolCalls(timestamp: number): AssistantMessage {
+	return {
+		...assistantToolCalls(timestamp),
+		content: [
+			{ type: "thinking", thinking: "Compare both searches before deciding." },
+			...assistantToolCalls(timestamp).content,
+		],
+	};
+}
+
 function tool(text: string, timestamp: number): ToolResultMessage {
 	return {
 		role: "toolResult",
@@ -79,6 +89,15 @@ function tool(text: string, timestamp: number): ToolResultMessage {
 		isError: false,
 		timestamp,
 	};
+}
+
+function toolForCall(
+	text: string,
+	timestamp: number,
+	toolCallId: string,
+	toolName: string,
+): ToolResultMessage {
+	return { ...tool(text, timestamp), toolCallId, toolName };
 }
 
 function createFetch(requests: Array<Record<string, unknown>[]>): typeof globalThis.fetch {
@@ -128,7 +147,7 @@ describe("BCG context management", () => {
 		expect(requests[1].map((turn) => turn.role)).toEqual(["assistant", "tool"]);
 		expect(requests[1].map((turn) => turn.content)).toEqual([
 			"first answer",
-			"[Tool result: search]\nfirst evidence",
+			'<tool_result>\n{"tool_call_id": "call-3", "name": "search", "is_error": false, "content": "first evidence"}\n</tool_result>',
 		]);
 
 		const effectiveSystem = manager.augmentSystemPrompt("base system");
@@ -182,9 +201,61 @@ describe("BCG context management", () => {
 
 		expect(requests[1]).toHaveLength(1);
 		expect(requests[1][0].content).toBe(
-			'<tool_call>\n{"name": "web_search", "arguments": {"query": "first query"}}\n</tool_call>\n\n' +
-				'<tool_call>\n{"name": "read", "arguments": {"path": "notes.txt", "offset": 10}}\n</tool_call>',
+			'<tool_call>\n{"id": "call-one", "name": "web_search", "arguments": {"query": "first query"}}\n</tool_call>\n\n' +
+				'<tool_call>\n{"id": "call-two", "name": "read", "arguments": {"path": "notes.txt", "offset": 10}}\n</tool_call>',
 		);
+	});
+
+	it("keeps thinking and tool calls in one Assistant graph turn", async () => {
+		const requests: Array<Record<string, unknown>[]> = [];
+		const initial = user("initial", 1);
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 0,
+			maxTurns: 100,
+			timeoutMs: 1000,
+			includeRelations: true,
+			getSystemPrompt: () => "system",
+			fetch: createFetch(requests),
+		});
+
+		await manager.transform([initial]);
+		await manager.transform([initial, assistantThinkingToolCalls(2)]);
+
+		expect(requests[1]).toHaveLength(1);
+		expect(requests[1][0].role).toBe("assistant");
+		expect(requests[1][0].content).toContain(
+			"<thinking>\nCompare both searches before deciding.\n</thinking>",
+		);
+		expect(requests[1][0].content).toContain("<tool_call>");
+	});
+
+	it("groups parallel tool results into one ID-bearing graph turn", async () => {
+		const requests: Array<Record<string, unknown>[]> = [];
+		const initial = user("initial", 1);
+		const assistantMessage = assistantToolCalls(2);
+		const firstResult = toolForCall("first evidence", 3, "call-one", "web_search");
+		const secondResult = toolForCall("second evidence", 4, "call-two", "read");
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 0,
+			maxTurns: 100,
+			timeoutMs: 1000,
+			includeRelations: true,
+			getSystemPrompt: () => "system",
+			fetch: createFetch(requests),
+		});
+
+		await manager.transform([initial]);
+		await manager.transform([initial, assistantMessage, firstResult, secondResult]);
+
+		expect(requests[1].map((turn) => turn.role)).toEqual(["assistant", "tool"]);
+		const grouped = String(requests[1][1].content);
+		expect(grouped.match(/<tool_result>/g)).toHaveLength(2);
+		expect(grouped).toContain('"tool_call_id": "call-one"');
+		expect(grouped).toContain('"tool_call_id": "call-two"');
 	});
 
 	it("preserves a later user input until its assistant turn exists", async () => {
@@ -362,12 +433,55 @@ describe("BCG context management", () => {
 		]);
 		expect(requests[1]?.body).toEqual([
 			expect.objectContaining({ role: "assistant", content: "searching" }),
-			expect.objectContaining({ role: "tool", content: "[Tool result: search]\nevidence" }),
+			expect.objectContaining({
+				role: "tool",
+				content:
+					'<tool_result>\n{"tool_call_id": "call-3", "name": "search", "is_error": false, "content": "evidence"}\n</tool_result>',
+			}),
 			expect.objectContaining({ role: "assistant", content: "FINAL ANSWER: result" }),
 		]);
 		expect(usage).toEqual({
 			llm_totals: { input_tokens: 10, output_tokens: 1, total_tokens: 11 },
 		});
+	});
+
+	it("uses the finalization timeout and does not label final supplement failure as runtime fallback", async () => {
+		const warnings: string[] = [];
+		const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+		let turns = 0;
+		const initial = user("initial", 1);
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 2,
+			maxTurns: 300,
+			timeoutMs: 1000,
+			finalizationTimeoutMs: 9000,
+			includeRelations: true,
+			getSystemPrompt: () => "system",
+			onWarning: (warning) => warnings.push(warning),
+			fetch: (async (input) => {
+				const path = new URL(String(input)).pathname;
+				if (path === "/turns" && turns++ > 0) throw new Error("supplement timeout");
+				if (path === "/release") {
+					return new Response(JSON.stringify({ problem_id: "problem", released: true }), { status: 200 });
+				}
+				return new Response(
+					JSON.stringify({ latest: { problem: { beliefs: [], relations: [] } } }),
+					{ status: 200 },
+				);
+			}) as typeof globalThis.fetch,
+		});
+
+		await manager.transform([initial]);
+		await manager.release([initial, assistant("FINAL ANSWER: result", 2)]);
+
+		expect(warnings).toEqual([
+			expect.stringContaining("[BCG finalization] failed to ingest final unsent messages"),
+		]);
+		expect(warnings.join("\n")).not.toContain("using the complete raw context");
+		expect(timeoutSpy).toHaveBeenCalledWith(9000);
+		timeoutSpy.mockRestore();
 	});
 
 	it("formats relations as Markdown", () => {
@@ -581,6 +695,7 @@ describe("BCG context management", () => {
 					recentTurns: -1,
 					maxTurns: 100,
 					timeoutMs: 1234,
+					finalizationTimeoutMs: 5678,
 					includeRelations: false,
 					graphView: "compact",
 				},
@@ -594,6 +709,7 @@ describe("BCG context management", () => {
 				recentTurns: -1,
 				maxTurns: 100,
 				timeoutMs: 1234,
+				finalizationTimeoutMs: 5678,
 				includeRelations: false,
 				graphView: "compact",
 			},

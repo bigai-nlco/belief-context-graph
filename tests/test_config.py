@@ -31,7 +31,7 @@ def test_defaults_load_and_validate() -> None:
     assert settings.server.port == 8848
     assert settings.model_key == "gpt-5.5"
     assert settings.runner.incremental_merge_threshold == 0.86
-    assert settings.runner.verify_merge is True
+    assert settings.runner.verify_merge is False
     assert settings.runner.context_chars == 100000
     assert settings.pipeline.runtime.context_chars == 12000
     assert sources["runner.incremental_merge_threshold"] == "packaged defaults"

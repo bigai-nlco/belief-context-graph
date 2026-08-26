@@ -109,6 +109,9 @@ def run_input(
         f"  reasoning_effort={effective_reasoning}"
         + (f"  max_tokens={max_tokens}" if max_tokens else "")
     )
+    print(
+        f"[info] stance/entities model={model}  metadata_source=graph_model"
+    )
 
     emb_cfg = load_embedding_config(config_path, embedding_key=embedding_key)
     embedder = None

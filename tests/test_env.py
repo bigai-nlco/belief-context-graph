@@ -231,29 +231,27 @@ def test_unified_options_share_the_bounded_historical_window() -> None:
     assert options.max_previous_windows == 4
 
 
-def test_unified_options_switch_token_efficient_mode_from_config() -> None:
+def test_unified_options_load_tool_result_limits_from_config() -> None:
     from bcg.construct.unified.stream import StreamOptions
 
     options = StreamOptions()
     options.apply_belief_graph_config(
         {
-            "runtime": {"construction_mode": "token_efficient"},
-            "token_efficient": {
+            "tool_results": {
                 "max_search_results": 3,
                 "max_snippet_chars": 160,
-                "semantic_tool_results": False,
+                "semantic_extraction": False,
                 "max_facts": 2,
                 "max_semantic_calls": 5,
             },
         }
     )
 
-    assert options.construction_mode == "token_efficient"
-    assert options.token_efficient_max_search_results == 3
-    assert options.token_efficient_max_snippet_chars == 160
-    assert options.token_efficient_semantic_tool_results is False
-    assert options.token_efficient_max_facts == 2
-    assert options.token_efficient_max_semantic_calls == 5
+    assert options.tool_result_max_search_results == 3
+    assert options.tool_result_max_snippet_chars == 160
+    assert options.tool_result_semantic_extraction is False
+    assert options.tool_result_max_facts == 2
+    assert options.tool_result_max_semantic_calls == 5
 
 
 def test_example_model_config_contains_no_inline_api_keys() -> None:

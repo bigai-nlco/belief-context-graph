@@ -58,6 +58,7 @@ export interface BcgContextManagerOptions {
 	recentTurns: number;
 	maxTurns: number;
 	timeoutMs: number;
+	finalizationTimeoutMs?: number;
 	includeRelations: boolean;
 	graphView?: BcgGraphView;
 	getSystemPrompt: () => string;
@@ -78,7 +79,7 @@ export interface BcgGraphContextTrace {
 }
 
 interface SerializedMessage {
-	message: AgentMessage;
+	messages: AgentMessage[];
 	payload: BcgTurnPayload | undefined;
 }
 
@@ -126,14 +127,20 @@ export function contextContentToText(content: unknown): string {
 					parts.push(block.text);
 				}
 				break;
+			case "thinking":
+				if (typeof block.thinking === "string" && block.thinking.trim()) {
+					parts.push(`<thinking>\n${block.thinking.trim()}\n</thinking>`);
+				}
+				break;
 			case "image":
 				parts.push("[Image omitted from BCG text context]");
 				break;
 			case "toolCall": {
 				const name = typeof block.name === "string" ? block.name : "unknown";
 				const args = "arguments" in block ? block.arguments : {};
+				const id = typeof block.id === "string" ? block.id : undefined;
 				parts.push(
-					`<tool_call>\n${compactJson({ name, arguments: args })}\n</tool_call>`,
+					`<tool_call>\n${compactJson({ id, name, arguments: args })}\n</tool_call>`,
 				);
 				break;
 			}
@@ -142,14 +149,32 @@ export function contextContentToText(content: unknown): string {
 	return parts.join("\n\n").trim();
 }
 
+export function contextToolResultsToText(messages: AgentMessage[]): string {
+	return messages
+		.filter((message) => message.role === "toolResult")
+		.map((message) => {
+			const content = contextContentToText(message.content);
+			return (
+				"<tool_result>\n" +
+				compactJson({
+					tool_call_id: message.toolCallId,
+					name: message.toolName,
+					is_error: message.isError,
+					content,
+				}) +
+				"\n</tool_result>"
+			);
+		})
+		.join("\n\n");
+}
+
 export function contextMessageText(message: AgentMessage): string {
 	switch (message.role) {
 		case "user":
 		case "assistant":
 			return contextContentToText(message.content);
 		case "toolResult": {
-			const result = contextContentToText(message.content);
-			return result ? `[Tool result: ${message.toolName}]\n${result}` : `[Tool result: ${message.toolName}]`;
+			return contextToolResultsToText([message]);
 		}
 		case "bashExecution":
 			return bashExecutionToText(message);
@@ -528,6 +553,7 @@ export class BcgContextManager {
 	private readonly recentTurns: number;
 	private readonly maxTurns: number;
 	private readonly timeoutMs: number;
+	private readonly finalizationTimeoutMs: number;
 	private readonly includeRelations: boolean;
 	private readonly graphView: BcgGraphView;
 	private readonly getSystemPrompt: () => string;
@@ -551,6 +577,10 @@ export class BcgContextManager {
 		this.recentTurns = Math.max(-1, Math.trunc(options.recentTurns));
 		this.maxTurns = Math.max(1, Math.trunc(options.maxTurns));
 		this.timeoutMs = Math.max(1, Math.trunc(options.timeoutMs));
+		this.finalizationTimeoutMs = Math.max(
+			1,
+			Math.trunc(options.finalizationTimeoutMs ?? 900000),
+		);
 		this.includeRelations = options.includeRelations;
 		this.graphView = options.graphView ?? "full";
 		this.getSystemPrompt = options.getSystemPrompt;
@@ -588,16 +618,15 @@ export class BcgContextManager {
 				return true;
 			});
 			const { evicted, retained } = partitionContextTurns(splitBcgTurns(rest), this.recentTurns);
-			const serialized = evicted.flatMap((turn) => turn.map((message) => this.serialize(message)));
-			const unsent = serialized.filter((message) => !this.sentMessages.has(message.message));
-			const payloads = unsent.flatMap((message) => (message.payload ? [message.payload] : []));
+			const unsent = this.serializePending(evicted.flat());
+			const payloads = unsent.flatMap((group) => (group.payload ? [group.payload] : []));
 
 			if (payloads.length > 0) {
 				const snapshot = await this.postTurns(payloads, signal);
 				this.updateSnapshot(snapshot);
 			}
-			for (const message of unsent) {
-				this.sentMessages.add(message.message);
+			for (const group of unsent) {
+				for (const message of group.messages) this.sentMessages.add(message);
 			}
 
 			this.warned = false;
@@ -641,41 +670,40 @@ export class BcgContextManager {
 				const initialUser = this.resolveInitialUser(messages);
 				const initialKey = initialUser ? contextMessageKey(initialUser) : undefined;
 				let removedInitial = false;
-				const unsent = messages
+				const pending = messages
 					.filter((message) => {
 						if (!removedInitial && initialKey !== undefined && contextMessageKey(message) === initialKey) {
 							removedInitial = true;
 							return false;
 						}
 						return true;
-					})
-					.map((message) => this.serialize(message))
-					.filter((message) => !this.sentMessages.has(message.message));
-				const payloads = unsent.flatMap((message) => (message.payload ? [message.payload] : []));
+					});
+				const unsent = this.serializePending(pending);
+				const payloads = unsent.flatMap((group) => (group.payload ? [group.payload] : []));
 				if (payloads.length > 0) {
-					const snapshot = await this.postTurns(payloads);
+					const snapshot = await this.postTurns(payloads, undefined, this.finalizationTimeoutMs);
 					this.updateSnapshot(snapshot, false);
 				}
-				for (const message of unsent) {
-					this.sentMessages.add(message.message);
+				for (const group of unsent) {
+					for (const message of group.messages) this.sentMessages.add(message);
 				}
 			} catch (error) {
 				const detail = error instanceof Error ? error.message : String(error);
-				this.onWarning(`[BCG context] failed to ingest final unsent messages: ${detail}`);
+				this.onWarning(`[BCG finalization] failed to ingest final unsent messages: ${detail}`);
 			}
 		}
 		try {
-			const snapshot = await this.client.finalize();
+			const snapshot = await this.client.finalize(this.finalizationTimeoutMs);
 			this.updateSnapshot(snapshot, false);
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
-			this.onWarning(`[BCG context] failed to finalize Graph session: ${detail}`);
+			this.onWarning(`[BCG finalization] failed to finalize Graph session: ${detail}`);
 		}
 		try {
-			await this.client.release();
+			await this.client.release(this.finalizationTimeoutMs);
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
-			this.onWarning(`[BCG context] failed to release Graph session: ${detail}`);
+			this.onWarning(`[BCG finalization] failed to release Graph session: ${detail}`);
 		}
 		return tokenUsage;
 	}
@@ -700,9 +728,31 @@ export class BcgContextManager {
 		const role = graphRole(message);
 		const content = contextMessageText(message);
 		return {
-			message,
+			messages: [message],
 			payload: role && content ? this.turnPayload(role, content) : undefined,
 		};
+	}
+
+	private serializePending(messages: AgentMessage[]): SerializedMessage[] {
+		const pending = messages.filter((message) => !this.sentMessages.has(message));
+		const serialized: SerializedMessage[] = [];
+		for (let index = 0; index < pending.length; index += 1) {
+			const message = pending[index];
+			if (message.role !== "toolResult") {
+				serialized.push(this.serialize(message));
+				continue;
+			}
+			const group: AgentMessage[] = [message];
+			while (index + 1 < pending.length && pending[index + 1].role === "toolResult") {
+				group.push(pending[index + 1]);
+				index += 1;
+			}
+			serialized.push({
+				messages: group,
+				payload: this.turnPayload("tool", contextToolResultsToText(group)),
+			});
+		}
+		return serialized;
 	}
 
 	private turnPayload(role: BcgTurnPayload["role"], content: string): BcgTurnPayload {
@@ -715,11 +765,15 @@ export class BcgContextManager {
 		};
 	}
 
-	private async postTurns(payloads: BcgTurnPayload[], signal?: AbortSignal): Promise<BcgSnapshot> {
+	private async postTurns(
+		payloads: BcgTurnPayload[],
+		signal?: AbortSignal,
+		timeoutMs = this.timeoutMs,
+	): Promise<BcgSnapshot> {
 		if (this.submittedTurns + payloads.length > this.maxTurns) {
 			throw new BcgTurnLimitError(this.submittedTurns, this.maxTurns);
 		}
-		const snapshot = await this.client.postTurns(payloads, signal);
+		const snapshot = await this.client.postTurns(payloads, signal, timeoutMs);
 		this.submittedTurns += payloads.length;
 		return snapshot;
 	}

@@ -20,20 +20,18 @@ server:
 models: {}
 
 # Graph construction pipeline settings (the former model_config.json
-# "belief_graph" section). The hybrid backend consumes the full section;
-# unified reads only relation-confidence propagation.
+# "belief_graph" section). Both backends share stance, entity, confidence,
+# Tool Result, and edge-window settings; hybrid additionally consumes runtime,
+# merge, extractor, chunking, and edge-model routing fields.
 pipeline:
   runtime:
     evidence_mode: chunk
     context_chars: 12000
     min_content_len: 0
-    # llm preserves the canonical extraction/linking path. token_efficient is
-    # an opt-in deterministic path for tool messages and provenance edges.
-    construction_mode: llm
-  token_efficient:
+  tool_results:
     max_search_results: 10
     max_snippet_chars: 240
-    semantic_tool_results: true
+    semantic_extraction: true
     max_facts: 3
     max_semantic_calls: 12
   incremental_merge:
@@ -66,7 +64,7 @@ runner:
   evidence_mode: sentence
   incremental_merge: true
   incremental_merge_threshold: 0.86
-  verify_merge: true
+  verify_merge: false
   context_chars: 100000
   io_context_chars: 6000
   min_content_len: 0

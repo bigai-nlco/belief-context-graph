@@ -60,6 +60,7 @@ class RunConfig:
     timeout: float = 900.0
     graph_url: str = "http://127.0.0.1:8848"
     graph_timeout_ms: int = 300_000
+    graph_finalization_timeout_ms: int = 900_000
     graph_max_turns: int = 160
     recent_turns: int = 2
     graph_view: str = "full"
@@ -100,6 +101,7 @@ def run_benchmarks(
         "timeout_seconds": config.timeout,
         "graph_url": config.graph_url,
         "graph_timeout_ms": config.graph_timeout_ms,
+        "graph_finalization_timeout_ms": config.graph_finalization_timeout_ms,
         "graph_max_turns": config.graph_max_turns,
         "recent_turns": config.recent_turns,
         "graph_view": config.graph_view,
@@ -328,6 +330,7 @@ def _write_agent_configuration(
                 "recentTurns": config.recent_turns,
                 "maxTurns": config.graph_max_turns,
                 "timeoutMs": config.graph_timeout_ms,
+                "finalizationTimeoutMs": config.graph_finalization_timeout_ms,
                 "includeRelations": True,
                 "graphView": config.graph_view,
             },
@@ -481,7 +484,11 @@ def _run_one(
         trajectory_path.write_text(stdout, encoding="utf-8")
 
     parsed = parse_agent_events(stdout)
-    graph_fallback = mode == "bcg" and "[BCG context]" in stderr
+    graph_fallback = (
+        mode == "bcg"
+        and "using the complete raw context for this request." in stderr
+    )
+    graph_finalization_warning = mode == "bcg" and "[BCG finalization]" in stderr
     summary_fallback = mode == "summary" and "[Summary context]" in stderr
     status = "completed"
     error: str | None = None
@@ -579,6 +586,7 @@ def _run_one(
         "search_calls_attempted": search_calls_attempted,
         "search_calls_blocked": search_calls_blocked,
         "graph_fallback": graph_fallback,
+        "graph_finalization_warning": graph_finalization_warning,
         "summary_fallback": summary_fallback,
         "agent_exit_code": return_code,
         "agent_stop_reason": parsed["stop_reason"],
@@ -848,6 +856,9 @@ def summarize_results(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
             "graph_fallbacks": sum(
                 bool(value.get("graph_fallback")) for value in values
             ),
+            "graph_finalization_warnings": sum(
+                bool(value.get("graph_finalization_warning")) for value in values
+            ),
             "summary_fallbacks": sum(
                 bool(value.get("summary_fallback")) for value in values
             ),
@@ -1087,6 +1098,7 @@ def _unexpected_failure(
         "wall_time_seconds": 0.0,
         "summary_wall_time_seconds": 0.0,
         "graph_fallback": False,
+        "graph_finalization_warning": False,
         "summary_fallback": False,
         "tool_calls": {},
         "search_calls": 0,

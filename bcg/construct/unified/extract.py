@@ -14,16 +14,23 @@ Valid relation types: depends_on, supplements, contradicts.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from .._shared.tool_queries import (
     extract_pure_tool_calls,
-    extract_query_tool_calls,
+    extract_tool_calls,
     rule_tool_call_belief,
+    strip_valid_tool_calls,
 )
-from .._shared.tool_results import compact_tool_result, parse_tool_result
+from .._shared.tool_results import (
+    compact_tool_result,
+    extract_tool_results,
+    parse_tool_result,
+)
 from . import llm
 from .prompts import (
+    build_assistant_tool_result_extraction_prompt,
     build_node_extraction_prompt,
     build_relation_extraction_prompt,
     build_update_prompt,
@@ -45,20 +52,25 @@ def _clean_str(v: Any) -> str | None:
     return None
 
 
-def _clean_entities(v: Any) -> list[str]:
-    if not isinstance(v, list):
+def _clean_stance(value: Any) -> str:
+    stance = str(value or "").strip().lower()
+    return stance if stance in VALID_STANCES else "asserted"
+
+
+def _clean_entities(value: Any) -> list[str]:
+    if not isinstance(value, list):
         return []
-    out: list[str] = []
-    seen = set()
-    for x in v:
-        if not isinstance(x, str):
+    entities: list[str] = []
+    seen: set[str] = set()
+    for raw in value:
+        if not isinstance(raw, str):
             continue
-        s = x.strip()
-        if not s or s in seen:
+        entity = raw.strip()
+        if not entity or entity in seen:
             continue
-        seen.add(s)
-        out.append(s)
-    return out
+        seen.add(entity)
+        entities.append(entity)
+    return entities
 
 
 def _clean_node(
@@ -82,10 +94,6 @@ def _clean_node(
         else:
             return None
 
-    stance = (raw.get("stance") or "").strip().lower()
-    if stance not in VALID_STANCES:
-        stance = "asserted"
-
     tmp = raw.get("tmp_id")
     if not isinstance(tmp, str) or not tmp.strip():
         tmp = f"n{ordinal}"
@@ -96,7 +104,7 @@ def _clean_node(
         "tmp_id": tmp,
         "node_type": node_type,
         primary_text_key: text.strip(),
-        "stance": stance,
+        "stance": _clean_stance(raw.get("stance")),
         "entities": _clean_entities(raw.get("entities")),
     }
     query = _clean_str(raw.get("query"))
@@ -129,7 +137,7 @@ def _clean_node(
     return out
 
 
-def _attach_and_complete_query_nodes(
+def _attach_and_complete_tool_call_nodes(
     beliefs: list[dict[str, Any]],
     *,
     role: str,
@@ -139,7 +147,7 @@ def _attach_and_complete_query_nodes(
     seen_tmp: set[str],
     ordinal: int,
 ) -> int:
-    """Validate query metadata and guarantee one node per query-bearing call.
+    """Guarantee one code-owned node per tool call in a mixed Assistant turn.
 
     The model decides the semantic wording. The source tool-call JSON remains
     authoritative for ``tool_name`` and ``query``; unmatched model metadata is
@@ -152,7 +160,7 @@ def _attach_and_complete_query_nodes(
             node.pop("tool_name", None)
         return ordinal
 
-    calls = extract_query_tool_calls(content)
+    calls = extract_tool_calls(content)
     unmatched = list(enumerate(calls))
 
     for node in beliefs:
@@ -167,15 +175,23 @@ def _attach_and_complete_query_nodes(
             node.pop("query", None)
             node.pop("tool_name", None)
             continue
-        _, call = unmatched.pop(match_position)
+        call_index, call = unmatched.pop(match_position)
         # Tool use is represented as an ordinary belief with code-owned
         # natural-language text. ``query`` remains metadata; it is never a
         # separate graph node type.
         node["belief"] = rule_tool_call_belief(call)
         node["tool_name"] = call.name
-        node["query"] = call.query
+        node["tool_arguments"] = dict(call.arguments)
+        node["tool_call_index"] = call_index
+        node["extraction_method"] = "rule_tool_call"
+        if call.tool_call_id is not None:
+            node["tool_call_id"] = call.tool_call_id
+        if call.query is not None:
+            node["query"] = call.query
+        else:
+            node.pop("query", None)
 
-    for _, call in unmatched:
+    for call_index, call in unmatched:
         while f"n{ordinal}" in seen_tmp:
             ordinal += 1
         node: dict[str, Any] = {
@@ -185,15 +201,22 @@ def _attach_and_complete_query_nodes(
             "stance": "asserted",
             "entities": [call.name],
             "tool_name": call.name,
-            "query": call.query,
+            "tool_arguments": dict(call.arguments),
+            "tool_call_index": call_index,
+            "extraction_method": "rule_tool_call",
         }
+        if call.tool_call_id is not None:
+            node["tool_call_id"] = call.tool_call_id
+        if call.query is not None:
+            node["query"] = call.query
         if mode == "excerpt":
             node["supporting_excerpts"] = [call.excerpt]
         else:
             supporting = [
                 index
                 for index, sentence in enumerate(sentences)
-                if call.query in sentence or sentence.strip() in call.excerpt
+                if (call.query is not None and call.query in sentence)
+                or (sentence.strip() and sentence.strip() in call.excerpt)
             ]
             node["supporting_sentence_indices"] = supporting or None
         beliefs.append(node)
@@ -230,6 +253,8 @@ def _rule_extract_tool_call_nodes(
             "tool_call_index": index,
             "extraction_method": "rule_tool_call",
         }
+        if call.tool_call_id is not None:
+            node["tool_call_id"] = call.tool_call_id
         if call.query is not None:
             node["query"] = call.query
         if mode == "excerpt":
@@ -269,46 +294,60 @@ def extract_rule_tool_result_nodes(
 ) -> dict[str, Any] | None:
     """Create one bounded, provenance-rich node without calling a model.
 
-    This is intentionally opt-in at the streaming-policy layer. The canonical
-    LLM extraction path remains unchanged unless ``construction_mode`` is set
-    to ``token_efficient``.
+    Canonical ID-bearing result groups always use this path so parallel results
+    retain exact call provenance. Legacy result strings remain controlled by
+    the configured streaming construction policy.
     """
 
     if role.strip().lower() not in {"tool", "function"}:
         return None
-    parsed = parse_tool_result(content)
-    if parsed is None:
+    parsed_results = extract_tool_results(content)
+    grouped_wire = bool(parsed_results)
+    if not parsed_results:
+        parsed = parse_tool_result(content)
+        parsed_results = [parsed] if parsed is not None else []
+    if not parsed_results:
         return None
-    belief, result_items, entities = compact_tool_result(
-        parsed,
-        max_results=max_results,
-        max_snippet_chars=max_snippet_chars,
-    )
-    node: dict[str, Any] = {
-        "tmp_id": "n0",
-        "node_type": "belief",
-        "belief": belief,
-        # Search snippets report what a retrieval provider recalled; they are
-        # not source-verified facts. Keep their prior below asserted tool data.
-        "stance": "recalled",
-        "entities": entities,
-        "tool_name": parsed.tool_name,
-        "tool_result_count": len(parsed.results),
-        "tool_result_items": result_items,
-        "tool_result_truncated_count": max(0, len(parsed.results) - len(result_items)),
-        "extraction_method": "rule_tool_result",
-    }
-    if mode == "excerpt":
-        node["supporting_excerpts"] = [content]
-    else:
-        node["supporting_sentence_indices"] = list(range(len(sentences or []))) or None
+    nodes: list[dict[str, Any]] = []
+    for index, parsed in enumerate(parsed_results):
+        belief, result_items, entities = compact_tool_result(
+            parsed,
+            max_results=max_results,
+            max_snippet_chars=max_snippet_chars,
+        )
+        node: dict[str, Any] = {
+            "tmp_id": f"n{index}",
+            "node_type": "belief",
+            "belief": belief,
+            "stance": "recalled",
+            "entities": entities,
+            "tool_name": parsed.tool_name,
+            "tool_result_count": len(parsed.results),
+            "tool_result_items": result_items,
+            "tool_result_truncated_count": max(
+                0, len(parsed.results) - len(result_items)
+            ),
+            "tool_result_index": index,
+            "extraction_method": "rule_tool_result",
+        }
+        if parsed.tool_call_id is not None:
+            node["tool_call_id"] = parsed.tool_call_id
+        if mode == "excerpt":
+            node["supporting_excerpts"] = [
+                (parsed.body or content) if grouped_wire else content
+            ]
+        else:
+            node["supporting_sentence_indices"] = (
+                list(range(len(sentences or []))) or None
+            )
+        nodes.append(node)
     raw_output = json.dumps(
-        {"extraction_method": "rule_tool_result", "beliefs": [node], "decisions": []},
+        {"extraction_method": "rule_tool_result", "beliefs": nodes, "decisions": []},
         ensure_ascii=False,
     )
     return {
-        "nodes": [node],
-        "beliefs": [node],
+        "nodes": nodes,
+        "beliefs": nodes,
         "decisions": [],
         "relations": [],
         "raw_output": raw_output,
@@ -368,7 +407,9 @@ Rules:
   claim such as "a tower" or combine claims from different results.
 - Skip irrelevant results and do not infer facts that the title/snippet does not state.
 - Prefer answer-relevant facts that prevent repeating this search.
-- JSON only: {{"beliefs":[{{"belief":"...","entities":["..."]}}]}}.
+- For each fact, classify stance as asserted, recalled, speculated, or judged.
+- For each fact, list only specific salient entities explicitly present in it.
+- JSON only: {{"beliefs":[{{"belief":"...","stance":"asserted","entities":["..."]}}]}}.
 
 Results:
 {json.dumps(prompt_items, ensure_ascii=False)}
@@ -399,7 +440,7 @@ Results:
             "tmp_id": f"n{len(nodes)}",
             "node_type": "belief",
             "belief": belief,
-            "stance": "recalled",
+            "stance": _clean_stance(raw_node.get("stance")),
             "entities": _clean_entities(raw_node.get("entities")),
             "tool_name": rule_node.get("tool_name") or "tool",
             "tool_result_count": rule_node.get("tool_result_count") or 0,
@@ -408,6 +449,10 @@ Results:
             or 0,
             "extraction_method": "compact_llm_tool_result",
         }
+        if rule_node.get("tool_call_id"):
+            node["tool_call_id"] = str(rule_node["tool_call_id"])
+        node["tool_result_index"] = int(rule_node.get("tool_result_index") or 0)
+        node["tool_result_fact_index"] = len(nodes)
         if mode == "excerpt":
             node["supporting_excerpts"] = [content]
         else:
@@ -502,7 +547,9 @@ Rules:
 - Skip irrelevant results and do not infer facts the title/snippet does not state.
 - Prefer answer-relevant facts that prevent repeating the corresponding search.
 - Return every input item_index exactly once, even when its beliefs list is empty.
-- JSON only: {{"items":[{{"item_index":0,"beliefs":[{{"belief":"...","entities":["..."]}}]}}]}}.
+- For every fact, classify stance as asserted, recalled, speculated, or judged,
+  and list only specific salient entities explicitly present in that fact.
+- JSON only: {{"items":[{{"item_index":0,"beliefs":[{{"belief":"...","stance":"asserted","entities":["..."]}}]}}]}}.
 
 Items:
 {json.dumps(candidates, ensure_ascii=False)}
@@ -561,7 +608,7 @@ Items:
                 "tmp_id": f"n{len(nodes)}",
                 "node_type": "belief",
                 "belief": belief,
-                "stance": "recalled",
+                "stance": _clean_stance(raw_node.get("stance")),
                 "entities": _clean_entities(raw_node.get("entities")),
                 "tool_name": rule_node.get("tool_name") or "tool",
                 "tool_result_count": rule_node.get("tool_result_count") or 0,
@@ -572,6 +619,12 @@ Items:
                 or 0,
                 "extraction_method": "compact_llm_tool_result",
             }
+            if rule_node.get("tool_call_id"):
+                node["tool_call_id"] = str(rule_node["tool_call_id"])
+            node["tool_result_index"] = int(
+                rule_node.get("tool_result_index") or item_index
+            )
+            node["tool_result_fact_index"] = len(nodes)
             if mode == "excerpt":
                 node["supporting_excerpts"] = [content]
             else:
@@ -595,6 +648,238 @@ Items:
             "batch_size": len(items),
         }
     return results
+
+
+def extract_assistant_tool_result_nodes_batch(
+    client,
+    model: str,
+    *,
+    assistant_content: str,
+    assistant_sentences: list[str] | None,
+    graph_nodes_str: str,
+    items: list[dict[str, Any]],
+    mode: str,
+    max_results: int = 10,
+    max_snippet_chars: int = 240,
+    max_facts: int = 3,
+    max_tokens: int | None = None,
+    reasoning_effort: str | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any] | None]]:
+    """Extract one Assistant layer and its Tool Result layer in one call.
+
+    The returned Assistant result and per-item Tool results remain model-shaped
+    but separate.  ``StreamingBeliefBuilder`` consumes them at their original
+    turn indices, preserving source/evidence/edge provenance.
+    """
+
+    tool_results: list[dict[str, Any] | None] = []
+    candidates: list[dict[str, Any]] = []
+    for item_index, item in enumerate(items):
+        content = str(item.get("content") or "")
+        sentences = item.get("sentences")
+        if not isinstance(sentences, list):
+            sentences = None
+        rule_result = extract_rule_tool_result_nodes(
+            role="tool",
+            content=content,
+            mode=mode,
+            sentences=sentences,
+            max_results=max_results,
+            max_snippet_chars=max_snippet_chars,
+        )
+        tool_results.append(rule_result)
+        if rule_result is None:
+            continue
+        rule_node = rule_result["nodes"][0]
+        if int(rule_node.get("tool_result_count") or 0) == 0:
+            continue
+        result_items = list(rule_node.get("tool_result_items") or [])
+        candidates.append(
+            {
+                "item_index": item_index,
+                "fact_limit": max(1, int(max_facts)),
+                "query": item.get("query") or "(query unavailable)",
+                "tool_name": rule_node.get("tool_name") or "tool",
+                "results": [
+                    {
+                        key: result_item[key]
+                        for key in ("rank", "title", "snippet")
+                        if key in result_item
+                    }
+                    for result_item in result_items
+                ],
+            }
+        )
+
+    calls = extract_tool_calls(assistant_content)
+    semantic_content = (
+        strip_valid_tool_calls(assistant_content) if calls else assistant_content
+    )
+    source_sentences = list(assistant_sentences or [])
+    semantic_sentences = [
+        strip_valid_tool_calls(sentence) if calls else sentence
+        for sentence in source_sentences
+    ]
+    prompt = build_assistant_tool_result_extraction_prompt(
+        mode=mode,
+        assistant_content=semantic_content,
+        assistant_sentences_block=format_sentences_for_prompt(semantic_sentences),
+        tool_items=json.dumps(candidates, ensure_ascii=False),
+        graph_nodes=graph_nodes_str,
+    )
+    raw = llm.call_model(
+        client,
+        model,
+        prompt,
+        temperature=0.0,
+        # This call returns one bounded Assistant partition plus at most
+        # ``max_facts`` facts for each Tool Result item.  Do not inherit the
+        # graph model's potentially very large global completion budget.
+        max_tokens=min(
+            int(max_tokens or 4096),
+            max(1536, 1024 + 256 * len(candidates)),
+        ),
+        reasoning_effort=reasoning_effort,
+    )
+    parsed = llm.parse_json_response(raw)
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("assistant"), dict):
+        raise ValueError("combined extraction response is missing assistant partition")
+
+    raw_assistant = parsed["assistant"]
+    n_sentences = len(source_sentences)
+    assistant_nodes: list[dict[str, Any]] = []
+    assistant_beliefs: list[dict[str, Any]] = []
+    assistant_decisions: list[dict[str, Any]] = []
+    seen_tmp: set[str] = set()
+    ordinal = 0
+    for belief in raw_assistant.get("beliefs") or []:
+        cleaned = _clean_node(belief, mode, n_sentences, ordinal, node_type="belief")
+        if cleaned is None:
+            continue
+        if cleaned["tmp_id"] in seen_tmp:
+            cleaned["tmp_id"] = f"n{ordinal}"
+        seen_tmp.add(cleaned["tmp_id"])
+        assistant_nodes.append(cleaned)
+        assistant_beliefs.append(cleaned)
+        ordinal += 1
+
+    semantic_belief_count = len(assistant_beliefs)
+    ordinal = _attach_and_complete_tool_call_nodes(
+        assistant_beliefs,
+        role="assistant",
+        content=assistant_content,
+        mode=mode,
+        sentences=source_sentences,
+        seen_tmp=seen_tmp,
+        ordinal=ordinal,
+    )
+    assistant_nodes.extend(assistant_beliefs[semantic_belief_count:])
+    if re.search(
+        r"<thinking>.*?</thinking>", semantic_content, re.DOTALL | re.IGNORECASE
+    ):
+        for node in assistant_beliefs:
+            if node.get("extraction_method") != "rule_tool_call":
+                node["source_component"] = "thinking"
+
+    for decision in raw_assistant.get("decisions") or []:
+        cleaned = _clean_node(
+            decision, mode, n_sentences, ordinal, node_type="decision"
+        )
+        if cleaned is None:
+            continue
+        if cleaned["tmp_id"] in seen_tmp:
+            cleaned["tmp_id"] = f"d{ordinal}"
+        seen_tmp.add(cleaned["tmp_id"])
+        assistant_nodes.append(cleaned)
+        assistant_decisions.append(cleaned)
+        ordinal += 1
+
+    raw_tool_items = parsed.get("tool_items")
+    output_by_index: dict[int, dict[str, Any]] = {}
+    if isinstance(raw_tool_items, list):
+        for raw_item in raw_tool_items:
+            if not isinstance(raw_item, dict):
+                continue
+            item_index = raw_item.get("item_index")
+            if (
+                isinstance(item_index, int)
+                and 0 <= item_index < len(items)
+                and item_index not in output_by_index
+            ):
+                output_by_index[item_index] = raw_item
+
+    fact_limit = max(1, int(max_facts))
+    for candidate in candidates:
+        item_index = int(candidate["item_index"])
+        raw_item = output_by_index.get(item_index)
+        raw_beliefs = raw_item.get("beliefs") if raw_item is not None else None
+        rule_result = tool_results[item_index]
+        if not isinstance(raw_beliefs, list) or rule_result is None:
+            continue
+        rule_node = rule_result["nodes"][0]
+        content = str(items[item_index].get("content") or "")
+        sentences = items[item_index].get("sentences")
+        if not isinstance(sentences, list):
+            sentences = []
+        result_items = list(rule_node.get("tool_result_items") or [])
+        nodes: list[dict[str, Any]] = []
+        for raw_node in raw_beliefs[:fact_limit]:
+            if not isinstance(raw_node, dict):
+                continue
+            belief = _clean_str(raw_node.get("belief"))
+            if not belief:
+                continue
+            node: dict[str, Any] = {
+                "tmp_id": f"n{len(nodes)}",
+                "node_type": "belief",
+                "belief": belief,
+                "stance": _clean_stance(raw_node.get("stance")),
+                "entities": _clean_entities(raw_node.get("entities")),
+                "tool_name": rule_node.get("tool_name") or "tool",
+                "tool_result_count": rule_node.get("tool_result_count") or 0,
+                "tool_result_items": result_items,
+                "tool_result_truncated_count": rule_node.get(
+                    "tool_result_truncated_count"
+                )
+                or 0,
+                "extraction_method": "compact_llm_tool_result",
+                "tool_result_index": int(
+                    rule_node.get("tool_result_index") or item_index
+                ),
+                "tool_result_fact_index": len(nodes),
+            }
+            if rule_node.get("tool_call_id"):
+                node["tool_call_id"] = str(rule_node["tool_call_id"])
+            if mode == "excerpt":
+                node["supporting_excerpts"] = [content]
+            else:
+                node["supporting_sentence_indices"] = (
+                    list(range(len(sentences))) or None
+                )
+            nodes.append(node)
+        if nodes:
+            tool_results[item_index] = {
+                "nodes": nodes,
+                "beliefs": nodes,
+                "decisions": [],
+                "relations": [],
+                "raw_output": raw,
+                "skipped": False,
+                "extraction_method": "compact_llm_tool_result",
+                "batch_item_index": item_index,
+                "batch_size": len(items),
+            }
+
+    assistant_result = {
+        "nodes": assistant_nodes,
+        "beliefs": assistant_beliefs,
+        "decisions": assistant_decisions,
+        "relations": [],
+        "raw_output": raw,
+        "skipped": False,
+        "extraction_method": "combined_assistant_tool_result",
+    }
+    return assistant_result, tool_results
 
 
 def _clean_relations(raw: Any) -> list[dict[str, Any]]:
@@ -815,7 +1100,7 @@ def update_graph(
         ordinal += 1
 
     parsed_belief_count = len(out_beliefs)
-    ordinal = _attach_and_complete_query_nodes(
+    ordinal = _attach_and_complete_tool_call_nodes(
         out_beliefs,
         role=role,
         content=content or "\n".join(sentences or []),
@@ -871,21 +1156,34 @@ def extract_nodes(
 ) -> dict[str, Any]:
     """Phase 1: one LLM call to extract beliefs + decisions only (no relations)."""
     n_sentences = len(sentences or [])
+    source_content = content or "\n".join(sentences or [])
     rule_result = _rule_extract_tool_call_nodes(
         role=role,
-        content=content or "\n".join(sentences or []),
+        content=source_content,
         mode=mode,
         sentences=sentences or [],
     )
     if rule_result is not None:
         return rule_result
+    calls = (
+        extract_tool_calls(source_content)
+        if role.strip().lower() == "assistant"
+        else []
+    )
+    semantic_content = (
+        strip_valid_tool_calls(source_content) if calls else source_content
+    )
+    semantic_sentences = [
+        strip_valid_tool_calls(sentence) if calls else sentence
+        for sentence in (sentences or [])
+    ]
     if mode != "excerpt":
         if clusters:
             sentences_block = format_clustered_sentences_for_prompt(
-                sentences or [], clusters
+                semantic_sentences, clusters
             )
         else:
-            sentences_block = format_sentences_for_prompt(sentences or [])
+            sentences_block = format_sentences_for_prompt(semantic_sentences)
         prompt = build_node_extraction_prompt(
             role,
             mode="sentences",
@@ -898,7 +1196,7 @@ def extract_nodes(
         prompt = build_node_extraction_prompt(
             role,
             mode="excerpt",
-            content=content or "",
+            content=semantic_content,
             graph_nodes=graph_nodes_str,
             graph_edges=graph_edges_str,
             current_date=current_date,
@@ -954,7 +1252,7 @@ def extract_nodes(
         ordinal += 1
 
     parsed_belief_count = len(out_beliefs)
-    ordinal = _attach_and_complete_query_nodes(
+    ordinal = _attach_and_complete_tool_call_nodes(
         out_beliefs,
         role=role,
         content=content or "\n".join(sentences or []),
@@ -964,6 +1262,13 @@ def extract_nodes(
         ordinal=ordinal,
     )
     out_nodes.extend(out_beliefs[parsed_belief_count:])
+
+    if role.strip().lower() == "assistant" and re.search(
+        r"<thinking>.*?</thinking>", semantic_content, re.DOTALL | re.IGNORECASE
+    ):
+        for node in out_beliefs:
+            if node.get("extraction_method") != "rule_tool_call":
+                node["source_component"] = "thinking"
 
     for d in parsed.get("decisions", []) or []:
         cd = _clean_node(d, mode, n_sentences, ordinal, node_type="decision")

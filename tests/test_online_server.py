@@ -442,6 +442,74 @@ def test_streaming_session_batches_only_consecutive_complete_tool_results(
     ]
 
 
+def test_streaming_session_batches_assistant_with_following_tool_results(
+    tmp_path: Path,
+) -> None:
+    class DummyGraph:
+        def snapshot(self, *, extra: dict[str, Any]) -> dict[str, Any]:
+            return {**extra, "nodes": [], "relations": [], "merges": []}
+
+    class DummyBuilder:
+        def __init__(self, **kwargs: Any) -> None:
+            del kwargs
+            self.graph = DummyGraph()
+            self.ingested: list[tuple[str, str]] = []
+            self.prepared: list[tuple[str, list[str]]] = []
+
+        def ingest_turn(
+            self,
+            role: str,
+            content: str,
+            **kwargs: Any,
+        ) -> None:
+            del kwargs
+            self.ingested.append((role, content))
+
+        def prepare_assistant_tool_result_batch(
+            self,
+            assistant_content: str,
+            tool_contents: list[str],
+        ) -> int:
+            self.prepared.append((assistant_content, list(tool_contents)))
+            return 1 + len(tool_contents)
+
+    session = StreamingTrajectorySession(
+        "assistant-tool-batch",
+        client=object(),
+        model="unused",
+        output_root=tmp_path,
+        builder_cls=DummyBuilder,
+    )
+    session.push_many(
+        [
+            {
+                "problem_id": "assistant-tool-batch",
+                "role": "assistant",
+                "content": "thinking and calls",
+            },
+            {
+                "problem_id": "assistant-tool-batch",
+                "role": "tool",
+                "content": "result-1",
+            },
+            {
+                "problem_id": "assistant-tool-batch",
+                "role": "tool",
+                "content": "result-2",
+            },
+        ]
+    )
+
+    builder = session._builder
+    assert isinstance(builder, DummyBuilder)
+    assert builder.prepared == [("thinking and calls", ["result-1", "result-2"])]
+    assert builder.ingested == [
+        ("assistant", "thinking and calls"),
+        ("tool", "result-1"),
+        ("tool", "result-2"),
+    ]
+
+
 def test_artifact_writer_preserves_target_and_cleans_temp_on_replace_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

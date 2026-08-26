@@ -15,12 +15,16 @@ from .stream import StreamingBeliefBuilder, StreamOptions
 def _build_options(
     options: RunOptions,
     belief_graph_config: dict[str, Any] | None,
-) -> RunOptions:
-    del belief_graph_config
-    return options
+) -> StreamOptions:
+    stream_options = _session_options(options)
+    if belief_graph_config:
+        stream_options.apply_belief_graph_config(belief_graph_config)
+    return stream_options
 
 
 def _session_options(options: Any) -> Any:
+    if isinstance(options, StreamOptions):
+        return options
     if not isinstance(options, RunOptions):
         return options
     return StreamOptions(

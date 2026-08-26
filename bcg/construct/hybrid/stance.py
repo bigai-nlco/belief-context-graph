@@ -26,8 +26,10 @@ from __future__ import annotations
 
 import json
 import threading
+import time
+from collections import deque
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -118,6 +120,13 @@ def normalize_stance_config(
         "dtype": str(raw.get("dtype") or "auto"),
         "batch_size": max(1, int(raw.get("batch_size", 16) or 16)),
         "max_length": max(64, int(raw.get("max_length", 512) or 512)),
+        "dynamic_batching": bool(raw.get("dynamic_batching", True)),
+        "dynamic_batch_wait_ms": max(
+            0, int(raw.get("dynamic_batch_wait_ms", 10) or 0)
+        ),
+        "dynamic_batch_max_texts": max(
+            1, int(raw.get("dynamic_batch_max_texts", 128) or 128)
+        ),
         "local_files_only": bool(raw.get("local_files_only", True)),
         "hypothesis_template": str(
             raw.get("hypothesis_template") or _DEFAULT_HYPOTHESIS_TEMPLATE
@@ -142,6 +151,14 @@ class StancePrediction:
         }
 
 
+@dataclass
+class _StanceBatchRequest:
+    texts: list[str]
+    done: threading.Event = field(default_factory=threading.Event)
+    result: list[StancePrediction] | None = None
+    error: BaseException | None = None
+
+
 class LocalZeroShotStanceClassifier:
     """Lazy, thread-safe four-class English statement-stance classifier."""
 
@@ -155,6 +172,9 @@ class LocalZeroShotStanceClassifier:
         self._entailment_index: int | None = None
         self._load_lock = threading.Lock()
         self._infer_lock = threading.Lock()
+        self._batch_condition = threading.Condition()
+        self._batch_queue: deque[_StanceBatchRequest] = deque()
+        self._batch_worker: threading.Thread | None = None
 
     def _resolve_device(self) -> str:
         if self._resolved_device is not None:
@@ -277,19 +297,10 @@ class LocalZeroShotStanceClassifier:
             description=self.config["labels"][stance]["description"],
         )
 
-    def classify_texts(self, texts: Sequence[str]) -> list[StancePrediction]:
-        """Classify source texts in order and retain all four candidate scores."""
-        clean_texts = [str(text or "").strip() for text in texts]
-        if not clean_texts:
-            return []
-        if any(not text for text in clean_texts):
-            raise ValueError("Stance classification received an empty source text")
-        if not self.config["enabled"]:
-            raise RuntimeError(
-                "belief_graph.stance.enabled is false, but every generated node requires "
-                "a model-inferred stance"
-            )
-
+    def _classify_texts_direct(
+        self, clean_texts: Sequence[str]
+    ) -> list[StancePrediction]:
+        """Run one physical model inference for already validated texts."""
         self._ensure_loaded()
         torch = self._torch
         assert torch is not None
@@ -306,30 +317,28 @@ class LocalZeroShotStanceClassifier:
 
         entailment_logits: list[float] = []
         batch_size = self.config["batch_size"]
-        with self._infer_lock:
-            for start in range(0, len(premises), batch_size):
-                stop = start + batch_size
-                encoded = self._tokenizer(
-                    premises[start:stop],
-                    hypotheses[start:stop],
-                    padding=True,
-                    truncation="only_first",
-                    max_length=self.config["max_length"],
-                    return_tensors="pt",
-                )
-                encoded = {
-                    key: value.to(self._resolve_device())
-                    for key, value in encoded.items()
-                }
-                with torch.inference_mode():
-                    logits = self._model(**encoded).logits.float()
-                entailment_logits.extend(
-                    float(value)
-                    for value in logits[:, self._entailment_index]
-                    .detach()
-                    .cpu()
-                    .tolist()
-                )
+        for start in range(0, len(premises), batch_size):
+            stop = start + batch_size
+            encoded = self._tokenizer(
+                premises[start:stop],
+                hypotheses[start:stop],
+                padding=True,
+                truncation="only_first",
+                max_length=self.config["max_length"],
+                return_tensors="pt",
+            )
+            encoded = {
+                key: value.to(self._resolve_device()) for key, value in encoded.items()
+            }
+            with torch.inference_mode():
+                logits = self._model(**encoded).logits.float()
+            entailment_logits.extend(
+                float(value)
+                for value in logits[:, self._entailment_index]
+                .detach()
+                .cpu()
+                .tolist()
+            )
 
         n_labels = len(STANCE_ORDER)
         predictions: list[StancePrediction] = []
@@ -357,6 +366,81 @@ class LocalZeroShotStanceClassifier:
                 )
             )
         return predictions
+
+    def _ensure_batch_worker(self) -> None:
+        with self._batch_condition:
+            if self._batch_worker is not None and self._batch_worker.is_alive():
+                return
+            self._batch_worker = threading.Thread(
+                target=self._run_batch_worker,
+                name="bcg-stance-batcher",
+                daemon=True,
+            )
+            self._batch_worker.start()
+
+    def _run_batch_worker(self) -> None:
+        wait_seconds = self.config["dynamic_batch_wait_ms"] / 1000.0
+        max_texts = self.config["dynamic_batch_max_texts"]
+        while True:
+            with self._batch_condition:
+                while not self._batch_queue:
+                    self._batch_condition.wait()
+                requests = [self._batch_queue.popleft()]
+                total_texts = len(requests[0].texts)
+                deadline = time.monotonic() + wait_seconds
+                while total_texts < max_texts:
+                    while self._batch_queue:
+                        candidate = self._batch_queue[0]
+                        if total_texts + len(candidate.texts) > max_texts:
+                            break
+                        requests.append(self._batch_queue.popleft())
+                        total_texts += len(candidate.texts)
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0 or self._batch_queue:
+                        break
+                    self._batch_condition.wait(timeout=remaining)
+
+            combined = [text for request in requests for text in request.texts]
+            try:
+                predictions = self._classify_texts_direct(combined)
+                offset = 0
+                for request in requests:
+                    stop = offset + len(request.texts)
+                    request.result = predictions[offset:stop]
+                    offset = stop
+            except BaseException as exc:
+                for request in requests:
+                    request.error = exc
+            finally:
+                for request in requests:
+                    request.done.set()
+
+    def classify_texts(self, texts: Sequence[str]) -> list[StancePrediction]:
+        """Classify source texts in order and retain all four candidate scores."""
+        clean_texts = [str(text or "").strip() for text in texts]
+        if not clean_texts:
+            return []
+        if any(not text for text in clean_texts):
+            raise ValueError("Stance classification received an empty source text")
+        if not self.config["enabled"]:
+            raise RuntimeError(
+                "belief_graph.stance.enabled is false, but every generated node requires "
+                "a model-inferred stance"
+            )
+        if not self.config["dynamic_batching"]:
+            with self._infer_lock:
+                return self._classify_texts_direct(clean_texts)
+
+        request = _StanceBatchRequest(clean_texts)
+        self._ensure_batch_worker()
+        with self._batch_condition:
+            self._batch_queue.append(request)
+            self._batch_condition.notify()
+        request.done.wait()
+        if request.error is not None:
+            raise request.error
+        assert request.result is not None
+        return request.result
 
 
 _CLASSIFIER_CACHE: dict[str, LocalZeroShotStanceClassifier] = {}
