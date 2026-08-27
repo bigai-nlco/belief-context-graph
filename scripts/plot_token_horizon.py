@@ -256,7 +256,6 @@ def render_svg(series: tuple[BenchmarkSeries, ...], output: Path) -> None:
         '<desc id="desc">Full-dataset comparison of Default and BCG cumulative total tokens by Agent step for BrowseComp and BrowseComp-ZH. BCG includes Agent and Graph Construction tokens.</desc>',
         '<rect width="1280" height="620" fill="#ffffff"/>',
         '<g font-family="Inter,Arial,sans-serif">',
-        f'<text x="640" y="39" text-anchor="middle" fill="{TEXT_COLOR}" font-size="27" font-weight="700">Cumulative total tokens across the task horizon</text>',
         f'<path d="M474 69H510" stroke="{DEFAULT_COLOR}" stroke-width="5" stroke-linecap="round"/><text x="522" y="75" fill="{TEXT_COLOR}" font-size="16" font-weight="600">Default</text>',
         f'<path d="M644 69H680" stroke="{BCG_COLOR}" stroke-width="5" stroke-linecap="round"/><text x="692" y="75" fill="{TEXT_COLOR}" font-size="16" font-weight="600">BCG</text>',
         f'<text x="24" y="332.5" transform="rotate(-90 24 332.5)" text-anchor="middle" fill="{TEXT_COLOR}" font-size="17" font-weight="600">Mean cumulative total tokens / task</text>',
@@ -354,12 +353,12 @@ def render_svg(series: tuple[BenchmarkSeries, ...], output: Path) -> None:
                 ]
             )
 
-        badge_x = right - 191
-        badge_y = plot_bottom - 58
+        badge_x = right - 222
+        badge_y = plot_bottom - 65
         parts.extend(
             [
-                f'<rect x="{badge_x:.1f}" y="{badge_y:.1f}" width="174" height="31" rx="15.5" fill="#eef2ff"/>',
-                f'<text x="{badge_x + 87:.1f}" y="{badge_y + 21:.1f}" text-anchor="middle" fill="#4338ca" font-size="13" font-weight="700">{reduction:.0%} fewer total tokens</text>',
+                f'<rect x="{badge_x:.1f}" y="{badge_y:.1f}" width="205" height="38" rx="19" fill="#e0e7ff" stroke="#c7d2fe" stroke-width="1.2"/>',
+                f'<text x="{badge_x + 102.5:.1f}" y="{badge_y + 25.5:.1f}" text-anchor="middle" fill="#4338ca" font-size="15" font-weight="700">{reduction:.0%} fewer total tokens</text>',
             ]
         )
 

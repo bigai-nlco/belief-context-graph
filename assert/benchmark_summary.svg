@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="620" viewBox="0 0 1280 620" role="img" aria-labelledby="title desc">
-<title id="title">Accuracy and mean token cost by benchmark</title>
+<title id="title">10%+ Token Savings · Tractable Reasoning · Better Performance</title>
 <desc id="desc">Full-dataset Default, Summary, and BCG accuracy and mean token cost for BrowseComp and BrowseComp-ZH, shown with non-zero y-axis baselines. The light Summary segment is Summary Generation, and the light BCG segment is Graph Construction.</desc>
 <rect width="1280" height="620" fill="#ffffff"/>
 <g font-family="Inter,Arial,sans-serif">
 <defs><marker id="improvement-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#4338ca"/></marker></defs>
-<text x="640" y="39" text-anchor="middle" fill="#0f172a" font-size="27" font-weight="700">Accuracy and mean token cost by benchmark</text>
+<text x="640" y="39" text-anchor="middle" fill="#0f172a" font-size="27" font-weight="700">10%+ Token Savings · Tractable Reasoning · Better Performance</text>
 <rect x="296" y="62" width="14" height="14" rx="3" fill="#64748b"/><text x="320" y="75" fill="#0f172a" font-size="15" font-weight="600">Default</text>
 <rect x="400" y="62" width="14" height="14" rx="3" fill="#0f9f8f"/><text x="424" y="75" fill="#0f172a" font-size="15" font-weight="600">Summary</text>
 <rect x="512" y="62" width="14" height="14" rx="3" fill="#99ded3"/><text x="536" y="75" fill="#0f172a" font-size="15" font-weight="600">Summary Generation</text>
@@ -49,8 +49,8 @@
 <text x="243.2" y="516" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">BrowseComp</text>
 <text x="243.2" y="537" text-anchor="middle" fill="#64748b" font-size="12">1,266 tasks / mode</text>
 <path d="M191.2 379.5 C203.2 355.5, 283.2 355.5, 295.2 369.5" fill="none" stroke="#4338ca" stroke-width="1.8" stroke-linecap="round" marker-end="url(#improvement-arrow)"/>
-<rect x="205.4" y="328.5" width="75.6" height="20" rx="10" fill="#ffffff" stroke="#c7d2fe"/>
-<text x="243.2" y="343.5" text-anchor="middle" fill="#4338ca" font-size="11.5" font-weight="700">+3.79 pp</text>
+<rect x="198.4" y="322.5" width="89.6" height="27" rx="13.5" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.2"/>
+<text x="243.2" y="341.0" text-anchor="middle" fill="#4338ca" font-size="13.5" font-weight="700">+3.79 pp</text>
 <path d="M784.2 480.0V286.5a7 7 0 0 1 7 -7h30.0a7 7 0 0 1 7 7V480.0Z" fill="#64748b"/>
 <text x="806.2" y="273.5" text-anchor="middle" fill="#0f172a" font-size="14" font-weight="700">35.39K</text>
 <rect x="836.2" y="417.5" width="44.0" height="62.5" fill="#0f9f8f"/>
@@ -66,8 +66,8 @@
 <text x="858.2" y="516" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">BrowseComp</text>
 <text x="858.2" y="537" text-anchor="middle" fill="#64748b" font-size="12">1,266 tasks / mode</text>
 <path d="M806.2 237.5 C818.2 223.5, 898.2 223.5, 910.2 253.5" fill="none" stroke="#4338ca" stroke-width="1.8" stroke-linecap="round" marker-end="url(#improvement-arrow)"/>
-<rect x="824.2" y="196.5" width="68.0" height="20" rx="10" fill="#ffffff" stroke="#c7d2fe"/>
-<text x="858.2" y="211.5" text-anchor="middle" fill="#4338ca" font-size="11.5" font-weight="700">−16.2%</text>
+<rect x="817.2" y="190.5" width="82.0" height="27" rx="13.5" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.2"/>
+<text x="858.2" y="209.0" text-anchor="middle" fill="#4338ca" font-size="13.5" font-weight="700">−16.2%</text>
 <path d="M383.8 480.0V342.6a7 7 0 0 1 7 -7h30.0a7 7 0 0 1 7 7V480.0Z" fill="#64748b"/>
 <text x="405.8" y="329.6" text-anchor="middle" fill="#0f172a" font-size="14" font-weight="700">49.48%</text>
 <path d="M435.8 480.0V322.2a7 7 0 0 1 7 -7h30.0a7 7 0 0 1 7 7V480.0Z" fill="#0f9f8f"/>
@@ -77,8 +77,8 @@
 <text x="457.8" y="516" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">BrowseComp-ZH</text>
 <text x="457.8" y="537" text-anchor="middle" fill="#64748b" font-size="12">289 tasks / mode</text>
 <path d="M405.8 252.4 C417.8 222.4, 497.8 222.4, 509.8 236.4" fill="none" stroke="#4338ca" stroke-width="1.8" stroke-linecap="round" marker-end="url(#improvement-arrow)"/>
-<rect x="419.9" y="195.4" width="75.6" height="20" rx="10" fill="#ffffff" stroke="#c7d2fe"/>
-<text x="457.8" y="210.4" text-anchor="middle" fill="#4338ca" font-size="11.5" font-weight="700">+9.69 pp</text>
+<rect x="412.9" y="189.4" width="89.6" height="27" rx="13.5" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.2"/>
+<text x="457.8" y="207.9" text-anchor="middle" fill="#4338ca" font-size="13.5" font-weight="700">+9.69 pp</text>
 <path d="M998.8 480.0V331.2a7 7 0 0 1 7 -7h30.0a7 7 0 0 1 7 7V480.0Z" fill="#64748b"/>
 <text x="1020.8" y="318.2" text-anchor="middle" fill="#0f172a" font-size="14" font-weight="700">30.84K</text>
 <rect x="1050.8" y="404.5" width="44.0" height="75.5" fill="#0f9f8f"/>
@@ -94,8 +94,8 @@
 <text x="1072.8" y="516" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">BrowseComp-ZH</text>
 <text x="1072.8" y="537" text-anchor="middle" fill="#64748b" font-size="12">289 tasks / mode</text>
 <path d="M1020.8 283.7 C1032.8 269.7, 1112.8 269.7, 1124.8 296.7" fill="none" stroke="#4338ca" stroke-width="1.8" stroke-linecap="round" marker-end="url(#improvement-arrow)"/>
-<rect x="1038.8" y="242.7" width="68.0" height="20" rx="10" fill="#ffffff" stroke="#c7d2fe"/>
-<text x="1072.8" y="257.7" text-anchor="middle" fill="#4338ca" font-size="11.5" font-weight="700">−9.5%</text>
+<rect x="1031.8" y="236.7" width="82.0" height="27" rx="13.5" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.2"/>
+<text x="1072.8" y="255.2" text-anchor="middle" fill="#4338ca" font-size="13.5" font-weight="700">−9.5%</text>
 <text x="350.5" y="575" text-anchor="middle" fill="#64748b" font-size="14" font-weight="600">Benchmark</text>
 <text x="965.5" y="575" text-anchor="middle" fill="#64748b" font-size="14" font-weight="600">Benchmark</text>
 </g>
