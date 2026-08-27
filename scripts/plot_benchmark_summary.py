@@ -121,17 +121,17 @@ def _change_arrow(
 
 def render_svg(output: Path) -> None:
     width, height = 1280, 620
-    annotation_top, plot_top, plot_bottom = 185.0, 245.0, 485.0
+    annotation_top, plot_top, plot_bottom = 185.0, 185.0, 480.0
     bar_width = 44.0
-    accuracy_min, accuracy_max = 25.0, 65.0
-    accuracy_ticks = (25, 35, 45, 55, 65)
+    accuracy_min, accuracy_max = 25.0, 75.0
+    accuracy_ticks = (25, 35, 45, 55, 65, 75)
     token_min = 15_000.0
-    token_max = 40_000.0
-    token_ticks = (15_000, 20_000, 25_000, 30_000, 35_000, 40_000)
-    accuracy_axis = (135.0, 600.0)
-    token_axis = (745.0, 1210.0)
-    accuracy_centers = (260.0, 475.0)
-    token_centers = (870.0, 1085.0)
+    token_max = 45_000.0
+    token_ticks = (15_000, 20_000, 25_000, 30_000, 35_000, 40_000, 45_000)
+    accuracy_axis = (136.0, 565.0)
+    token_axis = (751.0, 1180.0)
+    accuracy_centers = (243.25, 457.75)
+    token_centers = (858.25, 1072.75)
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-labelledby="title desc">',
         '<title id="title">Accuracy and mean token cost by benchmark</title>',
@@ -145,8 +145,8 @@ def render_svg(output: Path) -> None:
         f'<rect x="512" y="62" width="14" height="14" rx="3" fill="{SUMMARY_MODEL_COLOR}"/><text x="536" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">Summary Generation</text>',
         f'<rect x="704" y="62" width="14" height="14" rx="3" fill="{BCG_COLOR}"/><text x="728" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">BCG</text>',
         f'<rect x="784" y="62" width="14" height="14" rx="3" fill="{GRAPH_COLOR}"/><text x="808" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">BCG Graph Construction</text>',
-        f'<text x="90" y="130" fill="{TEXT_COLOR}" font-size="21" font-weight="700">Accuracy</text>',
-        f'<text x="700" y="130" fill="{TEXT_COLOR}" font-size="21" font-weight="700">Mean tokens / task</text>',
+        f'<text x="88" y="130" fill="{TEXT_COLOR}" font-size="21" font-weight="700">Accuracy</text>',
+        f'<text x="703" y="130" fill="{TEXT_COLOR}" font-size="21" font-weight="700">Mean tokens / task</text>',
     ]
 
     for tick in accuracy_ticks:
