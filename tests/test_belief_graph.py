@@ -50,7 +50,6 @@ from bcg.construct.unified.online import SessionManager as UnifiedSessionManager
 from bcg.construct.unified.prompts import (
     build_layered_relation_extraction_prompt,
     build_node_extraction_prompt,
-    build_relation_extraction_prompt,
 )
 from bcg.construct.unified.stream import (
     StreamingBeliefBuilder as UnifiedStreamingBeliefBuilder,
@@ -612,10 +611,8 @@ def test_unified_layered_relation_prompt_requires_one_previous_layer() -> None:
     assert '"selected_previous_layer"' in prompt
     assert "ZERO OR ONE previous layer" in prompt
     assert "Layer 1 is the nearest" in prompt
-    assert "Never mix layers" in prompt
+    assert "Never connect nodes from two different previous layers" in prompt
     assert "Shared entities alone do not justify a relation" in prompt
-    assert "duplicate existing relations" in prompt
-    assert "previous-to-previous is forbidden" in prompt
     assert "The user can be charged a late fee" not in prompt
 
 
@@ -637,23 +634,6 @@ def test_unified_relation_nodes_include_only_id_and_content() -> None:
     )
 
     assert json.loads(rendered) == [{"id": 7, "content": "A compact semantic fact."}]
-
-
-def test_unified_tool_relation_prompt_uses_compact_role_contract() -> None:
-    prompt = build_relation_extraction_prompt(
-        role="tool",
-        content="Raw Tool Result content should not be repeated.",
-        graph_nodes='[{"id": 1, "content": "A prior hypothesis."}, {"id": 2, "content": "A result fact."}]',
-        graph_edges="[]",
-        new_node_ids="[2]",
-    )
-
-    assert "directly relevant prior Assistant reasoning nodes" in prompt
-    assert "exactly one current Tool Result endpoint" in prompt
-    assert "current-to-current and prior-to-prior links are forbidden" in prompt
-    assert "Shared entities or keywords" in prompt
-    assert "Raw Tool Result content should not be repeated" not in prompt
-    assert "The user can be charged a late fee" not in prompt
 
 
 def test_unified_extraction_history_includes_only_content() -> None:
@@ -915,38 +895,6 @@ def test_unified_node_extraction_prompt_omits_empty_context_and_tmp_ids() -> Non
     assert "independently searchable numbered clues" in prompt
     assert "task-defining" in prompt
     assert "qualified roles" in prompt
-
-
-def test_unified_assistant_node_prompt_uses_compact_role_specific_sections() -> None:
-    prompt = build_node_extraction_prompt(
-        "assistant",
-        mode="sentences",
-        sentences_block="[0] The assistant identifies the answer.",
-        graph_nodes='[{"id": 1, "belief": "Earlier evidence."}]',
-    )
-
-    assert prompt is not None
-    assert "Maintain the belief graph incrementally" in prompt
-    assert "## What is a belief" in prompt
-    assert "## What is a decision" in prompt
-    assert "## Source role: ASSISTANT" in prompt
-    assert "Tool-call JSON is extracted deterministically by code" in prompt
-    assert "## Existing belief nodes" in prompt
-    assert "Earlier evidence." in prompt
-    assert "## Sentence input" in prompt
-    assert "## Hard constraints" in prompt
-    assert '"decision": "<self-contained final selected answer>"' in prompt
-    assert "Do not infer a decision from a question" in prompt
-    assert "Task-defining criteria" in prompt
-    assert "Inspect every current-turn sentence" in prompt
-    assert "NON-EMPTY" in prompt
-    assert "substantive source claim is represented exactly once" in prompt
-    assert "## Current turn sentences" in prompt
-    assert "Too fine-grained" not in prompt
-    assert prompt.index("## Existing belief nodes") < prompt.index(
-        "## Hard constraints"
-    )
-    assert prompt.index("## Output") < prompt.index("## Current turn sentences")
 
 
 def test_unified_node_extraction_assigns_code_owned_tmp_ids(
