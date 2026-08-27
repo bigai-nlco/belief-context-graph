@@ -916,6 +916,11 @@ def test_unified_assistant_node_prompt_uses_compact_role_specific_sections() -> 
     assert "## Sentence input" in prompt
     assert "## Hard constraints" in prompt
     assert '"decision": "<self-contained final selected answer>"' in prompt
+    assert "Do not infer a decision from a question" in prompt
+    assert "Task-defining criteria" in prompt
+    assert "Inspect every current-turn sentence" in prompt
+    assert "NON-EMPTY" in prompt
+    assert "substantive source claim is represented exactly once" in prompt
     assert "## Current turn sentences" in prompt
     assert "Too fine-grained" not in prompt
     assert prompt.index("## Existing belief nodes") < prompt.index(

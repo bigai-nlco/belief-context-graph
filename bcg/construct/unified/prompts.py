@@ -176,24 +176,29 @@ _ASSISTANT_BELIEF_DEFINITION = """\
 - Factual claims and intermediate conclusions the assistant commits to.
 - Hypotheses or reasoning steps that are falsifiable, reusable, or needed by later turns.
 - Recommendations, assessments, diagnoses, rankings, and derived states.
+- Task-defining criteria, named candidates or alternatives, comparisons, and
+  evidence gaps or verification dependencies that guide later reasoning.
 
 ## What is a decision
 - The assistant's final selected answer, option, result, or explicit final conclusion, especially content inside `\\boxed{...}`.
 - A decision must be self-contained; never emit only a bare label, option, verdict, or value.
 - Do not emit the same final answer as both a belief and a decision.
+- Do not infer a decision from a question, heading, quoted title, incomplete
+  phrase, or candidate being explored. If there is no explicit final selection,
+  return an empty decisions list.
 
 ## Granularity
-Each belief must express one reusable central claim and remain understandable outside the turn. Keep tightly coupled qualifiers, premises, conditions, and results together when splitting would lose their dependency. Split independent propositions that can be confirmed, contradicted, or reused separately. Keep claims with different epistemic status separate.
+Each belief must express one reusable central claim and remain understandable outside the turn. Keep tightly coupled qualifiers, premises, conditions, and results together when splitting would lose their dependency. Split independent propositions that can be confirmed, contradicted, or reused separately. Keep claims with different epistemic status separate. Do not merge a task objective or clue set into one candidate hypothesis when its criteria may be needed to evaluate other candidates later.
 """
 
 _ASSISTANT_STANCE_DEFINITION = """\
 ## Stance
-Choose one per belief or decision: asserted = committed claim or final answer; recalled = explicit memory; speculated = uncertain hypothesis; judged = assessment, recommendation, diagnosis, ranking, or selected option.
+Choose one per belief or decision: asserted = direct committed claim or explicit final answer; recalled = explicit memory; speculated = source wording is uncertain or hedged; judged = assessment, recommendation, diagnosis, ranking, or selected option. Follow the source's epistemic wording: do not mark a direct clue or investigation state as speculated merely because the assistant is still solving the task.
 """
 
 _ASSISTANT_GUIDANCE = """\
 ## Entities
-List only specific named or uniquely qualified entities explicitly present in each belief or decision: people, organizations, places, products, datasets, files, tools, models, APIs, variables, and distinguishable concepts. Exclude pronouns, temporal expressions, bare generic nouns, vague concepts, and duplicates. Use [] when none exists.
+List every specific named or uniquely qualified entity explicitly present in each belief or decision: people, organizations, places, products, datasets, files, tools, models, APIs, variables, task-defining qualified roles, and distinguishable concepts. Exclude pronouns, temporal expressions, bare generic nouns, vague concepts, and duplicates. Use [] only when no such entity exists.
 
 ## Source role: ASSISTANT
 - Write beliefs in the third person about "The assistant", "The user", or the named subject.
@@ -205,8 +210,14 @@ _ASSISTANT_HARD_CONSTRAINTS_SENTENCES_NODES = """\
 ## Hard constraints
 - Preserve names, numbers, dates, quantities, versions, and unusual punctuation exactly.
 - Do not add outside knowledge.
-- Every belief and decision must list all complete current-turn sentence indices that directly support it in `supporting_sentence_indices`; drop nodes without supporting sentences.
+- Inspect every current-turn sentence. Preserve every substantive reusable claim,
+  criterion, alternative, comparison, reason, and evidence gap; omit only pure filler.
+- Every belief and decision must contain its text, stance, entities, and a NON-EMPTY
+  `supporting_sentence_indices` list containing all complete current-turn sentences
+  that directly support it. Drop nodes without supporting sentences.
 - Empty beliefs and decisions lists are valid.
+- Before returning, verify every output object has all required fields and every
+  substantive source claim is represented exactly once unless intentionally excluded as filler.
 """
 
 _ASSISTANT_OUTPUT_FORMAT_SENTENCES_NODES = """\
