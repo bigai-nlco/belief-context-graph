@@ -953,35 +953,27 @@ _LAYERED_RELATION_OUTPUT_FORMAT = """\
   ]
 }
 
-Hard output constraints:
-- You may connect current-turn nodes to nodes from ZERO OR ONE previous layer.
-- If any current-to-previous relation is emitted, every such relation MUST use the
-  same previous layer and ``selected_previous_layer`` MUST equal that layer number.
-- If no current-to-previous relation is emitted, set ``selected_previous_layer`` to null.
-- Current-turn to current-turn relations are allowed and do not select a previous layer.
-- Never connect nodes from two different previous layers in the same response.
-- Every endpoint must be an integer node id shown in the candidate graph.
-- At least one endpoint of each relation must be from the current-turn node list.
-- Empty relations are valid: {"selected_previous_layer": null, "relations": []}.
+Use ``null`` and an empty ``relations`` list when no meaningful relation exists.
 """
 
 
 _LAYERED_RELATION_EDGE_RULES = """\
-## Relation rules
-Judge meaningful semantic links using node ``content`` alone:
-- ``depends_on``: A requires B as a premise, input, evidence, constraint, or context.
+## Relation and layer rules
+Judge complete node ``content`` only; metadata or a shared entity alone does not
+justify an edge. A request to verify a claim does not assert that claim.
+
+- ``depends_on``: A requires B as a premise, evidence, constraint, input, or context.
 - ``supplements``: A adds useful detail or evidence to B without changing it.
 - ``contradicts``: A conflicts with, corrects, negates, or replaces B.
 
 Direction is literal: ``A -> B`` means A depends on, supplements, or contradicts B.
-Read each complete content field; a request to verify a claim does not assert it.
-Shared entities alone do not justify a relation.
+Use only shown integer ids and never create self-links. Every edge must touch a
+current-turn node; current-to-current edges are allowed, previous-to-previous
+edges are not. Prefer 0-4 high-value edges per current node.
 
-Constraints:
-- Every relation must contain at least one current-turn node.
-- Current-to-current relations are allowed; previous-to-previous relations are not.
-- Use only shown integer ids; no self-links or invented ids.
-- Prefer 0-4 high-value relations per current node. An empty result is valid.
+All cross-turn edges must use ZERO OR ONE previous layer. Set
+``selected_previous_layer`` to that layer, or ``null`` when no cross-turn edge is
+emitted. Current-to-current edges do not select a layer.
 """
 
 
@@ -1003,7 +995,7 @@ def build_layered_relation_extraction_prompt(
     """
     parts: list[str] = [
         "# Task",
-        "Link the current Assistant belief nodes to the most relevant prior layer.",
+        "Relate the current Assistant belief nodes to zero or one relevant prior Graph layer.",
     ]
     if content.strip():
         parts.append(
@@ -1012,8 +1004,9 @@ def build_layered_relation_extraction_prompt(
     parts.extend(
         [
             "## Candidate previous layers\n"
-            "Layer 1 is the nearest non-empty Graph turn; larger numbers are older. "
-            "Layer membership is authoritative.\n" + candidate_layers + "\n",
+            "Layer 1 is the nearest non-empty Graph turn; larger numbers are older.\n"
+            + candidate_layers
+            + "\n",
             "## Candidate nodes\n"
             + GRAPH_NODES_PLACEHOLDER
             + "\n\n## Existing relations\n"
@@ -1021,9 +1014,6 @@ def build_layered_relation_extraction_prompt(
             + "\n",
             "## Current-turn node ids\n" + NEW_NODE_IDS_PLACEHOLDER + "\n",
             _LAYERED_RELATION_EDGE_RULES,
-            "## Layer selection\n"
-            "Compare all candidates in one pass. Cross-turn relations may use ZERO OR "
-            "ONE previous layer, never a mixture. Select null when none is meaningful.\n",
         ]
     )
     if validation_feedback:

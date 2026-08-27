@@ -611,8 +611,8 @@ def test_unified_layered_relation_prompt_requires_one_previous_layer() -> None:
     assert '"selected_previous_layer"' in prompt
     assert "ZERO OR ONE previous layer" in prompt
     assert "Layer 1 is the nearest" in prompt
-    assert "Never connect nodes from two different previous layers" in prompt
-    assert "Shared entities alone do not justify a relation" in prompt
+    assert "All cross-turn edges must use" in prompt
+    assert "shared entity alone does not" in prompt
     assert "The user can be charged a late fee" not in prompt
 
 
