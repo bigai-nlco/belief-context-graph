@@ -897,7 +897,7 @@ def test_unified_node_extraction_prompt_omits_empty_context_and_tmp_ids() -> Non
     assert "qualified roles" in prompt
 
 
-def test_assistant_node_extraction_prompt_matches_runtime_input_order() -> None:
+def test_assistant_node_extraction_prompt_uses_compact_definition_and_baseline_order() -> None:
     prompt = build_node_extraction_prompt(
         "assistant",
         mode="sentences",
@@ -907,26 +907,22 @@ def test_assistant_node_extraction_prompt_matches_runtime_input_order() -> None:
     )
 
     assert prompt is not None
-    current = prompt.index("## Current turn sentences")
-    context = prompt.index("## Earlier belief nodes")
-    contract = prompt.index("## Extraction contract")
+    definition = prompt.index("## What is a belief")
+    context = prompt.index("## Existing belief nodes")
+    hard = prompt.index("## Hard constraints")
     output = prompt.index("## Output (JSON only")
-    assert contract < context < output < current
+    current = prompt.index("## Current turn sentences")
+    assert definition < context < hard < output < current
     assert "An earlier clue." in prompt
     assert "Existing relations" not in prompt
     assert '"from": 1' not in prompt
     assert '"tmp_id"' not in prompt
-    assert "Valid Tool Call JSON has" in prompt
+    assert "self-contained, reusable memory or reasoning unit" in prompt
+    assert "Factual claims and intermediate conclusions" in prompt
+    assert "supporting_sentence_indices" in prompt
     assert "COCO" not in prompt
     assert "Mask R-CNN" not in prompt
     assert "silver Honda Civic" not in prompt
-    assert "task-defining criteria" in prompt
-    assert "evidence gaps" in prompt
-    assert "A single source sentence may support\nmultiple nodes" in prompt
-    assert "do not create a node merely for the\nact of searching" in prompt
-    assert "EVERY belief and decision MUST contain" in prompt
-    assert "missing evidence list makes the\n   entire response invalid" in prompt
-    assert "Do not infer a decision" in prompt
 
 
 def test_unified_node_extraction_assigns_code_owned_tmp_ids(

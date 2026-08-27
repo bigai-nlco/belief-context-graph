@@ -165,141 +165,24 @@ constraints together. Write in the third person about "The user" or the named
 subject. Skip greetings and purely cosmetic instructions.
 """
 
-_ASSISTANT_NODE_TASK = """\
-Extract only NEW, self-contained BELIEFS and explicit final DECISIONS from the
-CURRENT ASSISTANT source. Relations and Tool Call nodes are handled separately.
-"""
+_ASSISTANT_BELIEF_DEFINITION = """\
+## What is a belief
+A belief is a self-contained, reusable memory or reasoning unit. Preserve the
+most specific supported wording and enough subject, scope, and qualification for
+the claim to remain understandable outside its original turn.
 
-_ASSISTANT_NODE_RULES = """\
-## Extraction contract
-### Beliefs
-Extract substantive content that later reasoning may need:
-- factual claims and recalled facts;
-- task-defining criteria, constraints, and evidence gaps;
-- named candidates, alternatives, and falsifiable hypotheses;
-- intermediate conclusions, comparisons, assessments, and recommendations;
-- an unresolved evidence gap when resolving it would confirm, reject, or rank a
-  named candidate or task criterion.
+## Granularity — coherent units, not tiny shards
+Keep tightly coupled conditions, reasons, qualifiers, and results together when
+splitting would destroy their dependency. Split independent propositions that
+can be confirmed, contradicted, or reused separately, and keep claims with
+different epistemic status separate. Each node must have one central meaning.
 
-Skip politeness, self-questions, section headings that only label the reasoning,
-and search procedure such as "Let me search", "I should find evidence", or a
-query plan. A check is reusable only when the source states the unresolved fact
-and why it changes a candidate or criterion; do not create a node merely for the
-act of searching. Valid Tool Call JSON has already been removed and is extracted
-deterministically; do not reconstruct it.
-
-Write each belief in the third person about "The assistant", "The user", or the
-named subject. It must remain understandable outside this turn.
-
-### Decisions
-A decision is an explicitly selected final answer, option, result, or conclusion,
-especially content inside ``\\boxed{...}``. Do not infer a decision from a question,
-heading, incomplete phrase, or candidate under investigation. Do not emit the same
-final answer as both a belief and a decision.
-
-### Granularity
-Keep one reusable central claim per node. A single source sentence may support
-multiple nodes. Keep tightly coupled premises, conditions, qualifiers, and
-results together only when splitting would lose their dependency. Split
-independent facts, candidates, alternatives, comparisons, and verification needs
-that can be confirmed, contradicted, or reused separately. Keep different
-epistemic states separate. Do not merge task criteria into one candidate
-hypothesis when those criteria may be needed to evaluate other candidates later.
-
-### Stance
-Choose one per node: ``asserted`` for a committed claim or explicit final answer;
-``recalled`` for explicit memory; ``speculated`` for a hedged hypothesis; and
-``judged`` for an assessment, recommendation, ranking, diagnosis, or selected
-option. An explicitly stated investigation state is ``asserted``, not ``judged``.
-Follow the source wording rather than the overall uncertainty of the task.
-
-### Entities
-List every specific named or uniquely qualified entity explicitly present in the
-node, including task-defining roles when they distinguish a reusable constraint.
-Exclude pronouns, dates and other temporal expressions, bare generic nouns, vague
-concepts, and duplicates. Preserve dates in node text, never as entities. Use
-``[]`` when no supported entity exists.
-"""
-
-_ASSISTANT_NODE_CONTEXT_BLOCK = f"""\
-## Earlier belief nodes (read only)
-Use these nodes only to resolve references and keep entity wording consistent.
-Never copy an earlier node merely because it appears here. If the current source
-explicitly restates, confirms, corrects, or updates it, emit a new supported node.
-
-{GRAPH_NODES_PLACEHOLDER}
-"""
-
-_ASSISTANT_HARD_CONSTRAINTS_SENTENCES = """\
-## Grounding requirements
-1. Preserve names, numbers, dates, quantities, versions, and unusual punctuation EXACTLY.
-2. Use ONLY the current indexed sentences; do not add outside knowledge.
-3. Inspect every current sentence. Preserve each substantive reusable claim,
-   criterion, candidate, alternative, comparison, reason, and evidence gap once.
-4. EVERY belief and decision MUST contain its text, ``stance``, ``entities``, and
-   a NON-EMPTY ``supporting_sentence_indices`` list. List ALL complete current
-   sentences that directly support the node. A missing evidence list makes the
-   entire response invalid; drop an unsupported node instead.
-5. Empty ``beliefs`` and ``decisions`` lists are valid.
-6. Before returning, verify every output object has every required field and that
-   omitted sentences contain only headings, search procedure, or other filler.
-"""
-
-_ASSISTANT_HARD_CONSTRAINTS_EXCERPT = """\
-## Grounding requirements
-1. Preserve names, numbers, dates, quantities, versions, and unusual punctuation EXACTLY.
-2. Use ONLY the current content; do not add outside knowledge.
-3. Preserve each substantive reusable claim, criterion, candidate, alternative,
-   comparison, reason, and evidence gap once.
-4. EVERY belief and decision MUST contain its text, ``stance``, ``entities``, and
-   at least one VERBATIM, CONTIGUOUS ``supporting_excerpts`` substring. A missing
-   evidence list makes the entire response invalid; drop an unsupported node instead.
-5. Empty ``beliefs`` and ``decisions`` lists are valid.
-6. Before returning, verify every output object has every required field.
-"""
-
-_ASSISTANT_OUTPUT_FORMAT_SENTENCES = """\
-## Output (JSON only — no markdown fences, no commentary)
-{
-  "beliefs": [
-    {
-      "belief": "<self-contained Assistant belief>",
-      "stance": "asserted | recalled | speculated | judged",
-      "entities": ["<specific entity>", "..."],
-      "supporting_sentence_indices": [0, 2]
-    }
-  ],
-  "decisions": [
-    {
-      "decision": "<self-contained explicit final decision>",
-      "stance": "asserted | recalled | speculated | judged",
-      "entities": ["<specific entity>", "..."],
-      "supporting_sentence_indices": [3]
-    }
-  ]
-}
-"""
-
-_ASSISTANT_OUTPUT_FORMAT_EXCERPT = """\
-## Output (JSON only — no markdown fences, no commentary)
-{
-  "beliefs": [
-    {
-      "belief": "<self-contained Assistant belief>",
-      "stance": "asserted | recalled | speculated | judged",
-      "entities": ["<specific entity>", "..."],
-      "supporting_excerpts": ["<verbatim current-content excerpt>"]
-    }
-  ],
-  "decisions": [
-    {
-      "decision": "<self-contained explicit final decision>",
-      "stance": "asserted | recalled | speculated | judged",
-      "entities": ["<specific entity>", "..."],
-      "supporting_excerpts": ["<verbatim current-content excerpt>"]
-    }
-  ]
-}
+## Entities
+For every node, list specific named or uniquely qualified entities explicitly
+involved in it: people, organizations, places, products, datasets, files, tools,
+models, APIs, variables, and distinguishable concepts. Exclude pronouns, temporal
+expressions, bare generic nouns, vague concepts, and duplicates. Use ``[]`` when
+none exists; never invent an entity.
 """
 
 _GRAPH_CONTEXT_BLOCK = f"""\
@@ -778,42 +661,6 @@ def build_node_extraction_prompt(
     task_line, guidance, _stance_hint = _GUIDANCE[key]
 
     has_existing_nodes = _has_existing_nodes(graph_nodes)
-    if key == "assistant":
-        current_input = (
-            f"## Current turn content\n{CONTENT_PLACEHOLDER}\n"
-            if mode == "excerpt"
-            else (
-                "## Current turn sentences\n"
-                "Indices are stable within this source.\n"
-                f"{SENTENCES_PLACEHOLDER}\n"
-            )
-        )
-        parts = ["# Task", _ASSISTANT_NODE_TASK, _ASSISTANT_NODE_RULES]
-        if has_existing_nodes:
-            parts.append(_ASSISTANT_NODE_CONTEXT_BLOCK)
-        if mode == "excerpt":
-            parts.extend(
-                [
-                    _ASSISTANT_HARD_CONSTRAINTS_EXCERPT,
-                    _ASSISTANT_OUTPUT_FORMAT_EXCERPT,
-                    current_input,
-                ]
-            )
-        else:
-            parts.extend(
-                [
-                    _ASSISTANT_HARD_CONSTRAINTS_SENTENCES,
-                    _ASSISTANT_OUTPUT_FORMAT_SENTENCES,
-                    current_input,
-                ]
-            )
-        prompt = "\n".join(parts).replace(
-            GRAPH_NODES_PLACEHOLDER, graph_nodes or "[]"
-        )
-        _ = graph_edges, current_date
-        if mode == "excerpt":
-            return prompt.replace(CONTENT_PLACEHOLDER, content or "")
-        return prompt.replace(SENTENCES_PLACEHOLDER, sentences_block or "")
 
     if key == "user" and not has_existing_nodes:
         task_intro = (
@@ -838,6 +685,8 @@ def build_node_extraction_prompt(
         belief_definition = _USER_BELIEF_DEFINITION
         stance_definition = _USER_STANCE_DEFINITION
         role_guidance = _USER_GUIDANCE
+    elif key == "assistant":
+        belief_definition = _ASSISTANT_BELIEF_DEFINITION
     parts.extend([belief_definition, stance_definition, role_guidance])
     if has_existing_nodes:
         parts.append(_NODE_GRAPH_CONTEXT_BLOCK)
