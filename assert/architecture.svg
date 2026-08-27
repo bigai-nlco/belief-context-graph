@@ -54,36 +54,36 @@
     <text x="66" y="134" class="section">AGENT RUNTIME</text>
 
     <g filter="url(#shadow)">
-      <rect x="70" y="150" width="260" height="132" rx="17" fill="#ffffff" stroke="#c7d1df"/>
-      <rect x="395" y="143" width="500" height="148" rx="19" fill="#ffffff" stroke="#9eaef8" stroke-width="1.6"/>
-      <rect x="960" y="150" width="360" height="132" rx="17" fill="#ffffff" stroke="#c7d1df"/>
+      <rect x="60" y="150" width="330" height="132" rx="17" fill="#ffffff" stroke="#c7d1df"/>
+      <rect x="450" y="143" width="500" height="148" rx="19" fill="#ffffff" stroke="#9eaef8" stroke-width="1.6"/>
+      <rect x="1010" y="150" width="330" height="132" rx="17" fill="#ffffff" stroke="#c7d1df"/>
     </g>
 
-    <circle cx="103" cy="180" r="17" fill="#e0e7ff"/>
-    <path d="M96 180h14M103 173v14" stroke="#4f46e5" stroke-width="2.4" stroke-linecap="round"/>
-    <text x="132" y="188" class="title" style="font-size:24px">Any Agent</text>
-    <text x="96" y="214" class="body">Reference CLI included</text>
-    <text x="96" y="244" class="small">User input · sessions · tools</text>
-    <rect x="82" y="257" width="135" height="19" rx="9" fill="#eef2ff"/>
-    <text x="149.5" y="271" text-anchor="middle" class="chip">agent-agnostic</text>
+    <circle cx="93" cy="180" r="17" fill="#e0e7ff"/>
+    <path d="M86 180h14M93 173v14" stroke="#4f46e5" stroke-width="2.4" stroke-linecap="round"/>
+    <text x="122" y="188" class="title" style="font-size:24px">Any Agent</text>
+    <text x="86" y="214" class="body">Reference CLI included</text>
+    <text x="86" y="244" class="small">User input · sessions · tools</text>
+    <rect x="72" y="257" width="135" height="19" rx="9" fill="#eef2ff"/>
+    <text x="139.5" y="271" text-anchor="middle" class="chip">agent-agnostic</text>
 
-    <rect x="420" y="164" width="9" height="108" rx="4.5" fill="#5b5bd6"/>
-    <text x="454" y="183" class="title">BCG Context Manager</text>
-    <text x="454" y="214" class="body">Initial user input is always retained</text>
-    <text x="454" y="240" class="body">Latest N completed turns remain raw</text>
-    <text x="454" y="266" class="body">Evicted turns → Graph</text>
-    <rect x="785" y="161" width="80" height="24" rx="11.5" fill="#ede9fe"/>
-    <text x="825" y="178" text-anchor="middle" class="chip">BCG mode</text>
+    <rect x="475" y="164" width="9" height="108" rx="4.5" fill="#5b5bd6"/>
+    <text x="509" y="183" class="title">BCG Context Manager</text>
+    <text x="509" y="214" class="body">Initial user input is always retained</text>
+    <text x="509" y="240" class="body">Latest N completed turns remain raw</text>
+    <text x="509" y="266" class="body">Evicted turns → Graph</text>
+    <rect x="840" y="161" width="80" height="24" rx="11.5" fill="#ede9fe"/>
+    <text x="880" y="178" text-anchor="middle" class="chip">BCG mode</text>
 
-    <circle cx="994" cy="180" r="17" fill="#e0f2fe"/>
-    <path d="M986 180h16M994 172v16M988 174l12 12M1000 174l-12 12" stroke="#0284c7" stroke-width="1.7" stroke-linecap="round" opacity="0.85"/>
-    <text x="1023" y="188" class="title">Model + Tools</text>
-    <text x="986" y="214" class="body">OpenAI-compatible inference</text>
-    <text x="986" y="244" class="small">Search · shell · files · extensions</text>
-    <text x="986" y="269" class="small">Assistant and tool turns return to context</text>
+    <circle cx="1044" cy="180" r="17" fill="#e0f2fe"/>
+    <path d="M1036 180h16M1044 172v16M1038 174l12 12M1050 174l-12 12" stroke="#0284c7" stroke-width="1.7" stroke-linecap="round" opacity="0.85"/>
+    <text x="1073" y="188" class="title">Model + Tools</text>
+    <text x="1036" y="214" class="body">OpenAI-compatible inference</text>
+    <text x="1036" y="244" class="small">Search · shell · files · extensions</text>
+    <text x="1036" y="269" class="small">Assistant and tool turns return to context</text>
 
-    <path d="M338 216H383" class="arrow"/>
-    <path d="M903 216H948" class="arrowPurple"/>
+    <path d="M398 216H438" class="arrow"/>
+    <path d="M958 216H998" class="arrowPurple"/>
 
     <!-- Integration paths -->
     <text x="66" y="346" class="section">INTEGRATION PATHS</text>
@@ -95,8 +95,8 @@
     </g>
 
     <text x="175" y="402" class="title" style="font-size:24px">Graph Construction HTTP Service</text>
-    <text x="175" y="432" class="body">One ordered streaming session per problem_id</text>
-    <text x="175" y="458" class="small">Threaded across independent trajectories</text>
+    <text x="175" y="433" class="body">One ordered streaming session per problem_id</text>
+    <text x="175" y="460" class="small">Threaded across independent trajectories</text>
     <g>
       <rect x="175" y="472" width="68" height="25" rx="12" fill="#eef2ff"/>
       <rect x="251" y="472" width="70" height="25" rx="12" fill="#eef2ff"/>
@@ -108,7 +108,7 @@
       <text x="457" y="489" text-anchor="middle" class="chip">/release</text>
     </g>
 
-    <text x="815" y="402" class="title">Python SDK</text>
+    <text x="815" y="402" class="title" style="font-size:24px">Python SDK</text>
     <text x="815" y="433" class="body">BCGRunner — run and session orchestration</text>
     <text x="815" y="460" class="body">BCGMemory — observe, read, search, context</text>
     <text x="815" y="488" class="small">Direct backend access without the HTTP layer</text>
@@ -116,8 +116,8 @@
     <text x="700" y="562" text-anchor="middle" font-size="20" font-weight="780" fill="#ffffff">Lazy Backend Registry</text>
     <text x="700" y="584" text-anchor="middle" font-size="15" font-weight="560" fill="#e0e7ff">shared contracts · config · sessions</text>
 
-    <path d="M645 299V329Q645 341 631 341H394Q380 341 380 353V356" class="arrowPurple"/>
-    <path d="M805 299V329Q805 341 819 341H1006Q1020 341 1020 353V356" class="arrowPurple"/>
+    <path d="M540 299V329Q540 341 526 341H394Q380 341 380 353V356" class="arrowPurple"/>
+    <path d="M860 299V329Q860 341 874 341H1006Q1020 341 1020 353V356" class="arrowPurple"/>
     <rect x="420" y="317" width="216" height="21" rx="10" fill="#ffffff" stroke="#c4b5fd"/>
     <text x="528" y="332" text-anchor="middle" font-size="14.5" font-weight="650" fill="#4f46e5">evicted completed turns</text>
     <path d="M380 513V548Q380 566 398 566H516" class="arrow"/>
@@ -151,38 +151,38 @@
     <text x="66" y="830" class="section">SHARED INCREMENTAL GRAPH SEMANTICS</text>
 
     <g>
-      <rect x="68" y="844" width="174" height="54" rx="13" fill="#ffffff" stroke="#d5dce7"/>
-      <rect x="282" y="844" width="174" height="54" rx="13" fill="#ffffff" stroke="#d5dce7"/>
-      <rect x="496" y="844" width="174" height="54" rx="13" fill="#ffffff" stroke="#d5dce7"/>
-      <rect x="710" y="844" width="174" height="54" rx="13" fill="#ffffff" stroke="#d5dce7"/>
-      <rect x="924" y="844" width="174" height="54" rx="13" fill="#ffffff" stroke="#d5dce7"/>
-      <rect x="1138" y="844" width="194" height="54" rx="13" fill="#f0edff" stroke="#bcb5fa"/>
+      <rect x="78" y="844" width="174" height="54" rx="13" fill="#ffffff" stroke="#d5dce7"/>
+      <rect x="292" y="844" width="174" height="54" rx="13" fill="#ffffff" stroke="#d5dce7"/>
+      <rect x="506" y="844" width="174" height="54" rx="13" fill="#ffffff" stroke="#d5dce7"/>
+      <rect x="720" y="844" width="174" height="54" rx="13" fill="#ffffff" stroke="#d5dce7"/>
+      <rect x="934" y="844" width="174" height="54" rx="13" fill="#ffffff" stroke="#d5dce7"/>
+      <rect x="1148" y="844" width="174" height="54" rx="13" fill="#f0edff" stroke="#bcb5fa"/>
 
-      <text x="155" y="866" text-anchor="middle" class="stageTitle">1 · Split / chunk</text>
-      <text x="155" y="887" text-anchor="middle" class="stageBody">role-tagged turn</text>
-      <text x="369" y="866" text-anchor="middle" class="stageTitle">2 · Extract</text>
-      <text x="369" y="887" text-anchor="middle" class="stageBody">beliefs + evidence</text>
-      <text x="583" y="866" text-anchor="middle" class="stageTitle">3 · Merge</text>
-      <text x="583" y="887" text-anchor="middle" class="stageBody">canonical nodes</text>
-      <text x="797" y="866" text-anchor="middle" class="stageTitle">4 · Link</text>
-      <text x="797" y="887" text-anchor="middle" class="stageBody">typed relations</text>
-      <text x="1011" y="866" text-anchor="middle" class="stageTitle">5 · Confidence</text>
-      <text x="1011" y="887" text-anchor="middle" class="stageBody">deterministic posterior</text>
+      <text x="165" y="866" text-anchor="middle" class="stageTitle">1 · Split / chunk</text>
+      <text x="165" y="887" text-anchor="middle" class="stageBody">role-tagged turn</text>
+      <text x="379" y="866" text-anchor="middle" class="stageTitle">2 · Extract</text>
+      <text x="379" y="887" text-anchor="middle" class="stageBody">beliefs + evidence</text>
+      <text x="593" y="866" text-anchor="middle" class="stageTitle">3 · Merge</text>
+      <text x="593" y="887" text-anchor="middle" class="stageBody">canonical nodes</text>
+      <text x="807" y="866" text-anchor="middle" class="stageTitle">4 · Link</text>
+      <text x="807" y="887" text-anchor="middle" class="stageBody">typed relations</text>
+      <text x="1021" y="866" text-anchor="middle" class="stageTitle">5 · Confidence</text>
+      <text x="1021" y="887" text-anchor="middle" class="stageBody">deterministic posterior</text>
       <text x="1235" y="866" text-anchor="middle" class="stageTitle" fill="#4338ca">6 · Snapshot</text>
       <text x="1235" y="887" text-anchor="middle" class="stageBody" fill="#5b5bd6">graph + artifacts</text>
 
-      <path d="M249 871H273" class="arrow"/>
-      <path d="M463 871H487" class="arrow"/>
-      <path d="M677 871H701" class="arrow"/>
-      <path d="M891 871H915" class="arrow"/>
-      <path d="M1105 871H1129" class="arrowPurple"/>
+      <path d="M259 871H283" class="arrow"/>
+      <path d="M473 871H497" class="arrow"/>
+      <path d="M687 871H711" class="arrow"/>
+      <path d="M901 871H925" class="arrow"/>
+      <path d="M1115 871H1139" class="arrowPurple"/>
     </g>
 
     <path d="M375 786V797" class="arrow"/>
     <path d="M1025 786V797" class="arrow"/>
 
     <!-- Feedback path -->
-    <path d="M1340 871H1372V116H780V136" class="feedback"/>
+    <path d="M1330 871H1372V116H835V136" class="feedback"/>
     <rect x="1088" y="312" width="268" height="42" rx="11" fill="#ffffff" stroke="#c4b5fd"/>
     <text x="1222" y="330" text-anchor="middle" font-size="14.5" font-weight="760" fill="#4f46e5">GRAPH SNAPSHOT</text>
     <text x="1222" y="348" text-anchor="middle" font-size="15" font-weight="520" fill="#64748b">beliefs · relations · confidence</text>
