@@ -897,6 +897,34 @@ def test_unified_node_extraction_prompt_omits_empty_context_and_tmp_ids() -> Non
     assert "qualified roles" in prompt
 
 
+def test_assistant_node_extraction_prompt_matches_runtime_input_order() -> None:
+    prompt = build_node_extraction_prompt(
+        "assistant",
+        mode="sentences",
+        sentences_block="[0] The assistant considers Candidate A.",
+        graph_nodes='[{"content": "An earlier clue."}]',
+        graph_edges='[{"from": 1, "to": 2, "type": "depends_on"}]',
+    )
+
+    assert prompt is not None
+    current = prompt.index("## Current turn sentences")
+    context = prompt.index("## Earlier belief nodes")
+    contract = prompt.index("## Extraction contract")
+    output = prompt.index("## Output (JSON only")
+    assert context < current < contract < output
+    assert "An earlier clue." in prompt
+    assert "Existing relations" not in prompt
+    assert '"from": 1' not in prompt
+    assert '"tmp_id"' not in prompt
+    assert "Tool Call JSON has\nalready been removed" in prompt
+    assert "COCO" not in prompt
+    assert "Mask R-CNN" not in prompt
+    assert "silver Honda Civic" not in prompt
+    assert "task-defining criteria" in prompt
+    assert "evidence gaps" in prompt
+    assert "Do not infer a decision" in prompt
+
+
 def test_unified_node_extraction_assigns_code_owned_tmp_ids(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
