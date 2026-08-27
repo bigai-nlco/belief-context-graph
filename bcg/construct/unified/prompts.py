@@ -802,16 +802,21 @@ def build_relation_extraction_prompt(
         "into the graph. Your job is to identify meaningful semantic relations inside the "
         "candidate node window below: current-turn surviving new nodes plus at most one "
         "candidate prior turn, or current-turn nodes only.\n",
-        f"## Current turn ({role})\n" + CONTENT_PLACEHOLDER + "\n",
-        "## Candidate node window\n"
-        "The graph below is deliberately limited to the current turn's surviving new nodes "
-        "and one candidate prior turn's surviving nodes. It is not the full graph.\n\n"
-        "### Candidate nodes\n" + GRAPH_NODES_PLACEHOLDER + "\n\n"
-        "### Existing relations\n" + GRAPH_EDGES_PLACEHOLDER + "\n",
-        "## Nodes from this turn\n" + NEW_NODE_IDS_PLACEHOLDER + "\n",
-        _RELATION_EDGE_RULES,
-        _RELATION_OUTPUT_FORMAT,
     ]
+    if content.strip():
+        parts.append(f"## Current turn ({role})\n" + CONTENT_PLACEHOLDER + "\n")
+    parts.extend(
+        [
+            "## Candidate node window\n"
+            "The graph below is deliberately limited to the current turn's surviving new nodes "
+            "and one candidate prior turn's surviving nodes. It is not the full graph.\n\n"
+            "### Candidate nodes\n" + GRAPH_NODES_PLACEHOLDER + "\n\n"
+            "### Existing relations\n" + GRAPH_EDGES_PLACEHOLDER + "\n",
+            "## Nodes from this turn\n" + NEW_NODE_IDS_PLACEHOLDER + "\n",
+            _RELATION_EDGE_RULES,
+            _RELATION_OUTPUT_FORMAT,
+        ]
+    )
     prompt = "\n".join(parts)
     prompt = prompt.replace(CONTENT_PLACEHOLDER, content or "")
     prompt = prompt.replace(GRAPH_NODES_PLACEHOLDER, graph_nodes or "[]")
@@ -880,21 +885,28 @@ def build_layered_relation_extraction_prompt(
     parts: list[str] = [
         "# Task",
         "Link the current Assistant belief nodes to the most relevant prior layer.",
-        f"## Current Assistant reasoning ({role})\n" + CONTENT_PLACEHOLDER + "\n",
-        "## Candidate previous layers\n"
-        "Layer 1 is the nearest non-empty Graph turn; larger numbers are older. "
-        "Layer membership is authoritative.\n" + candidate_layers + "\n",
-        "## Candidate nodes\n"
-        + GRAPH_NODES_PLACEHOLDER
-        + "\n\n## Existing relations\n"
-        + GRAPH_EDGES_PLACEHOLDER
-        + "\n",
-        "## Current-turn node ids\n" + NEW_NODE_IDS_PLACEHOLDER + "\n",
-        _LAYERED_RELATION_EDGE_RULES,
-        "## Layer selection\n"
-        "Compare all candidates in one pass. Cross-turn relations may use ZERO OR "
-        "ONE previous layer, never a mixture. Select null when none is meaningful.\n",
     ]
+    if content.strip():
+        parts.append(
+            f"## Current Assistant reasoning ({role})\n" + CONTENT_PLACEHOLDER + "\n"
+        )
+    parts.extend(
+        [
+            "## Candidate previous layers\n"
+            "Layer 1 is the nearest non-empty Graph turn; larger numbers are older. "
+            "Layer membership is authoritative.\n" + candidate_layers + "\n",
+            "## Candidate nodes\n"
+            + GRAPH_NODES_PLACEHOLDER
+            + "\n\n## Existing relations\n"
+            + GRAPH_EDGES_PLACEHOLDER
+            + "\n",
+            "## Current-turn node ids\n" + NEW_NODE_IDS_PLACEHOLDER + "\n",
+            _LAYERED_RELATION_EDGE_RULES,
+            "## Layer selection\n"
+            "Compare all candidates in one pass. Cross-turn relations may use ZERO OR "
+            "ONE previous layer, never a mixture. Select null when none is meaningful.\n",
+        ]
+    )
     if validation_feedback:
         parts.append(
             "## Validation feedback from the previous attempt\n"

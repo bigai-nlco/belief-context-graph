@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from .._shared.roles import normalize_role
-from .._shared.tool_queries import extract_tool_calls, strip_valid_tool_calls
+from .._shared.tool_queries import extract_tool_calls
 from .._shared.tool_results import extract_tool_results
 from .._shared.writers import ArtifactWriter, EventRecorder
 from ..hybrid.named_entities import normalize_entity_config
@@ -1632,9 +1632,10 @@ class StreamingBeliefBuilder:
                 self.client,
                 self.model,
                 role=role,
-                # Tool calls already have deterministic belief nodes. Keep only
-                # Thinking/plain reasoning as semantic evidence for relations.
-                content=strip_valid_tool_calls(content),
+                # Current Assistant semantics are already represented by the
+                # surviving belief nodes. Avoid duplicating the raw reasoning in
+                # every relation request.
+                content="",
                 graph_nodes_str=graph_nodes_post,
                 graph_edges_str=graph_edges_post,
                 new_node_ids=displayed_new_ids,
@@ -1837,7 +1838,11 @@ class StreamingBeliefBuilder:
             self.client,
             self.model,
             role=role,
-            content=content,
+            # Tool Result semantics are already represented by the extracted
+            # current-turn nodes. The deterministic provenance pass separately
+            # pairs each result with its exact Tool Call, so the raw result text
+            # is redundant in this model-based relation request.
+            content="" if normalize_role(role) == "tool" else content,
             graph_nodes_str=graph_nodes_post,
             graph_edges_str=graph_edges_post,
             new_node_ids=surviving_new_ids,

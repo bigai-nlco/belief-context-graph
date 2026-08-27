@@ -745,10 +745,7 @@ def test_unified_assistant_relations_judge_three_layers_in_one_call(
         "trajectory_index" not in layer
         for layer in layered_calls[0]["candidate_layers"]
     )
-    assert "<thinking>Current reasoning.</thinking>" in layered_calls[0]["content"]
-    assert "Visible reasoning." in layered_calls[0]["content"]
-    assert "<tool_call>" not in layered_calls[0]["content"]
-    assert "secret query" not in layered_calls[0]["content"]
+    assert layered_calls[0]["content"] == ""
     assert '"stance"' not in layered_calls[0]["graph_nodes_str"]
     assert '"entities"' not in layered_calls[0]["graph_nodes_str"]
     assert event["edge_attempts"][0]["validation_passed"] is True
@@ -1245,8 +1242,7 @@ def test_grouped_parallel_results_pair_exact_calls_then_model_link_thinking(
             *results,
         ]
     ]
-    assert "<tool_result>" in relation_contents[0]
-    assert "Alpha result" in relation_contents[0]
+    assert relation_contents[0] == ""
     assert "The assistant is comparing alpha and beta." in relation_windows[0]
     assert "using web_search" not in relation_windows[0]
     assert event["edge_attempts"][0]["pairing_strategy"] == "tool_call_id"
