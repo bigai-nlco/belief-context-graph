@@ -873,6 +873,70 @@ def test_unified_node_extraction_prompt_omits_edges() -> None:
     assert "query-bearing tool call" not in prompt
 
 
+def test_unified_node_extraction_prompt_omits_empty_context_and_tmp_ids() -> None:
+    prompt = build_node_extraction_prompt(
+        "user",
+        mode="sentences",
+        sentences_block="[0] The user asks a question.",
+        graph_nodes="[]",
+    )
+
+    assert prompt is not None
+    assert "Existing belief nodes" not in prompt
+    assert '"tmp_id"' not in prompt
+    assert '"stance"' in prompt
+    assert '"entities"' in prompt
+
+
+def test_unified_node_extraction_assigns_code_owned_tmp_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_call(*args: Any, **kwargs: Any) -> str:
+        del args, kwargs
+        return json.dumps(
+            {
+                "beliefs": [
+                    {
+                        "tmp_id": "model-chosen-id",
+                        "belief": "First belief.",
+                        "stance": "asserted",
+                        "entities": ["First"],
+                        "supporting_sentence_indices": [0],
+                    },
+                    {
+                        "tmp_id": "model-chosen-id",
+                        "belief": "Second belief.",
+                        "stance": "judged",
+                        "entities": ["Second"],
+                        "supporting_sentence_indices": [1],
+                    },
+                ],
+                "decisions": [
+                    {
+                        "tmp_id": "another-model-id",
+                        "decision": "Final decision.",
+                        "stance": "judged",
+                        "entities": ["Final"],
+                        "supporting_sentence_indices": [1],
+                    }
+                ],
+            }
+        )
+
+    monkeypatch.setattr("bcg.construct.unified.extract.llm.call_model", fake_call)
+    result = extract_nodes(
+        object(),
+        "graph-model",
+        role="assistant",
+        mode="sentences",
+        sentences=["First belief.", "Second belief and final decision."],
+    )
+
+    assert [node["tmp_id"] for node in result["nodes"]] == ["n0", "n1", "d2"]
+    assert result["nodes"][1]["stance"] == "judged"
+    assert result["nodes"][1]["entities"] == ["Second"]
+
+
 def test_stream_node_extraction_respects_context_chars(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1654,7 +1718,8 @@ Snippet: Alpha fact."""
 
     assert len(extraction_prompts) == 2
     assistant_prompt, tool_prompt = extraction_prompts
-    assert "## Existing belief nodes" in assistant_prompt
+    assert "## Existing belief nodes" not in assistant_prompt
+    assert '"tmp_id"' not in assistant_prompt
     assert "Alpha may be relevant." in assistant_prompt
     assert "alpha query" not in assistant_prompt
     assert "Items:" in tool_prompt

@@ -336,13 +336,14 @@ def build_chunk_extraction_prompt(
     if is_assistant:
         parts.append(_DECISION_DEFINITION)
 
-    parts.append(
-        "## Existing belief nodes (context — READ ONLY, no relations)\n"
-        "These nodes were extracted from EARLIER turns. Use them only to resolve "
-        "pronouns/vague references and to keep entity names and wording consistent. "
-        "Do NOT copy them as output.\n"
-        f"{GRAPH_NODES_PLACEHOLDER}\n"
-    )
+    if (graph_nodes or "").strip() not in {"", "[]", "null", "None"}:
+        parts.append(
+            "## Existing belief nodes (context — READ ONLY, no relations)\n"
+            "These nodes were extracted from EARLIER turns. Use them only to resolve "
+            "pronouns/vague references and to keep entity names and wording consistent. "
+            "Do NOT copy them as output.\n"
+            f"{GRAPH_NODES_PLACEHOLDER}\n"
+        )
     if (
         turn_content
         and turn_content.strip()

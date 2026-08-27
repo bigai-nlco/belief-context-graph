@@ -167,6 +167,13 @@ CRITICAL — do NOT copy old node content as new output merely because it appear
 {GRAPH_NODES_PLACEHOLDER}
 """
 
+
+def _has_existing_nodes(graph_nodes: str | None) -> bool:
+    """Return whether a rendered graph-node block contains any nodes."""
+
+    return (graph_nodes or "").strip() not in {"", "[]", "null", "None"}
+
+
 _FORWARD_EDGE_RULES = """\
 ## Relations between nodes
 After creating the NEW beliefs/decisions for this turn, emit relations that connect:
@@ -433,9 +440,10 @@ def build_update_prompt(
         _BELIEF_DEFINITION,
         _STANCE_DEFINITION,
         guidance + "\n",
-        _GRAPH_CONTEXT_BLOCK,
-        _FORWARD_EDGE_RULES,
     ]
+    if _has_existing_nodes(graph_nodes):
+        parts.append(_GRAPH_CONTEXT_BLOCK)
+    parts.append(_FORWARD_EDGE_RULES)
     if mode == "excerpt":
         parts.append(_HARD_CONSTRAINTS_EXCERPT)
         parts.append(_OUTPUT_FORMAT_EXCERPT)
@@ -472,7 +480,6 @@ _OUTPUT_FORMAT_EXCERPT_NODES = """\
 {
   "beliefs": [
     {
-      "tmp_id": "n0",
       "belief": "<self-contained coherent belief>",
       "stance": "asserted | recalled | speculated | judged",
       "entities": ["<specific entity>", "..."],
@@ -481,7 +488,6 @@ _OUTPUT_FORMAT_EXCERPT_NODES = """\
   ],
   "decisions": [
     {
-      "tmp_id": "d0",
       "decision": "<final selected answer, especially content inside \\boxed{...}>",
       "stance": "asserted | recalled | speculated | judged",
       "entities": ["<specific entity>", "..."],
@@ -496,7 +502,6 @@ _OUTPUT_FORMAT_SENTENCES_NODES = """\
 {
   "beliefs": [
     {
-      "tmp_id": "n0",
       "belief": "<self-contained coherent belief>",
       "stance": "asserted | recalled | speculated | judged",
       "entities": ["<specific entity>", "..."],
@@ -505,7 +510,6 @@ _OUTPUT_FORMAT_SENTENCES_NODES = """\
   ],
   "decisions": [
     {
-      "tmp_id": "d0",
       "decision": "<final selected answer, especially content inside \\boxed{...}>",
       "stance": "asserted | recalled | speculated | judged",
       "entities": ["<specific entity>", "..."],
@@ -521,9 +525,7 @@ _HARD_CONSTRAINTS_EXCERPT_NODES = """\
 2. Do NOT add information not present in the content. No outside knowledge.
 3. Every belief and decision MUST have at least one supporting excerpt — a VERBATIM, CONTIGUOUS substring copied
    character-for-character from the content. No excerpt → drop that node.
-4. Each new belief needs a unique "tmp_id": n0, n1, n2, … in output order.
-5. Each new decision needs a unique "tmp_id": d0, d1, d2, … in output order.
-6. Empty beliefs / decisions lists are OK when the content expresses none.
+4. Empty beliefs / decisions lists are OK when the content expresses none.
 """
 
 _HARD_CONSTRAINTS_SENTENCES_NODES = """\
@@ -533,9 +535,7 @@ _HARD_CONSTRAINTS_SENTENCES_NODES = """\
 3. Every belief and decision MUST list the indices of the COMPLETE sentence(s) that support it in
    "supporting_sentence_indices" (use the [k] indices shown). Evidence is always a whole sentence.
    If the whole group supports it, list all its indices.
-4. Each new belief needs a unique "tmp_id": n0, n1, n2, … in output order.
-5. Each new decision needs a unique "tmp_id": d0, d1, d2, … in output order.
-6. Empty beliefs / decisions lists are OK when the sentences express none.
+4. Empty beliefs / decisions lists are OK when the sentences express none.
 """
 
 
@@ -565,8 +565,9 @@ def build_node_extraction_prompt(
         _BELIEF_DEFINITION,
         _STANCE_DEFINITION,
         guidance + "\n",
-        _NODE_GRAPH_CONTEXT_BLOCK,
     ]
+    if _has_existing_nodes(graph_nodes):
+        parts.append(_NODE_GRAPH_CONTEXT_BLOCK)
     if mode == "excerpt":
         parts.append(_HARD_CONSTRAINTS_EXCERPT_NODES)
         parts.append(_OUTPUT_FORMAT_EXCERPT_NODES)
@@ -626,6 +627,12 @@ def build_assistant_tool_result_extraction_prompt(
             f"{assistant_sentences_block or ''}"
         )
     )
+    graph_context = ""
+    if _has_existing_nodes(graph_nodes):
+        graph_context = f"""## Existing belief nodes (read only)
+{graph_nodes}
+
+"""
     return f"""# Task
 Extract belief/decision nodes from TWO ORDERED SOURCE LAYERS in one response:
 1. the Assistant turn;
@@ -644,9 +651,7 @@ Assistant tool-call JSON is handled deterministically by code. Extract the
 Assistant's substantive reasoning, hypotheses, conclusions, and decisions, but
 do not copy raw tool-call syntax as semantic beliefs.
 
-## Existing belief nodes (read only)
-{graph_nodes or "[]"}
-
+{graph_context}
 {assistant_input}
 
 ## Tool Result items
@@ -662,7 +667,6 @@ between item_index values.
   "assistant": {{
     "beliefs": [
       {{
-        "tmp_id": "n0",
         "belief": "<self-contained Assistant belief>",
         "stance": "asserted | recalled | speculated | judged",
         "entities": ["<specific entity>", "..."],
@@ -671,7 +675,6 @@ between item_index values.
     ],
     "decisions": [
       {{
-        "tmp_id": "d0",
         "decision": "<final selected answer only>",
         "stance": "asserted | recalled | speculated | judged",
         "entities": ["<specific entity>", "..."],
