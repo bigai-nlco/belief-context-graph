@@ -14,13 +14,12 @@
 
 </div>
 
-<p align="center">
+<div align="center">
   <a href="assert/benchmark_overview.svg">
     <img src="assert/benchmark_overview.svg" width="100%" alt="Full-dataset benchmark comparison with Accuracy grouped by benchmark on the left, mean Token Cost grouped by benchmark on the right, and Default-versus-BCG token-horizon curves below">
   </a>
-</p>
-
-<p align="left"><sub><sub>Agent: gpt-5.6-luna with low-effort thinking · Graph/Summary: gpt-5.6-luna with thinking disabled · Harness: <a href="agent-cli/packages/agent-core/src/harness">repository harness</a></sub></sub></p>
+</div>
+<div align="left"><sub><sub>Agent: gpt-5.6-luna with low-effort thinking · Graph/Summary: gpt-5.6-luna with thinking disabled · Harness: <a href="agent-cli/packages/agent-core/src/harness">repository harness</a></sub></sub></div>
 
 ## **Why Belief Context Graph**
 **Current agent memory systems fall short.** Conversation memory preserves history. Vector memory retrieves similar fragments. GraphRAG extracts entities and relations. Trace memory records tool calls. Temporal KGs track facts over time.
