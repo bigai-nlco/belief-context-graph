@@ -998,6 +998,44 @@ Rules:
 """
 
 
+_TOOL_RELATION_EDGE_RULES = """\
+## Relation contract
+Link a Tool Result fact only when complete node ``content`` establishes a useful
+semantic connection to prior Assistant reasoning. Shared entities or keywords
+alone are insufficient.
+
+- ``depends_on``: A requires B as evidence, premise, constraint, input, or context.
+- ``supplements``: A adds compatible evidence or detail to B.
+- ``contradicts``: A conflicts with, corrects, negates, or replaces B.
+
+Direction is literal: ``A -> B`` means A has the stated relation to B.
+Every relation must have exactly one current Tool Result endpoint and one prior
+Assistant endpoint; current-to-current and prior-to-prior links are forbidden.
+Use only shown integer ids; no self-links, invented ids, or duplicate existing
+relations. Prefer 0-4 high-value relations per current node; an empty list is valid.
+"""
+
+
+def _build_tool_relation_extraction_prompt(
+    *,
+    graph_nodes: str,
+    graph_edges: str,
+    new_node_ids: str,
+) -> str:
+    return "\n".join(
+        [
+            "# Task",
+            "Link current Tool Result belief nodes to directly relevant prior "
+            "Assistant reasoning nodes.",
+            "## Candidate node content\n" + graph_nodes + "\n",
+            "## Existing relations (do not duplicate)\n" + graph_edges + "\n",
+            "## Current Tool Result node ids\n" + new_node_ids + "\n",
+            _TOOL_RELATION_EDGE_RULES,
+            _RELATION_OUTPUT_FORMAT,
+        ]
+    )
+
+
 def build_relation_extraction_prompt(
     *,
     role: str,
@@ -1008,6 +1046,12 @@ def build_relation_extraction_prompt(
     current_date: str | None = None,
 ) -> str:
     """Phase 2 prompt: extract relations only (on post-merge graph)."""
+    if _resolve_role(role) == "tool":
+        return _build_tool_relation_extraction_prompt(
+            graph_nodes=graph_nodes or "[]",
+            graph_edges=graph_edges or "[]",
+            new_node_ids=new_node_ids or "[]",
+        )
     parts: list[str] = [
         "# Task",
         "Extract typed relations for the belief graph based on the current turn.",

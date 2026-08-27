@@ -50,6 +50,7 @@ from bcg.construct.unified.online import SessionManager as UnifiedSessionManager
 from bcg.construct.unified.prompts import (
     build_layered_relation_extraction_prompt,
     build_node_extraction_prompt,
+    build_relation_extraction_prompt,
 )
 from bcg.construct.unified.stream import (
     StreamingBeliefBuilder as UnifiedStreamingBeliefBuilder,
@@ -636,6 +637,23 @@ def test_unified_relation_nodes_include_only_id_and_content() -> None:
     )
 
     assert json.loads(rendered) == [{"id": 7, "content": "A compact semantic fact."}]
+
+
+def test_unified_tool_relation_prompt_uses_compact_role_contract() -> None:
+    prompt = build_relation_extraction_prompt(
+        role="tool",
+        content="Raw Tool Result content should not be repeated.",
+        graph_nodes='[{"id": 1, "content": "A prior hypothesis."}, {"id": 2, "content": "A result fact."}]',
+        graph_edges="[]",
+        new_node_ids="[2]",
+    )
+
+    assert "directly relevant prior Assistant reasoning nodes" in prompt
+    assert "exactly one current Tool Result endpoint" in prompt
+    assert "current-to-current and prior-to-prior links are forbidden" in prompt
+    assert "Shared entities or keywords" in prompt
+    assert "Raw Tool Result content should not be repeated" not in prompt
+    assert "The user can be charged a late fee" not in prompt
 
 
 def test_unified_extraction_history_includes_only_content() -> None:
