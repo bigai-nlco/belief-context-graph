@@ -61,8 +61,10 @@ BENCHMARKS = (
 )
 
 
-def _y(value: float, maximum: float, top: float, bottom: float) -> float:
-    return bottom - (bottom - top) * value / maximum
+def _y(
+    value: float, minimum: float, maximum: float, top: float, bottom: float
+) -> float:
+    return bottom - (bottom - top) * (value - minimum) / (maximum - minimum)
 
 
 def _rounded_bar(x: float, y: float, width: float, bottom: float, color: str) -> str:
@@ -119,12 +121,13 @@ def _change_arrow(
 
 def render_svg(output: Path) -> None:
     width, height = 1280, 620
-    plot_top, plot_bottom = 185.0, 485.0
+    annotation_top, plot_top, plot_bottom = 185.0, 245.0, 485.0
     bar_width = 44.0
-    accuracy_max = 70.0
-    accuracy_ticks = tuple(range(0, 71, 10))
+    accuracy_min, accuracy_max = 25.0, 65.0
+    accuracy_ticks = (25, 35, 45, 55, 65)
+    token_min = 15_000.0
     token_max = 40_000.0
-    token_ticks = (0, 10_000, 20_000, 30_000, 40_000)
+    token_ticks = (15_000, 20_000, 25_000, 30_000, 35_000, 40_000)
     accuracy_axis = (135.0, 600.0)
     token_axis = (745.0, 1210.0)
     accuracy_centers = (260.0, 475.0)
@@ -132,7 +135,7 @@ def render_svg(output: Path) -> None:
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-labelledby="title desc">',
         '<title id="title">Accuracy and mean token cost by benchmark</title>',
-        '<desc id="desc">Full-dataset Default, Summary, and BCG accuracy and mean token cost for BrowseComp and BrowseComp-ZH. The light Summary segment is Summary Generation, and the light BCG segment is Graph Construction.</desc>',
+        '<desc id="desc">Full-dataset Default, Summary, and BCG accuracy and mean token cost for BrowseComp and BrowseComp-ZH, shown with non-zero y-axis baselines. The light Summary segment is Summary Generation, and the light BCG segment is Graph Construction.</desc>',
         '<rect width="1280" height="620" fill="#ffffff"/>',
         '<g font-family="Inter,Arial,sans-serif">',
         f'<defs><marker id="improvement-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0L8 4L0 8Z" fill="{IMPROVEMENT_COLOR}"/></marker></defs>',
@@ -147,7 +150,7 @@ def render_svg(output: Path) -> None:
     ]
 
     for tick in accuracy_ticks:
-        tick_y = _y(tick, accuracy_max, plot_top, plot_bottom)
+        tick_y = _y(tick, accuracy_min, accuracy_max, plot_top, plot_bottom)
         parts.extend(
             [
                 f'<path d="M{accuracy_axis[0]:.1f} {tick_y:.1f}H{accuracy_axis[1]:.1f}" stroke="{GRID_COLOR}" stroke-width="1"/>',
@@ -155,8 +158,8 @@ def render_svg(output: Path) -> None:
             ]
         )
     for tick in token_ticks:
-        tick_y = _y(tick, token_max, plot_top, plot_bottom)
-        token_label = "0" if tick == 0 else f"{tick / 1000:g}K"
+        tick_y = _y(tick, token_min, token_max, plot_top, plot_bottom)
+        token_label = f"{tick / 1000:g}K"
         parts.extend(
             [
                 f'<path d="M{token_axis[0]:.1f} {tick_y:.1f}H{token_axis[1]:.1f}" stroke="{GRID_COLOR}" stroke-width="1"/>',
@@ -187,7 +190,7 @@ def render_svg(output: Path) -> None:
             (DEFAULT_COLOR, SUMMARY_COLOR, BCG_COLOR),
             strict=True,
         ):
-            bar_y = _y(value, accuracy_max, plot_top, plot_bottom)
+            bar_y = _y(value, accuracy_min, accuracy_max, plot_top, plot_bottom)
             accuracy_tops.append(bar_y)
             parts.extend(
                 [
@@ -203,12 +206,12 @@ def render_svg(output: Path) -> None:
                 accuracy_x[2] + bar_width / 2,
                 accuracy_tops[2],
                 f"+{item.accuracy_bcg - item.accuracy_default:.2f} pp",
-                plot_top=plot_top,
+                plot_top=annotation_top,
                 middle_y=accuracy_tops[1],
             )
         )
 
-        default_y = _y(item.tokens_default, token_max, plot_top, plot_bottom)
+        default_y = _y(item.tokens_default, token_min, token_max, plot_top, plot_bottom)
         parts.extend(
             [
                 _rounded_bar(
@@ -226,9 +229,9 @@ def render_svg(output: Path) -> None:
             ("Summary", "BCG"),
             strict=True,
         ):
-            total_y = _y(total, token_max, plot_top, plot_bottom)
+            total_y = _y(total, token_min, token_max, plot_top, plot_bottom)
             agent_tokens = total - memory
-            boundary_y = _y(agent_tokens, token_max, plot_top, plot_bottom)
+            boundary_y = _y(agent_tokens, token_min, token_max, plot_top, plot_bottom)
             memory_text_color = "#312e81" if mode == "BCG" else "#115e59"
             parts.extend(
                 [
@@ -242,8 +245,20 @@ def render_svg(output: Path) -> None:
         parts.extend(_benchmark_tick(token_center, item))
         token_tops = (
             default_y,
-            _y(item.tokens_summary, token_max, plot_top, plot_bottom),
-            _y(item.tokens_bcg, token_max, plot_top, plot_bottom),
+            _y(
+                item.tokens_summary,
+                token_min,
+                token_max,
+                plot_top,
+                plot_bottom,
+            ),
+            _y(
+                item.tokens_bcg,
+                token_min,
+                token_max,
+                plot_top,
+                plot_bottom,
+            ),
         )
         parts.extend(
             _change_arrow(
@@ -252,7 +267,7 @@ def render_svg(output: Path) -> None:
                 token_x[2] + bar_width / 2,
                 token_tops[2],
                 f"−{1 - item.tokens_bcg / item.tokens_default:.1%}",
-                plot_top=plot_top,
+                plot_top=annotation_top,
                 middle_y=token_tops[1],
             )
         )
