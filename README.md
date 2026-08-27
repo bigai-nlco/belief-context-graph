@@ -12,6 +12,7 @@
 [![Website](https://img.shields.io/badge/website-live-5B5BD6.svg?style=flat-square)](https://bigai-nlco.github.io/belief-context-graph/)
 [![Documentation](https://img.shields.io/badge/documentation-online-0F766E.svg?style=flat-square&logo=readthedocs&logoColor=white)](https://belief-context-graph.docs.buildwithfern.com/)
 [![WeChat](https://img.shields.io/badge/WeChat-Community-07C160.svg?style=flat-square&logo=wechat&logoColor=white)](assert/bcg_qr_code.png)
+[![Discord](https://img.shields.io/badge/Discord-Community-5865F2.svg?style=flat-square&logo=discord&logoColor=white)](assert/bcg_discard_qr_code.png)
 
 </div>
 
