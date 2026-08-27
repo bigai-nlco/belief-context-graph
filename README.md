@@ -4,15 +4,25 @@
 # Belief Context Graph
 
 
-**Probabilistic · Temporal · Explainable · Stateful**
+**Reasoning-Traceable Graph · Belief-Conditioned Loop**
 
 [![Python 3.11–3.13](https://img.shields.io/badge/python-3.11--3.13-blue.svg?style=flat-square)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![uv](https://img.shields.io/badge/uv-managed-6E4BF9.svg?style=flat-square)](https://docs.astral.sh/uv/)
 [![Website](https://img.shields.io/badge/website-live-5B5BD6.svg?style=flat-square)](https://bigai-nlco.github.io/belief-context-graph/)
 [![Documentation](https://img.shields.io/badge/documentation-online-0F766E.svg?style=flat-square&logo=readthedocs&logoColor=white)](https://belief-context-graph.docs.buildwithfern.com/)
+<br>
+[![WeChat](https://img.shields.io/badge/WeChat-Community-07C160.svg?style=flat-square&logo=wechat&logoColor=white)](assert/bcg_qr_code.png)
+[![Discord](https://img.shields.io/badge/Discord-Community-5865F2.svg?style=flat-square&logo=discord&logoColor=white)](assert/bcg_discard_qr_code.png)
 
 </div>
+
+<div align="center">
+  <a href="assert/benchmark_overview.svg">
+    <img src="assert/benchmark_overview.svg" width="100%" alt="Full-dataset benchmark comparison with Accuracy grouped by benchmark on the left, mean Token Cost grouped by benchmark on the right, and Default-versus-BCG token-horizon curves below">
+  </a>
+</div>
+<div align="left"><sub><sub>Agent: gpt-5.6-luna with low-effort thinking · Graph/Summary: gpt-5.6-luna with thinking disabled · Harness: <a href="agent-cli/packages/agent-core/src/harness">repository harness</a></sub></sub></div>
 
 ## **Why Belief Context Graph**
 **Current agent memory systems fall short.** Conversation memory preserves history. Vector memory retrieves similar fragments. GraphRAG extracts entities and relations. Trace memory records tool calls. Temporal KGs track facts over time.
@@ -41,15 +51,6 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 - **Relation Linking:** Forward and backward relationship edges between beliefs, forming a casual decision graph/trace.
 
   
-
-<p align="center">
-  <a href="assert/benchmark_overview.svg">
-    <img src="assert/benchmark_overview.svg" width="100%" alt="Full-dataset benchmark comparison with Accuracy grouped by benchmark on the left, mean Token Cost grouped by benchmark on the right, and Default-versus-BCG token-horizon curves below">
-  </a>
-</p>
-
-<p align="left"><sub><sub>Agent: gpt-5.6-luna with low-effort thinking · Graph/Summary: gpt-5.6-luna with thinking disabled · Harness: <a href="agent-cli/packages/agent-core/src/harness">repository harness</a> · BCG: compact Graph Context with two recent completed turns · BCG and Summary invoke an additional context model, so Token Cost is stacked: dark = Agent; light = Graph Construction (BCG) or Summary Generation (Summary)</sub></sub></p>
-
 
 ## Live Demo
 

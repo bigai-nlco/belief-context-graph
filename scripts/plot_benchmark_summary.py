@@ -110,12 +110,12 @@ def _change_arrow(
         # the middle bar is tall enough for its value label to intersect it.
         curve_y = min(curve_y, middle_y - 32)
     label_x = (start_x + end_x) / 2
-    label_y = max(plot_top + 4, curve_y - 27)
-    label_width = max(68.0, len(label) * 7.2 + 18)
+    label_y = max(plot_top + 4, curve_y - 33)
+    label_width = max(82.0, len(label) * 8.2 + 24)
     return [
         f'<path d="M{start_x:.1f} {arrow_start_y:.1f} C{start_x + 12:.1f} {curve_y:.1f}, {end_x - 12:.1f} {curve_y:.1f}, {end_x:.1f} {arrow_end_y:.1f}" fill="none" stroke="{IMPROVEMENT_COLOR}" stroke-width="1.8" stroke-linecap="round" marker-end="url(#improvement-arrow)"/>',
-        f'<rect x="{label_x - label_width / 2:.1f}" y="{label_y:.1f}" width="{label_width:.1f}" height="20" rx="10" fill="#ffffff" stroke="#c7d2fe"/>',
-        f'<text x="{label_x:.1f}" y="{label_y + 15:.1f}" text-anchor="middle" fill="{IMPROVEMENT_COLOR}" font-size="11.5" font-weight="700">{html.escape(label)}</text>',
+        f'<rect x="{label_x - label_width / 2:.1f}" y="{label_y:.1f}" width="{label_width:.1f}" height="27" rx="13.5" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.2"/>',
+        f'<text x="{label_x:.1f}" y="{label_y + 18.5:.1f}" text-anchor="middle" fill="{IMPROVEMENT_COLOR}" font-size="13.5" font-weight="700">{html.escape(label)}</text>',
     ]
 
 
@@ -134,12 +134,12 @@ def render_svg(output: Path) -> None:
     token_centers = (858.25, 1072.75)
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-labelledby="title desc">',
-        '<title id="title">Accuracy and mean token cost by benchmark</title>',
+        '<title id="title">Efficient Context · Better Performance · Belief-Aware Reasoning</title>',
         '<desc id="desc">Full-dataset Default, Summary, and BCG accuracy and mean token cost for BrowseComp and BrowseComp-ZH, shown with non-zero y-axis baselines. The light Summary segment is Summary Generation, and the light BCG segment is Graph Construction.</desc>',
         '<rect width="1280" height="620" fill="#ffffff"/>',
         '<g font-family="Inter,Arial,sans-serif">',
         f'<defs><marker id="improvement-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0L8 4L0 8Z" fill="{IMPROVEMENT_COLOR}"/></marker></defs>',
-        f'<text x="640" y="39" text-anchor="middle" fill="{TEXT_COLOR}" font-size="27" font-weight="700">Accuracy and mean token cost by benchmark</text>',
+        f'<text x="640" y="39" text-anchor="middle" fill="{TEXT_COLOR}" font-size="27" font-weight="700">Efficient Context · Better Performance · Belief-Aware Reasoning</text>',
         f'<rect x="296" y="62" width="14" height="14" rx="3" fill="{DEFAULT_COLOR}"/><text x="320" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">Default</text>',
         f'<rect x="400" y="62" width="14" height="14" rx="3" fill="{SUMMARY_COLOR}"/><text x="424" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">Summary</text>',
         f'<rect x="512" y="62" width="14" height="14" rx="3" fill="{SUMMARY_MODEL_COLOR}"/><text x="536" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">Summary Generation</text>',
@@ -271,13 +271,6 @@ def render_svg(output: Path) -> None:
                 middle_y=token_tops[1],
             )
         )
-
-    parts.extend(
-        [
-            f'<text x="{sum(accuracy_axis) / 2:.1f}" y="575" text-anchor="middle" fill="{MUTED_COLOR}" font-size="14" font-weight="600">Benchmark</text>',
-            f'<text x="{sum(token_axis) / 2:.1f}" y="575" text-anchor="middle" fill="{MUTED_COLOR}" font-size="14" font-weight="600">Benchmark</text>',
-        ]
-    )
 
     parts.extend(["</g>", "</svg>"])
     output.parent.mkdir(parents=True, exist_ok=True)

@@ -25,8 +25,8 @@ def _visible_group(path: Path) -> ET.Element:
 
 
 def compose(summary: Path, horizon: Path, output: Path) -> None:
-    width, height = 1280, 1205
-    horizon_offset = 600
+    width, height = 1280, 1135
+    horizon_offset = 530
     root = ET.Element(
         _tag("svg"),
         {
@@ -38,7 +38,7 @@ def compose(summary: Path, horizon: Path, output: Path) -> None:
         },
     )
     title = ET.SubElement(root, _tag("title"), {"id": "title"})
-    title.text = "BrowseComp benchmark accuracy and token-cost overview"
+    title.text = "Efficient Context · Better Performance · Belief-Aware Reasoning"
     description = ET.SubElement(root, _tag("desc"), {"id": "desc"})
     description.text = (
         "Full-dataset Default, BCG, and Summary accuracy and mean token cost, "
