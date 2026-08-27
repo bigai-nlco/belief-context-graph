@@ -69,9 +69,7 @@ def main() -> None:
     parser.add_argument(
         "--summary", type=Path, default=Path("assert/benchmark_summary.svg")
     )
-    parser.add_argument(
-        "--horizon", type=Path, default=Path("assert/token_cost.svg")
-    )
+    parser.add_argument("--horizon", type=Path, default=Path("assert/token_cost.svg"))
     parser.add_argument(
         "--output", type=Path, default=Path("assert/benchmark_overview.svg")
     )
