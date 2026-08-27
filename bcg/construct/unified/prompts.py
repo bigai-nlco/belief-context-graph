@@ -19,6 +19,8 @@ Placeholders are filled via str.replace:
 
 from __future__ import annotations
 
+import json
+
 from .._shared.roles import normalize_role
 
 CONTENT_PLACEHOLDER = "<<<CONTENT>>>"
@@ -987,6 +989,53 @@ Required procedure:
 """
 
 
+def _group_layered_relation_nodes(
+    graph_nodes: str,
+    new_node_ids: str,
+    candidate_layers: str,
+) -> str:
+    """Place each relation node directly inside its authoritative layer."""
+    try:
+        nodes = json.loads(graph_nodes or "[]")
+        current_ids = {
+            int(value) for value in json.loads(new_node_ids or "[]") if isinstance(value, int)
+        }
+        layers = json.loads(candidate_layers or "[]")
+        nodes_by_id = {
+            int(node["id"]): node
+            for node in nodes
+            if isinstance(node, dict) and isinstance(node.get("id"), int)
+        }
+        grouped = {
+            "current_nodes": [
+                nodes_by_id[node_id] for node_id in sorted(current_ids) if node_id in nodes_by_id
+            ],
+            "previous_layers": [
+                {
+                    "layer": layer["layer"],
+                    "nodes": [
+                        nodes_by_id[node_id]
+                        for node_id in layer.get("node_ids", [])
+                        if node_id in nodes_by_id
+                    ],
+                }
+                for layer in layers
+                if isinstance(layer, dict) and isinstance(layer.get("layer"), int)
+            ],
+        }
+        return json.dumps(grouped, ensure_ascii=False, indent=2)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        # Preserve debuggability for callers that pass a hand-written non-JSON block.
+        return (
+            "Current node ids:\n"
+            + (new_node_ids or "[]")
+            + "\nPrevious layer membership:\n"
+            + (candidate_layers or "[]")
+            + "\nCandidate nodes:\n"
+            + (graph_nodes or "[]")
+        )
+
+
 def build_layered_relation_extraction_prompt(
     *,
     role: str,
@@ -1011,19 +1060,21 @@ def build_layered_relation_extraction_prompt(
         parts.append(
             f"## Current Assistant reasoning ({role})\n" + CONTENT_PLACEHOLDER + "\n"
         )
+    grouped_nodes = _group_layered_relation_nodes(
+        graph_nodes,
+        new_node_ids,
+        candidate_layers,
+    )
     parts.extend(
         [
             _LAYERED_RELATION_EDGE_RULES,
-            "## Candidate previous layers\n"
-            "Layer 1 is the nearest non-empty Graph turn; larger numbers are older.\n"
-            + candidate_layers
-            + "\n",
-            "## Candidate nodes\n"
-            + GRAPH_NODES_PLACEHOLDER
+            "## Candidate window\n"
+            "Nodes are grouped under their authoritative layer. Layer 1 is the nearest "
+            "non-empty Graph turn; larger numbers are older.\n"
+            + grouped_nodes
             + "\n\n## Existing relations\n"
             + GRAPH_EDGES_PLACEHOLDER
             + "\n",
-            "## Current-turn node ids\n" + NEW_NODE_IDS_PLACEHOLDER + "\n",
         ]
     )
     if validation_feedback:
@@ -1035,9 +1086,7 @@ def build_layered_relation_extraction_prompt(
     parts.append(_LAYERED_RELATION_OUTPUT_FORMAT)
     prompt = "\n".join(parts)
     prompt = prompt.replace(CONTENT_PLACEHOLDER, content or "")
-    prompt = prompt.replace(GRAPH_NODES_PLACEHOLDER, graph_nodes or "[]")
     prompt = prompt.replace(GRAPH_EDGES_PLACEHOLDER, graph_edges or "[]")
-    prompt = prompt.replace(NEW_NODE_IDS_PLACEHOLDER, new_node_ids or "[]")
     return prompt
 
 
