@@ -19,8 +19,6 @@ Placeholders are filled via str.replace:
 
 from __future__ import annotations
 
-import json
-
 from .._shared.roles import normalize_role
 
 CONTENT_PLACEHOLDER = "<<<CONTENT>>>"
@@ -987,40 +985,6 @@ Constraints:
 """
 
 
-def _annotate_layered_relation_nodes(
-    graph_nodes: str,
-    new_node_ids: str,
-    candidate_layers: str,
-) -> str:
-    """Add code-owned layer labels without changing the flat candidate window."""
-    try:
-        nodes = json.loads(graph_nodes or "[]")
-        current_ids = {
-            int(value) for value in json.loads(new_node_ids or "[]") if isinstance(value, int)
-        }
-        layers = json.loads(candidate_layers or "[]")
-        layer_by_id = {
-            int(node_id): int(layer["layer"])
-            for layer in layers
-            if isinstance(layer, dict) and isinstance(layer.get("layer"), int)
-            for node_id in layer.get("node_ids", [])
-            if isinstance(node_id, int)
-        }
-        annotated: list[dict[str, object]] = []
-        for original in nodes:
-            if not isinstance(original, dict) or not isinstance(original.get("id"), int):
-                continue
-            node = dict(original)
-            node_id = int(node["id"])
-            node["candidate_layer"] = (
-                "current" if node_id in current_ids else layer_by_id.get(node_id)
-            )
-            annotated.append(node)
-        return json.dumps(annotated, ensure_ascii=False, indent=2)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return graph_nodes or "[]"
-
-
 def build_layered_relation_extraction_prompt(
     *,
     role: str,
@@ -1045,21 +1009,13 @@ def build_layered_relation_extraction_prompt(
         parts.append(
             f"## Current Assistant reasoning ({role})\n" + CONTENT_PLACEHOLDER + "\n"
         )
-    annotated_nodes = _annotate_layered_relation_nodes(
-        graph_nodes,
-        new_node_ids,
-        candidate_layers,
-    )
     parts.extend(
         [
             "## Candidate previous layers\n"
             "Layer 1 is the nearest non-empty Graph turn; larger numbers are older. "
-            "Layer membership is authoritative. Each candidate node repeats this mapping "
-            "in ``candidate_layer``.\n"
-            + candidate_layers
-            + "\n",
+            "Layer membership is authoritative.\n" + candidate_layers + "\n",
             "## Candidate nodes\n"
-            + annotated_nodes
+            + GRAPH_NODES_PLACEHOLDER
             + "\n\n## Existing relations\n"
             + GRAPH_EDGES_PLACEHOLDER
             + "\n",
@@ -1079,6 +1035,7 @@ def build_layered_relation_extraction_prompt(
     parts.append(_LAYERED_RELATION_OUTPUT_FORMAT)
     prompt = "\n".join(parts)
     prompt = prompt.replace(CONTENT_PLACEHOLDER, content or "")
+    prompt = prompt.replace(GRAPH_NODES_PLACEHOLDER, graph_nodes or "[]")
     prompt = prompt.replace(GRAPH_EDGES_PLACEHOLDER, graph_edges or "[]")
     prompt = prompt.replace(NEW_NODE_IDS_PLACEHOLDER, new_node_ids or "[]")
     return prompt
