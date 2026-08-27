@@ -955,89 +955,70 @@ _LAYERED_RELATION_OUTPUT_FORMAT = """\
   ]
 }
 
-Use ``null`` and an empty ``relations`` list when no meaningful relation exists.
-Before returning, verify that every previous-layer endpoint belongs to
-``selected_previous_layer`` and that no second previous layer appears.
+Hard output constraints:
+- You may connect current-turn nodes to nodes from ZERO OR ONE previous layer.
+- If any current-to-previous relation is emitted, every such relation MUST use the
+  same previous layer and ``selected_previous_layer`` MUST equal that layer number.
+- If no current-to-previous relation is emitted, set ``selected_previous_layer`` to null.
+- Current-turn to current-turn relations are allowed and do not select a previous layer.
+- Never connect nodes from two different previous layers in the same response.
+- Every endpoint must be an integer node id shown in the candidate graph.
+- At least one endpoint of each relation must be from the current-turn node list.
+- Empty relations are valid: {"selected_previous_layer": null, "relations": []}.
 """
 
 
 _LAYERED_RELATION_EDGE_RULES = """\
-## Relation and layer rules
-Judge complete node ``content`` only; metadata or a shared entity alone does not
-justify an edge. A request to verify a claim does not assert that claim. Prefer a
-direct reasoning antecedent (the search, evidence, hypothesis, or constraint that
-the current node actually continues or uses) over an older task restatement.
-
-- ``depends_on``: A requires B as a premise, evidence, constraint, input, or context.
+## Relation rules
+Judge meaningful semantic links using node ``content`` alone:
+- ``depends_on``: A requires B as a premise, input, evidence, constraint, or context.
 - ``supplements``: A adds useful detail or evidence to B without changing it.
 - ``contradicts``: A conflicts with, corrects, negates, or replaces B.
 
 Direction is literal: ``A -> B`` means A depends on, supplements, or contradicts B.
-Use only shown integer ids and never create self-links. Every edge must touch a
-current-turn node; current-to-current edges are allowed, previous-to-previous
-edges are not. Keep the smallest set that preserves the reasoning chain; normally
-0-2 high-value edges per current node are enough.
+Read each complete content field; a request to verify a claim does not assert it.
+Shared entities alone do not justify a relation.
 
-All cross-turn edges must use ZERO OR ONE previous layer. Set
-``selected_previous_layer`` to that layer, or ``null`` when no cross-turn edge is
-emitted. Current-to-current edges do not select a layer.
-
-Required procedure:
-1. Inspect Layer 1 first. Select it if it has any meaningful cross-turn relation.
-   Only when it has none, inspect Layer 2, then older layers in order. Select
-   ``null`` only when no layer has a meaningful relation.
-2. Emit cross-turn edges only to nodes in the first selected layer. Ignore every
-   other prior layer while generating edges.
-3. Add any meaningful current-to-current edges, then verify the selected layer
-   exactly matches all cross-turn endpoints.
+Constraints:
+- Every relation must contain at least one current-turn node.
+- Current-to-current relations are allowed; previous-to-previous relations are not.
+- Use only shown integer ids; no self-links or invented ids.
+- Prefer 0-4 high-value relations per current node. An empty result is valid.
 """
 
 
-def _group_layered_relation_nodes(
+def _annotate_layered_relation_nodes(
     graph_nodes: str,
     new_node_ids: str,
     candidate_layers: str,
 ) -> str:
-    """Place each relation node directly inside its authoritative layer."""
+    """Add code-owned layer labels without changing the flat candidate window."""
     try:
         nodes = json.loads(graph_nodes or "[]")
         current_ids = {
             int(value) for value in json.loads(new_node_ids or "[]") if isinstance(value, int)
         }
         layers = json.loads(candidate_layers or "[]")
-        nodes_by_id = {
-            int(node["id"]): node
-            for node in nodes
-            if isinstance(node, dict) and isinstance(node.get("id"), int)
+        layer_by_id = {
+            int(node_id): int(layer["layer"])
+            for layer in layers
+            if isinstance(layer, dict) and isinstance(layer.get("layer"), int)
+            for node_id in layer.get("node_ids", [])
+            if isinstance(node_id, int)
         }
-        grouped = {
-            "current_nodes": [
-                nodes_by_id[node_id] for node_id in sorted(current_ids) if node_id in nodes_by_id
-            ],
-            "previous_layers": [
-                {
-                    "layer": layer["layer"],
-                    "nodes": [
-                        nodes_by_id[node_id]
-                        for node_id in layer.get("node_ids", [])
-                        if node_id in nodes_by_id
-                    ],
-                }
-                for layer in layers
-                if isinstance(layer, dict) and isinstance(layer.get("layer"), int)
-            ],
-        }
-        return json.dumps(grouped, ensure_ascii=False, indent=2)
+        annotated: list[dict[str, object]] = []
+        for original in nodes:
+            if not isinstance(original, dict) or not isinstance(original.get("id"), int):
+                continue
+            node = dict(original)
+            node_id = int(node["id"])
+            node["candidate_layer"] = (
+                "current" if node_id in current_ids else layer_by_id.get(node_id)
+            )
+            annotated.append(node)
+        return json.dumps(annotated, ensure_ascii=False, indent=2)
     except (TypeError, ValueError, json.JSONDecodeError):
-        # Preserve debuggability for callers that pass a hand-written non-JSON block.
-        return (
-            "Current node ids:\n"
-            + (new_node_ids or "[]")
-            + "\nPrevious layer membership:\n"
-            + (candidate_layers or "[]")
-            + "\nCandidate nodes:\n"
-            + (graph_nodes or "[]")
-        )
+        return graph_nodes or "[]"
 
 
 def build_layered_relation_extraction_prompt(
@@ -1058,27 +1039,35 @@ def build_layered_relation_extraction_prompt(
     """
     parts: list[str] = [
         "# Task",
-        "Relate the current Assistant belief nodes to zero or one relevant prior Graph layer.",
+        "Link the current Assistant belief nodes to the most relevant prior layer.",
     ]
     if content.strip():
         parts.append(
             f"## Current Assistant reasoning ({role})\n" + CONTENT_PLACEHOLDER + "\n"
         )
-    grouped_nodes = _group_layered_relation_nodes(
+    annotated_nodes = _annotate_layered_relation_nodes(
         graph_nodes,
         new_node_ids,
         candidate_layers,
     )
     parts.extend(
         [
-            _LAYERED_RELATION_EDGE_RULES,
-            "## Candidate window\n"
-            "Nodes are grouped under their authoritative layer. Layer 1 is the nearest "
-            "non-empty Graph turn; larger numbers are older.\n"
-            + grouped_nodes
+            "## Candidate previous layers\n"
+            "Layer 1 is the nearest non-empty Graph turn; larger numbers are older. "
+            "Layer membership is authoritative. Each candidate node repeats this mapping "
+            "in ``candidate_layer``.\n"
+            + candidate_layers
+            + "\n",
+            "## Candidate nodes\n"
+            + annotated_nodes
             + "\n\n## Existing relations\n"
             + GRAPH_EDGES_PLACEHOLDER
             + "\n",
+            "## Current-turn node ids\n" + NEW_NODE_IDS_PLACEHOLDER + "\n",
+            _LAYERED_RELATION_EDGE_RULES,
+            "## Layer selection\n"
+            "Compare all candidates in one pass. Cross-turn relations may use ZERO OR "
+            "ONE previous layer, never a mixture. Select null when none is meaningful.\n",
         ]
     )
     if validation_feedback:
@@ -1091,6 +1080,7 @@ def build_layered_relation_extraction_prompt(
     prompt = "\n".join(parts)
     prompt = prompt.replace(CONTENT_PLACEHOLDER, content or "")
     prompt = prompt.replace(GRAPH_EDGES_PLACEHOLDER, graph_edges or "[]")
+    prompt = prompt.replace(NEW_NODE_IDS_PLACEHOLDER, new_node_ids or "[]")
     return prompt
 
 
