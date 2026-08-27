@@ -159,3 +159,6 @@ Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before
 MIT — see the [LICENSE](LICENSE) file for details.
 
 ---
+
+## Contact
+We are very pleased to answer any questions about LooGLE: [lijiaqi@bigai.ai](mailto:lijiaqi@bigai.ai), [zlzheng@bigai.ai](mailto:zlzheng@bigai.ai)
