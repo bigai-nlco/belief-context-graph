@@ -791,12 +791,12 @@ def build_node_extraction_prompt(
         parts = ["# Task", _ASSISTANT_NODE_TASK, _ASSISTANT_NODE_RULES]
         if has_existing_nodes:
             parts.append(_ASSISTANT_NODE_CONTEXT_BLOCK)
-        parts.append(current_input)
         if mode == "excerpt":
             parts.extend(
                 [
                     _ASSISTANT_HARD_CONSTRAINTS_EXCERPT,
                     _ASSISTANT_OUTPUT_FORMAT_EXCERPT,
+                    current_input,
                 ]
             )
         else:
@@ -804,6 +804,7 @@ def build_node_extraction_prompt(
                 [
                     _ASSISTANT_HARD_CONSTRAINTS_SENTENCES,
                     _ASSISTANT_OUTPUT_FORMAT_SENTENCES,
+                    current_input,
                 ]
             )
         prompt = "\n".join(parts).replace(

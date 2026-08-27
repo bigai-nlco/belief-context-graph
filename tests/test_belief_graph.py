@@ -911,7 +911,7 @@ def test_assistant_node_extraction_prompt_matches_runtime_input_order() -> None:
     context = prompt.index("## Earlier belief nodes")
     contract = prompt.index("## Extraction contract")
     output = prompt.index("## Output (JSON only")
-    assert contract < context < current < output
+    assert contract < context < output < current
     assert "An earlier clue." in prompt
     assert "Existing relations" not in prompt
     assert '"from": 1' not in prompt
