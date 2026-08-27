@@ -964,7 +964,9 @@ Before returning, verify that every previous-layer endpoint belongs to
 _LAYERED_RELATION_EDGE_RULES = """\
 ## Relation and layer rules
 Judge complete node ``content`` only; metadata or a shared entity alone does not
-justify an edge. A request to verify a claim does not assert that claim.
+justify an edge. A request to verify a claim does not assert that claim. Prefer a
+direct reasoning antecedent (the search, evidence, hypothesis, or constraint that
+the current node actually continues or uses) over an older task restatement.
 
 - ``depends_on``: A requires B as a premise, evidence, constraint, input, or context.
 - ``supplements``: A adds useful detail or evidence to B without changing it.
@@ -973,17 +975,19 @@ justify an edge. A request to verify a claim does not assert that claim.
 Direction is literal: ``A -> B`` means A depends on, supplements, or contradicts B.
 Use only shown integer ids and never create self-links. Every edge must touch a
 current-turn node; current-to-current edges are allowed, previous-to-previous
-edges are not. Prefer 0-4 high-value edges per current node.
+edges are not. Keep the smallest set that preserves the reasoning chain; normally
+0-2 high-value edges per current node are enough.
 
 All cross-turn edges must use ZERO OR ONE previous layer. Set
 ``selected_previous_layer`` to that layer, or ``null`` when no cross-turn edge is
 emitted. Current-to-current edges do not select a layer.
 
 Required procedure:
-1. Compare the prior layers and select the single layer with the strongest useful
-   semantic continuity to the current nodes, or select ``null``.
-2. Emit cross-turn edges only to nodes in that selected layer. Ignore every other
-   prior layer while generating edges.
+1. Inspect Layer 1 first. Select it if it has any meaningful cross-turn relation.
+   Only when it has none, inspect Layer 2, then older layers in order. Select
+   ``null`` only when no layer has a meaningful relation.
+2. Emit cross-turn edges only to nodes in the first selected layer. Ignore every
+   other prior layer while generating edges.
 3. Add any meaningful current-to-current edges, then verify the selected layer
    exactly matches all cross-turn endpoints.
 """
