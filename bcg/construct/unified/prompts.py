@@ -954,6 +954,8 @@ _LAYERED_RELATION_OUTPUT_FORMAT = """\
 }
 
 Use ``null`` and an empty ``relations`` list when no meaningful relation exists.
+Before returning, verify that every previous-layer endpoint belongs to
+``selected_previous_layer`` and that no second previous layer appears.
 """
 
 
@@ -974,6 +976,14 @@ edges are not. Prefer 0-4 high-value edges per current node.
 All cross-turn edges must use ZERO OR ONE previous layer. Set
 ``selected_previous_layer`` to that layer, or ``null`` when no cross-turn edge is
 emitted. Current-to-current edges do not select a layer.
+
+Required procedure:
+1. Compare the prior layers and select the single layer with the strongest useful
+   semantic continuity to the current nodes, or select ``null``.
+2. Emit cross-turn edges only to nodes in that selected layer. Ignore every other
+   prior layer while generating edges.
+3. Add any meaningful current-to-current edges, then verify the selected layer
+   exactly matches all cross-turn endpoints.
 """
 
 
@@ -1003,6 +1013,7 @@ def build_layered_relation_extraction_prompt(
         )
     parts.extend(
         [
+            _LAYERED_RELATION_EDGE_RULES,
             "## Candidate previous layers\n"
             "Layer 1 is the nearest non-empty Graph turn; larger numbers are older.\n"
             + candidate_layers
@@ -1013,7 +1024,6 @@ def build_layered_relation_extraction_prompt(
             + GRAPH_EDGES_PLACEHOLDER
             + "\n",
             "## Current-turn node ids\n" + NEW_NODE_IDS_PLACEHOLDER + "\n",
-            _LAYERED_RELATION_EDGE_RULES,
         ]
     )
     if validation_feedback:
