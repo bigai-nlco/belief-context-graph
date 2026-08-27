@@ -920,8 +920,14 @@ Judge complete ``content`` fields; shared entities alone do not justify a relati
 
 Direction is literal: ``A -> B`` means A depends on, supplements, or contradicts B.
 A search result does not depend on a Thinking node merely because that reasoning
-caused the search. Prefer the smallest set of direct, high-value evidence links;
-an empty result is valid.
+caused the search. Likewise, a result does not supplement a search plan merely
+because it came next; Tool Call provenance already records that sequence.
+
+For each current Tool Result node, choose the single prior Thinking node with the
+strongest direct semantic link. Add a second edge only when the result independently
+supports or contradicts a distinct substantive claim; never connect it to paraphrases,
+generic task restatements, or multiple search plans. A "no results" observation does
+not contradict the plan or query that produced it. An empty result is valid.
 """
 
 
@@ -929,7 +935,7 @@ _TOOL_RESULT_RELATION_OUTPUT_FORMAT = """\
 ## Output (JSON only — no markdown fences, no commentary)
 {
   "relations": [
-    { "from": <int node id>, "to": <int node id>, "type": "depends_on | supplements | contradicts", "note": "<one short sentence>" }
+    { "from": <int node id>, "to": <int node id>, "type": "depends_on | supplements | contradicts", "note": "<semantic reason, at most 12 words>" }
   ]
 }
 

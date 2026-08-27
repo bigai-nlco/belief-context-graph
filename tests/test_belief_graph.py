@@ -630,6 +630,8 @@ def test_unified_tool_result_relation_prompt_matches_runtime_window() -> None:
     assert "prior Assistant Thinking beliefs" in prompt
     assert "Do not link two current nodes or two prior nodes" in prompt
     assert "Tool Call provenance is paired deterministically by code" in prompt
+    assert "choose the single prior Thinking node" in prompt
+    assert "at most 12 words" in prompt
     assert "raw result text is intentionally omitted at runtime" not in prompt
     assert "The user can be charged a late fee" not in prompt
 
