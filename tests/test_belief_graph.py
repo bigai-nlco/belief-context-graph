@@ -923,8 +923,9 @@ def test_assistant_node_extraction_prompt_matches_runtime_input_order() -> None:
     assert "task-defining criteria" in prompt
     assert "evidence gaps" in prompt
     assert "A single source sentence may support\nmultiple nodes" in prompt
-    assert "object-specific verification need" in prompt
-    assert "Every output object must contain" in prompt
+    assert "do not create a node merely for the\nact of searching" in prompt
+    assert "EVERY belief and decision MUST contain" in prompt
+    assert "missing evidence list makes the\n   entire response invalid" in prompt
     assert "Do not infer a decision" in prompt
 
 

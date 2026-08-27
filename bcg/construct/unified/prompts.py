@@ -178,13 +178,14 @@ Extract substantive content that later reasoning may need:
 - task-defining criteria, constraints, and evidence gaps;
 - named candidates, alternatives, and falsifiable hypotheses;
 - intermediate conclusions, comparisons, assessments, and recommendations;
-- a search or verification need when it names the evidence, clue, criterion, or
-  candidate that later reasoning still needs to check.
+- an unresolved evidence gap when resolving it would confirm, reject, or rank a
+  named candidate or task criterion.
 
 Skip politeness, self-questions, section headings that only label the reasoning,
-and empty procedure such as "Let me search" with no stated object or purpose.
-Do not discard an explicit investigation state merely because it is phrased as a
-next step. Valid Tool Call JSON has already been removed and is extracted
+and search procedure such as "Let me search", "I should find evidence", or a
+query plan. A check is reusable only when the source states the unresolved fact
+and why it changes a candidate or criterion; do not create a node merely for the
+act of searching. Valid Tool Call JSON has already been removed and is extracted
 deterministically; do not reconstruct it.
 
 Write each belief in the third person about "The assistant", "The user", or the
@@ -209,13 +210,15 @@ hypothesis when those criteria may be needed to evaluate other candidates later.
 Choose one per node: ``asserted`` for a committed claim or explicit final answer;
 ``recalled`` for explicit memory; ``speculated`` for a hedged hypothesis; and
 ``judged`` for an assessment, recommendation, ranking, diagnosis, or selected
-option. Follow the source wording rather than the overall uncertainty of the task.
+option. An explicitly stated investigation state is ``asserted``, not ``judged``.
+Follow the source wording rather than the overall uncertainty of the task.
 
 ### Entities
 List every specific named or uniquely qualified entity explicitly present in the
 node, including task-defining roles when they distinguish a reusable constraint.
-Exclude pronouns, temporal expressions, bare generic nouns, vague concepts, and
-duplicates. Use ``[]`` when none exists.
+Exclude pronouns, dates and other temporal expressions, bare generic nouns, vague
+concepts, and duplicates. Preserve dates in node text, never as entities. Use
+``[]`` when no supported entity exists.
 """
 
 _ASSISTANT_NODE_CONTEXT_BLOCK = f"""\
@@ -229,30 +232,30 @@ explicitly restates, confirms, corrects, or updates it, emit a new supported nod
 
 _ASSISTANT_HARD_CONSTRAINTS_SENTENCES = """\
 ## Grounding requirements
-- Preserve names, numbers, dates, quantities, versions, and unusual punctuation exactly.
-- Use only the current indexed sentences; do not add outside knowledge.
-- Inspect every current sentence. Preserve each substantive reusable claim,
-  criterion, candidate, alternative, comparison, reason, evidence gap, and
-  object-specific verification need exactly once.
-- Every output object must contain its text, ``stance``, ``entities``, and a
-  non-empty ``supporting_sentence_indices`` list containing every complete
-  current sentence that directly supports it. Drop unsupported nodes.
-- Empty ``beliefs`` and ``decisions`` lists are valid.
-- Before returning, verify that every output object has all required fields and
-  that omitted sentences contain only headings, empty procedure, or other filler.
+1. Preserve names, numbers, dates, quantities, versions, and unusual punctuation EXACTLY.
+2. Use ONLY the current indexed sentences; do not add outside knowledge.
+3. Inspect every current sentence. Preserve each substantive reusable claim,
+   criterion, candidate, alternative, comparison, reason, and evidence gap once.
+4. EVERY belief and decision MUST contain its text, ``stance``, ``entities``, and
+   a NON-EMPTY ``supporting_sentence_indices`` list. List ALL complete current
+   sentences that directly support the node. A missing evidence list makes the
+   entire response invalid; drop an unsupported node instead.
+5. Empty ``beliefs`` and ``decisions`` lists are valid.
+6. Before returning, verify every output object has every required field and that
+   omitted sentences contain only headings, search procedure, or other filler.
 """
 
 _ASSISTANT_HARD_CONSTRAINTS_EXCERPT = """\
 ## Grounding requirements
-- Preserve names, numbers, dates, quantities, versions, and unusual punctuation exactly.
-- Use only the current content; do not add outside knowledge.
-- Preserve each substantive reusable claim, criterion, candidate, alternative,
-  comparison, reason, evidence gap, and object-specific verification need exactly once.
-- Every output object must contain its text, ``stance``, ``entities``, and at
-  least one verbatim, contiguous ``supporting_excerpts`` substring from the
-  current content. Drop unsupported nodes.
-- Empty ``beliefs`` and ``decisions`` lists are valid.
-- Before returning, verify that every output object has all required fields.
+1. Preserve names, numbers, dates, quantities, versions, and unusual punctuation EXACTLY.
+2. Use ONLY the current content; do not add outside knowledge.
+3. Preserve each substantive reusable claim, criterion, candidate, alternative,
+   comparison, reason, and evidence gap once.
+4. EVERY belief and decision MUST contain its text, ``stance``, ``entities``, and
+   at least one VERBATIM, CONTIGUOUS ``supporting_excerpts`` substring. A missing
+   evidence list makes the entire response invalid; drop an unsupported node instead.
+5. Empty ``beliefs`` and ``decisions`` lists are valid.
+6. Before returning, verify every output object has every required field.
 """
 
 _ASSISTANT_OUTPUT_FORMAT_SENTENCES = """\
