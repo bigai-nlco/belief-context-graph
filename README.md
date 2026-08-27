@@ -4,7 +4,7 @@
 # Belief Context Graph
 
 
-**Belief-Aware Loops · Confidence-Driven Graphs**
+**Belief-Aware Loop · Confidence-Driven Graph**
 
 [![Python 3.11–3.13](https://img.shields.io/badge/python-3.11--3.13-blue.svg?style=flat-square)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
