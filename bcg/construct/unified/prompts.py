@@ -125,6 +125,42 @@ _STANCE_DEFINITION = """\
 
 """
 
+_USER_BELIEF_DEFINITION = """\
+## What is a belief
+A belief is a self-contained memory or reasoning unit, usually shaped like:
+    <subject, predicate, object/value, scope, time, source>
+
+Preserve the most specific supported wording. Each belief must express one
+reusable semantic unit and remain understandable outside the original turn.
+
+## Granularity
+Merge clauses that jointly define one setup, condition, event, or causal step.
+Split only propositions that can be independently confirmed, contradicted, or
+reused. Keep claims with different epistemic status separate.
+
+## Entities
+For each belief, list specific named or uniquely qualified people,
+organizations, places, products, files, tools, models, APIs, datasets, and
+concepts explicitly present in it. Exclude pronouns, temporal expressions,
+generic nouns, vague concepts, and duplicates. Use [] when none exists.
+"""
+
+_USER_STANCE_DEFINITION = """\
+## Stance
+Choose one per belief: asserted = direct statement; recalled = explicit memory;
+speculated = uncertain possibility; judged = assessment, recommendation, or
+conclusion.
+"""
+
+_USER_GUIDANCE = """\
+## Source role: USER
+Extract the user's substantive request, facts, events, preferences, plans,
+constraints, questions, corrections, and updates. Rewrite questions as
+self-contained statements about what the user wants to know. Preserve related
+constraints together. Write in the third person about "The user" or the named
+subject. Skip greetings and purely cosmetic instructions.
+"""
+
 _GRAPH_CONTEXT_BLOCK = f"""\
 ## Existing belief graph (context — READ ONLY)
 These NODES and EDGES were already extracted from EARLIER turns. Use them only to:
@@ -566,21 +602,20 @@ _HARD_CONSTRAINTS_SENTENCES_NODES = """\
 
 _HARD_CONSTRAINTS_EXCERPT_USER_NODES = """\
 ## Hard constraints
-1. Preserve named entities, numbers, dates, quantities EXACTLY as written (incl. unusual punctuation like "!Kung").
-2. Do NOT add information not present in the content. No outside knowledge.
-3. Every belief MUST have at least one supporting excerpt — a VERBATIM, CONTIGUOUS substring copied
-   character-for-character from the content. No excerpt → drop that belief.
-4. An empty beliefs list is OK when the content expresses none.
+Preserve names, numbers, dates, quantities, and unusual punctuation exactly.
+Use only the current content; do not add outside knowledge. Every belief must
+include at least one VERBATIM, CONTIGUOUS "supporting_excerpts" substring copied
+from the content. Drop beliefs without an excerpt. An empty beliefs list is valid
+when the input expresses none.
 """
 
 _HARD_CONSTRAINTS_SENTENCES_USER_NODES = """\
 ## Hard constraints
-1. Preserve named entities, numbers, dates, quantities EXACTLY as written (incl. unusual punctuation like "!Kung").
-2. Do NOT add information not present in the sentences. No outside knowledge.
-3. Every belief MUST list the indices of the COMPLETE sentence(s) that support it in
-   "supporting_sentence_indices" (use the [k] indices shown). Evidence is always a whole sentence.
-   If the whole group supports it, list all its indices.
-4. An empty beliefs list is OK when the sentences express none.
+Preserve names, numbers, dates, quantities, and unusual punctuation exactly.
+Use only the current indexed sentences; do not add outside knowledge. For every
+belief, return all COMPLETE sentence indices that directly support it in
+"supporting_sentence_indices". Drop beliefs without supporting sentences. An
+empty beliefs list is valid when the input expresses none.
 """
 
 
@@ -620,14 +655,12 @@ def build_node_extraction_prompt(
         )
     belief_definition = _BELIEF_DEFINITION
     stance_definition = _STANCE_DEFINITION
+    role_guidance = guidance + "\n"
     if key == "user":
-        belief_definition = belief_definition.replace(
-            "belief or decision text", "belief text"
-        )
-        stance_definition = stance_definition.replace(
-            "per belief or decision", "per belief"
-        )
-    parts.extend([belief_definition, stance_definition, guidance + "\n"])
+        belief_definition = _USER_BELIEF_DEFINITION
+        stance_definition = _USER_STANCE_DEFINITION
+        role_guidance = _USER_GUIDANCE
+    parts.extend([belief_definition, stance_definition, role_guidance])
     if has_existing_nodes:
         parts.append(_NODE_GRAPH_CONTEXT_BLOCK)
     if mode == "excerpt":
@@ -643,11 +676,12 @@ def build_node_extraction_prompt(
         )
         parts.append(f"## Current turn content\n{CONTENT_PLACEHOLDER}\n")
     else:
-        parts.append(
-            "## Sentence input\n"
-            "The current turn's content was split into COMPLETE sentences with stable indices [k]. "
-            "Reference them in supporting_sentence_indices; evidence is always a whole sentence.\n"
-        )
+        if key != "user":
+            parts.append(
+                "## Sentence input\n"
+                "The current turn's content was split into COMPLETE sentences with stable indices [k]. "
+                "Reference them in supporting_sentence_indices; evidence is always a whole sentence.\n"
+            )
         parts.append(
             _HARD_CONSTRAINTS_SENTENCES_USER_NODES
             if key == "user"
