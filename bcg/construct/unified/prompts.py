@@ -177,12 +177,15 @@ Extract substantive content that later reasoning may need:
 - factual claims and recalled facts;
 - task-defining criteria, constraints, and evidence gaps;
 - named candidates, alternatives, and falsifiable hypotheses;
-- intermediate conclusions, comparisons, assessments, and recommendations.
+- intermediate conclusions, comparisons, assessments, and recommendations;
+- a search or verification need when it names the evidence, clue, criterion, or
+  candidate that later reasoning still needs to check.
 
 Skip politeness, self-questions, section headings that only label the reasoning,
-and pure procedure such as "Let me search". Preserve a plan only when it states
-a substantive hypothesis, criterion, or dependency. Valid Tool Call JSON has
-already been removed and is extracted deterministically; do not reconstruct it.
+and empty procedure such as "Let me search" with no stated object or purpose.
+Do not discard an explicit investigation state merely because it is phrased as a
+next step. Valid Tool Call JSON has already been removed and is extracted
+deterministically; do not reconstruct it.
 
 Write each belief in the third person about "The assistant", "The user", or the
 named subject. It must remain understandable outside this turn.
@@ -194,12 +197,13 @@ heading, incomplete phrase, or candidate under investigation. Do not emit the sa
 final answer as both a belief and a decision.
 
 ### Granularity
-Keep one reusable central claim per node. Keep tightly coupled premises,
-conditions, qualifiers, and results together when splitting would lose their
-dependency. Split independent claims that can be verified, contradicted, or
-reused separately, and keep claims with different epistemic status separate.
-Do not merge task criteria into one candidate hypothesis when those criteria may
-be needed to evaluate other candidates later.
+Keep one reusable central claim per node. A single source sentence may support
+multiple nodes. Keep tightly coupled premises, conditions, qualifiers, and
+results together only when splitting would lose their dependency. Split
+independent facts, candidates, alternatives, comparisons, and verification needs
+that can be confirmed, contradicted, or reused separately. Keep different
+epistemic states separate. Do not merge task criteria into one candidate
+hypothesis when those criteria may be needed to evaluate other candidates later.
 
 ### Stance
 Choose one per node: ``asserted`` for a committed claim or explicit final answer;
@@ -208,7 +212,7 @@ Choose one per node: ``asserted`` for a committed claim or explicit final answer
 option. Follow the source wording rather than the overall uncertainty of the task.
 
 ### Entities
-List specific named or uniquely qualified entities explicitly present in the
+List every specific named or uniquely qualified entity explicitly present in the
 node, including task-defining roles when they distinguish a reusable constraint.
 Exclude pronouns, temporal expressions, bare generic nouns, vague concepts, and
 duplicates. Use ``[]`` when none exists.
@@ -227,18 +231,28 @@ _ASSISTANT_HARD_CONSTRAINTS_SENTENCES = """\
 ## Grounding requirements
 - Preserve names, numbers, dates, quantities, versions, and unusual punctuation exactly.
 - Use only the current indexed sentences; do not add outside knowledge.
-- Every belief and decision must list every complete current sentence that directly
-  supports it in ``supporting_sentence_indices``. Drop unsupported nodes.
+- Inspect every current sentence. Preserve each substantive reusable claim,
+  criterion, candidate, alternative, comparison, reason, evidence gap, and
+  object-specific verification need exactly once.
+- Every output object must contain its text, ``stance``, ``entities``, and a
+  non-empty ``supporting_sentence_indices`` list containing every complete
+  current sentence that directly supports it. Drop unsupported nodes.
 - Empty ``beliefs`` and ``decisions`` lists are valid.
+- Before returning, verify that every output object has all required fields and
+  that omitted sentences contain only headings, empty procedure, or other filler.
 """
 
 _ASSISTANT_HARD_CONSTRAINTS_EXCERPT = """\
 ## Grounding requirements
 - Preserve names, numbers, dates, quantities, versions, and unusual punctuation exactly.
 - Use only the current content; do not add outside knowledge.
-- Every belief and decision must include at least one verbatim, contiguous
-  ``supporting_excerpts`` substring from the current content. Drop unsupported nodes.
+- Preserve each substantive reusable claim, criterion, candidate, alternative,
+  comparison, reason, evidence gap, and object-specific verification need exactly once.
+- Every output object must contain its text, ``stance``, ``entities``, and at
+  least one verbatim, contiguous ``supporting_excerpts`` substring from the
+  current content. Drop unsupported nodes.
 - Empty ``beliefs`` and ``decisions`` lists are valid.
+- Before returning, verify that every output object has all required fields.
 """
 
 _ASSISTANT_OUTPUT_FORMAT_SENTENCES = """\
@@ -771,10 +785,10 @@ def build_node_extraction_prompt(
                 f"{SENTENCES_PLACEHOLDER}\n"
             )
         )
-        parts = ["# Task", _ASSISTANT_NODE_TASK]
+        parts = ["# Task", _ASSISTANT_NODE_TASK, _ASSISTANT_NODE_RULES]
         if has_existing_nodes:
             parts.append(_ASSISTANT_NODE_CONTEXT_BLOCK)
-        parts.extend([current_input, _ASSISTANT_NODE_RULES])
+        parts.append(current_input)
         if mode == "excerpt":
             parts.extend(
                 [

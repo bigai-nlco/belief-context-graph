@@ -911,17 +911,20 @@ def test_assistant_node_extraction_prompt_matches_runtime_input_order() -> None:
     context = prompt.index("## Earlier belief nodes")
     contract = prompt.index("## Extraction contract")
     output = prompt.index("## Output (JSON only")
-    assert context < current < contract < output
+    assert contract < context < current < output
     assert "An earlier clue." in prompt
     assert "Existing relations" not in prompt
     assert '"from": 1' not in prompt
     assert '"tmp_id"' not in prompt
-    assert "Tool Call JSON has\nalready been removed" in prompt
+    assert "Valid Tool Call JSON has" in prompt
     assert "COCO" not in prompt
     assert "Mask R-CNN" not in prompt
     assert "silver Honda Civic" not in prompt
     assert "task-defining criteria" in prompt
     assert "evidence gaps" in prompt
+    assert "A single source sentence may support\nmultiple nodes" in prompt
+    assert "object-specific verification need" in prompt
+    assert "Every output object must contain" in prompt
     assert "Do not infer a decision" in prompt
 
 
