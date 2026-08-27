@@ -105,8 +105,6 @@
     <path d="M1020.8 283.7 C1032.8 269.7, 1112.8 269.7, 1124.8 296.7" fill="none" stroke="#4338ca" stroke-width="1.8" stroke-linecap="round" marker-end="url(#improvement-arrow)" />
     <rect x="1031.8" y="236.7" width="82.0" height="27" rx="13.5" fill="#ffffff" stroke="#a5b4fc" stroke-width="1.2" />
     <text x="1072.8" y="255.2" text-anchor="middle" fill="#4338ca" font-size="13.5" font-weight="700">−9.5%</text>
-    <text x="350.5" y="575" text-anchor="middle" fill="#64748b" font-size="14" font-weight="600">Benchmark</text>
-    <text x="965.5" y="575" text-anchor="middle" fill="#64748b" font-size="14" font-weight="600">Benchmark</text>
   </g>
   <g font-family="Inter,Arial,sans-serif" transform="translate(0 530)">
     <path d="M474 69H510" stroke="#64748b" stroke-width="5" stroke-linecap="round" />

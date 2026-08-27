@@ -272,13 +272,6 @@ def render_svg(output: Path) -> None:
             )
         )
 
-    parts.extend(
-        [
-            f'<text x="{sum(accuracy_axis) / 2:.1f}" y="575" text-anchor="middle" fill="{MUTED_COLOR}" font-size="14" font-weight="600">Benchmark</text>',
-            f'<text x="{sum(token_axis) / 2:.1f}" y="575" text-anchor="middle" fill="{MUTED_COLOR}" font-size="14" font-weight="600">Benchmark</text>',
-        ]
-    )
-
     parts.extend(["</g>", "</svg>"])
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("\n".join(parts) + "\n", encoding="utf-8")
