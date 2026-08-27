@@ -165,26 +165,6 @@ constraints together. Write in the third person about "The user" or the named
 subject. Skip greetings and purely cosmetic instructions.
 """
 
-_ASSISTANT_BELIEF_DEFINITION = """\
-## What is a belief
-A belief is a self-contained, reusable memory or reasoning unit. Preserve the
-most specific supported wording and enough subject, scope, and qualification for
-the claim to remain understandable outside its original turn.
-
-## Granularity — coherent units, not tiny shards
-Keep tightly coupled conditions, reasons, qualifiers, and results together when
-splitting would destroy their dependency. Split independent propositions that
-can be confirmed, contradicted, or reused separately, and keep claims with
-different epistemic status separate. Each node must have one central meaning.
-
-## Entities
-For every node, list specific named or uniquely qualified entities explicitly
-involved in it: people, organizations, places, products, datasets, files, tools,
-models, APIs, variables, and distinguishable concepts. Exclude pronouns, temporal
-expressions, bare generic nouns, vague concepts, and duplicates. Use ``[]`` when
-none exists; never invent an entity.
-"""
-
 _GRAPH_CONTEXT_BLOCK = f"""\
 ## Existing belief graph (context — READ ONLY)
 These NODES and EDGES were already extracted from EARLIER turns. Use them only to:
@@ -661,7 +641,6 @@ def build_node_extraction_prompt(
     task_line, guidance, _stance_hint = _GUIDANCE[key]
 
     has_existing_nodes = _has_existing_nodes(graph_nodes)
-
     if key == "user" and not has_existing_nodes:
         task_intro = (
             "Extract coherent, self-contained beliefs from the current USER turn only. "
@@ -685,8 +664,6 @@ def build_node_extraction_prompt(
         belief_definition = _USER_BELIEF_DEFINITION
         stance_definition = _USER_STANCE_DEFINITION
         role_guidance = _USER_GUIDANCE
-    elif key == "assistant":
-        belief_definition = _ASSISTANT_BELIEF_DEFINITION
     parts.extend([belief_definition, stance_definition, role_guidance])
     if has_existing_nodes:
         parts.append(_NODE_GRAPH_CONTEXT_BLOCK)
