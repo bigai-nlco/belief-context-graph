@@ -897,6 +897,33 @@ def test_unified_node_extraction_prompt_omits_empty_context_and_tmp_ids() -> Non
     assert "qualified roles" in prompt
 
 
+def test_unified_assistant_node_prompt_uses_compact_role_specific_sections() -> None:
+    prompt = build_node_extraction_prompt(
+        "assistant",
+        mode="sentences",
+        sentences_block="[0] The assistant identifies the answer.",
+        graph_nodes='[{"id": 1, "belief": "Earlier evidence."}]',
+    )
+
+    assert prompt is not None
+    assert "Maintain the belief graph incrementally" in prompt
+    assert "## What is a belief" in prompt
+    assert "## What is a decision" in prompt
+    assert "## Source role: ASSISTANT" in prompt
+    assert "Tool-call JSON is extracted deterministically by code" in prompt
+    assert "## Existing belief nodes" in prompt
+    assert "Earlier evidence." in prompt
+    assert "## Sentence input" in prompt
+    assert "## Hard constraints" in prompt
+    assert '"decision": "<self-contained final selected answer>"' in prompt
+    assert "## Current turn sentences" in prompt
+    assert "Too fine-grained" not in prompt
+    assert prompt.index("## Existing belief nodes") < prompt.index(
+        "## Hard constraints"
+    )
+    assert prompt.index("## Output") < prompt.index("## Current turn sentences")
+
+
 def test_unified_node_extraction_assigns_code_owned_tmp_ids(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

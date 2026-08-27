@@ -165,6 +165,80 @@ constraints together. Write in the third person about "The user" or the named
 subject. Skip greetings and purely cosmetic instructions.
 """
 
+_ASSISTANT_TASK_LINE = (
+    "Extract coherent, self-contained BELIEFS and final DECISIONS from the current "
+    "ASSISTANT turn only. Preserve reusable reasoning without recording procedural "
+    "filler. Output only new nodes; relations are extracted separately."
+)
+
+_ASSISTANT_BELIEF_DEFINITION = """\
+## What is a belief
+- Factual claims and intermediate conclusions the assistant commits to.
+- Hypotheses or reasoning steps that are falsifiable, reusable, or needed by later turns.
+- Recommendations, assessments, diagnoses, rankings, and derived states.
+
+## What is a decision
+- The assistant's final selected answer, option, result, or explicit final conclusion, especially content inside `\\boxed{...}`.
+- A decision must be self-contained; never emit only a bare label, option, verdict, or value.
+- Do not emit the same final answer as both a belief and a decision.
+
+## Granularity
+Each belief must express one reusable central claim and remain understandable outside the turn. Keep tightly coupled qualifiers, premises, conditions, and results together when splitting would lose their dependency. Split independent propositions that can be confirmed, contradicted, or reused separately. Keep claims with different epistemic status separate.
+"""
+
+_ASSISTANT_STANCE_DEFINITION = """\
+## Stance
+Choose one per belief or decision: asserted = committed claim or final answer; recalled = explicit memory; speculated = uncertain hypothesis; judged = assessment, recommendation, diagnosis, ranking, or selected option.
+"""
+
+_ASSISTANT_GUIDANCE = """\
+## Entities
+List only specific named or uniquely qualified entities explicitly present in each belief or decision: people, organizations, places, products, datasets, files, tools, models, APIs, variables, and distinguishable concepts. Exclude pronouns, temporal expressions, bare generic nouns, vague concepts, and duplicates. Use [] when none exists.
+
+## Source role: ASSISTANT
+- Write beliefs in the third person about "The assistant", "The user", or the named subject.
+- Skip politeness, self-questions, and pure procedure or planning such as "Let me search" unless it states a substantive hypothesis or dependency.
+- Tool-call JSON is extracted deterministically by code. Do not reproduce raw tool-call syntax or create semantic beliefs from its field names.
+"""
+
+_ASSISTANT_HARD_CONSTRAINTS_SENTENCES_NODES = """\
+## Hard constraints
+- Preserve names, numbers, dates, quantities, versions, and unusual punctuation exactly.
+- Do not add outside knowledge.
+- Every belief and decision must list all complete current-turn sentence indices that directly support it in `supporting_sentence_indices`; drop nodes without supporting sentences.
+- Empty beliefs and decisions lists are valid.
+"""
+
+_ASSISTANT_OUTPUT_FORMAT_SENTENCES_NODES = """\
+## Output (JSON only — no markdown fences, no commentary)
+{
+  "beliefs": [
+    {
+      "belief": "<self-contained Assistant belief>",
+      "stance": "asserted | recalled | speculated | judged",
+      "entities": ["<specific entity>", "..."],
+      "supporting_sentence_indices": [0, 2]
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "<self-contained final selected answer>",
+      "stance": "asserted | recalled | speculated | judged",
+      "entities": ["<specific entity>", "..."],
+      "supporting_sentence_indices": [3]
+    }
+  ]
+}
+"""
+
+_ASSISTANT_NODE_GRAPH_CONTEXT_BLOCK = f"""\
+## Existing belief nodes (context — READ ONLY)
+Use historical nodes only to resolve references and keep entity wording consistent. Extract only from the CURRENT turn; never copy an old node merely because it appears here. If the current turn explicitly restates, confirms, corrects, or updates an old belief, emit a new evidence-bearing node.
+
+### Existing nodes
+{GRAPH_NODES_PLACEHOLDER}
+"""
+
 _GRAPH_CONTEXT_BLOCK = f"""\
 ## Existing belief graph (context — READ ONLY)
 These NODES and EDGES were already extracted from EARLIER turns. Use them only to:
@@ -644,8 +718,10 @@ def build_node_extraction_prompt(
     if key == "user" and not has_existing_nodes:
         task_intro = (
             "Extract coherent, self-contained beliefs from the current USER turn only. "
-            "Preserve distinct constraints without fragmenting one coherent request."
+            "Preserve distinct constraints without fragmenting one coherent request.\n"
         )
+    elif key == "assistant":
+        task_intro = _ASSISTANT_TASK_LINE
     else:
         task_intro = task_line
 
@@ -664,9 +740,17 @@ def build_node_extraction_prompt(
         belief_definition = _USER_BELIEF_DEFINITION
         stance_definition = _USER_STANCE_DEFINITION
         role_guidance = _USER_GUIDANCE
+    elif key == "assistant":
+        belief_definition = _ASSISTANT_BELIEF_DEFINITION
+        stance_definition = _ASSISTANT_STANCE_DEFINITION
+        role_guidance = _ASSISTANT_GUIDANCE
     parts.extend([belief_definition, stance_definition, role_guidance])
     if has_existing_nodes:
-        parts.append(_NODE_GRAPH_CONTEXT_BLOCK)
+        parts.append(
+            _ASSISTANT_NODE_GRAPH_CONTEXT_BLOCK
+            if key == "assistant"
+            else _NODE_GRAPH_CONTEXT_BLOCK
+        )
     if mode == "excerpt":
         parts.append(
             _HARD_CONSTRAINTS_EXCERPT_USER_NODES
@@ -686,16 +770,15 @@ def build_node_extraction_prompt(
                 "The current turn's content was split into COMPLETE sentences with stable indices [k]. "
                 "Reference them in supporting_sentence_indices; evidence is always a whole sentence.\n"
             )
-        parts.append(
-            _HARD_CONSTRAINTS_SENTENCES_USER_NODES
-            if key == "user"
-            else _HARD_CONSTRAINTS_SENTENCES_NODES
-        )
-        parts.append(
-            _OUTPUT_FORMAT_SENTENCES_USER_NODES
-            if key == "user"
-            else _OUTPUT_FORMAT_SENTENCES_NODES
-        )
+        if key == "user":
+            parts.append(_HARD_CONSTRAINTS_SENTENCES_USER_NODES)
+            parts.append(_OUTPUT_FORMAT_SENTENCES_USER_NODES)
+        elif key == "assistant":
+            parts.append(_ASSISTANT_HARD_CONSTRAINTS_SENTENCES_NODES)
+            parts.append(_ASSISTANT_OUTPUT_FORMAT_SENTENCES_NODES)
+        else:
+            parts.append(_HARD_CONSTRAINTS_SENTENCES_NODES)
+            parts.append(_OUTPUT_FORMAT_SENTENCES_NODES)
         parts.append(f"## Current turn sentences\n{SENTENCES_PLACEHOLDER}\n")
 
     prompt = "\n".join(parts)
