@@ -632,9 +632,7 @@ def test_unified_relation_nodes_include_only_id_and_content() -> None:
         char_budget=None,
     )
 
-    assert json.loads(rendered) == [
-        {"id": 7, "content": "A compact semantic fact."}
-    ]
+    assert json.loads(rendered) == [{"id": 7, "content": "A compact semantic fact."}]
     assert "stance" not in rendered
     assert "confidence" not in rendered
     assert "entities" not in rendered
@@ -688,7 +686,9 @@ def test_unified_assistant_relations_judge_three_layers_in_one_call(
             "skipped": False,
         }
 
-    monkeypatch.setattr("bcg.construct.unified.stream.extract_nodes", fake_extract_nodes)
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_nodes", fake_extract_nodes
+    )
     monkeypatch.setattr("bcg.construct.unified.stream.extract_relations", no_relations)
     monkeypatch.setattr(
         "bcg.construct.unified.stream.extract_layered_relations", fake_layered
@@ -708,7 +708,7 @@ def test_unified_assistant_relations_judge_three_layers_in_one_call(
     builder.ingest_turn("user", "Nearest evidence.")
     event = builder.ingest_turn(
         "assistant",
-        '<thinking>Current reasoning.</thinking>\n'
+        "<thinking>Current reasoning.</thinking>\n"
         '<tool_call>{"name":"web_search","arguments":{"query":"secret query"}}</tool_call>\n'
         "Visible reasoning.",
     )
@@ -791,7 +791,9 @@ def test_unified_assistant_layer_bundle_retries_then_keeps_most_used_layer(
             "skipped": False,
         }
 
-    monkeypatch.setattr("bcg.construct.unified.stream.extract_nodes", fake_extract_nodes)
+    monkeypatch.setattr(
+        "bcg.construct.unified.stream.extract_nodes", fake_extract_nodes
+    )
     monkeypatch.setattr("bcg.construct.unified.stream.extract_relations", no_relations)
     monkeypatch.setattr(
         "bcg.construct.unified.stream.extract_layered_relations", invalid_layered
@@ -820,9 +822,7 @@ def test_unified_assistant_layer_bundle_retries_then_keeps_most_used_layer(
     assert attempt["selected_previous_layer"] == 2
     assert attempt["selected_previous_trajectory_index"] == 1
     assert attempt["relations_added"] == 2
-    retained_previous_ids = {
-        relation["to_id"] for relation in builder.graph.relations
-    }
+    retained_previous_ids = {relation["to_id"] for relation in builder.graph.relations}
     assert retained_previous_ids == set(attempt["candidate_layers"][1]["node_ids"])
 
 
@@ -960,9 +960,7 @@ def test_stream_node_extraction_keeps_only_latest_graph_turns(
 def test_stream_options_load_extraction_history_turns() -> None:
     options = UnifiedStreamOptions()
 
-    options.apply_belief_graph_config(
-        {"runtime": {"extraction_history_turns": 2}}
-    )
+    options.apply_belief_graph_config({"runtime": {"extraction_history_turns": 2}})
 
     assert options.extraction_history_turns == 2
     assert options.to_dict()["extraction_history_turns"] == 2

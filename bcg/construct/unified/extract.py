@@ -970,9 +970,7 @@ def format_relation_nodes(
         if len(content) > 240:
             content = content[:220] + " …"
         lines.append(
-            json.dumps(
-                {"id": node.get("id"), "content": content}, ensure_ascii=False
-            )
+            json.dumps({"id": node.get("id"), "content": content}, ensure_ascii=False)
         )
 
     total = sum(len(line) + 4 for line in lines)
@@ -982,9 +980,7 @@ def format_relation_nodes(
         lines.pop(0)
         omitted += 1
     items = (
-        [f"  (... {omitted} earlier node(s) omitted for length ...)"]
-        if omitted
-        else []
+        [f"  (... {omitted} earlier node(s) omitted for length ...)"] if omitted else []
     )
     items += ["  " + line for line in lines]
     return "[\n" + ",\n".join(items) + "\n]"

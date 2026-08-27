@@ -903,9 +903,7 @@ def build_layered_relation_extraction_prompt(
         f"## Current Assistant reasoning ({role})\n" + CONTENT_PLACEHOLDER + "\n",
         "## Candidate previous layers\n"
         "Layer 1 is the nearest non-empty Graph turn; larger numbers are older. "
-        "Layer membership is authoritative.\n"
-        + candidate_layers
-        + "\n",
+        "Layer membership is authoritative.\n" + candidate_layers + "\n",
         "## Candidate nodes\n"
         + GRAPH_NODES_PLACEHOLDER
         + "\n\n## Existing relations\n"

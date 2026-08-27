@@ -295,8 +295,7 @@ class StreamingBeliefBuilder:
             {
                 int(turn_id)
                 for node in nodes
-                if (turn_id := (node.get("source") or {}).get("turn_id"))
-                is not None
+                if (turn_id := (node.get("source") or {}).get("turn_id")) is not None
             }
         )
         if len(turn_ids) <= turn_limit:
@@ -686,9 +685,7 @@ class StreamingBeliefBuilder:
                 reasoning_effort=opt.reasoning_effort,
             )
             thinking_nodes = [dict(node) for node in thinking_result.get("nodes", [])]
-            tool_call_nodes = [
-                dict(node) for node in tool_call_result.get("nodes", [])
-            ]
+            tool_call_nodes = [dict(node) for node in tool_call_result.get("nodes", [])]
             for node in tool_call_nodes:
                 node["tmp_id"] = f"n{len(thinking_nodes)}"
                 thinking_nodes.append(node)
@@ -1560,8 +1557,7 @@ class StreamingBeliefBuilder:
         # the layer manifest and edge window exactly aligned with what the model
         # can actually see.
         displayed_ids = {
-            int(match)
-            for match in re.findall(r'"id"\s*:\s*(\d+)', graph_nodes_post)
+            int(match) for match in re.findall(r'"id"\s*:\s*(\d+)', graph_nodes_post)
         }
         displayed_new_ids = surviving_new_ids & displayed_ids
         displayed_layers: list[dict[str, Any]] = []
@@ -1685,9 +1681,7 @@ class StreamingBeliefBuilder:
             model_attempts.append(
                 {
                     "attempt": attempt_number,
-                    "selected_previous_layer": rel_res.get(
-                        "selected_previous_layer"
-                    ),
+                    "selected_previous_layer": rel_res.get("selected_previous_layer"),
                     "resolved_cross_layers": sorted(touched_layers),
                     "valid": not reasons,
                     "validation_errors": reasons,
