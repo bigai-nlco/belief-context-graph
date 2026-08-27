@@ -884,8 +884,14 @@ def test_unified_node_extraction_prompt_omits_empty_context_and_tmp_ids() -> Non
     assert prompt is not None
     assert "Existing belief nodes" not in prompt
     assert '"tmp_id"' not in prompt
+    assert '"decisions"' not in prompt
+    assert "decision" not in prompt.lower()
     assert '"stance"' in prompt
     assert '"entities"' in prompt
+    assert '"supporting_sentence_indices"' in prompt
+    assert "confidence is assigned downstream" not in prompt
+    assert "event metadata is assigned" not in prompt
+    assert "You maintain a belief graph INCREMENTALLY" not in prompt
 
 
 def test_unified_node_extraction_assigns_code_owned_tmp_ids(

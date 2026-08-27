@@ -92,7 +92,7 @@ Do NOT include:
 - generic filler: "the content", "this turn", "the answer", "the issue", "the thing", "the result";
 - bare generic nouns: car, file, code, graph, node, edge, model, prompt, time, data, message, unless they are qualified enough to be identifiable;
 - abstract feelings or vague concepts unless the belief is specifically about that concept;
-- temporal expressions as entities; preserve temporal information in the belief or decision text instead (event metadata is assigned by the graph builder);
+- temporal expressions as entities; preserve temporal information in the belief or decision text instead;
 - duplicate surface forms referring to the same entity in one belief.
 
 Use the most specific form supported by the CURRENT turn and existing graph context.
@@ -123,8 +123,6 @@ _STANCE_DEFINITION = """\
 - **judged**     — evaluative conclusion, recommendation, ranking, diagnosis, or selected option
                   ("most likely", "best answer is", "I recommend X").
 
-NOTE: do NOT output a confidence number — confidence is assigned downstream by code
-rules based on (role, stance).
 """
 
 _GRAPH_CONTEXT_BLOCK = f"""\
@@ -519,6 +517,34 @@ _OUTPUT_FORMAT_SENTENCES_NODES = """\
 }
 """
 
+_OUTPUT_FORMAT_EXCERPT_USER_NODES = """\
+## Output (JSON only — no markdown fences, no commentary)
+{
+  "beliefs": [
+    {
+      "belief": "<self-contained coherent belief>",
+      "stance": "asserted | recalled | speculated | judged",
+      "entities": ["<specific entity>", "..."],
+      "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
+    }
+  ]
+}
+"""
+
+_OUTPUT_FORMAT_SENTENCES_USER_NODES = """\
+## Output (JSON only — no markdown fences, no commentary)
+{
+  "beliefs": [
+    {
+      "belief": "<self-contained coherent belief>",
+      "stance": "asserted | recalled | speculated | judged",
+      "entities": ["<specific entity>", "..."],
+      "supporting_sentence_indices": [0, 2]
+    }
+  ]
+}
+"""
+
 _HARD_CONSTRAINTS_EXCERPT_NODES = """\
 ## Hard constraints
 1. Preserve named entities, numbers, dates, quantities EXACTLY as written (incl. unusual punctuation like "!Kung").
@@ -536,6 +562,25 @@ _HARD_CONSTRAINTS_SENTENCES_NODES = """\
    "supporting_sentence_indices" (use the [k] indices shown). Evidence is always a whole sentence.
    If the whole group supports it, list all its indices.
 4. Empty beliefs / decisions lists are OK when the sentences express none.
+"""
+
+_HARD_CONSTRAINTS_EXCERPT_USER_NODES = """\
+## Hard constraints
+1. Preserve named entities, numbers, dates, quantities EXACTLY as written (incl. unusual punctuation like "!Kung").
+2. Do NOT add information not present in the content. No outside knowledge.
+3. Every belief MUST have at least one supporting excerpt — a VERBATIM, CONTIGUOUS substring copied
+   character-for-character from the content. No excerpt → drop that belief.
+4. An empty beliefs list is OK when the content expresses none.
+"""
+
+_HARD_CONSTRAINTS_SENTENCES_USER_NODES = """\
+## Hard constraints
+1. Preserve named entities, numbers, dates, quantities EXACTLY as written (incl. unusual punctuation like "!Kung").
+2. Do NOT add information not present in the sentences. No outside knowledge.
+3. Every belief MUST list the indices of the COMPLETE sentence(s) that support it in
+   "supporting_sentence_indices" (use the [k] indices shown). Evidence is always a whole sentence.
+   If the whole group supports it, list all its indices.
+4. An empty beliefs list is OK when the sentences express none.
 """
 
 
@@ -556,21 +601,46 @@ def build_node_extraction_prompt(
         return None
     task_line, guidance, _stance_hint = _GUIDANCE[key]
 
-    parts: list[str] = [
-        "# Task",
-        task_line,
-        "\nYou maintain a belief graph INCREMENTALLY. From the CURRENT turn, output only the NEW "
-        "belief/decision nodes. Relations will be extracted in a separate step. "
-        "Existing nodes (shown below) must not be repeated.\n",
-        _BELIEF_DEFINITION,
-        _STANCE_DEFINITION,
-        guidance + "\n",
-    ]
-    if _has_existing_nodes(graph_nodes):
+    has_existing_nodes = _has_existing_nodes(graph_nodes)
+    if key == "user" and not has_existing_nodes:
+        task_intro = (
+            "Extract coherent, self-contained beliefs from the current USER turn only. "
+            "Preserve distinct constraints without fragmenting one coherent request."
+        )
+    else:
+        task_intro = task_line
+
+    parts: list[str] = ["# Task", task_intro]
+    if key != "user" or has_existing_nodes:
+        node_kinds = "belief" if key == "user" else "belief/decision"
+        parts.append(
+            "\nMaintain the belief graph incrementally. Output only NEW "
+            f"{node_kinds} nodes from the CURRENT turn; relation extraction is separate. "
+            "Do not repeat existing nodes.\n"
+        )
+    belief_definition = _BELIEF_DEFINITION
+    stance_definition = _STANCE_DEFINITION
+    if key == "user":
+        belief_definition = belief_definition.replace(
+            "belief or decision text", "belief text"
+        )
+        stance_definition = stance_definition.replace(
+            "per belief or decision", "per belief"
+        )
+    parts.extend([belief_definition, stance_definition, guidance + "\n"])
+    if has_existing_nodes:
         parts.append(_NODE_GRAPH_CONTEXT_BLOCK)
     if mode == "excerpt":
-        parts.append(_HARD_CONSTRAINTS_EXCERPT_NODES)
-        parts.append(_OUTPUT_FORMAT_EXCERPT_NODES)
+        parts.append(
+            _HARD_CONSTRAINTS_EXCERPT_USER_NODES
+            if key == "user"
+            else _HARD_CONSTRAINTS_EXCERPT_NODES
+        )
+        parts.append(
+            _OUTPUT_FORMAT_EXCERPT_USER_NODES
+            if key == "user"
+            else _OUTPUT_FORMAT_EXCERPT_NODES
+        )
         parts.append(f"## Current turn content\n{CONTENT_PLACEHOLDER}\n")
     else:
         parts.append(
@@ -578,8 +648,16 @@ def build_node_extraction_prompt(
             "The current turn's content was split into COMPLETE sentences with stable indices [k]. "
             "Reference them in supporting_sentence_indices; evidence is always a whole sentence.\n"
         )
-        parts.append(_HARD_CONSTRAINTS_SENTENCES_NODES)
-        parts.append(_OUTPUT_FORMAT_SENTENCES_NODES)
+        parts.append(
+            _HARD_CONSTRAINTS_SENTENCES_USER_NODES
+            if key == "user"
+            else _HARD_CONSTRAINTS_SENTENCES_NODES
+        )
+        parts.append(
+            _OUTPUT_FORMAT_SENTENCES_USER_NODES
+            if key == "user"
+            else _OUTPUT_FORMAT_SENTENCES_NODES
+        )
         parts.append(f"## Current turn sentences\n{SENTENCES_PLACEHOLDER}\n")
 
     prompt = "\n".join(parts)
