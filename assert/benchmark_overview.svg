@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1135" viewBox="0 0 1280 1135" role="img" aria-labelledby="title desc">
-  <title id="title">Efficient Context · Better Performance · Belief-Aware Reasoning</title>
+  <title id="title">Less Tokens · Better Performance · Belief-Aware Reasoning</title>
   <desc id="desc">Full-dataset Default, BCG, and Summary accuracy and mean token cost, followed by Default and BCG cumulative token cost by Agent-step depth for BrowseComp and BrowseComp-ZH.</desc>
   <rect width="1280" height="1135" fill="#ffffff" />
   <g font-family="Inter,Arial,sans-serif">
@@ -8,7 +8,7 @@
         <path d="M0 0L8 4L0 8Z" fill="#4338ca" />
       </marker>
     </defs>
-    <text x="640" y="39" text-anchor="middle" fill="#0f172a" font-size="27" font-weight="700">Efficient Context · Better Performance · Belief-Aware Reasoning</text>
+    <text x="640" y="39" text-anchor="middle" fill="#0f172a" font-size="27" font-weight="700">Less Tokens · Better Performance · Belief-Aware Reasoning</text>
     <rect x="296" y="62" width="14" height="14" rx="3" fill="#64748b" />
     <text x="320" y="75" fill="#0f172a" font-size="15" font-weight="600">Default</text>
     <rect x="400" y="62" width="14" height="14" rx="3" fill="#0f9f8f" />
