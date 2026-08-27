@@ -128,7 +128,7 @@
 
     <g filter="url(#shadow)">
       <rect x="90" y="658" width="570" height="120" rx="19" fill="#f1fbf5" stroke="#7fdaa2" stroke-width="1.25"/>
-      <rect x="735" y="658" width="605" height="120" rx="19" fill="#fffaf0" stroke="#efc65a" stroke-width="1.25"/>
+      <rect x="740" y="658" width="570" height="120" rx="19" fill="#fffaf0" stroke="#efc65a" stroke-width="1.25"/>
     </g>
 
     <rect x="116" y="680" width="93" height="28" rx="13.5" fill="#dcfce7"/>
@@ -137,14 +137,14 @@
     <text x="116" y="732" class="body" style="font-size:16.5px">Node, entity and stance extraction · bounded relation windows</text>
     <text x="116" y="758" class="small">Single configurable OpenAI-compatible model path</text>
 
-    <rect x="806" y="680" width="108" height="28" rx="13.5" fill="#fef3c7"/>
-    <text x="860" y="699" text-anchor="middle" font-size="15" font-weight="800" fill="#b45309">HYBRID</text>
-    <text x="935" y="700" font-size="21.5" font-weight="760" fill="#78350f">Graph LLM + local models</text>
-    <text x="770" y="732" class="body">Semantic chunks · embeddings · DeBERTa stance · spaCy NER</text>
-    <text x="770" y="758" class="small">Separate extraction and relation generation components</text>
+    <rect x="766" y="680" width="108" height="28" rx="13.5" fill="#fef3c7"/>
+    <text x="820" y="699" text-anchor="middle" font-size="15" font-weight="800" fill="#b45309">HYBRID</text>
+    <text x="895" y="700" font-size="21.5" font-weight="760" fill="#78350f">Graph LLM + local models</text>
+    <text x="766" y="732" class="body" style="font-size:16.5px">Semantic chunks · embeddings · DeBERTa stance · spaCy NER</text>
+    <text x="766" y="758" class="small">Separate extraction and relation generation components</text>
 
-    <path d="M625 608V624Q625 636 613 636H357Q345 636 345 648V651" class="arrow"/>
-    <path d="M775 608V624Q775 636 787 636H1043Q1055 636 1055 648V651" class="arrow"/>
+    <path d="M625 608V624Q625 636 613 636H387Q375 636 375 648V651" class="arrow"/>
+    <path d="M775 608V624Q775 636 787 636H1013Q1025 636 1025 648V651" class="arrow"/>
 
     <!-- Shared incremental pipeline -->
     <rect x="40" y="805" width="1320" height="105" rx="22" fill="url(#pipelineFill)" stroke="#d4d0f1" stroke-width="1.2"/>
@@ -178,8 +178,8 @@
       <path d="M1105 871H1129" class="arrowPurple"/>
     </g>
 
-    <path d="M345 786V797" class="arrow"/>
-    <path d="M1055 786V797" class="arrow"/>
+    <path d="M375 786V797" class="arrow"/>
+    <path d="M1025 786V797" class="arrow"/>
 
     <!-- Feedback path -->
     <path d="M1340 871H1372V116H780V136" class="feedback"/>
