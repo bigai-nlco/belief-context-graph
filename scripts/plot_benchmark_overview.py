@@ -38,9 +38,7 @@ def compose(summary: Path, horizon: Path, output: Path) -> None:
         },
     )
     title = ET.SubElement(root, _tag("title"), {"id": "title"})
-    title.text = (
-        "Up to 16% Fewer Tokens · Better Performance · Belief-Aware Reasoning"
-    )
+    title.text = "Efficient Context · Better Performance · Belief-Aware Reasoning"
     description = ET.SubElement(root, _tag("desc"), {"id": "desc"})
     description.text = (
         "Full-dataset Default, BCG, and Summary accuracy and mean token cost, "

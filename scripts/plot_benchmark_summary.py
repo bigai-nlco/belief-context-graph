@@ -134,12 +134,12 @@ def render_svg(output: Path) -> None:
     token_centers = (858.25, 1072.75)
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-labelledby="title desc">',
-        '<title id="title">Up to 16% Fewer Tokens · Better Performance · Belief-Aware Reasoning</title>',
+        '<title id="title">Efficient Context · Better Performance · Belief-Aware Reasoning</title>',
         '<desc id="desc">Full-dataset Default, Summary, and BCG accuracy and mean token cost for BrowseComp and BrowseComp-ZH, shown with non-zero y-axis baselines. The light Summary segment is Summary Generation, and the light BCG segment is Graph Construction.</desc>',
         '<rect width="1280" height="620" fill="#ffffff"/>',
         '<g font-family="Inter,Arial,sans-serif">',
         f'<defs><marker id="improvement-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0L8 4L0 8Z" fill="{IMPROVEMENT_COLOR}"/></marker></defs>',
-        f'<text x="640" y="39" text-anchor="middle" fill="{TEXT_COLOR}" font-size="27" font-weight="700">Up to 16% Fewer Tokens · Better Performance · Belief-Aware Reasoning</text>',
+        f'<text x="640" y="39" text-anchor="middle" fill="{TEXT_COLOR}" font-size="27" font-weight="700">Efficient Context · Better Performance · Belief-Aware Reasoning</text>',
         f'<rect x="296" y="62" width="14" height="14" rx="3" fill="{DEFAULT_COLOR}"/><text x="320" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">Default</text>',
         f'<rect x="400" y="62" width="14" height="14" rx="3" fill="{SUMMARY_COLOR}"/><text x="424" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">Summary</text>',
         f'<rect x="512" y="62" width="14" height="14" rx="3" fill="{SUMMARY_MODEL_COLOR}"/><text x="536" y="75" fill="{TEXT_COLOR}" font-size="15" font-weight="600">Summary Generation</text>',
