@@ -31,6 +31,7 @@ from .._shared.tool_results import (
 from . import llm
 from .prompts import (
     build_assistant_tool_result_extraction_prompt,
+    build_layered_relation_extraction_prompt,
     build_node_extraction_prompt,
     build_relation_extraction_prompt,
     build_update_prompt,
@@ -951,6 +952,40 @@ def format_graph_nodes(
     return "[\n" + ",\n".join(items) + "\n]"
 
 
+def format_relation_nodes(
+    nodes: list[dict[str, Any]], char_budget: int | None = 9000
+) -> str:
+    """Render only the semantic fields needed for Assistant relation judgment."""
+    if not nodes:
+        return "[]"
+    ordered = sorted(nodes, key=lambda b: b.get("id", 0))
+    lines: list[str] = []
+    for node in ordered:
+        content = (
+            node.get("decision")
+            if node.get("node_type") == "decision"
+            else node.get("belief")
+        )
+        content = content or node.get("belief") or node.get("decision") or ""
+        if len(content) > 240:
+            content = content[:220] + " …"
+        lines.append(
+            json.dumps({"id": node.get("id"), "content": content}, ensure_ascii=False)
+        )
+
+    total = sum(len(line) + 4 for line in lines)
+    omitted = 0
+    while char_budget is not None and lines and total > char_budget:
+        total -= len(lines[0]) + 4
+        lines.pop(0)
+        omitted += 1
+    items = (
+        [f"  (... {omitted} earlier node(s) omitted for length ...)"] if omitted else []
+    )
+    items += ["  " + line for line in lines]
+    return "[\n" + ",\n".join(items) + "\n]"
+
+
 def format_graph_edges(
     relations: list[dict[str, Any]], keep_ids: set | None = None, max_edges: int = 400
 ) -> str:
@@ -1332,3 +1367,56 @@ def extract_relations(
     parsed = parsed if isinstance(parsed, dict) else {}
     relations = _clean_relations(parsed.get("relations", []) or [])
     return {"relations": relations, "raw_output": raw, "skipped": False}
+
+
+def extract_layered_relations(
+    client,
+    model: str,
+    *,
+    role: str,
+    content: str,
+    graph_nodes_str: str = "[]",
+    graph_edges_str: str = "[]",
+    new_node_ids: set,
+    candidate_layers: list[dict[str, Any]],
+    validation_feedback: str | None = None,
+    temperature: float = 0.0,
+    max_tokens: int | None = None,
+    reasoning_effort: str | None = None,
+) -> dict[str, Any]:
+    """Extract Assistant relations while selecting at most one prior layer."""
+    prompt = build_layered_relation_extraction_prompt(
+        role=role,
+        content=content or "",
+        graph_nodes=graph_nodes_str,
+        graph_edges=graph_edges_str,
+        new_node_ids=json.dumps(sorted(new_node_ids)),
+        candidate_layers=json.dumps(candidate_layers, ensure_ascii=False, indent=2),
+        validation_feedback=validation_feedback,
+    )
+
+    try:
+        raw = llm.call_model(
+            client,
+            model,
+            prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+        )
+    except Exception as e:
+        return {
+            "selected_previous_layer": None,
+            "relations": [],
+            "raw_output": f"[ERROR] {e}",
+            "skipped": True,
+        }
+
+    parsed = llm.parse_json_response(raw)
+    parsed = parsed if isinstance(parsed, dict) else {}
+    return {
+        "selected_previous_layer": parsed.get("selected_previous_layer"),
+        "relations": _clean_relations(parsed.get("relations", []) or []),
+        "raw_output": raw,
+        "skipped": False,
+    }

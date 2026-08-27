@@ -111,6 +111,16 @@ def _write_user_yaml_config(graph_model_config: dict[str, Any]) -> None:
             return [_strip_comments(item) for item in value]
         return value
 
+    def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+        """Merge setup overrides without discarding nested packaged defaults."""
+        merged = copy.deepcopy(base)
+        for key, value in override.items():
+            if isinstance(value, dict) and isinstance(merged.get(key), dict):
+                merged[key] = _deep_merge(merged[key], value)
+            else:
+                merged[key] = copy.deepcopy(value)
+        return merged
+
     settings_dict: dict[str, Any] = {
         "schema_version": 1,
         "backend": ("hybrid" if "belief_graph" in graph_model_config else "unified"),
@@ -126,7 +136,7 @@ def _write_user_yaml_config(graph_model_config: dict[str, Any]) -> None:
     pipeline = _strip_comments(graph_model_config.get("belief_graph"))
     if isinstance(pipeline, dict) and pipeline:
         settings_dict["pipeline"] = pipeline
-    merged = {**defaults_dict(), **settings_dict}
+    merged = _deep_merge(defaults_dict(), settings_dict)
     BCGSettings.model_validate(merged)  # setup output must be consumable
 
     import yaml

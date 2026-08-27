@@ -48,6 +48,7 @@ def test_agent_configuration_enables_bcg_and_references_env_key(
             "recentTurns": 2,
             "maxTurns": 160,
             "timeoutMs": 300000,
+            "finalizationTimeoutMs": 900000,
             "includeRelations": True,
             "graphView": "full",
         },

@@ -121,9 +121,7 @@ def normalize_stance_config(
         "batch_size": max(1, int(raw.get("batch_size", 16) or 16)),
         "max_length": max(64, int(raw.get("max_length", 512) or 512)),
         "dynamic_batching": bool(raw.get("dynamic_batching", True)),
-        "dynamic_batch_wait_ms": max(
-            0, int(raw.get("dynamic_batch_wait_ms", 10) or 0)
-        ),
+        "dynamic_batch_wait_ms": max(0, int(raw.get("dynamic_batch_wait_ms", 10) or 0)),
         "dynamic_batch_max_texts": max(
             1, int(raw.get("dynamic_batch_max_texts", 128) or 128)
         ),
@@ -334,10 +332,7 @@ class LocalZeroShotStanceClassifier:
                 logits = self._model(**encoded).logits.float()
             entailment_logits.extend(
                 float(value)
-                for value in logits[:, self._entailment_index]
-                .detach()
-                .cpu()
-                .tolist()
+                for value in logits[:, self._entailment_index].detach().cpu().tolist()
             )
 
         n_labels = len(STANCE_ORDER)

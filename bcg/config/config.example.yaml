@@ -96,6 +96,8 @@ pipeline:
   runtime:
     evidence_mode: chunk
     context_chars: 12000
+    # 0 = all recent nodes within context_chars; 2 = latest two Graph turns.
+    extraction_history_turns: 0
     min_content_len: 0
   tool_results:
     max_search_results: 10

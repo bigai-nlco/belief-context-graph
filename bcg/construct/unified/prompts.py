@@ -840,6 +840,96 @@ def build_relation_extraction_prompt(
     return prompt
 
 
+_LAYERED_RELATION_OUTPUT_FORMAT = """\
+## Output (JSON only — no markdown fences, no commentary)
+{
+  "selected_previous_layer": <integer layer number or null>,
+  "relations": [
+    { "from": <int node id>, "to": <int node id>, "type": "depends_on | supplements | contradicts", "note": "<one short sentence>" }
+  ]
+}
+
+Hard output constraints:
+- You may connect current-turn nodes to nodes from ZERO OR ONE previous layer.
+- If any current-to-previous relation is emitted, every such relation MUST use the
+  same previous layer and ``selected_previous_layer`` MUST equal that layer number.
+- If no current-to-previous relation is emitted, set ``selected_previous_layer`` to null.
+- Current-turn to current-turn relations are allowed and do not select a previous layer.
+- Never connect nodes from two different previous layers in the same response.
+- Every endpoint must be an integer node id shown in the candidate graph.
+- At least one endpoint of each relation must be from the current-turn node list.
+- Empty relations are valid: {"selected_previous_layer": null, "relations": []}.
+"""
+
+
+_LAYERED_RELATION_EDGE_RULES = """\
+## Relation rules
+Judge meaningful semantic links using node ``content`` alone:
+- ``depends_on``: A requires B as a premise, input, evidence, constraint, or context.
+- ``supplements``: A adds useful detail or evidence to B without changing it.
+- ``contradicts``: A conflicts with, corrects, negates, or replaces B.
+
+Direction is literal: ``A -> B`` means A depends on, supplements, or contradicts B.
+Read each complete content field; a request to verify a claim does not assert it.
+Shared entities alone do not justify a relation.
+
+Constraints:
+- Every relation must contain at least one current-turn node.
+- Current-to-current relations are allowed; previous-to-previous relations are not.
+- Use only shown integer ids; no self-links or invented ids.
+- Prefer 0-4 high-value relations per current node. An empty result is valid.
+"""
+
+
+def build_layered_relation_extraction_prompt(
+    *,
+    role: str,
+    content: str,
+    graph_nodes: str = "[]",
+    graph_edges: str = "[]",
+    new_node_ids: str = "[]",
+    candidate_layers: str = "[]",
+    validation_feedback: str | None = None,
+) -> str:
+    """Build one relation prompt over several candidate previous-turn layers.
+
+    The model sees all bounded candidate layers at once, but must select at most
+    one of them for cross-turn relations.  This replaces sequential relation
+    calls over one previous turn at a time for Assistant turns.
+    """
+    parts: list[str] = [
+        "# Task",
+        "Link the current Assistant belief nodes to the most relevant prior layer.",
+        f"## Current Assistant reasoning ({role})\n" + CONTENT_PLACEHOLDER + "\n",
+        "## Candidate previous layers\n"
+        "Layer 1 is the nearest non-empty Graph turn; larger numbers are older. "
+        "Layer membership is authoritative.\n" + candidate_layers + "\n",
+        "## Candidate nodes\n"
+        + GRAPH_NODES_PLACEHOLDER
+        + "\n\n## Existing relations\n"
+        + GRAPH_EDGES_PLACEHOLDER
+        + "\n",
+        "## Current-turn node ids\n" + NEW_NODE_IDS_PLACEHOLDER + "\n",
+        _LAYERED_RELATION_EDGE_RULES,
+        "## Layer selection\n"
+        "Compare all candidates in one pass. Cross-turn relations may use ZERO OR "
+        "ONE previous layer, never a mixture. Select null when none is meaningful.\n",
+    ]
+    if validation_feedback:
+        parts.append(
+            "## Validation feedback from the previous attempt\n"
+            + validation_feedback
+            + "\nReturn a corrected complete JSON response.\n"
+        )
+    parts.append(_LAYERED_RELATION_OUTPUT_FORMAT)
+    prompt = "\n".join(parts)
+    prompt = prompt.replace(CONTENT_PLACEHOLDER, content or "")
+    prompt = prompt.replace(GRAPH_NODES_PLACEHOLDER, graph_nodes or "[]")
+    prompt = prompt.replace(GRAPH_EDGES_PLACEHOLDER, graph_edges or "[]")
+    prompt = prompt.replace(NEW_NODE_IDS_PLACEHOLDER, new_node_ids or "[]")
+    return prompt
+
+
 # =====================================================================
 # Merge / dedup prompts (unchanged contract)
 # =====================================================================

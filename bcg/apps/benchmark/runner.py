@@ -485,8 +485,7 @@ def _run_one(
 
     parsed = parse_agent_events(stdout)
     graph_fallback = (
-        mode == "bcg"
-        and "using the complete raw context for this request." in stderr
+        mode == "bcg" and "using the complete raw context for this request." in stderr
     )
     graph_finalization_warning = mode == "bcg" and "[BCG finalization]" in stderr
     summary_fallback = mode == "summary" and "[Summary context]" in stderr
