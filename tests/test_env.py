@@ -195,7 +195,7 @@ def test_hybrid_configs_resolve_all_credentials_from_environment(
     assert embedding["api_key"] == "embedding-secret"
     assert extractor["api_key"] == "local-secret"
     assert edge["api_key"] == "local-secret"
-    assert edge["max_previous_windows"] == 4
+    assert edge["max_previous_windows"] == 3
 
 
 def test_hybrid_edge_config_accepts_bounded_historical_window_override(

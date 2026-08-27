@@ -92,12 +92,12 @@ pipeline:
     enable_thinking: false
     fail_on_error: true
     search_previous_turns: true
-    max_previous_windows: 4
+    max_previous_windows: 3
   runtime:
     evidence_mode: chunk
     context_chars: 12000
     # 0 = all recent nodes within context_chars; 2 = latest two Graph turns.
-    extraction_history_turns: 0
+    extraction_history_turns: 2
     min_content_len: 0
   tool_results:
     max_search_results: 10

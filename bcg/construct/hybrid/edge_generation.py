@@ -64,7 +64,7 @@ def normalize_edge_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
         "enable_thinking": bool(raw["enable_thinking"]),
         "fail_on_error": bool(raw["fail_on_error"]),
         "search_previous_turns": bool(raw["search_previous_turns"]),
-        "max_previous_windows": max(1, int(raw.get("max_previous_windows", 4))),
+        "max_previous_windows": max(1, int(raw.get("max_previous_windows", 3))),
     }
 
 

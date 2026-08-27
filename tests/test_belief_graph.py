@@ -40,6 +40,7 @@ from bcg.construct.unified.extract import (
     extract_compact_tool_result_nodes_batch,
     extract_nodes,
     extract_rule_tool_result_nodes,
+    format_extraction_nodes,
     format_graph_nodes,
     format_relation_nodes,
 )
@@ -633,6 +634,27 @@ def test_unified_relation_nodes_include_only_id_and_content() -> None:
     )
 
     assert json.loads(rendered) == [{"id": 7, "content": "A compact semantic fact."}]
+
+
+def test_unified_extraction_history_includes_only_content() -> None:
+    rendered = format_extraction_nodes(
+        [
+            {
+                "id": 7,
+                "node_type": "belief",
+                "belief": "A prior semantic fact.",
+                "role": "assistant",
+                "stance": "speculated",
+                "confidence": 0.6,
+                "entities": ["fact"],
+                "event_time": "2026-08-27T00:00:00Z",
+                "source": {"turn_index": 3},
+            }
+        ],
+        char_budget=None,
+    )
+
+    assert json.loads(rendered) == [{"content": "A prior semantic fact."}]
     assert "stance" not in rendered
     assert "confidence" not in rendered
     assert "entities" not in rendered
@@ -719,6 +741,10 @@ def test_unified_assistant_relations_judge_three_layers_in_one_call(
         2,
         3,
     ]
+    assert all(
+        "trajectory_index" not in layer
+        for layer in layered_calls[0]["candidate_layers"]
+    )
     assert "<thinking>Current reasoning.</thinking>" in layered_calls[0]["content"]
     assert "Visible reasoning." in layered_calls[0]["content"]
     assert "<tool_call>" not in layered_calls[0]["content"]
@@ -845,6 +871,9 @@ def test_unified_node_extraction_prompt_omits_edges() -> None:
     assert "The latest node." in prompt
     assert "Existing relations" not in prompt
     assert '"from": 1' not in prompt
+    assert '"tool_name"' not in prompt
+    assert '"query"' not in prompt
+    assert "query-bearing tool call" not in prompt
 
 
 def test_stream_node_extraction_respects_context_chars(
@@ -894,7 +923,7 @@ def test_stream_node_extraction_respects_context_chars(
     )
     builder.ingest_turn("user", "oldest " + "a" * 260)
     builder.ingest_turn("user", "newest " + "b" * 260)
-    expected = format_graph_nodes(builder.graph.active(), char_budget=450)
+    expected = format_extraction_nodes(builder.graph.active(), char_budget=450)
     builder.ingest_turn("user", "current")
 
     assert extraction_contexts[-1] == expected
@@ -1065,6 +1094,7 @@ def test_grouped_parallel_results_pair_exact_calls_then_model_link_thinking(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     relation_windows: list[str] = []
+    relation_contents: list[str] = []
 
     def fake_extract_nodes(*args: Any, **kwargs: Any) -> dict[str, Any]:
         del args
@@ -1127,6 +1157,7 @@ def test_grouped_parallel_results_pair_exact_calls_then_model_link_thinking(
         del args
         graph_nodes = str(kwargs["graph_nodes_str"])
         relation_windows.append(graph_nodes)
+        relation_contents.append(str(kwargs["content"]))
         if thinking_id is not None and "Alpha result" in graph_nodes:
             current_ids = sorted(kwargs["new_node_ids"])
             return {
@@ -1203,6 +1234,19 @@ def test_grouped_parallel_results_pair_exact_calls_then_model_link_thinking(
         for relation in builder.graph.relations
     )
     assert len(relation_windows) == 1
+    assert json.loads(relation_windows[0]) == [
+        {"id": node["id"], "content": node["belief"]}
+        for node in [
+            next(
+                graph_node
+                for graph_node in builder.graph.active()
+                if graph_node["id"] == thinking_id
+            ),
+            *results,
+        ]
+    ]
+    assert "<tool_result>" in relation_contents[0]
+    assert "Alpha result" in relation_contents[0]
     assert "The assistant is comparing alpha and beta." in relation_windows[0]
     assert "using web_search" not in relation_windows[0]
     assert event["edge_attempts"][0]["pairing_strategy"] == "tool_call_id"

@@ -242,8 +242,6 @@ _OUTPUT_FORMAT_EXCERPT = """\
       "belief": "<self-contained coherent belief>",
       "stance": "asserted | recalled | speculated | judged",
       "entities": ["<specific entity>", "..."],
-      "tool_name": "<exact tool name; include only for a query-derived belief>",
-      "query": "<exact query string; include only for a query-derived belief>",
       "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
     }
   ],
@@ -271,8 +269,6 @@ _OUTPUT_FORMAT_SENTENCES = """\
       "belief": "<self-contained coherent belief>",
       "stance": "asserted | recalled | speculated | judged",
       "entities": ["<specific entity>", "..."],
-      "tool_name": "<exact tool name; include only for a query-derived belief>",
-      "query": "<exact query string; include only for a query-derived belief>",
       "supporting_sentence_indices": [0, 2]
     }
   ],
@@ -300,7 +296,6 @@ _HARD_CONSTRAINTS_EXCERPT = """\
 4. Each new belief needs a unique "tmp_id": n0, n1, n2, … in output order.
 5. Each new decision needs a unique "tmp_id": d0, d1, d2, … in output order.
 6. Empty beliefs / decisions / relations lists are OK when the content expresses none.
-7. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
 """
 
 _HARD_CONSTRAINTS_SENTENCES = """\
@@ -313,7 +308,6 @@ _HARD_CONSTRAINTS_SENTENCES = """\
 4. Each new belief needs a unique "tmp_id": n0, n1, n2, … in output order.
 5. Each new decision needs a unique "tmp_id": d0, d1, d2, … in output order.
 6. Empty beliefs / decisions / relations lists are OK when the sentences express none.
-7. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
 """
 
 
@@ -352,26 +346,18 @@ Skip: pure greetings / pleasantries with no factual content; purely cosmetic for
         'hedged guesses are "speculated".',
     ),
     "assistant": (
-        "Extract coherent BELIEFS and DECISIONS from the ASSISTANT turn below. The content may "
-        "contain reasoning, tool-call syntax, and a final answer all together — read through ALL "
-        "of it and preserve the reasoning chain without creating tiny redundant nodes.",
+        "Extract coherent BELIEFS and DECISIONS from the ASSISTANT turn below. Preserve the "
+        "reasoning chain without creating tiny redundant nodes.",
         """\
 ## Source role: ASSISTANT
-The turn may mix internal reasoning, tool invocations, and the final answer. Extract:
+Extract:
 - **Factual claims and intermediate conclusions** the assistant commits to (domain facts, numbers, diagnoses, derived states).
 - **Recommendations / advice** given to the user.
 - **Assessments** of the user's situation.
 - **Final decisions**: when the assistant gives a final answer, especially inside ``\\boxed{...}``, put it in ``decisions`` instead of ``beliefs``.
-- **Tool calls**: extract every tool call as a belief — describe the assistant's information-seeking intent in natural language, capturing the tool name, the key parameters or constraints issued, and any hypothesis the call presupposes or commits to.
-- **Query-bearing tool calls are mandatory**: for every ``<tool_call>`` whose
-  ``arguments`` contains a string ``query`` (or ``q``), emit exactly one belief
-  for that call. Add ``tool_name`` and ``query`` properties to that belief and
-  copy both values exactly, character-for-character, from the tool call. Never
-  paraphrase, shorten, normalize, or omit either field. Do not add these
-  properties to beliefs derived from non-query content.
 - **Key reasoning steps that are falsifiable, reusable, or needed by later turns** — keep enough detail to reconstruct causal/dependency chains between user request, tool result, reasoning, and final answer.
 
-Do NOT extract: pure procedure / planning filler ("Let me search next", "First I need to…") unless it encodes a substantive dependency; self-questions; raw tool-call JSON syntax / key names; or politeness.
+Do NOT extract: pure procedure / planning filler ("Let me search next", "First I need to…") unless it encodes a substantive dependency; self-questions; or politeness.
 
 Write each belief in the third person ("The assistant…", "The user…") so it is self-contained.
 Resolve pronouns using the existing graph context when unambiguous.""",
@@ -490,8 +476,6 @@ _OUTPUT_FORMAT_EXCERPT_NODES = """\
       "belief": "<self-contained coherent belief>",
       "stance": "asserted | recalled | speculated | judged",
       "entities": ["<specific entity>", "..."],
-      "tool_name": "<exact tool name; include only for a query-derived belief>",
-      "query": "<exact query string; include only for a query-derived belief>",
       "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
     }
   ],
@@ -516,8 +500,6 @@ _OUTPUT_FORMAT_SENTENCES_NODES = """\
       "belief": "<self-contained coherent belief>",
       "stance": "asserted | recalled | speculated | judged",
       "entities": ["<specific entity>", "..."],
-      "tool_name": "<exact tool name; include only for a query-derived belief>",
-      "query": "<exact query string; include only for a query-derived belief>",
       "supporting_sentence_indices": [0, 2]
     }
   ],
@@ -542,7 +524,6 @@ _HARD_CONSTRAINTS_EXCERPT_NODES = """\
 4. Each new belief needs a unique "tmp_id": n0, n1, n2, … in output order.
 5. Each new decision needs a unique "tmp_id": d0, d1, d2, … in output order.
 6. Empty beliefs / decisions lists are OK when the content expresses none.
-7. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
 """
 
 _HARD_CONSTRAINTS_SENTENCES_NODES = """\
@@ -555,7 +536,6 @@ _HARD_CONSTRAINTS_SENTENCES_NODES = """\
 4. Each new belief needs a unique "tmp_id": n0, n1, n2, … in output order.
 5. Each new decision needs a unique "tmp_id": d0, d1, d2, … in output order.
 6. Empty beliefs / decisions lists are OK when the sentences express none.
-7. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
 """
 
 

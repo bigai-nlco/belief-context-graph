@@ -61,6 +61,7 @@ from .extract import (
     extract_nodes,
     extract_relations,
     extract_rule_tool_result_nodes,
+    format_extraction_nodes,
     format_graph_edges,
     format_graph_nodes,
     format_relation_nodes,
@@ -91,11 +92,11 @@ class StreamOptions:
     context_chars: int = 100000  # existing-nodes context budget
     # Limit node-extraction history to the latest N non-empty Graph turns before
     # applying ``context_chars``. Zero preserves the character-budget-only path.
-    extraction_history_turns: int = 0
+    extraction_history_turns: int = 2
     # Maximum number of non-empty historical turn windows considered while
     # looking for a current-to-prior relation. Assistant turns bundle these
     # windows into one request; other roles inspect them sequentially.
-    max_previous_windows: int = 4
+    max_previous_windows: int = 3
     # None selects the model-aware default (GPT-5.6-Luna -> none; otherwise
     # medium). A configured value is forwarded to every graph-model call.
     reasoning_effort: str | None = None
@@ -309,7 +310,7 @@ class StreamingBeliefBuilder:
         ]
 
     def _formatted_node_extraction_history(self) -> str:
-        return format_graph_nodes(
+        return format_extraction_nodes(
             self._node_extraction_history(),
             char_budget=self.options.context_chars,
         )
@@ -1572,7 +1573,6 @@ class StreamingBeliefBuilder:
             displayed_layers.append(
                 {
                     "layer": layer_number,
-                    "trajectory_index": trajectory_index,
                     "node_ids": sorted(retained_ids),
                 }
             )
@@ -1815,9 +1815,13 @@ class StreamingBeliefBuilder:
         this is the backward-search stop condition.
         """
         edge_window_ids = surviving_new_ids | previous_node_ids
-        graph_nodes_post = format_graph_nodes(
-            [node for node in active_nodes if node.get("id") in edge_window_ids],
-            char_budget=context_chars,
+        window_nodes = [
+            node for node in active_nodes if node.get("id") in edge_window_ids
+        ]
+        graph_nodes_post = (
+            format_relation_nodes(window_nodes, char_budget=context_chars)
+            if normalize_role(role) == "tool"
+            else format_graph_nodes(window_nodes, char_budget=context_chars)
         )
         graph_edges_post = format_graph_edges(
             self.graph.relations, keep_ids=edge_window_ids
