@@ -892,6 +892,9 @@ def test_unified_node_extraction_prompt_omits_empty_context_and_tmp_ids() -> Non
     assert "confidence is assigned downstream" not in prompt
     assert "event metadata is assigned" not in prompt
     assert "You maintain a belief graph INCREMENTALLY" not in prompt
+    assert "independently searchable numbered clues" in prompt
+    assert "task-defining" in prompt
+    assert "qualified roles" in prompt
 
 
 def test_unified_node_extraction_assigns_code_owned_tmp_ids(

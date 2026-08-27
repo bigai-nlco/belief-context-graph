@@ -136,13 +136,17 @@ reusable semantic unit and remain understandable outside the original turn.
 ## Granularity
 Merge clauses that jointly define one setup, condition, event, or causal step.
 Split only propositions that can be independently confirmed, contradicted, or
-reused. Keep claims with different epistemic status separate.
+reused. Do not merge independently searchable numbered clues solely because
+they describe the same target. Keep claims with different epistemic status
+separate.
 
 ## Entities
 For each belief, list specific named or uniquely qualified people,
 organizations, places, products, files, tools, models, APIs, datasets, and
 concepts explicitly present in it. Exclude pronouns, temporal expressions,
-generic nouns, vague concepts, and duplicates. Use [] when none exists.
+bare generic nouns, vague concepts, and duplicates. Include task-defining
+qualified roles when they distinguish reusable constraints, such as "winning
+team", "first poet", or "target ODI match". Use [] when none exists.
 """
 
 _USER_STANCE_DEFINITION = """\
