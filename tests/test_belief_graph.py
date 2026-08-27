@@ -50,6 +50,7 @@ from bcg.construct.unified.online import SessionManager as UnifiedSessionManager
 from bcg.construct.unified.prompts import (
     build_layered_relation_extraction_prompt,
     build_node_extraction_prompt,
+    build_relation_extraction_prompt,
 )
 from bcg.construct.unified.stream import (
     StreamingBeliefBuilder as UnifiedStreamingBeliefBuilder,
@@ -613,6 +614,23 @@ def test_unified_layered_relation_prompt_requires_one_previous_layer() -> None:
     assert "Layer 1 is the nearest" in prompt
     assert "Never connect nodes from two different previous layers" in prompt
     assert "Shared entities alone do not justify a relation" in prompt
+    assert "The user can be charged a late fee" not in prompt
+
+
+def test_unified_tool_result_relation_prompt_matches_runtime_window() -> None:
+    prompt = build_relation_extraction_prompt(
+        role="tool",
+        content="raw result text is intentionally omitted at runtime",
+        graph_nodes='[{"id": 7, "content": "Prior reasoning."}, {"id": 8, "content": "Result fact."}]',
+        graph_edges='[{"from": 8, "to": 6, "type": "depends_on"}]',
+        new_node_ids="[8]",
+    )
+
+    assert "Current Tool Result node ids" in prompt
+    assert "prior Assistant Thinking beliefs" in prompt
+    assert "Do not link two current nodes or two prior nodes" in prompt
+    assert "Tool Call provenance is paired deterministically by code" in prompt
+    assert "raw result text is intentionally omitted at runtime" not in prompt
     assert "The user can be charged a late fee" not in prompt
 
 

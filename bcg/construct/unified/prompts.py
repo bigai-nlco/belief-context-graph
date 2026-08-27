@@ -904,6 +904,41 @@ Rules:
 """
 
 
+_TOOL_RESULT_RELATION_RULES = """\
+## Tool Result relation rules
+The current nodes are facts extracted from Tool Results. The prior nodes are
+beliefs extracted from the Assistant's Thinking that led to those tool calls.
+Tool Call provenance is paired deterministically by code and is not this task.
+
+Emit only meaningful cross-turn relations with one current Tool Result endpoint
+and one prior Thinking endpoint. Do not link two current nodes or two prior nodes.
+Judge complete ``content`` fields; shared entities alone do not justify a relation.
+
+- ``depends_on``: A requires B as evidence, a premise, constraint, input, or context.
+- ``supplements``: A adds evidence or detail to B without changing it.
+- ``contradicts``: A conflicts with, corrects, negates, or rules out B.
+
+Direction is literal: ``A -> B`` means A depends on, supplements, or contradicts B.
+A search result does not depend on a Thinking node merely because that reasoning
+caused the search. Prefer the smallest set of direct, high-value evidence links;
+an empty result is valid.
+"""
+
+
+_TOOL_RESULT_RELATION_OUTPUT_FORMAT = """\
+## Output (JSON only — no markdown fences, no commentary)
+{
+  "relations": [
+    { "from": <int node id>, "to": <int node id>, "type": "depends_on | supplements | contradicts", "note": "<one short sentence>" }
+  ]
+}
+
+Every endpoint must be a shown integer id, and each relation must connect one
+node from ``Current Tool Result node ids`` with one prior Thinking node. Never
+create a self-link. Return {"relations": []} when no meaningful relation exists.
+"""
+
+
 def build_relation_extraction_prompt(
     *,
     role: str,
@@ -914,6 +949,26 @@ def build_relation_extraction_prompt(
     current_date: str | None = None,
 ) -> str:
     """Phase 2 prompt: extract relations only (on post-merge graph)."""
+    if normalize_role(role) == "tool":
+        parts = [
+            "# Task",
+            "Link current Tool Result beliefs to the prior Assistant Thinking beliefs they semantically support, refine, or contradict.",
+            "## Candidate relation window\n"
+            "### Current Tool Result node ids\n"
+            + NEW_NODE_IDS_PLACEHOLDER
+            + "\n\n### Candidate nodes\n"
+            + GRAPH_NODES_PLACEHOLDER
+            + "\n\n### Existing relations\n"
+            + GRAPH_EDGES_PLACEHOLDER
+            + "\n",
+            _TOOL_RESULT_RELATION_RULES,
+            _TOOL_RESULT_RELATION_OUTPUT_FORMAT,
+        ]
+        prompt = "\n".join(parts)
+        prompt = prompt.replace(GRAPH_NODES_PLACEHOLDER, graph_nodes or "[]")
+        prompt = prompt.replace(GRAPH_EDGES_PLACEHOLDER, graph_edges or "[]")
+        return prompt.replace(NEW_NODE_IDS_PLACEHOLDER, new_node_ids or "[]")
+
     parts: list[str] = [
         "# Task",
         "Extract typed relations for the belief graph based on the current turn.",
