@@ -25,15 +25,16 @@ const GRAPH_DIALOGUE_CONTEXT_GUIDE =
 
 const COMPACT_GRAPH_DIALOGUE_CONTEXT_GUIDE =
 	"<context_blocks_guide>\n" +
-	"Earlier raw turns are omitted below. All displayed beliefs and relations come from the graph. " +
-	"A belief is a self-contained claim or reasoning unit, such as a fact, hypothesis, intermediate conclusion, or decision. " +
-	"Beliefs are preliminary and may be incomplete or wrong: use confidence to judge factual beliefs, while search-action beliefs record history rather than evidence. " +
-	"Relation direction is literal: `A depends_on B` means A requires B as a premise, evidence, input, constraint, or context; " +
-	"`A supplements B` means A adds compatible detail or evidence to B without refuting it; " +
-	"`A contradicts B` means A conflicts with, corrects, negates, or replaces B. " +
-	"Trace the leading answer through its relations. Resolve an answer-changing conflict; otherwise search only for the exact missing or lowest-confidence pivotal fact. " +
-	"Reuse recorded searches, never repeat settled or irrelevant work, and prefer a query that distinguishes candidates. " +
-	"Answer once the strongest candidate has direct support and no decisive contradiction. Preserve the exact supported value; never add unsupported precision.\n" +
+	"Earlier raw turns are omitted; the connected belief trails below are Graph memory, not verified evidence. " +
+	"A belief is a self-contained fact, hypothesis, intermediate conclusion, or decision. " +
+	"Confidence estimates reliability, not answer relevance. Factual beliefs are candidate evidence; search-action beliefs only record prior work. " +
+	"A specific low-confidence belief that fills the requested value remains a candidate to verify; a generic high-confidence fact is not an answer unless it satisfies the question. " +
+	"Relations record reasoning or provenance, not truth by themselves. Direction is literal: `A depends_on B` means A requires B as a premise, evidence, input, constraint, or context; " +
+	"`A supplements B` adds compatible detail or evidence; `A contradicts B` conflicts with, corrects, negates, or replaces B. " +
+	"For each plausible answer, follow outgoing relations to its premises and incoming relations to later checks or results. " +
+	"Compare candidates against every pivotal constraint using direct, source-grounded evidence; missing edges or empty searches do not disprove a candidate. " +
+	"Resolve only answer-changing gaps or conflicts. If evidence is missing, search for a pivotal gap with a discriminating query that is not equivalent to a recorded search. " +
+	"Answer once one candidate covers the pivotal constraints without a decisive contradiction. Preserve the exact supported value; add no unsupported precision.\n" +
 	"</context_blocks_guide>";
 
 const DIALOGUE_BOS = "<｜begin▁of▁sentence｜>";

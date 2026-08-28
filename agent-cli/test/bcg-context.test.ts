@@ -203,10 +203,17 @@ describe("BCG context management", () => {
 		await manager.transform([user("initial question", 1)]);
 		const effectiveSystem = manager.augmentSystemPrompt("base system");
 
-		expect(effectiveSystem).toContain("A belief is a self-contained claim or reasoning unit");
+		expect(effectiveSystem).toContain(
+			"A belief is a self-contained fact, hypothesis, intermediate conclusion, or decision",
+		);
 		expect(effectiveSystem).toContain("`A depends_on B` means A requires B");
-		expect(effectiveSystem).toContain("`A supplements B` means A adds compatible detail or evidence");
-		expect(effectiveSystem).toContain("`A contradicts B` means A conflicts with");
+		expect(effectiveSystem).toContain("`A supplements B` adds compatible detail or evidence");
+		expect(effectiveSystem).toContain("`A contradicts B` conflicts with");
+		expect(effectiveSystem).toContain("Confidence estimates reliability, not answer relevance");
+		expect(effectiveSystem).toContain("Relations record reasoning or provenance, not truth");
+		expect(effectiveSystem).toContain("follow outgoing relations to its premises");
+		expect(effectiveSystem).toContain("incoming relations to later checks or results");
+		expect(effectiveSystem).toContain("generic high-confidence fact is not an answer");
 	});
 
 	it("uses the connected selector result to render compact graph context", async () => {
