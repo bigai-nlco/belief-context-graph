@@ -116,13 +116,10 @@ Rules:
 """
 
 _STANCE_DEFINITION = """\
-## Stance (choose ONE per belief or decision)
-- **asserted**   — stated as a plain fact or final answer ("X is Y", "released in 1980").
-- **recalled**   — based on memory ("I recall X", "I remember X").
-- **speculated** — hedged ("might", "maybe", "perhaps", "could", "possibly").
-- **judged**     — evaluative conclusion, recommendation, ranking, diagnosis, or selected option
-                  ("most likely", "best answer is", "I recommend X").
-
+## Stance
+Choose one per belief or decision: asserted = direct statement; recalled = based
+on previous memory; speculated = uncertain possibility; judged = assessment,
+recommendation, or conclusion.
 """
 
 _COMPACT_BELIEF_DEFINITION = """\
