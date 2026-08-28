@@ -31,12 +31,12 @@ const COMPACT_GRAPH_DIALOGUE_CONTEXT_GUIDE =
 	"A specific low-confidence belief that fills the requested value remains a candidate to verify; a generic high-confidence fact is not an answer unless it satisfies the question. " +
 	"Relations record reasoning or provenance, not truth by themselves. Direction is literal: `A depends_on B` means A requires B as a premise, evidence, input, constraint, or context; " +
 	"`A supplements B` adds compatible detail or evidence; `A contradicts B` conflicts with, corrects, negates, or replaces B. " +
-	"For each plausible answer, follow outgoing relations to its premises and incoming relations to later checks or results. " +
-	"Compare candidates against every pivotal constraint using direct, source-grounded evidence; missing edges or empty searches do not disprove a candidate. " +
-	"Before searching, check whether a concrete answer value is already stated by a Tool Result belief and has no retained contradiction; if so, answer without re-verifying every clue. " +
-	"Resolve only answer-changing gaps or conflicts. If evidence is still missing, use one parallel tool-call batch of non-equivalent, discriminating queries to cover the remaining decisive gaps. " +
-	"After that batch returns, answer from the best-supported candidate instead of opening another search branch, unless a concrete contradiction directly blocks the answer. " +
-	"Answer once one candidate covers the pivotal constraints without a decisive contradiction. Preserve the exact supported value; add no unsupported precision.\n" +
+	"Treat each connected relation path as an investigation branch: follow outgoing relations from a candidate to its premises and incoming relations to later checks or results. " +
+	"Compare plausible candidates against every pivotal constraint in the original question using direct, source-grounded evidence. " +
+	"Do not let recency, confidence alone, or many beliefs about the same candidate substitute for covering distinct constraints; missing edges or empty searches do not disprove a candidate. " +
+	"Before searching, identify the unresolved candidate-constraint pair whose answer would most change the final choice. Search that gap with a discriminating query, batch independent gaps when useful, and avoid queries that only reconfirm an already-supported constraint. " +
+	"If a concrete answer value is already supported across the pivotal constraints with no retained contradiction, answer without re-verifying every clue. Otherwise keep a plausible alternative until source-grounded evidence resolves the differentiating constraint. " +
+	"Preserve the exact supported value; add no unsupported precision.\n" +
 	"</context_blocks_guide>";
 
 const DIALOGUE_BOS = "<｜begin▁of▁sentence｜>";
