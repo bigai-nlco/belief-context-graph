@@ -42,6 +42,7 @@ class ReplayItem:
     stream_turn_index: int
     correct: bool
     query: str
+    focus_query: str
     next_action: str
     question: str
     answer: str
@@ -108,6 +109,35 @@ def request_query(
     if len(combined) <= max_chars:
         return combined
     # Keep the permanent question and the newest state when tool output is long.
+    remaining = max(0, max_chars - len(question) - 2)
+    return question + "\n\n" + combined[-remaining:]
+
+
+def request_focus_query(
+    request: dict[str, Any], question: str, max_chars: int = 6_000
+) -> str:
+    """Represent investigation intent without echoing raw Tool Results."""
+    parts = [question]
+    for message in request.get("payload", {}).get("messages", []):
+        role = message.get("role")
+        if role == "assistant":
+            content = text_content(message.get("content"))
+            if content:
+                parts.append(content)
+            for tool_call in message.get("tool_calls") or []:
+                function = tool_call.get("function") if isinstance(tool_call, dict) else None
+                if not isinstance(function, dict):
+                    continue
+                parts.append(
+                    f"{function.get('name', 'tool')} {function.get('arguments', '{}')}"
+                )
+        elif role == "user":
+            content = text_content(message.get("content"))
+            if content and question not in content:
+                parts.append(content)
+    combined = "\n\n".join(parts)
+    if len(combined) <= max_chars:
+        return combined
     remaining = max(0, max_chars - len(question) - 2)
     return question + "\n\n" + combined[-remaining:]
 
@@ -279,6 +309,52 @@ def graph_for_snapshot(snapshot: dict[str, Any], node_ids: set[int]) -> nx.DiGra
             continue
         weight = RELATION_WEIGHTS.get(str(relation.get("type")), 0.72)
         graph.add_edge(source, target, weight=weight, relation=relation)
+    return graph
+
+
+def coherent_graph_for_snapshot(
+    snapshot: dict[str, Any],
+    nodes: list[dict[str, Any]],
+    node_vectors: dict[int, np.ndarray],
+) -> nx.DiGraph:
+    """Build a noise-tolerant relation graph for selector experiments.
+
+    Relation extraction is intentionally permissive, so graph selection must
+    not treat every stored edge as equally trustworthy.  Endpoint semantic
+    coherence is used only as a retrieval weight; no source relation is
+    changed or deleted.
+    """
+    by_id = {node["id"]: node for node in nodes}
+    graph = nx.DiGraph()
+    graph.add_nodes_from(by_id)
+    for relation in snapshot.get("relations", []):
+        source = relation.get("from_id")
+        target = relation.get("to_id")
+        if source not in by_id or target not in by_id:
+            continue
+        coherence = max(
+            0.0, float(np.dot(node_vectors[source], node_vectors[target]))
+        )
+        relation_type = str(relation.get("type"))
+        # A low-coherence contradiction is especially likely to be an
+        # extraction artefact.  It should not become an answer-changing path.
+        if relation_type == "contradicts" and coherence < 0.28:
+            continue
+        role_factor = 0.78 if is_search(by_id[source]) or is_search(by_id[target]) else 1.0
+        weight = (
+            RELATION_WEIGHTS.get(relation_type, 0.72)
+            * (0.30 + 0.70 * coherence)
+            * role_factor
+        )
+        previous = graph.get_edge_data(source, target)
+        if previous is None or weight > float(previous.get("weight", 0.0)):
+            graph.add_edge(
+                source,
+                target,
+                weight=weight,
+                coherence=coherence,
+                relation=relation,
+            )
     return graph
 
 
@@ -584,6 +660,319 @@ def cost_aware_chain_selection(
     return Selection("cost_aware_chains", selected, relation_ids, used)
 
 
+def evidence_first_chain_selection(
+    snapshot: dict[str, Any],
+    nodes: list[dict[str, Any]],
+    query_similarities: dict[int, float],
+    question_similarities: dict[int, float],
+    node_vectors: dict[int, np.ndarray],
+) -> Selection:
+    """Prefer answer evidence and use relations only to restore coherent paths.
+
+    Unlike the first connected selector, search-action nodes are connectors,
+    not evidence seeds.  The permanent question dominates relevance so the
+    newest search result cannot create a self-reinforcing retrieval loop.
+    """
+    by_id = {node["id"]: node for node in nodes}
+    node_ids = set(by_id)
+    costs = {
+        node["id"]: len(node_line(node, include_confidence=not is_search(node))) + 1
+        for node in nodes
+    }
+    if sum(costs.values()) <= NODE_BUDGET:
+        selected = [node["id"] for node in nodes]
+        return Selection(
+            "evidence_first_chains",
+            selected,
+            induced_relation_ids(snapshot, set(selected)),
+            sum(costs.values()),
+        )
+
+    graph = coherent_graph_for_snapshot(snapshot, nodes, node_vectors)
+    recency = recency_scores(nodes)
+    personalization = {
+        node["id"]: max(
+            0.001,
+            0.65 * question_similarities[node["id"]]
+            + 0.25 * query_similarities[node["id"]]
+            + 0.10 * recency[node["id"]],
+        )
+        for node in nodes
+    }
+    if graph.number_of_edges():
+        ppr = normalize_scores(
+            nx.pagerank(
+                graph,
+                alpha=0.72,
+                personalization=personalization,
+                weight="weight",
+                max_iter=200,
+            )
+        )
+    else:
+        ppr = normalize_scores(personalization)
+    scores = {
+        node["id"]: max(
+            0.001,
+            0.42 * question_similarities[node["id"]]
+            + 0.28 * query_similarities[node["id"]]
+            + 0.15 * ppr.get(node["id"], 0.0)
+            + 0.07 * recency[node["id"]]
+            + 0.08 * confidence(node)
+            + compact_node_adjustment(node)
+            - (0.10 if is_search(node) else 0.0),
+        )
+        for node in nodes
+    }
+
+    # MMR keeps several plausible answer/evidence branches without spending
+    # the budget on near-duplicate snippets about the current search lead.
+    fact_pool = {node_id for node_id in node_ids if not is_search(by_id[node_id])}
+    seeds: list[int] = []
+    while fact_pool and len(seeds) < 24:
+        def seed_utility(node_id: int) -> float:
+            redundancy = max(
+                (
+                    max(0.0, float(np.dot(node_vectors[node_id], node_vectors[other])))
+                    for other in seeds
+                ),
+                default=0.0,
+            )
+            value = scores[node_id] - 0.22 * redundancy
+            return value / ((1.0 + costs[node_id] / 240.0) ** 0.34)
+
+        best = max(fact_pool, key=seed_utility)
+        seeds.append(best)
+        fact_pool.remove(best)
+
+    # Traverse both directions for retrieval, while preserving the original
+    # direction in the displayed relations.  A useful chain may be entered at
+    # either its evidence node or its later reasoning node.
+    traversal = graph.to_undirected()
+    proposals: list[tuple[float, tuple[int, ...]]] = []
+    for seed in seeds:
+        beam: list[tuple[float, tuple[int, ...]]] = [(scores[seed], (seed,))]
+        proposals.append((scores[seed], (seed,)))
+        for _ in range(3):
+            expanded: list[tuple[float, tuple[int, ...]]] = []
+            for path_score, path in beam:
+                for target in traversal.neighbors(path[-1]):
+                    if target in path:
+                        continue
+                    edge = traversal[path[-1]][target]
+                    next_score = path_score + float(edge.get("weight", 0.0)) * (
+                        0.25 + 0.75 * scores[target]
+                    )
+                    next_path = (*path, target)
+                    expanded.append((next_score, next_path))
+            if not expanded:
+                break
+            expanded.sort(
+                key=lambda item: item[0]
+                / ((1.0 + sum(costs[x] for x in item[1]) / 240.0) ** 0.40),
+                reverse=True,
+            )
+            beam = expanded[:8]
+            proposals.extend(
+                (
+                    score
+                    / ((1.0 + sum(costs[x] for x in path) / 240.0) ** 0.40),
+                    path,
+                )
+                for score, path in beam
+            )
+    proposals.sort(key=lambda item: (item[0], len(item[1])), reverse=True)
+
+    selected: list[int] = []
+    selected_set: set[int] = set()
+    used = 0
+    search_nodes = 0
+    raw_results = 0
+    for _, path in proposals:
+        # Search actions may complete a relation chain, but a chain made only
+        # of searches is an investigation ledger rather than answer evidence.
+        if not any(not is_search(by_id[node_id]) for node_id in path):
+            continue
+        additions = [node_id for node_id in path if node_id not in selected_set]
+        added_searches = sum(is_search(by_id[node_id]) for node_id in additions)
+        added_raw = sum(
+            by_id[node_id].get("extraction_method") == "rule_tool_result"
+            for node_id in additions
+        )
+        size = sum(costs[node_id] for node_id in additions)
+        if (
+            not additions
+            or search_nodes + added_searches > 6
+            or raw_results + added_raw > 2
+            or used + size > NODE_BUDGET
+        ):
+            continue
+        selected.extend(additions)
+        selected_set.update(additions)
+        used += size
+        search_nodes += added_searches
+        raw_results += added_raw
+
+    # Spend remaining space on non-search evidence using the same MMR order.
+    for node_id in seeds:
+        if node_id in selected_set or used + costs[node_id] > NODE_BUDGET:
+            continue
+        is_raw = by_id[node_id].get("extraction_method") == "rule_tool_result"
+        if is_raw and raw_results >= 2:
+            continue
+        selected.append(node_id)
+        selected_set.add(node_id)
+        used += costs[node_id]
+        raw_results += int(is_raw)
+
+    relation_ids: list[int] = []
+    for source, target, data in graph.edges(data=True):
+        relation = data.get("relation")
+        relation_id = relation.get("id") if isinstance(relation, dict) else None
+        if source in selected_set and target in selected_set and isinstance(relation_id, int):
+            relation_ids.append(relation_id)
+    return Selection("evidence_first_chains", selected, relation_ids, used)
+
+
+def evidence_pruned_chain_selection(
+    snapshot: dict[str, Any],
+    nodes: list[dict[str, Any]],
+    query_similarities: dict[int, float],
+    focus_similarities: dict[int, float],
+    question_similarities: dict[int, float],
+    node_vectors: dict[int, np.ndarray],
+) -> Selection:
+    """Keep connected-selector evidence while pruning investigation noise."""
+    base = cost_aware_chain_selection(snapshot, nodes, query_similarities)
+    by_id = {node["id"]: node for node in nodes}
+    costs = {
+        node["id"]: len(node_line(node, include_confidence=not is_search(node))) + 1
+        for node in nodes
+    }
+    if sum(costs.values()) <= NODE_BUDGET:
+        base.strategy = "evidence_pruned_chains"
+        return base
+
+    graph = coherent_graph_for_snapshot(snapshot, nodes, node_vectors)
+    selected: list[int] = [
+        node_id for node_id in base.node_ids if not is_search(by_id[node_id])
+    ]
+    selected_set = set(selected)
+    used = sum(costs[node_id] for node_id in selected)
+    recency = recency_scores(nodes)
+    base_searches = [node_id for node_id in base.node_ids if is_search(by_id[node_id])]
+
+    # Reinvest most released search-ledger space in relevant, diverse facts,
+    # while reserving enough room for a small set of relation connectors.
+    search_reserve = min(900, sum(costs[node_id] for node_id in base_searches))
+    fact_candidates = [
+        node["id"]
+        for node in nodes
+        if not is_search(node) and node["id"] not in selected_set
+    ]
+    while fact_candidates:
+        def fact_utility(node_id: int) -> float:
+            redundancy = max(
+                (
+                    max(0.0, float(np.dot(node_vectors[node_id], node_vectors[other])))
+                    for other in selected_set
+                    if not is_search(by_id[other])
+                ),
+                default=0.0,
+            )
+            value = (
+                0.44 * question_similarities[node_id]
+                + 0.28 * focus_similarities[node_id]
+                + 0.12 * query_similarities[node_id]
+                + 0.10 * confidence(by_id[node_id])
+                + 0.06 * recency[node_id]
+                + compact_node_adjustment(by_id[node_id])
+                - 0.18 * redundancy
+            )
+            return value / ((1.0 + costs[node_id] / 240.0) ** 0.34)
+
+        best = max(fact_candidates, key=fact_utility)
+        fact_candidates.remove(best)
+        is_raw = by_id[best].get("extraction_method") == "rule_tool_result"
+        current_raw = sum(
+            by_id[node_id].get("extraction_method") == "rule_tool_result"
+            for node_id in selected_set
+        )
+        if is_raw and current_raw >= 2:
+            continue
+        if used + costs[best] > NODE_BUDGET - search_reserve:
+            continue
+        selected.append(best)
+        selected_set.add(best)
+        used += costs[best]
+
+    latest_search = max(
+        base_searches,
+        key=lambda node_id: source_turn(by_id[node_id]),
+        default=None,
+    )
+    remaining_searches = set(base_searches)
+    kept_searches = 0
+    while remaining_searches and kept_searches < 6:
+        induced = graph.subgraph(selected_set).to_undirected()
+        component_by_node: dict[int, int] = {}
+        for component_index, component in enumerate(nx.connected_components(induced)):
+            for member in component:
+                component_by_node[member] = component_index
+
+        def search_utility(
+            node_id: int,
+            component_map: dict[int, int] = component_by_node,
+        ) -> tuple[float, float, int]:
+            adjacent: list[float] = []
+            neighbor_components: set[int] = set()
+            produced_evidence = False
+            for source, target, data in graph.edges(data=True):
+                neighbor: int | None = None
+                if source == node_id and target in selected_set:
+                    neighbor = target
+                elif target == node_id and source in selected_set:
+                    neighbor = source
+                    produced_evidence = True
+                if neighbor is not None:
+                    adjacent.append(float(data.get("weight", 0.0)))
+                    if neighbor in component_map:
+                        neighbor_components.add(component_map[neighbor])
+            adjacency = max(adjacent, default=0.0)
+            connectivity = min(2, len(neighbor_components)) / 2.0
+            score = (
+                0.28 * focus_similarities[node_id]
+                + 0.20 * question_similarities[node_id]
+                + 0.24 * connectivity
+                + 0.12 * adjacency
+                + 0.08 * recency[node_id]
+                + 0.08 * float(produced_evidence)
+            )
+            return score, adjacency, source_turn(by_id[node_id])
+
+        best_search = max(remaining_searches, key=search_utility)
+        remaining_searches.remove(best_search)
+        _score, adjacency, _turn = search_utility(best_search)
+        # Keep completed query→result connectors.  At most one latest
+        # unconnected query survives solely as a duplicate-search reminder.
+        if adjacency <= 0.0 and best_search != latest_search:
+            continue
+        if used + costs[best_search] > NODE_BUDGET:
+            continue
+        selected.append(best_search)
+        selected_set.add(best_search)
+        used += costs[best_search]
+        kept_searches += 1
+
+    relation_ids: list[int] = []
+    for source, target, data in graph.edges(data=True):
+        relation = data.get("relation")
+        relation_id = relation.get("id") if isinstance(relation, dict) else None
+        if source in selected_set and target in selected_set and isinstance(relation_id, int):
+            relation_ids.append(relation_id)
+    return Selection("evidence_pruned_chains", selected, relation_ids, used)
+
+
 def induced_relation_ids(snapshot: dict[str, Any], selected: set[int]) -> list[int]:
     return [
         relation["id"]
@@ -595,7 +984,10 @@ def induced_relation_ids(snapshot: dict[str, Any], selected: set[int]) -> list[i
 
 
 def rendered_selection(
-    snapshot: dict[str, Any], nodes: list[dict[str, Any]], selected: set[int]
+    snapshot: dict[str, Any],
+    nodes: list[dict[str, Any]],
+    selected: set[int],
+    allowed_relation_ids: set[int] | None = None,
 ) -> tuple[int, list[int]]:
     """Match the production compact renderer's visible payload shape."""
     by_id = {node["id"]: node for node in nodes}
@@ -613,6 +1005,8 @@ def rendered_selection(
     }
     relation_lines: list[tuple[int, str]] = []
     for relation_id in induced_relation_ids(snapshot, selected):
+        if allowed_relation_ids is not None and relation_id not in allowed_relation_ids:
+            continue
         relation = relation_by_id[relation_id]
         relation_lines.append(
             (
@@ -664,11 +1058,17 @@ def answer_node_ids(nodes: list[dict[str, Any]], answer: str) -> set[int]:
 
 
 def component_metrics(
-    graph: nx.DiGraph, selected: set[int]
+    graph: nx.DiGraph,
+    selected: set[int],
+    displayed_graph: nx.DiGraph | None = None,
 ) -> tuple[float, float, float]:
     if not selected:
         return 0.0, 1.0, 0.0
-    induced = graph.subgraph(selected).to_undirected()
+    induced = (
+        displayed_graph.to_undirected()
+        if displayed_graph is not None
+        else graph.subgraph(selected).to_undirected()
+    )
     components = list(nx.connected_components(induced))
     largest = max((len(component) for component in components), default=0) / len(
         selected
@@ -680,7 +1080,11 @@ def component_metrics(
         node_id for node_id in selected if graph.degree(node_id) > 0
     ]
     retained = (
-        sum(1 for node_id in nodes_with_graph_edges if induced.degree(node_id) > 0)
+        sum(
+            1
+            for node_id in nodes_with_graph_edges
+            if node_id in induced and induced.degree(node_id) > 0
+        )
         / len(nodes_with_graph_edges)
         if nodes_with_graph_edges
         else 0.0
@@ -795,6 +1199,7 @@ def collect_replay_items(run_dir: Path, graphs_dir: Path) -> list[ReplayItem]:
                     stream_turn_index=int(stream_index),
                     correct=bool(task.get("correct")),
                     query=request_query(request, task["question"]),
+                    focus_query=request_focus_query(request, task["question"]),
                     next_action=response_text(responses.get(call_id, {})),
                     question=task["question"],
                     answer=str(task.get("reference_answers", [""])[0]),
@@ -817,21 +1222,57 @@ def strategy_metrics(
     similarities: dict[int, float],
     answer_similarities: dict[int, float],
     action_similarities: dict[int, float],
+    node_vectors: dict[int, np.ndarray],
 ) -> dict[str, Any]:
     selected = set(selection.node_ids)
+    allowed_relations = (
+        set(selection.relation_ids)
+        if selection.strategy in {"evidence_first_chains", "evidence_pruned_chains"}
+        else None
+    )
     rendered_chars, displayed_relations = rendered_selection(
-        item.snapshot, nodes, selected
+        item.snapshot, nodes, selected, allowed_relations
     )
     selection.relation_ids = displayed_relations
     if selection.strategy != "current":
         selection.chars = rendered_chars
     graph = graph_for_snapshot(item.snapshot, {node["id"] for node in nodes})
-    largest, isolated, retained = component_metrics(graph, selected)
+    displayed_graph = nx.DiGraph()
+    displayed_graph.add_nodes_from(selected)
+    displayed_relation_set = set(selection.relation_ids)
+    for relation in item.snapshot.get("relations", []):
+        if relation.get("id") not in displayed_relation_set:
+            continue
+        source = relation.get("from_id")
+        target = relation.get("to_id")
+        if source in selected and target in selected:
+            displayed_graph.add_edge(source, target)
+    largest, isolated, retained = component_metrics(
+        graph, selected, displayed_graph
+    )
     answer_ids = answer_node_ids(nodes, item.answer)
     available_support = item.final_support_ids & {node["id"] for node in nodes}
     selected_values = [similarities[node_id] for node_id in selected]
     answer_values = [answer_similarities[node_id] for node_id in selected]
     action_values = [action_similarities[node_id] for node_id in selected]
+    search_ids = {node["id"] for node in nodes if is_search(node)}
+    relation_by_id = {
+        relation.get("id"): relation for relation in item.snapshot.get("relations", [])
+    }
+    relation_coherences: list[float] = []
+    contradiction_coherences: list[float] = []
+    for relation_id in selection.relation_ids:
+        relation = relation_by_id.get(relation_id)
+        if not isinstance(relation, dict):
+            continue
+        source = relation.get("from_id")
+        target = relation.get("to_id")
+        if source not in node_vectors or target not in node_vectors:
+            continue
+        value = max(0.0, float(np.dot(node_vectors[source], node_vectors[target])))
+        relation_coherences.append(value)
+        if relation.get("type") == "contradicts":
+            contradiction_coherences.append(value)
     return {
         "task_id": item.task_id,
         "call_id": item.call_id,
@@ -856,6 +1297,9 @@ def strategy_metrics(
         else 0.0,
         "answer_nodes_available": len(answer_ids),
         "answer_nodes_selected": len(answer_ids & selected),
+        "answer_node_precision": len(answer_ids & selected) / len(selected)
+        if selected
+        else None,
         "answer_node_recall": len(answer_ids & selected) / len(answer_ids)
         if answer_ids
         else None,
@@ -869,7 +1313,32 @@ def strategy_metrics(
         "largest_component_ratio": largest,
         "isolated_node_ratio": isolated,
         "relation_endpoint_retention": retained,
+        "search_node_ratio": len(search_ids & selected) / len(selected)
+        if selected
+        else 0.0,
+        "answer_similarity_mean": float(np.mean(answer_values))
+        if answer_values
+        else 0.0,
+        "answer_similarity_per_kchar": (
+            1000.0 * sum(answer_values) / max(1, selection.chars)
+        ),
+        "relation_coherence_mean": float(np.mean(relation_coherences))
+        if relation_coherences
+        else None,
+        "low_coherence_relation_ratio": (
+            sum(value < 0.28 for value in relation_coherences)
+            / len(relation_coherences)
+            if relation_coherences
+            else None
+        ),
+        "low_coherence_contradiction_ratio": (
+            sum(value < 0.28 for value in contradiction_coherences)
+            / len(contradiction_coherences)
+            if contradiction_coherences
+            else None
+        ),
         "selected_node_ids": sorted(selected),
+        "selected_relation_ids": sorted(selection.relation_ids),
     }
 
 
@@ -886,10 +1355,17 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         "answer_similarity_top3",
         "next_action_similarity_top3",
         "answer_node_recall",
+        "answer_node_precision",
         "support_node_recall",
         "largest_component_ratio",
         "isolated_node_ratio",
         "relation_endpoint_retention",
+        "search_node_ratio",
+        "answer_similarity_mean",
+        "answer_similarity_per_kchar",
+        "relation_coherence_mean",
+        "low_coherence_relation_ratio",
+        "low_coherence_contradiction_ratio",
     ]
     for strategy, values in grouped.items():
         result: dict[str, Any] = {"snapshots": len(values)}
@@ -955,14 +1431,34 @@ def main() -> None:
             [
                 *texts,
                 item.query,
+                item.focus_query,
+                item.question,
                 f"{item.question}\nCorrect answer: {item.answer}",
                 item.next_action,
             ]
         )
-        query_vector, answer_vector, action_vector = encoded[-3:]
+        query_vector, focus_vector, question_vector, answer_vector, action_vector = encoded[-5:]
+        node_vectors = {
+            node_id: encoded[start]
+            for node_id, (start, _end) in spans.items()
+        }
         similarities = {
             node_id: max(
                 float(np.dot(query_vector, vector)) for vector in encoded[start:end]
+            )
+            for node_id, (start, end) in spans.items()
+        }
+        question_similarities = {
+            node_id: max(
+                float(np.dot(question_vector, vector))
+                for vector in encoded[start:end]
+            )
+            for node_id, (start, end) in spans.items()
+        }
+        focus_similarities = {
+            node_id: max(
+                float(np.dot(focus_vector, vector))
+                for vector in encoded[start:end]
             )
             for node_id, (start, end) in spans.items()
         }
@@ -985,6 +1481,21 @@ def main() -> None:
             ppr_selection(item.snapshot, nodes, similarities),
             chain_selection(item.snapshot, nodes, similarities),
             cost_aware_chain_selection(item.snapshot, nodes, similarities),
+            evidence_first_chain_selection(
+                item.snapshot,
+                nodes,
+                focus_similarities,
+                question_similarities,
+                node_vectors,
+            ),
+            evidence_pruned_chain_selection(
+                item.snapshot,
+                nodes,
+                similarities,
+                focus_similarities,
+                question_similarities,
+                node_vectors,
+            ),
         ]
         for selection in selections:
             rows.append(
@@ -995,6 +1506,7 @@ def main() -> None:
                     similarities,
                     answer_similarities,
                     action_similarities,
+                    node_vectors,
                 )
             )
         if index % 50 == 0:
