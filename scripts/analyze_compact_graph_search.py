@@ -1255,6 +1255,106 @@ def production_display_order(
     return [node["id"] for node in [*facts, *searches]]
 
 
+def evidence_path_display_order(
+    snapshot: dict[str, Any],
+    nodes: list[dict[str, Any]],
+    selection: Selection,
+    query_similarities: dict[int, float],
+    focus_similarities: dict[int, float],
+    question_similarities: dict[int, float],
+    node_vectors: dict[int, np.ndarray],
+) -> list[int]:
+    """Group selected nodes into answer-evidence paths without answer labels.
+
+    The ordering deliberately balances the permanent question with the current
+    investigation focus.  This keeps an older viable candidate visible when a
+    newer search branch starts to tunnel toward a wrong answer.  Relations are
+    used only to group and propagate relevance; no source node or edge changes.
+    """
+    selected = set(selection.node_ids)
+    by_id = {node["id"]: node for node in nodes if node["id"] in selected}
+    if not by_id:
+        return []
+    allowed_relations = set(selection.relation_ids)
+    coherent = coherent_graph_for_snapshot(snapshot, list(by_id.values()), node_vectors)
+    graph = nx.Graph()
+    graph.add_nodes_from(by_id)
+    for source, target, data in coherent.edges(data=True):
+        relation = data.get("relation")
+        relation_id = relation.get("id") if isinstance(relation, dict) else None
+        if relation_id not in allowed_relations:
+            continue
+        graph.add_edge(source, target, weight=float(data.get("weight", 0.0)))
+
+    recency = recency_scores(list(by_id.values()))
+    direct = {
+        node_id: (
+            0.46 * question_similarities[node_id]
+            + 0.24 * focus_similarities[node_id]
+            + 0.10 * query_similarities[node_id]
+            + 0.10 * confidence(by_id[node_id])
+            + 0.05 * recency[node_id]
+            + 0.05
+            * float(
+                by_id[node_id].get("extraction_method")
+                == "compact_llm_tool_result"
+            )
+        )
+        for node_id in by_id
+    }
+    propagated: dict[int, float] = {}
+    for node_id in by_id:
+        neighbor_values = [
+            direct[neighbor] * float(graph[node_id][neighbor].get("weight", 0.0))
+            for neighbor in graph.neighbors(node_id)
+        ]
+        propagated[node_id] = 0.78 * direct[node_id] + 0.22 * max(
+            neighbor_values, default=0.0
+        )
+
+    components = list(nx.connected_components(graph))
+
+    def component_score(component: set[int]) -> tuple[float, float, int]:
+        facts = [node_id for node_id in component if not is_search(by_id[node_id])]
+        pool = facts or list(component)
+        question_values = sorted(
+            (question_similarities[node_id] for node_id in pool), reverse=True
+        )
+        top_question = question_values[:3]
+        score = (
+            0.46 * max(top_question, default=0.0)
+            + 0.24 * (sum(top_question) / len(top_question) if top_question else 0.0)
+            + 0.16 * max((focus_similarities[node_id] for node_id in pool), default=0.0)
+            + 0.09 * max((propagated[node_id] for node_id in pool), default=0.0)
+            + 0.05 * max((confidence(by_id[node_id]) for node_id in pool), default=0.0)
+        )
+        return score, max((recency[node_id] for node_id in pool), default=0.0), -min(component)
+
+    ordered: list[int] = []
+    for component in sorted(components, key=component_score, reverse=True):
+        facts = sorted(
+            (node_id for node_id in component if not is_search(by_id[node_id])),
+            key=lambda node_id: (
+                propagated[node_id],
+                confidence(by_id[node_id]),
+                recency[node_id],
+                node_id,
+            ),
+            reverse=True,
+        )
+        searches = sorted(
+            (node_id for node_id in component if is_search(by_id[node_id])),
+            key=lambda node_id: (
+                propagated[node_id],
+                recency[node_id],
+                node_id,
+            ),
+            reverse=True,
+        )
+        ordered.extend([*facts, *searches])
+    return ordered
+
+
 def normalized_answer(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
 
@@ -1447,6 +1547,8 @@ def strategy_metrics(
     selection: Selection,
     nodes: list[dict[str, Any]],
     similarities: dict[int, float],
+    focus_similarities: dict[int, float],
+    question_similarities: dict[int, float],
     answer_similarities: dict[int, float],
     action_similarities: dict[int, float],
     node_vectors: dict[int, np.ndarray],
@@ -1513,6 +1615,15 @@ def strategy_metrics(
         for node_id in selection.node_ids
         if node_id in selected and is_search(by_id[node_id])
     ]
+    path_display_order = evidence_path_display_order(
+        item.snapshot,
+        nodes,
+        selection,
+        similarities,
+        focus_similarities,
+        question_similarities,
+        node_vectors,
+    )
     answer_positions = [
         index + 1
         for index, node_id in enumerate(display_order)
@@ -1523,6 +1634,11 @@ def strategy_metrics(
         for index, node_id in enumerate(selector_display_order)
         if node_id in answer_ids
     ]
+    path_answer_positions = [
+        index + 1
+        for index, node_id in enumerate(path_display_order)
+        if node_id in answer_ids
+    ]
     support_positions = [
         index + 1
         for index, node_id in enumerate(display_order)
@@ -1531,6 +1647,11 @@ def strategy_metrics(
     selector_support_positions = [
         index + 1
         for index, node_id in enumerate(selector_display_order)
+        if node_id in available_support
+    ]
+    path_support_positions = [
+        index + 1
+        for index, node_id in enumerate(path_display_order)
         if node_id in available_support
     ]
     return {
@@ -1577,6 +1698,14 @@ def strategy_metrics(
             if answer_ids
             else None
         ),
+        "path_answer_first_position": min(path_answer_positions)
+        if path_answer_positions
+        else None,
+        "path_answer_top5_recall": (
+            len(answer_ids & set(path_display_order[:5])) / len(answer_ids)
+            if answer_ids
+            else None
+        ),
         "support_nodes_available": len(available_support),
         "support_nodes_selected": len(available_support & selected),
         "support_node_recall": (
@@ -1595,6 +1724,15 @@ def strategy_metrics(
         else None,
         "selector_support_top5_recall": (
             len(available_support & set(selector_display_order[:5]))
+            / len(available_support)
+            if available_support
+            else None
+        ),
+        "path_support_first_position": min(path_support_positions)
+        if path_support_positions
+        else None,
+        "path_support_top5_recall": (
+            len(available_support & set(path_display_order[:5]))
             / len(available_support)
             if available_support
             else None
@@ -1629,6 +1767,7 @@ def strategy_metrics(
         "selected_node_ids": sorted(selected),
         "selected_node_order": display_order,
         "selector_node_order": selector_display_order,
+        "path_node_order": path_display_order,
         "selected_relation_ids": sorted(selection.relation_ids),
     }
 
@@ -1651,11 +1790,15 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         "answer_top5_recall",
         "selector_answer_first_position",
         "selector_answer_top5_recall",
+        "path_answer_first_position",
+        "path_answer_top5_recall",
         "support_node_recall",
         "support_first_position",
         "support_top5_recall",
         "selector_support_first_position",
         "selector_support_top5_recall",
+        "path_support_first_position",
+        "path_support_top5_recall",
         "largest_component_ratio",
         "isolated_node_ratio",
         "relation_endpoint_retention",
@@ -1826,6 +1969,8 @@ def main() -> None:
                     selection,
                     nodes,
                     similarities,
+                    focus_similarities,
+                    question_similarities,
                     answer_similarities,
                     action_similarities,
                     node_vectors,
