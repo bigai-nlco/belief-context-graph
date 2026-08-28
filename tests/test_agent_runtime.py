@@ -18,6 +18,9 @@ def _clean_generated_runtime_environment(monkeypatch) -> None:
         "BCG_SUMMARY_MODEL",
         "BCG_SUMMARY_BASE_URL",
         "BCG_SUMMARY_API_KEY",
+        "BCG_RAG_DB_PATH",
+        "BCG_RAG_TOP_K",
+        "BCG_RAG_MAX_CHARS",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -60,6 +63,13 @@ def test_agent_configuration_enables_bcg_and_references_env_key(
             "maxTokens": 2048,
             "thinkingLevel": "off",
         },
+        "recentOnly": {"recentTurns": 2},
+        "rag": {
+            "recentTurns": 2,
+            "databasePath": "",
+            "topK": 6,
+            "maxChars": 12000,
+        },
     }
     assert settings["defaultProvider"] == "bcg"
     assert settings["defaultModel"] == "test-model"
@@ -101,6 +111,34 @@ def test_summary_context_uses_independent_model_configuration(
     }
     assert models["providers"]["bcg-summary"]["baseUrl"] == ("https://summary.test/v1")
     assert models["providers"]["bcg-summary"]["models"][0]["id"] == ("summary-model")
+
+
+@pytest.mark.parametrize("mode", ["recent-only", "rag"])
+def test_bounded_context_modes_are_written_to_agent_settings(
+    monkeypatch,
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    monkeypatch.setenv("BCG_HOME", str(tmp_path))
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://agent.test/v1")
+    monkeypatch.setenv("OPENAI_MODEL", "agent-model")
+    monkeypatch.setenv("BCG_CONTEXT_MODE", mode)
+    monkeypatch.setenv("BCG_RECENT_TURNS", "2")
+    monkeypatch.setenv("BCG_RAG_DB_PATH", str(tmp_path / "rag.sqlite"))
+    monkeypatch.setenv("BCG_RAG_TOP_K", "4")
+    monkeypatch.setenv("BCG_RAG_MAX_CHARS", "4096")
+
+    agent_dir = agent_runtime.ensure_agent_configuration("http://127.0.0.1:8848")
+    settings = json.loads((agent_dir / "settings.json").read_text())
+
+    assert settings["contextManagement"]["provider"] == mode
+    assert settings["contextManagement"]["recentOnly"] == {"recentTurns": 2}
+    assert settings["contextManagement"]["rag"] == {
+        "recentTurns": 2,
+        "databasePath": str(tmp_path / "rag.sqlite"),
+        "topK": 4,
+        "maxChars": 4096,
+    }
 
 
 def test_summary_provider_is_generated_when_agent_uses_login(

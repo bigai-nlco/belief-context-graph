@@ -5,6 +5,8 @@ import os
 import stat
 from pathlib import Path
 
+import pytest
+
 from bcg.apps import setup
 
 
@@ -239,6 +241,41 @@ def test_setup_configures_summary_mode_with_agent_endpoint(
     }
     credentials = (tmp_path / ".env").read_text(encoding="utf-8")
     assert "BCG_SUMMARY_API_KEY=agent-secret\n" in credentials
+
+
+@pytest.mark.parametrize(
+    ("selection", "mode"),
+    [("4", "recent-only"), ("5", "rag")],
+)
+def test_setup_configures_bounded_context_modes(
+    monkeypatch,
+    tmp_path: Path,
+    selection: str,
+    mode: str,
+) -> None:
+    monkeypatch.setenv("BCG_HOME", str(tmp_path))
+    answers = iter(
+        [
+            "1",  # API key authentication
+            "https://agent.test/v1",
+            "agent-model",
+            "2",  # disable Serper
+            selection,
+            "",  # two recent completed turns
+            "2",  # existing Graph server (not used by these modes)
+            "https://graph.test",
+        ]
+    )
+
+    config = setup.run_setup(
+        input_fn=lambda _prompt: next(answers),
+        secret_fn=lambda _prompt: "agent-secret",
+    )
+
+    assert config["context"] == {"mode": mode, "recentTurns": 2}
+    setup.apply_user_configuration(config, override=True)
+    assert os.environ["BCG_CONTEXT_MODE"] == mode
+    assert os.environ["BCG_RECENT_TURNS"] == "2"
 
 
 def test_apply_user_configuration_uses_global_values(

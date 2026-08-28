@@ -87,6 +87,12 @@ def ensure_agent_configuration(graph_url: str) -> Path:
     summary_settings = context.get("summary")
     if not isinstance(summary_settings, dict):
         summary_settings = {}
+    recent_only_settings = context.get("recentOnly")
+    if not isinstance(recent_only_settings, dict):
+        recent_only_settings = {}
+    rag_settings = context.get("rag")
+    if not isinstance(rag_settings, dict):
+        rag_settings = {}
 
     try:
         recent_turns = int(
@@ -102,6 +108,14 @@ def ensure_agent_configuration(graph_url: str) -> Path:
             )
         )
         summary_max_tokens = int(os.environ.get("BCG_SUMMARY_MAX_TOKENS", "2048"))
+        rag_top_k = int(
+            os.environ.get("BCG_RAG_TOP_K", str(rag_settings.get("topK", 6)))
+        )
+        rag_max_chars = int(
+            os.environ.get(
+                "BCG_RAG_MAX_CHARS", str(rag_settings.get("maxChars", 12000))
+            )
+        )
         timeout_ms = int(
             os.environ.get(
                 "BCG_GRAPH_TIMEOUT_MS",
@@ -122,7 +136,8 @@ def ensure_agent_configuration(graph_url: str) -> Path:
             "BCG_RECENT_TURNS, BCG_GRAPH_MAX_TURNS, BCG_GRAPH_TIMEOUT_MS, "
             "BCG_GRAPH_FINALIZATION_TIMEOUT_MS, "
             "BCG_SUMMARY_RECENT_TURNS, BCG_SUMMARY_TIMEOUT_MS, and "
-            "BCG_SUMMARY_MAX_TOKENS must be integers."
+            "BCG_SUMMARY_MAX_TOKENS, BCG_RAG_TOP_K, and BCG_RAG_MAX_CHARS "
+            "must be integers."
         ) from exc
 
     bcg_settings.update(
@@ -158,13 +173,33 @@ def ensure_agent_configuration(graph_url: str) -> Path:
             .lower(),
         }
     )
+    recent_only_settings.update({"recentTurns": max(-1, recent_turns)})
+    rag_settings.update(
+        {
+            "recentTurns": max(-1, recent_turns),
+            "databasePath": os.environ.get(
+                "BCG_RAG_DB_PATH", str(rag_settings.get("databasePath", ""))
+            ).strip(),
+            "topK": max(1, rag_top_k),
+            "maxChars": max(256, rag_max_chars),
+        }
+    )
     configured_context_provider = os.environ.get("BCG_CONTEXT_MODE", "").strip()
-    if configured_context_provider in {"default", "bcg", "summary"}:
+    valid_context_providers = {
+        "default",
+        "bcg",
+        "summary",
+        "recent-only",
+        "rag",
+    }
+    if configured_context_provider in valid_context_providers:
         context["provider"] = configured_context_provider
-    elif context.get("provider") not in {"default", "bcg", "summary"}:
+    elif context.get("provider") not in valid_context_providers:
         context["provider"] = "bcg"
     context["bcg"] = bcg_settings
     context["summary"] = summary_settings
+    context["recentOnly"] = recent_only_settings
+    context["rag"] = rag_settings
     settings["contextManagement"] = context
     settings.setdefault("defaultThinkingLevel", "off")
     settings["enableInstallTelemetry"] = False

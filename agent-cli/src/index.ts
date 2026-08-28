@@ -253,6 +253,8 @@ export {
 	type ImageSettings,
 	type PackageSource,
 	type ResolvedContextManagementSettings,
+	type RagContextSettings,
+	type RecentOnlyContextSettings,
 	type RetrySettings,
 	SettingsManager,
 	type SettingsManagerCreateOptions,
