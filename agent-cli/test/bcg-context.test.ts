@@ -156,7 +156,11 @@ describe("BCG context management", () => {
 		expect(effectiveSystem).toContain("<｜Assistant｜>");
 		expect(effectiveSystem).not.toContain("<belief_graph");
 		expect(effectiveSystem).toContain("earlier turns have been omitted from the raw conversation context");
+		expect(effectiveSystem).toContain("A belief is a self-contained claim or reasoning unit");
 		expect(effectiveSystem).toContain("confidence to judge how trustworthy its content is");
+		expect(effectiveSystem).toContain("`A depends_on B` means A requires B");
+		expect(effectiveSystem).toContain("`A supplements B` means A adds compatible detail or evidence");
+		expect(effectiveSystem).toContain("`A contradicts B` means A conflicts with");
 		expect(effectiveSystem).toContain("avoid repeating searches that were already performed");
 		expect(effectiveSystem).toContain("graph version 2");
 		expect(effectiveSystem?.match(/base system/g)).toHaveLength(1);
@@ -180,6 +184,28 @@ describe("BCG context management", () => {
 		const transformed = await manager.transform([initial, assistant("old reasoning", 2), tool("old evidence", 3)]);
 
 		expect(transformed).toEqual([initial]);
+	});
+
+	it("defines beliefs and all three relation types in compact context guidance", async () => {
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 2,
+			maxTurns: 100,
+			timeoutMs: 1000,
+			includeRelations: true,
+			graphView: "compact",
+			getSystemPrompt: () => "base system",
+			fetch: createFetch([]),
+		});
+
+		await manager.transform([user("initial question", 1)]);
+		const effectiveSystem = manager.augmentSystemPrompt("base system");
+
+		expect(effectiveSystem).toContain("A belief is a self-contained claim or reasoning unit");
+		expect(effectiveSystem).toContain("`A depends_on B` means A requires B");
+		expect(effectiveSystem).toContain("`A supplements B` means A adds compatible detail or evidence");
+		expect(effectiveSystem).toContain("`A contradicts B` means A conflicts with");
 	});
 
 	it("serializes tool calls with XML tags while preserving Agent tool names", async () => {
@@ -539,7 +565,7 @@ describe("BCG context management", () => {
 		expect(encoded).not.toContain("direction=incoming");
 	});
 
-	it("projects original graph beliefs and their retained relations into compact chat-marked context", () => {
+	it("projects original graph beliefs and their retained relations into a compact belief-context block", () => {
 		const encoded = formatCompactBcgDialogueContext({
 			beliefs: [
 				{ id: 1, belief: "duplicated initial request", source: { turn_id: 1 } },
@@ -585,8 +611,11 @@ describe("BCG context management", () => {
 			],
 		});
 
-		expect(encoded).toContain("<｜begin▁of▁sentence｜><｜User｜>");
-		expect(encoded).toContain("<｜Assistant｜>");
+		expect(encoded).toMatch(/^<belief_context>\n/);
+		expect(encoded).toMatch(/\n<\/belief_context>$/);
+		expect(encoded).not.toContain("<｜begin▁of▁sentence｜>");
+		expect(encoded).not.toContain("<｜User｜>");
+		expect(encoded).not.toContain("<｜Assistant｜>");
 		expect(encoded).toContain(
 			'[B10] The assistant is using web_search to search for "first historical query".',
 		);
@@ -649,6 +678,32 @@ describe("BCG context management", () => {
 		);
 		expect(encoded).toContain('[B9] The assistant is using web_search to search for "already tried".');
 		expect(encoded).not.toContain("[B9] The assistant is using web_search to search for \"already tried\". (confidence");
+	});
+
+	it("omits empty search-result beliefs and relations connected to them from compact context", () => {
+		const encoded = formatCompactBcgDialogueContext({
+			beliefs: [
+				{
+					id: 20,
+					belief: 'The assistant is using web_search to search for "rare source".',
+					extraction_method: "rule_tool_call",
+					query: "rare source",
+					source: { turn_id: 4 },
+				},
+				{
+					id: 21,
+					belief: "The web_search tool returned no results.",
+					extraction_method: "rule_tool_result",
+					source: { turn_id: 5 },
+				},
+			],
+			relations: [{ id: 1, from_id: 21, to_id: 20, type: "depends_on" }],
+		});
+
+		expect(encoded).toContain('[B20] The assistant is using web_search to search for "rare source".');
+		expect(encoded).not.toContain("[B21]");
+		expect(encoded).not.toContain("Retained relations");
+		expect(encoded).not.toContain("depends_on");
 	});
 
 	it("keeps compact graph injection within its bounded rendering budget", () => {

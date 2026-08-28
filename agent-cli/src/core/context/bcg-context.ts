@@ -11,18 +11,25 @@ const GRAPH_PREFIX =
 
 const GRAPH_DIALOGUE_CONTEXT_GUIDE =
 	"<context_blocks_guide>\n" +
-	"The dialogue-encoded context below holds preliminary beliefs derived from earlier turns. " +
+	"The dialogue-encoded context below holds beliefs derived from earlier turns. " +
+	"A belief is a self-contained claim or reasoning unit, such as a fact, hypothesis, intermediate conclusion, or decision. " +
 	"Those earlier turns have been omitted from the raw conversation context and are represented by this belief context instead. " +
 	"The beliefs may contain errors or incomplete information. Use each belief's confidence to judge how trustworthy its content is, " +
 	"and do not treat any belief as verified evidence solely because it appears here. " +
+	"Relation direction is literal: `A depends_on B` means A requires B as a premise, evidence, input, constraint, or context; " +
+	"`A supplements B` means A adds compatible detail or evidence to B without refuting it; " +
+	"`A contradicts B` means A conflicts with, corrects, negates, or replaces B. " +
 	"Use this context to avoid repeating searches that were already performed, and do not repeatedly search for the same information.\n" +
 	"</context_blocks_guide>";
 
 const COMPACT_GRAPH_DIALOGUE_CONTEXT_GUIDE =
 	"<context_blocks_guide>\n" +
 	"Earlier raw turns are omitted below. All displayed beliefs and relations come from the graph. " +
-	"Confidence ranks factual beliefs only; search-action and no-result beliefs are history, not evidence. " +
-	"`A depends_on B` means A relies on B; `supplements` is compatible context; `contradicts` is a conflict. " +
+	"A belief is a self-contained claim or reasoning unit, such as a fact, hypothesis, intermediate conclusion, or decision. " +
+	"Beliefs are preliminary and may be incomplete or wrong: use confidence to judge factual beliefs, while search-action beliefs record history rather than evidence. " +
+	"Relation direction is literal: `A depends_on B` means A requires B as a premise, evidence, input, constraint, or context; " +
+	"`A supplements B` means A adds compatible detail or evidence to B without refuting it; " +
+	"`A contradicts B` means A conflicts with, corrects, negates, or replaces B. " +
 	"Trace the leading answer through its relations. Resolve an answer-changing conflict; otherwise search only for the exact missing or lowest-confidence pivotal fact. " +
 	"Reuse recorded searches, never repeat settled or irrelevant work, and prefer a query that distinguishes candidates. " +
 	"Answer once the strongest candidate has direct support and no decisive contradiction. Preserve the exact supported value; never add unsupported precision.\n" +
@@ -33,6 +40,8 @@ const DIALOGUE_EOS = "<｜end▁of▁sentence｜>";
 const DIALOGUE_USER = "<｜User｜>";
 const DIALOGUE_ASSISTANT = "<｜Assistant｜>";
 const DIALOGUE_VALID_ROLES = new Set(["system", "user", "assistant"]);
+const BELIEF_CONTEXT_OPEN = "<belief_context>";
+const BELIEF_CONTEXT_CLOSE = "</belief_context>";
 
 export const BCG_TURN_LIMIT_MARKER = "BCG_TURN_LIMIT_EXCEEDED";
 
@@ -340,11 +349,16 @@ function compactSourceTurn(belief: BcgSnapshot["beliefs"][number]): number {
 		: -1;
 }
 
+function isCompactEmptySearchResultBelief(belief: BcgSnapshot["beliefs"][number]): boolean {
+	return /^The (?:web_search|\S+ tool) (?:tool )?returned no results\.?$/i.test(
+		belief.belief ?? "",
+	);
+}
+
 function isCompactSearchHistoryBelief(belief: BcgSnapshot["beliefs"][number]): boolean {
 	return (
 		belief.extraction_method === "rule_tool_call" ||
-		typeof belief.query === "string" ||
-		/^The (?:web_search|\S+ tool) (?:tool )?returned no results\.?$/i.test(belief.belief ?? "")
+		typeof belief.query === "string"
 	);
 }
 
@@ -391,7 +405,9 @@ export function formatCompactBcgDialogueContext(snapshot: BcgSnapshot, includeRe
 	const retained = beliefs.filter((belief) => {
 		const sourceTurn = compactSourceTurn(belief);
 		// The initial system/user seed remains verbatim in every Agent request.
-		return sourceTurn < 0 || sourceTurn > 1;
+		// Empty search observations remain in the source graph for auditability,
+		// but add no useful evidence to the bounded Agent-facing view.
+		return (sourceTurn < 0 || sourceTurn > 1) && !isCompactEmptySearchResultBelief(belief);
 	});
 	if (retained.length === 0) {
 		return "";
@@ -454,13 +470,7 @@ export function formatCompactBcgDialogueContext(snapshot: BcgSnapshot, includeRe
 		}
 	}
 	const payload = `${heading}\n\n${lines.join("\n")}`;
-	return (
-		DIALOGUE_BOS +
-		DIALOGUE_USER +
-		payload +
-		DIALOGUE_ASSISTANT +
-		DIALOGUE_EOS
-	);
+	return `${BELIEF_CONTEXT_OPEN}\n${payload}\n${BELIEF_CONTEXT_CLOSE}`;
 }
 
 function formatDialogueBeliefMarkdown(message: GraphDialogueBeliefMessage): string {
