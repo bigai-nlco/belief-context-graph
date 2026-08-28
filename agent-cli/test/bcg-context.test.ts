@@ -782,7 +782,7 @@ describe("BCG context management", () => {
 		expect(encoded).not.toContain("depends_on");
 	});
 
-	it("renders focused selections as relation-adjacent connected belief trails", () => {
+	it("renders focused selections as evidence first and contiguous relation paths", () => {
 		const encoded = formatCompactBcgDialogueContext(
 			{
 				beliefs: [
@@ -809,19 +809,56 @@ describe("BCG context management", () => {
 			true,
 		);
 
-		expect(encoded).toContain("#### Connected belief trails");
+		expect(encoded).toContain("#### Candidate evidence");
+		expect(encoded).toContain("#### Search history");
+		expect(encoded).toContain("#### Relation paths");
 		expect(encoded).not.toContain("#### Factual beliefs");
 		expect(encoded).not.toContain("#### Search-history beliefs");
 		expect(encoded).not.toContain("#### Retained relations");
-		const candidate = encoded.indexOf("[B2] specific candidate");
-		const incoming = encoded.indexOf("[B4] depends_on [B2]");
-		const search = encoded.indexOf('[B4] The assistant is using web_search');
-		const evidenceEdge = encoded.indexOf("[B6] depends_on [B4]");
 		const evidence = encoded.indexOf("[B6] later search evidence");
-		expect(candidate).toBeLessThan(incoming);
-		expect(incoming).toBeLessThan(search);
-		expect(search).toBeLessThan(evidenceEdge);
-		expect(evidenceEdge).toBeLessThan(evidence);
+		const premise = encoded.indexOf("[B3] candidate premise");
+		const candidate = encoded.indexOf("[B2] specific candidate");
+		const search = encoded.indexOf('[B4] The assistant is using web_search');
+		const relationHeading = encoded.indexOf("#### Relation paths");
+		const evidenceEdge = encoded.indexOf("[B6] depends_on [B4]");
+		const incoming = encoded.indexOf("[B4] depends_on [B2]");
+		const premiseEdge = encoded.indexOf("[B2] depends_on [B3]");
+		expect(evidence).toBeLessThan(premise);
+		expect(premise).toBeLessThan(candidate);
+		expect(candidate).toBeLessThan(search);
+		expect(search).toBeLessThan(relationHeading);
+		expect(relationHeading).toBeLessThan(evidenceEdge);
+		expect(evidenceEdge).toBeLessThan(incoming);
+		expect(incoming).toBeLessThan(premiseEdge);
+	});
+
+	it("keeps candidate ordering independent of a long relation chain", () => {
+		const beliefs = Array.from({ length: 8 }, (_, index) => ({
+			id: index + 1,
+			belief: `belief ${index + 1}`,
+			confidence: 0.8,
+			source: { turn_id: index + 2 },
+		}));
+		const relations = Array.from({ length: 6 }, (_, index) => ({
+			id: index + 1,
+			from_id: index + 1,
+			to_id: index + 2,
+			type: "depends_on" as const,
+		}));
+		const encoded = formatCompactBcgDialogueContext(
+			{ beliefs, relations },
+			true,
+			new Set([1, 8, 2, 3, 4, 5, 6, 7]),
+			new Set(relations.map((relation) => relation.id)),
+			true,
+		);
+		const nodeOrder = Array.from(encoded.matchAll(/^- \[B(\d+)\] belief/gm), (match) =>
+			Number(match[1]),
+		);
+
+		expect(nodeOrder).toEqual([8, 7, 6, 5, 4, 3, 2, 1]);
+		expect(new Set(nodeOrder)).toEqual(new Set([1, 2, 3, 4, 5, 6, 7, 8]));
+		expect(encoded.indexOf("[B1] belief 1")).toBeLessThan(encoded.indexOf("#### Relation paths"));
 	});
 
 	it("ranks factual confidence before recency and treats queries as history", () => {

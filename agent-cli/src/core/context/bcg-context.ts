@@ -351,6 +351,7 @@ interface CompactTrailLine {
 const COMPACT_GRAPH_CHAR_BUDGET = 8_000;
 const COMPACT_FACT_CHAR_BUDGET = 4_900;
 const COMPACT_SEARCH_CHAR_BUDGET = 1_700;
+const COMPACT_RELATION_PATH_LIMIT = 3;
 
 function compactConfidence(belief: BcgSnapshot["beliefs"][number]): string {
 	return typeof belief.confidence === "number" ? ` (confidence ${belief.confidence.toFixed(2)})` : "";
@@ -411,21 +412,34 @@ function compactRelationLine(relation: CompactRelation): string {
 }
 
 /**
- * Arrange a selected subgraph as relation-adjacent belief trails.
+ * Arrange selected relations as short, endpoint-contiguous paths.
  *
- * The selector's node order supplies trail/root priority. Traversal follows
- * only original Graph relations and emits each relation immediately before a
- * newly reached endpoint whenever possible. No belief or relation is rewritten.
+ * Candidate belief order is intentionally handled separately so graph
+ * traversal cannot bury answer evidence. This traversal changes relation order
+ * only; no belief, relation, or endpoint is rewritten.
  */
-function compactRelationTrailLines(
+function compactRelationPathLines(
 	retained: BcgSnapshot["beliefs"],
 	relations: CompactRelation[],
-	selectedNodeIds: ReadonlySet<number>,
 ): CompactTrailLine[] {
 	const byId = new Map(retained.map((belief) => [belief.id, belief]));
 	const orderedIds = [
-		...Array.from(selectedNodeIds).filter((nodeId) => byId.has(nodeId)),
-		...retained.map((belief) => belief.id).filter((nodeId) => !selectedNodeIds.has(nodeId)),
+		...retained
+			.filter((belief) => !isCompactSearchHistoryBelief(belief))
+			.sort(
+				(left, right) =>
+					compactFactPriority(right) - compactFactPriority(left) ||
+					compactSourceTurn(right) - compactSourceTurn(left) ||
+					right.id - left.id,
+			)
+			.map((belief) => belief.id),
+		...retained
+			.filter(isCompactSearchHistoryBelief)
+			.sort(
+				(left, right) =>
+					compactSourceTurn(right) - compactSourceTurn(left) || right.id - left.id,
+			)
+			.map((belief) => belief.id),
 	];
 	const priority = new Map(orderedIds.map((nodeId, index) => [nodeId, index]));
 	const adjacency = new Map<
@@ -442,7 +456,6 @@ function compactRelationTrailLines(
 		adjacency.set(relation.to_id, incoming);
 	}
 
-	const seenNodes = new Set<number>();
 	const seenRelations = new Set<number>();
 	const lines: CompactTrailLine[] = [];
 	const edgePriority = (edge: {
@@ -451,7 +464,7 @@ function compactRelationTrailLines(
 		incoming: boolean;
 	}): [number, number, number, number] => [
 		edge.relation.type === "contradicts" ? 0 : 1,
-		edge.incoming ? 0 : 1,
+		edge.incoming ? 1 : 0,
 		priority.get(edge.neighbor) ?? Number.MAX_SAFE_INTEGER,
 		edge.relation.id,
 	];
@@ -467,40 +480,33 @@ function compactRelationTrailLines(
 		return 0;
 	};
 
-	const visit = (nodeId: number): void => {
-		const belief = byId.get(nodeId);
-		if (!belief || seenNodes.has(nodeId)) return;
-		seenNodes.add(nodeId);
-		lines.push({ text: compactBeliefLine(belief), kind: "node" });
+	const visit = (
+		nodeId: number,
+		trail: { edges: number; nodes: Set<number> },
+	): void => {
+		if (!byId.has(nodeId) || trail.edges >= COMPACT_RELATION_PATH_LIMIT) return;
+		trail.nodes.add(nodeId);
 		const edges = [...(adjacency.get(nodeId) ?? [])].sort(compareEdges);
-
-		// Cross-links are most legible beside the newly displayed endpoint.
 		for (const edge of edges) {
-			if (!seenNodes.has(edge.neighbor) || seenRelations.has(edge.relation.id)) continue;
+			if (trail.edges >= COMPACT_RELATION_PATH_LIMIT) break;
+			if (trail.nodes.has(edge.neighbor) || seenRelations.has(edge.relation.id)) continue;
 			seenRelations.add(edge.relation.id);
-			lines.push({
-				text: compactRelationLine(edge.relation),
-				kind: "cross_relation",
-				relationType: edge.relation.type,
-			});
-		}
-
-		for (const edge of edges) {
-			if (seenNodes.has(edge.neighbor) || seenRelations.has(edge.relation.id)) continue;
-			seenRelations.add(edge.relation.id);
+			trail.edges += 1;
 			lines.push({
 				text: compactRelationLine(edge.relation),
 				kind: "tree_relation",
 				relationType: edge.relation.type,
 			});
-			visit(edge.neighbor);
+			visit(edge.neighbor, trail);
 		}
 	};
 
 	for (const nodeId of orderedIds) {
-		if (seenNodes.has(nodeId)) continue;
-		if (lines.length > 0) lines.push({ text: "", kind: "separator" });
-		visit(nodeId);
+		const before = lines.length;
+		visit(nodeId, { edges: 0, nodes: new Set<number>() });
+		if (before > 0 && lines.length > before) {
+			lines.splice(before, 0, { text: "", kind: "separator" });
+		}
 	}
 
 	// Defensive: retain any selected relation that was not reached because of
@@ -509,7 +515,7 @@ function compactRelationTrailLines(
 		if (seenRelations.has(relation.id)) continue;
 		lines.push({
 			text: compactRelationLine(relation),
-			kind: "cross_relation",
+			kind: "tree_relation",
 			relationType: relation.type,
 		});
 	}
@@ -597,13 +603,48 @@ export function formatCompactBcgDialogueContext(
 					.filter((relation) => !selectedRelationIds || selectedRelationIds.has(relation.id))
 			: [];
 		const heading = "### Earlier investigation memory";
-		const sectionHeading = "#### Connected belief trails";
+		const facts = retained
+			.filter((belief) => !isCompactSearchHistoryBelief(belief))
+			.sort(
+				(left, right) =>
+					compactFactPriority(right) - compactFactPriority(left) ||
+					compactSourceTurn(right) - compactSourceTurn(left) ||
+					right.id - left.id,
+			);
+		const searches = retained
+			.filter(isCompactSearchHistoryBelief)
+			.sort(
+				(left, right) =>
+					compactSourceTurn(right) - compactSourceTurn(left) || right.id - left.id,
+			);
+		const candidateLines: CompactTrailLine[] = [];
+		if (facts.length > 0) {
+			candidateLines.push({ text: "#### Candidate evidence", kind: "separator" });
+			candidateLines.push(
+				...facts.map((belief) => ({ text: compactBeliefLine(belief), kind: "node" as const })),
+			);
+		}
+		if (searches.length > 0) {
+			if (candidateLines.length > 0) candidateLines.push({ text: "", kind: "separator" });
+			candidateLines.push({ text: "#### Search history", kind: "separator" });
+			candidateLines.push(
+				...searches.map((belief) => ({ text: compactBeliefLine(belief), kind: "node" as const })),
+			);
+		}
+		const relationLines = compactRelationPathLines(retained, relations);
+		if (relationLines.length > 0) {
+			candidateLines.push(
+				{ text: "", kind: "separator" },
+				{ text: "#### Relation paths", kind: "separator" },
+				...relationLines,
+			);
+		}
 		const trailLines = trimCompactTrailRelationsToBudget(
 			heading,
-			sectionHeading,
-			compactRelationTrailLines(retained, relations, selectedNodeIds),
+			"",
+			candidateLines,
 		);
-		const payload = `${heading}\n\n${sectionHeading}\n${trailLines.map((line) => line.text).join("\n")}`;
+		const payload = `${heading}\n\n${trailLines.map((line) => line.text).join("\n")}`;
 		return DIALOGUE_BOS + DIALOGUE_USER + payload + DIALOGUE_ASSISTANT + DIALOGUE_EOS;
 	}
 	const facts = retained
