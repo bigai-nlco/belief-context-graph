@@ -903,6 +903,10 @@ def test_unified_node_extraction_prompt_omits_empty_context_and_tmp_ids() -> Non
 
     assert prompt is not None
     assert "Existing belief nodes" not in prompt
+    assert (
+        "Preserve distinct constraints without fragmenting one coherent request.\n\n"
+        "## What is a belief"
+    ) in prompt
     assert '"tmp_id"' not in prompt
     assert '"decisions"' not in prompt
     assert "decision" not in prompt.lower()

@@ -650,6 +650,8 @@ def build_node_extraction_prompt(
         task_intro = task_line
 
     parts: list[str] = ["# Task", task_intro]
+    if key == "user" and not has_existing_nodes:
+        parts.append("")
     if key != "user" or has_existing_nodes:
         node_kinds = "belief" if key == "user" else "belief/decision"
         parts.append(
