@@ -1025,8 +1025,85 @@ def format_relation_nodes(
     return "[\n" + ",\n".join(items) + "\n]"
 
 
+def format_relation_node_sets(
+    previous_nodes: list[dict[str, Any]],
+    current_nodes: list[dict[str, Any]],
+    *,
+    layer_by_id: dict[int, int] | None = None,
+    char_budget: int | None = 9000,
+) -> tuple[str, str, set[int]]:
+    """Render a self-contained layered relation window.
+
+    Historical entries carry ``id`` and semantic ``content`` plus ``layer``
+    when ``layer_by_id`` is provided; current entries carry ``id`` and
+    ``content``. A shared budget is applied before the two JSON lists are split
+    so every id shown elsewhere in the relation prompt has visible content.
+    """
+
+    entries: list[tuple[int, bool, str]] = []
+    for node in previous_nodes:
+        node_id = node.get("id")
+        if not isinstance(node_id, int) or (
+            layer_by_id is not None and node_id not in layer_by_id
+        ):
+            continue
+        content = (
+            node.get("decision")
+            if node.get("node_type") == "decision"
+            else node.get("belief")
+        )
+        content = content or node.get("belief") or node.get("decision") or ""
+        if len(content) > 240:
+            content = content[:220] + " …"
+        rendered = {"id": node_id}
+        if layer_by_id is not None:
+            rendered["layer"] = layer_by_id[node_id]
+        rendered["content"] = content
+        entries.append(
+            (node_id, False, json.dumps(rendered, ensure_ascii=False))
+        )
+    for node in current_nodes:
+        node_id = node.get("id")
+        if not isinstance(node_id, int):
+            continue
+        content = (
+            node.get("decision")
+            if node.get("node_type") == "decision"
+            else node.get("belief")
+        )
+        content = content or node.get("belief") or node.get("decision") or ""
+        if len(content) > 240:
+            content = content[:220] + " …"
+        entries.append(
+            (
+                node_id,
+                True,
+                json.dumps({"id": node_id, "content": content}, ensure_ascii=False),
+            )
+        )
+
+    entries.sort(key=lambda item: item[0])
+    total = sum(len(line) + 4 for _node_id, _is_current, line in entries)
+    while char_budget is not None and entries and total > char_budget:
+        _node_id, _is_current, line = entries.pop(0)
+        total -= len(line) + 4
+
+    retained_ids = {node_id for node_id, _is_current, _line in entries}
+    previous_lines = [line for _id, current, line in entries if not current]
+    current_lines = [line for _id, current, line in entries if current]
+
+    def render(lines: list[str]) -> str:
+        return "[\n" + ",\n".join("  " + line for line in lines) + "\n]"
+
+    return render(previous_lines), render(current_lines), retained_ids
+
+
 def format_graph_edges(
-    relations: list[dict[str, Any]], keep_ids: set | None = None, max_edges: int = 400
+    relations: list[dict[str, Any]],
+    keep_ids: set | None = None,
+    max_edges: int = 400,
+    *,
+    include_id: bool = True,
 ) -> str:
     """Compact view of existing typed relations so the model won't duplicate them."""
     if not relations:
@@ -1043,19 +1120,16 @@ def format_graph_edges(
     rels = sorted(rels, key=lambda r: (r.get("from_id", 0), r.get("to_id", 0)))[
         -max_edges:
     ]
-    lines = [
-        "  "
-        + json.dumps(
-            {
-                "id": r.get("id"),
-                "from": r.get("from_id"),
-                "to": r.get("to_id"),
-                "type": r.get("type"),
-            },
-            ensure_ascii=False,
-        )
-        for r in rels
-    ]
+    lines = []
+    for relation in rels:
+        rendered = {
+            "from": relation.get("from_id"),
+            "to": relation.get("to_id"),
+            "type": relation.get("type"),
+        }
+        if include_id:
+            rendered = {"id": relation.get("id"), **rendered}
+        lines.append("  " + json.dumps(rendered, ensure_ascii=False))
     return "[\n" + ",\n".join(lines) + "\n]"
 
 
@@ -1386,6 +1460,8 @@ def extract_relations(
     content: str,
     graph_nodes_str: str = "[]",
     graph_edges_str: str = "[]",
+    previous_nodes_str: str | None = None,
+    current_nodes_str: str | None = None,
     new_node_ids: set,
     current_date: str | None = None,
     temperature: float = 0.0,
@@ -1401,6 +1477,8 @@ def extract_relations(
         graph_nodes=graph_nodes_str,
         graph_edges=graph_edges_str,
         new_node_ids=_json.dumps(sorted(new_node_ids)),
+        previous_nodes=previous_nodes_str,
+        current_nodes=current_nodes_str,
         current_date=current_date,
     )
 
@@ -1428,8 +1506,9 @@ def extract_layered_relations(
     *,
     role: str,
     content: str,
-    graph_nodes_str: str = "[]",
+    previous_nodes_str: str = "[]",
     graph_edges_str: str = "[]",
+    current_nodes_str: str = "[]",
     new_node_ids: set,
     candidate_layers: list[dict[str, Any]],
     validation_feedback: str | None = None,
@@ -1441,10 +1520,9 @@ def extract_layered_relations(
     prompt = build_layered_relation_extraction_prompt(
         role=role,
         content=content or "",
-        graph_nodes=graph_nodes_str,
+        previous_nodes=previous_nodes_str,
         graph_edges=graph_edges_str,
-        new_node_ids=json.dumps(sorted(new_node_ids)),
-        candidate_layers=json.dumps(candidate_layers, ensure_ascii=False, indent=2),
+        current_nodes=current_nodes_str,
         validation_feedback=validation_feedback,
     )
 

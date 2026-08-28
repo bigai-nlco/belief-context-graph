@@ -41,7 +41,9 @@ from bcg.construct.unified.extract import (
     extract_nodes,
     extract_rule_tool_result_nodes,
     format_extraction_nodes,
+    format_graph_edges,
     format_graph_nodes,
+    format_relation_node_sets,
     format_relation_nodes,
 )
 from bcg.construct.unified.graph import BeliefGraph
@@ -50,6 +52,7 @@ from bcg.construct.unified.online import SessionManager as UnifiedSessionManager
 from bcg.construct.unified.prompts import (
     build_layered_relation_extraction_prompt,
     build_node_extraction_prompt,
+    build_relation_extraction_prompt,
 )
 from bcg.construct.unified.stream import (
     StreamingBeliefBuilder as UnifiedStreamingBeliefBuilder,
@@ -593,26 +596,78 @@ def test_unified_relation_search_stops_after_four_non_empty_windows(
 
 
 def test_unified_layered_relation_prompt_requires_one_previous_layer() -> None:
-    prompt = build_layered_relation_extraction_prompt(
-        role="assistant",
-        content="I will use the newest relevant evidence.",
-        graph_nodes='[{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}]',
-        graph_edges="[]",
-        new_node_ids="[4]",
-        candidate_layers=json.dumps(
-            [
-                {"layer": 1, "trajectory_index": 2, "node_ids": [3]},
-                {"layer": 2, "trajectory_index": 1, "node_ids": [2]},
-                {"layer": 3, "trajectory_index": 0, "node_ids": [1]},
-            ]
+    prompt_args = {
+        "role": "assistant",
+        "content": "I will use the newest relevant evidence.",
+        "previous_nodes": (
+            '[{"id": 1, "layer": 3, "content": "Oldest"}, '
+            '{"id": 2, "layer": 2, "content": "Middle"}, '
+            '{"id": 3, "layer": 1, "content": "Nearest"}]'
         ),
-    )
+        "graph_edges": "[]",
+        "current_nodes": '[{"id": 4, "content": "Current conclusion"}]',
+    }
+    prompt = build_layered_relation_extraction_prompt(**prompt_args)
 
     assert '"selected_previous_layer"' in prompt
     assert "ZERO OR ONE previous layer" in prompt
     assert "Layer 1 is the nearest" in prompt
-    assert "Never connect nodes from two different previous layers" in prompt
+    assert "ZERO OR ONE previous layer, never a mixture" in prompt
     assert "Shared entities alone do not justify a relation" in prompt
+    assert "## Candidate previous nodes" in prompt
+    assert "## Candidate nodes" not in prompt
+    assert "## Current-turn nodes" in prompt
+    assert '"layer": 1' in prompt
+    assert '"content": "Current conclusion"' in prompt
+    assert prompt.count("## Hard constraints") == 1
+    assert "## Hard output constraints" not in prompt
+    assert "\nConstraints:\n" not in prompt
+    assert "## Layer selection" not in prompt
+    assert prompt.index("## Hard constraints") < prompt.index("## Output")
+    assert "The user can be charged a late fee" not in prompt
+
+    retry_prompt = build_layered_relation_extraction_prompt(
+        **prompt_args,
+        validation_feedback="The response selected more than one previous layer.",
+    )
+    assert "## Candidate previous nodes" in retry_prompt
+    assert "## Candidate previous layers" not in retry_prompt
+    assert "## Current-turn nodes" in retry_prompt
+    assert "## Current-turn node ids" not in retry_prompt
+    assert retry_prompt.count("## Hard constraints") == 1
+    assert (
+        retry_prompt.index("## Validation feedback from the previous attempt")
+        < retry_prompt.index("## Hard constraints")
+        < retry_prompt.index("## Output")
+    )
+
+
+def test_unified_tool_result_relation_prompt_matches_runtime_window() -> None:
+    prompt = build_relation_extraction_prompt(
+        role="tool",
+        content="raw result text is intentionally omitted at runtime",
+        previous_nodes='[{"id": 7, "content": "Prior reasoning."}]',
+        graph_edges='[{"from": 8, "to": 7, "type": "depends_on"}]',
+        current_nodes='[{"id": 8, "content": "Result fact."}]',
+    )
+
+    assert "## Candidate prior Thinking nodes" in prompt
+    assert "## Current Tool Result nodes" in prompt
+    assert "Current Tool Result node ids" not in prompt
+    assert "### Candidate nodes" not in prompt
+    assert '"id": 7, "content": "Prior reasoning."' in prompt
+    assert '"id": 8, "content": "Result fact."' in prompt
+    assert "prior Assistant Thinking beliefs" in prompt
+    assert "## Tool Result relation rules" not in prompt
+    assert prompt.count("## Relation rules") == 1
+    assert prompt.count("## Hard Constraints") == 1
+    assert "never link two current nodes or two prior nodes" in prompt
+    assert "Tool Call provenance is paired deterministically by code" in prompt
+    assert "choose the single prior Thinking node" in prompt
+    assert "at most 12 words" in prompt
+    assert prompt.index("## Hard Constraints") < prompt.index("## Output")
+    assert prompt.rstrip().endswith("}")
+    assert "raw result text is intentionally omitted at runtime" not in prompt
     assert "The user can be charged a late fee" not in prompt
 
 
@@ -634,6 +689,47 @@ def test_unified_relation_nodes_include_only_id_and_content() -> None:
     )
 
     assert json.loads(rendered) == [{"id": 7, "content": "A compact semantic fact."}]
+
+
+def test_unified_layered_relation_node_sets_embed_layer_and_current_content() -> None:
+    previous, current, retained = format_relation_node_sets(
+        [
+            {"id": 7, "node_type": "belief", "belief": "Prior evidence."},
+            {"id": 8, "node_type": "belief", "belief": "Nearest evidence."},
+        ],
+        [{"id": 9, "node_type": "belief", "belief": "Current reasoning."}],
+        layer_by_id={7: 2, 8: 1},
+        char_budget=None,
+    )
+
+    assert json.loads(previous) == [
+        {"id": 7, "layer": 2, "content": "Prior evidence."},
+        {"id": 8, "layer": 1, "content": "Nearest evidence."},
+    ]
+    assert json.loads(current) == [{"id": 9, "content": "Current reasoning."}]
+    assert retained == {7, 8, 9}
+
+    prior_thinking, tool_results, retained = format_relation_node_sets(
+        [{"id": 10, "node_type": "belief", "belief": "Prior reasoning."}],
+        [{"id": 11, "node_type": "belief", "belief": "Result fact."}],
+        char_budget=None,
+    )
+    assert json.loads(prior_thinking) == [
+        {"id": 10, "content": "Prior reasoning."}
+    ]
+    assert json.loads(tool_results) == [{"id": 11, "content": "Result fact."}]
+    assert retained == {10, 11}
+
+
+def test_unified_assistant_existing_relations_omit_relation_id() -> None:
+    rendered = format_graph_edges(
+        [{"id": 17, "from_id": 8, "to_id": 7, "type": "depends_on"}],
+        include_id=False,
+    )
+
+    assert json.loads(rendered) == [
+        {"from": 8, "to": 7, "type": "depends_on"}
+    ]
 
 
 def test_unified_extraction_history_includes_only_content() -> None:
@@ -746,8 +842,10 @@ def test_unified_assistant_relations_judge_three_layers_in_one_call(
         for layer in layered_calls[0]["candidate_layers"]
     )
     assert layered_calls[0]["content"] == ""
-    assert '"stance"' not in layered_calls[0]["graph_nodes_str"]
-    assert '"entities"' not in layered_calls[0]["graph_nodes_str"]
+    assert '"stance"' not in layered_calls[0]["previous_nodes_str"]
+    assert '"entities"' not in layered_calls[0]["previous_nodes_str"]
+    assert '"layer"' in layered_calls[0]["previous_nodes_str"]
+    assert '"content"' in layered_calls[0]["current_nodes_str"]
     assert event["edge_attempts"][0]["validation_passed"] is True
     assert event["edge_attempts"][0]["selected_previous_layer"] == 1
     assert event["edge_linked_previous_trajectory_index"] == 2
@@ -883,6 +981,10 @@ def test_unified_node_extraction_prompt_omits_empty_context_and_tmp_ids() -> Non
 
     assert prompt is not None
     assert "Existing belief nodes" not in prompt
+    assert (
+        "Preserve distinct constraints without fragmenting one coherent request.\n\n"
+        "## What is a belief"
+    ) in prompt
     assert '"tmp_id"' not in prompt
     assert '"decisions"' not in prompt
     assert "decision" not in prompt.lower()
@@ -895,6 +997,65 @@ def test_unified_node_extraction_prompt_omits_empty_context_and_tmp_ids() -> Non
     assert "independently searchable numbered clues" in prompt
     assert "task-defining" in prompt
     assert "qualified roles" in prompt
+
+
+def test_unified_assistant_node_prompt_uses_assistant_specific_details() -> None:
+    prompt = build_node_extraction_prompt(
+        "assistant",
+        mode="sentences",
+        sentences_block="[0] The assistant selects option B.",
+        graph_nodes='[{"content": "The user asked for one option."}]',
+    )
+
+    assert prompt is not None
+    assert prompt.count("## What is a belief") == 1
+    assert prompt.count("## What is a decision") == 1
+    assert "Keep a premise, its conditions, and derived conclusion together" in prompt
+    assert "Keep each final\nselected answer as one self-contained decision" in prompt
+    assert "For each belief or decision" in prompt
+    assert "output labels" in prompt
+    assert "Merge clauses that jointly define one setup" not in prompt
+    assert "independently searchable numbered clues" not in prompt
+    assert '"winning\nteam"' not in prompt
+    assert "## Sentence input" not in prompt
+    assert "## Current turn sentences" in prompt
+    assert "supporting_sentence_indices" in prompt
+    assert "## Earlier belief context (read only)" in prompt
+    assert "They are context,\nnot evidence." in prompt
+    assert "Extract only beliefs and decisions directly supported by the current turn" in prompt
+    assert "### Earlier nodes" in prompt
+    assert "## Existing belief nodes (context — READ ONLY)" not in prompt
+    assert "Use only the current indexed sentences as evidence" in prompt
+    assert "neither outside knowledge\n  nor earlier nodes may support an output node" in prompt
+    assert "list all and only [k] indices whose complete\n  sentences directly support it" in prompt
+    assert 'Empty "beliefs" and "decisions" lists are valid.' in prompt
+    assert 'unusual punctuation like "!Kung"' not in prompt
+    assert "A decision must be\nself-contained" in prompt
+    assert "Do not emit the same final answer as both a belief and a decision" in prompt
+    assert "**Final decisions**" not in prompt
+
+
+def test_unified_assistant_excerpt_prompt_uses_assistant_hard_constraints() -> None:
+    prompt = build_node_extraction_prompt(
+        "assistant",
+        mode="excerpt",
+        content="The assistant selects option B.",
+        graph_nodes='[{"content": "The user asked for one option."}]',
+    )
+
+    assert prompt is not None
+    assert "Use only the current content as evidence" in prompt
+    assert "copy at least one exact, contiguous substring" in prompt
+    assert 'into "supporting_excerpts"' in prompt
+    assert "Omit nodes without a valid excerpt" in prompt
+    assert 'Empty "beliefs" and "decisions" lists are valid.' in prompt
+    assert "Too fine-grained" not in prompt
+    assert "COCO instance segmentation" not in prompt
+    assert "capture those links in relations" not in prompt
+    assert prompt.index("## What is a belief") < prompt.index("## What is a decision")
+    assert prompt.index("## What is a decision") < prompt.index("## Granularity")
+    assert prompt.index("## Granularity") < prompt.index("## Entities")
+    assert prompt.index("## Entities") < prompt.index("## Stance")
 
 
 def test_unified_node_extraction_assigns_code_owned_tmp_ids(
@@ -1163,7 +1324,7 @@ def test_grouped_parallel_results_pair_exact_calls_then_model_link_thinking(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    relation_windows: list[str] = []
+    relation_windows: list[dict[str, str]] = []
     relation_contents: list[str] = []
 
     def fake_extract_nodes(*args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -1225,10 +1386,13 @@ def test_grouped_parallel_results_pair_exact_calls_then_model_link_thinking(
 
     def fake_extract_relations(*args: Any, **kwargs: Any) -> dict[str, Any]:
         del args
-        graph_nodes = str(kwargs["graph_nodes_str"])
-        relation_windows.append(graph_nodes)
+        previous_nodes = str(kwargs.get("previous_nodes_str") or "[]")
+        current_nodes = str(kwargs.get("current_nodes_str") or "[]")
+        relation_windows.append(
+            {"previous": previous_nodes, "current": current_nodes}
+        )
         relation_contents.append(str(kwargs["content"]))
-        if thinking_id is not None and "Alpha result" in graph_nodes:
+        if thinking_id is not None and "Alpha result" in current_nodes:
             current_ids = sorted(kwargs["new_node_ids"])
             return {
                 "relations": [
@@ -1304,20 +1468,26 @@ def test_grouped_parallel_results_pair_exact_calls_then_model_link_thinking(
         for relation in builder.graph.relations
     )
     assert len(relation_windows) == 1
-    assert json.loads(relation_windows[0]) == [
-        {"id": node["id"], "content": node["belief"]}
-        for node in [
-            next(
-                graph_node
+    assert json.loads(relation_windows[0]["previous"]) == [
+        {
+            "id": thinking_id,
+            "content": next(
+                graph_node["belief"]
                 for graph_node in builder.graph.active()
                 if graph_node["id"] == thinking_id
             ),
-            *results,
-        ]
+        }
+    ]
+    assert json.loads(relation_windows[0]["current"]) == [
+        {"id": node["id"], "content": node["belief"]} for node in results
     ]
     assert relation_contents[0] == ""
-    assert "The assistant is comparing alpha and beta." in relation_windows[0]
-    assert "using web_search" not in relation_windows[0]
+    assert (
+        "The assistant is comparing alpha and beta."
+        in relation_windows[0]["previous"]
+    )
+    assert "using web_search" not in relation_windows[0]["previous"]
+    assert "using web_search" not in relation_windows[0]["current"]
     assert event["edge_attempts"][0]["pairing_strategy"] == "tool_call_id"
 
 
