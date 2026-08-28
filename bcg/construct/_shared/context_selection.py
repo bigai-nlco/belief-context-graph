@@ -12,7 +12,7 @@ import re
 from collections import defaultdict
 from typing import Any
 
-DEFAULT_NODE_CHAR_BUDGET = 6_600
+DEFAULT_NODE_CHAR_BUDGET = 6_000
 RELATION_WEIGHTS = {"depends_on": 1.0, "supplements": 0.82, "contradicts": 0.92}
 _EMPTY_SEARCH = re.compile(
     r"^The (?:web_search|\S+ tool) (?:tool )?returned no results\.?$", re.I
@@ -546,19 +546,6 @@ def select_focused_context(
             "relation_ids": [],
             "node_chars": 0,
         }
-    if sum(costs.values()) <= node_char_budget:
-        return {
-            "strategy": "focused",
-            "retrieval": "all_fit",
-            "node_ids": [node["id"] for node in nodes],
-            "relation_ids": [
-                relation["id"]
-                for relation in relations
-                if isinstance(relation.get("id"), int)
-            ],
-            "node_chars": sum(costs.values()),
-        }
-
     (
         query_similarities,
         focus_similarities,

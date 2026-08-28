@@ -209,13 +209,13 @@ describe("BCG context management", () => {
 		expect(effectiveSystem).toContain("`A depends_on B` means A requires B");
 		expect(effectiveSystem).toContain("`A supplements B` adds compatible detail or evidence");
 		expect(effectiveSystem).toContain("`A contradicts B` conflicts with");
-		expect(effectiveSystem).toContain("Confidence estimates reliability, not answer relevance");
+		expect(effectiveSystem).toContain("confidence estimates reliability, not relevance");
 		expect(effectiveSystem).toContain("Relations record reasoning or provenance, not truth");
-		expect(effectiveSystem).toContain("follow outgoing relations to its premises");
-		expect(effectiveSystem).toContain("incoming relations to later checks or results");
+		expect(effectiveSystem).toContain("follow outgoing relations to premises or provenance");
+		expect(effectiveSystem).toContain("incoming relations to later checks");
 		expect(effectiveSystem).toContain("generic high-confidence fact is not an answer");
-		expect(effectiveSystem).toContain("answer without re-verifying every clue");
-		expect(effectiveSystem).toContain("one parallel tool-call batch");
+		expect(effectiveSystem).toContain("prefer a connected support path over an isolated topical match");
+		expect(effectiveSystem).toContain("Search only for a missing fact that can distinguish");
 	});
 
 	it("uses the connected selector result to render compact graph context", async () => {
@@ -811,7 +811,7 @@ describe("BCG context management", () => {
 			true,
 		);
 
-		expect(encoded).toContain("#### Candidate evidence");
+		expect(encoded).toContain("#### Answer-directed evidence");
 		expect(encoded).toContain("#### Search history");
 		expect(encoded).toContain("#### Relation paths");
 		expect(encoded).not.toContain("#### Factual beliefs");

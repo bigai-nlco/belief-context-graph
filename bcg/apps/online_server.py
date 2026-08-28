@@ -291,7 +291,7 @@ def make_handler(manager, trajectory_closed_error: type, *, quiet: bool = False)
                         focus_query=focus_query,
                         question=question,
                         node_char_budget=max(
-                            256, int(body.get("node_char_budget", 6_600))
+                            256, int(body.get("node_char_budget", 6_000))
                         ),
                         max_depth=max(1, min(8, int(body.get("max_depth", 4)))),
                     )

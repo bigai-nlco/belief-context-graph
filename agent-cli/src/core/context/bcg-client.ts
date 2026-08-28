@@ -78,7 +78,7 @@ export class BcgClient {
 				strategy: options.strategy ?? "connected",
 				focus_query: options.focusQuery,
 				question: options.question,
-				node_char_budget: 6600,
+				node_char_budget: 6000,
 				max_depth: 4,
 			}),
 			signal: this.composeSignal(signal),
