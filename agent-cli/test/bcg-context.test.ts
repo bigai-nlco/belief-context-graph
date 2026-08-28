@@ -211,6 +211,7 @@ describe("BCG context management", () => {
 		expect(effectiveSystem).toContain("`A contradicts B` conflicts with");
 		expect(effectiveSystem).toContain("Confidence estimates reliability, not answer relevance");
 		expect(effectiveSystem).toContain("Relations record reasoning or provenance, not truth");
+		expect(effectiveSystem).toContain("rationale for the link, not independent evidence");
 		expect(effectiveSystem).toContain("follow outgoing relations to its premises");
 		expect(effectiveSystem).toContain("incoming relations to later checks or results");
 		expect(effectiveSystem).toContain("generic high-confidence fact is not an answer");
@@ -800,8 +801,22 @@ describe("BCG context management", () => {
 					{ id: 6, belief: "later search evidence", confidence: 0.88, source: { turn_id: 6 } },
 				],
 				relations: [
-					{ id: 20, from_id: 2, to_id: 3, type: "depends_on" },
-					{ id: 21, from_id: 4, to_id: 2, type: "depends_on" },
+					{
+						id: 20,
+						from_id: 2,
+						to_id: 3,
+						type: "depends_on",
+						note: "The candidate requires this premise.",
+						weight: 0.5,
+					},
+					{
+						id: 21,
+						from_id: 4,
+						to_id: 2,
+						type: "depends_on",
+						note: "The tool result was produced by the preceding tool call.",
+						weight: 0,
+					},
 					{ id: 22, from_id: 6, to_id: 4, type: "depends_on" },
 				],
 			},
@@ -832,6 +847,12 @@ describe("BCG context management", () => {
 		expect(relationHeading).toBeLessThan(evidenceEdge);
 		expect(evidenceEdge).toBeLessThan(incoming);
 		expect(incoming).toBeLessThan(premiseEdge);
+		expect(encoded).toContain(
+			"[B2] depends_on [B3] — The candidate requires this premise.",
+		);
+		expect(encoded).not.toContain(
+			"[B4] depends_on [B2] — The tool result was produced",
+		);
 	});
 
 	it("keeps candidate ordering independent of a long relation chain", () => {

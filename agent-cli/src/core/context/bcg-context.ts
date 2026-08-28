@@ -31,6 +31,7 @@ const COMPACT_GRAPH_DIALOGUE_CONTEXT_GUIDE =
 	"A specific low-confidence belief that fills the requested value remains a candidate to verify; a generic high-confidence fact is not an answer unless it satisfies the question. " +
 	"Relations record reasoning or provenance, not truth by themselves. Direction is literal: `A depends_on B` means A requires B as a premise, evidence, input, constraint, or context; " +
 	"`A supplements B` adds compatible detail or evidence; `A contradicts B` conflicts with, corrects, negates, or replaces B. " +
+	"When a relation includes a note, the note explains why the Graph connected its endpoints; it is rationale for the link, not independent evidence. " +
 	"For each plausible answer, follow outgoing relations to its premises and incoming relations to later checks or results. " +
 	"Compare candidates against every pivotal constraint using direct, source-grounded evidence; missing edges or empty searches do not disprove a candidate. " +
 	"Before searching, check whether a concrete answer value is already stated by a Tool Result belief and has no retained contradiction; if so, answer without re-verifying every clue. " +
@@ -354,6 +355,8 @@ const COMPACT_GRAPH_CHAR_BUDGET = 8_000;
 const COMPACT_FACT_CHAR_BUDGET = 4_900;
 const COMPACT_SEARCH_CHAR_BUDGET = 1_700;
 const COMPACT_RELATION_PATH_LIMIT = 3;
+const COMPACT_RELATION_NOTE_LIMIT = 4;
+const COMPACT_RELATION_NOTE_CHAR_BUDGET = 360;
 
 function compactConfidence(belief: BcgSnapshot["beliefs"][number]): string {
 	return typeof belief.confidence === "number" ? ` (confidence ${belief.confidence.toFixed(2)})` : "";
@@ -460,6 +463,23 @@ function compactRelationPathLines(
 
 	const seenRelations = new Set<number>();
 	const lines: CompactTrailLine[] = [];
+	let noteCount = 0;
+	let noteChars = 0;
+	const relationLine = (relation: CompactRelation): string => {
+		const base = compactRelationLine(relation);
+		const note = relation.note?.replace(/\s+/g, " ").trim() ?? "";
+		if (
+			!note ||
+			relation.weight === 0 ||
+			noteCount >= COMPACT_RELATION_NOTE_LIMIT ||
+			noteChars + note.length > COMPACT_RELATION_NOTE_CHAR_BUDGET
+		) {
+			return base;
+		}
+		noteCount += 1;
+		noteChars += note.length;
+		return `${base} — ${note}`;
+	};
 	const edgePriority = (edge: {
 		relation: CompactRelation;
 		neighbor: number;
@@ -495,7 +515,7 @@ function compactRelationPathLines(
 			seenRelations.add(edge.relation.id);
 			trail.edges += 1;
 			lines.push({
-				text: compactRelationLine(edge.relation),
+				text: relationLine(edge.relation),
 				kind: "tree_relation",
 				relationType: edge.relation.type,
 			});
@@ -516,7 +536,7 @@ function compactRelationPathLines(
 	for (const relation of relations) {
 		if (seenRelations.has(relation.id)) continue;
 		lines.push({
-			text: compactRelationLine(relation),
+			text: relationLine(relation),
 			kind: "tree_relation",
 			relationType: relation.type,
 		});
