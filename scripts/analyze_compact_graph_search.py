@@ -1259,17 +1259,27 @@ def normalized_answer(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
 
 
-def answer_node_ids(nodes: list[dict[str, Any]], answer: str) -> set[int]:
+def answer_node_ids(
+    nodes: list[dict[str, Any]], answer: str, question: str = ""
+) -> set[int]:
     answer_norm = normalized_answer(answer)
     if not answer_norm:
         return set()
+    required_phrases = [answer_norm]
+    if len(answer_norm.split()) == 1 and answer_norm.isdigit():
+        quantity = re.search(r"\bhow many\s+([a-z][a-z-]*)", question.casefold())
+        if quantity:
+            unit = quantity.group(1)
+            required_phrases = [f"{answer_norm} {unit}"]
+            if unit.endswith("s"):
+                required_phrases.append(f"{answer_norm} {unit[:-1]}")
     result: set[int] = set()
     for node in nodes:
         content = normalized_answer(node_text(node))
         # Exact normalized phrases are deliberately preferred over bag-of-word
         # matching: the latter mislabels unrelated URLs and snippets as answer
         # evidence (for example, a date containing "11" plus a later "months").
-        if answer_norm in content:
+        if any(phrase in content for phrase in required_phrases):
             result.add(node["id"])
     return result
 
@@ -1442,6 +1452,7 @@ def strategy_metrics(
     node_vectors: dict[int, np.ndarray],
 ) -> dict[str, Any]:
     selected = set(selection.node_ids)
+    by_id = {node["id"]: node for node in nodes}
     allowed_relations = (
         set(selection.relation_ids)
         if selection.strategy == "evidence_first_chains"
@@ -1469,7 +1480,7 @@ def strategy_metrics(
     largest, isolated, retained = component_metrics(
         graph, selected, displayed_graph
     )
-    answer_ids = answer_node_ids(nodes, item.answer)
+    answer_ids = answer_node_ids(nodes, item.answer, item.question)
     available_support = item.final_support_ids & {node["id"] for node in nodes}
     selected_values = [similarities[node_id] for node_id in selected]
     answer_values = [answer_similarities[node_id] for node_id in selected]
@@ -1493,14 +1504,33 @@ def strategy_metrics(
         if relation.get("type") == "contradicts":
             contradiction_coherences.append(value)
     display_order = production_display_order(nodes, selected)
+    selector_display_order = [
+        node_id
+        for node_id in selection.node_ids
+        if node_id in selected and not is_search(by_id[node_id])
+    ] + [
+        node_id
+        for node_id in selection.node_ids
+        if node_id in selected and is_search(by_id[node_id])
+    ]
     answer_positions = [
         index + 1
         for index, node_id in enumerate(display_order)
         if node_id in answer_ids
     ]
+    selector_answer_positions = [
+        index + 1
+        for index, node_id in enumerate(selector_display_order)
+        if node_id in answer_ids
+    ]
     support_positions = [
         index + 1
         for index, node_id in enumerate(display_order)
+        if node_id in available_support
+    ]
+    selector_support_positions = [
+        index + 1
+        for index, node_id in enumerate(selector_display_order)
         if node_id in available_support
     ]
     return {
@@ -1539,6 +1569,14 @@ def strategy_metrics(
             if answer_ids
             else None
         ),
+        "selector_answer_first_position": min(selector_answer_positions)
+        if selector_answer_positions
+        else None,
+        "selector_answer_top5_recall": (
+            len(answer_ids & set(selector_display_order[:5])) / len(answer_ids)
+            if answer_ids
+            else None
+        ),
         "support_nodes_available": len(available_support),
         "support_nodes_selected": len(available_support & selected),
         "support_node_recall": (
@@ -1549,6 +1587,15 @@ def strategy_metrics(
         "support_first_position": min(support_positions) if support_positions else None,
         "support_top5_recall": (
             len(available_support & set(display_order[:5])) / len(available_support)
+            if available_support
+            else None
+        ),
+        "selector_support_first_position": min(selector_support_positions)
+        if selector_support_positions
+        else None,
+        "selector_support_top5_recall": (
+            len(available_support & set(selector_display_order[:5]))
+            / len(available_support)
             if available_support
             else None
         ),
@@ -1581,6 +1628,7 @@ def strategy_metrics(
         ),
         "selected_node_ids": sorted(selected),
         "selected_node_order": display_order,
+        "selector_node_order": selector_display_order,
         "selected_relation_ids": sorted(selection.relation_ids),
     }
 
@@ -1601,9 +1649,13 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         "answer_node_precision",
         "answer_first_position",
         "answer_top5_recall",
+        "selector_answer_first_position",
+        "selector_answer_top5_recall",
         "support_node_recall",
         "support_first_position",
         "support_top5_recall",
+        "selector_support_first_position",
+        "selector_support_top5_recall",
         "largest_component_ratio",
         "isolated_node_ratio",
         "relation_endpoint_retention",
