@@ -380,7 +380,7 @@ class SessionManager:
         strategy: str = "connected",
         focus_query: str | None = None,
         question: str | None = None,
-        node_char_budget: int = 6_000,
+        node_char_budget: int = 6_600,
         max_depth: int = 4,
     ) -> dict[str, Any]:
         sess = self.get_session(problem_id, create=False)
