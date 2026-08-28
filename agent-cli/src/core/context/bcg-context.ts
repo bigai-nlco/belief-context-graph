@@ -25,7 +25,7 @@ const GRAPH_DIALOGUE_CONTEXT_GUIDE =
 
 const COMPACT_GRAPH_DIALOGUE_CONTEXT_GUIDE =
 	"<context_blocks_guide>\n" +
-	"Earlier raw turns are omitted; the connected belief trails below are Graph memory, not verified evidence. " +
+	"Earlier raw turns are omitted; the Candidate evidence, Search history, and Relation paths below are Graph memory, not verified evidence. " +
 	"A belief is a self-contained fact, hypothesis, intermediate conclusion, or decision. " +
 	"Confidence estimates reliability, not answer relevance. Factual beliefs are candidate evidence; search-action beliefs only record prior work. " +
 	"A specific low-confidence belief that fills the requested value remains a candidate to verify; a generic high-confidence fact is not an answer unless it satisfies the question. " +
@@ -33,6 +33,7 @@ const COMPACT_GRAPH_DIALOGUE_CONTEXT_GUIDE =
 	"`A supplements B` adds compatible detail or evidence; `A contradicts B` conflicts with, corrects, negates, or replaces B. " +
 	"For each plausible answer, follow outgoing relations to its premises and incoming relations to later checks or results. " +
 	"Compare candidates against every pivotal constraint using direct, source-grounded evidence; missing edges or empty searches do not disprove a candidate. " +
+	"Before searching, check whether a concrete answer value is already stated by a Tool Result belief and has no retained contradiction; if so, answer without re-verifying every clue. " +
 	"Resolve only answer-changing gaps or conflicts. If evidence is missing, search for a pivotal gap with a discriminating query that is not equivalent to a recorded search. " +
 	"Answer once one candidate covers the pivotal constraints without a decisive contradiction. Preserve the exact supported value; add no unsupported precision.\n" +
 	"</context_blocks_guide>";
