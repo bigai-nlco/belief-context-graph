@@ -216,9 +216,6 @@ describe("BCG context management", () => {
 		expect(effectiveSystem).toContain("generic high-confidence fact is not an answer");
 		expect(effectiveSystem).toContain("answer without re-verifying every clue");
 		expect(effectiveSystem).toContain("one parallel tool-call batch");
-		expect(effectiveSystem).toContain("is an exhausted branch");
-		expect(effectiveSystem).toContain("switch to a different unresolved pivotal constraint");
-		expect(effectiveSystem).toContain("explicitly count the source-grounded list");
 	});
 
 	it("uses the connected selector result to render compact graph context", async () => {

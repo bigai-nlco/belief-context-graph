@@ -31,13 +31,11 @@ const COMPACT_GRAPH_DIALOGUE_CONTEXT_GUIDE =
 	"A specific low-confidence belief that fills the requested value remains a candidate to verify; a generic high-confidence fact is not an answer unless it satisfies the question. " +
 	"Relations record reasoning or provenance, not truth by themselves. Direction is literal: `A depends_on B` means A requires B as a premise, evidence, input, constraint, or context; " +
 	"`A supplements B` adds compatible detail or evidence; `A contradicts B` conflicts with, corrects, negates, or replaces B. " +
-	"Prioritize relation paths that terminate in specific, source-grounded facts. A path that only extends search-action beliefs without producing concrete answer evidence is an exhausted branch: do not issue a narrower paraphrase of the same query; switch to a different unresolved pivotal constraint from the question. " +
 	"For each plausible answer, follow outgoing relations to its premises and incoming relations to later checks or results. " +
 	"Compare candidates against every pivotal constraint using direct, source-grounded evidence; missing edges or empty searches do not disprove a candidate. " +
 	"Before searching, check whether a concrete answer value is already stated by a Tool Result belief and has no retained contradiction; if so, answer without re-verifying every clue. " +
 	"Resolve only answer-changing gaps or conflicts. If evidence is still missing, use one parallel tool-call batch of non-equivalent, discriminating queries to cover the remaining decisive gaps. " +
 	"After that batch returns, answer from the best-supported candidate instead of opening another search branch, unless a concrete contradiction directly blocks the answer. " +
-	"For an ordinal, ranked, or ordered-list question, explicitly count the source-grounded list and return the requested position rather than an adjacent item. " +
 	"Answer once one candidate covers the pivotal constraints without a decisive contradiction. Preserve the exact supported value; add no unsupported precision.\n" +
 	"</context_blocks_guide>";
 
