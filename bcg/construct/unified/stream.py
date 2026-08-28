@@ -1559,11 +1559,7 @@ class StreamingBeliefBuilder:
         previous_nodes_post, current_nodes_post, displayed_ids = (
             format_relation_node_sets(
                 [node for node in active_nodes if node.get("id") in previous_ids],
-                [
-                    node
-                    for node in active_nodes
-                    if node.get("id") in surviving_new_ids
-                ],
+                [node for node in active_nodes if node.get("id") in surviving_new_ids],
                 layer_by_id=layer_by_id,
                 char_budget=context_chars,
             )

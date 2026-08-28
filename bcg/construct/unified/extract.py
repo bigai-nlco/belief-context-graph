@@ -1059,9 +1059,7 @@ def format_relation_node_sets(
         if layer_by_id is not None:
             rendered["layer"] = layer_by_id[node_id]
         rendered["content"] = content
-        entries.append(
-            (node_id, False, json.dumps(rendered, ensure_ascii=False))
-        )
+        entries.append((node_id, False, json.dumps(rendered, ensure_ascii=False)))
     for node in current_nodes:
         node_id = node.get("id")
         if not isinstance(node_id, int):

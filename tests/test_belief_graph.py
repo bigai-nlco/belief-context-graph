@@ -714,9 +714,7 @@ def test_unified_layered_relation_node_sets_embed_layer_and_current_content() ->
         [{"id": 11, "node_type": "belief", "belief": "Result fact."}],
         char_budget=None,
     )
-    assert json.loads(prior_thinking) == [
-        {"id": 10, "content": "Prior reasoning."}
-    ]
+    assert json.loads(prior_thinking) == [{"id": 10, "content": "Prior reasoning."}]
     assert json.loads(tool_results) == [{"id": 11, "content": "Result fact."}]
     assert retained == {10, 11}
 
@@ -727,9 +725,7 @@ def test_unified_assistant_existing_relations_omit_relation_id() -> None:
         include_id=False,
     )
 
-    assert json.loads(rendered) == [
-        {"from": 8, "to": 7, "type": "depends_on"}
-    ]
+    assert json.loads(rendered) == [{"from": 8, "to": 7, "type": "depends_on"}]
 
 
 def test_unified_extraction_history_includes_only_content() -> None:
@@ -1022,12 +1018,21 @@ def test_unified_assistant_node_prompt_uses_assistant_specific_details() -> None
     assert "supporting_sentence_indices" in prompt
     assert "## Earlier belief context (read only)" in prompt
     assert "They are context,\nnot evidence." in prompt
-    assert "Extract only beliefs and decisions directly supported by the current turn" in prompt
+    assert (
+        "Extract only beliefs and decisions directly supported by the current turn"
+        in prompt
+    )
     assert "### Earlier nodes" in prompt
     assert "## Existing belief nodes (context — READ ONLY)" not in prompt
     assert "Use only the current indexed sentences as evidence" in prompt
-    assert "neither outside knowledge\n  nor earlier nodes may support an output node" in prompt
-    assert "list all and only [k] indices whose complete\n  sentences directly support it" in prompt
+    assert (
+        "neither outside knowledge\n  nor earlier nodes may support an output node"
+        in prompt
+    )
+    assert (
+        "list all and only [k] indices whose complete\n  sentences directly support it"
+        in prompt
+    )
     assert 'Empty "beliefs" and "decisions" lists are valid.' in prompt
     assert 'unusual punctuation like "!Kung"' not in prompt
     assert "A decision must be\nself-contained" in prompt
@@ -1388,9 +1393,7 @@ def test_grouped_parallel_results_pair_exact_calls_then_model_link_thinking(
         del args
         previous_nodes = str(kwargs.get("previous_nodes_str") or "[]")
         current_nodes = str(kwargs.get("current_nodes_str") or "[]")
-        relation_windows.append(
-            {"previous": previous_nodes, "current": current_nodes}
-        )
+        relation_windows.append({"previous": previous_nodes, "current": current_nodes})
         relation_contents.append(str(kwargs["content"]))
         if thinking_id is not None and "Alpha result" in current_nodes:
             current_ids = sorted(kwargs["new_node_ids"])
@@ -1483,8 +1486,7 @@ def test_grouped_parallel_results_pair_exact_calls_then_model_link_thinking(
     ]
     assert relation_contents[0] == ""
     assert (
-        "The assistant is comparing alpha and beta."
-        in relation_windows[0]["previous"]
+        "The assistant is comparing alpha and beta." in relation_windows[0]["previous"]
     )
     assert "using web_search" not in relation_windows[0]["previous"]
     assert "using web_search" not in relation_windows[0]["current"]
