@@ -1171,14 +1171,28 @@ def rendered_selection(
 ) -> tuple[int, list[int]]:
     """Match the production compact renderer's visible payload shape."""
     by_id = {node["id"]: node for node in nodes}
-    facts = [by_id[node_id] for node_id in selected if not is_search(by_id[node_id])]
-    searches = [by_id[node_id] for node_id in selected if is_search(by_id[node_id])]
+    facts = sorted(
+        (by_id[node_id] for node_id in selected if not is_search(by_id[node_id])),
+        key=lambda node: (
+            confidence(node) * 1_000
+            + (100 if node.get("extraction_method") == "compact_llm_tool_result" else 0)
+            - (100 if node.get("extraction_method") == "rule_tool_result" else 0),
+            source_turn(node),
+            node["id"],
+        ),
+        reverse=True,
+    )
+    searches = sorted(
+        (by_id[node_id] for node_id in selected if is_search(by_id[node_id])),
+        key=lambda node: (source_turn(node), node["id"]),
+        reverse=True,
+    )
     lines: list[str] = []
     if facts:
-        lines.append("#### Factual beliefs")
+        lines.append("#### Candidate evidence")
         lines.extend(node_line(node, include_confidence=True) for node in facts)
     if searches:
-        lines.extend(["", "#### Search-history beliefs"])
+        lines.extend(["", "#### Search history"])
         lines.extend(node_line(node, include_confidence=False) for node in searches)
     relation_by_id = {
         relation.get("id"): relation for relation in snapshot.get("relations", [])
@@ -1197,7 +1211,7 @@ def rendered_selection(
         )
     displayed_relation_ids: list[int] = []
     if relation_lines:
-        lines.extend(["", "#### Retained relations"])
+        lines.extend(["", "#### Relation paths"])
         heading = "### Earlier investigation memory"
         used = len(heading) + 1 + len("\n".join(lines))
         for relation_id, line in relation_lines:
@@ -1215,6 +1229,30 @@ def rendered_selection(
         + "<｜Assistant｜><｜end▁of▁sentence｜>"
     )
     return chars, displayed_relation_ids
+
+
+def production_display_order(
+    nodes: list[dict[str, Any]], selected: set[int]
+) -> list[int]:
+    """Return the exact evidence/search node order used by the TS renderer."""
+    by_id = {node["id"]: node for node in nodes}
+    facts = sorted(
+        (by_id[node_id] for node_id in selected if not is_search(by_id[node_id])),
+        key=lambda node: (
+            confidence(node) * 1_000
+            + (100 if node.get("extraction_method") == "compact_llm_tool_result" else 0)
+            - (100 if node.get("extraction_method") == "rule_tool_result" else 0),
+            source_turn(node),
+            node["id"],
+        ),
+        reverse=True,
+    )
+    searches = sorted(
+        (by_id[node_id] for node_id in selected if is_search(by_id[node_id])),
+        key=lambda node: (source_turn(node), node["id"]),
+        reverse=True,
+    )
+    return [node["id"] for node in [*facts, *searches]]
 
 
 def normalized_answer(value: str) -> str:
@@ -1454,14 +1492,15 @@ def strategy_metrics(
         relation_coherences.append(value)
         if relation.get("type") == "contradicts":
             contradiction_coherences.append(value)
+    display_order = production_display_order(nodes, selected)
     answer_positions = [
         index + 1
-        for index, node_id in enumerate(selection.node_ids)
+        for index, node_id in enumerate(display_order)
         if node_id in answer_ids
     ]
     support_positions = [
         index + 1
-        for index, node_id in enumerate(selection.node_ids)
+        for index, node_id in enumerate(display_order)
         if node_id in available_support
     ]
     return {
@@ -1496,7 +1535,7 @@ def strategy_metrics(
         else None,
         "answer_first_position": min(answer_positions) if answer_positions else None,
         "answer_top5_recall": (
-            len(answer_ids & set(selection.node_ids[:5])) / len(answer_ids)
+            len(answer_ids & set(display_order[:5])) / len(answer_ids)
             if answer_ids
             else None
         ),
@@ -1509,7 +1548,7 @@ def strategy_metrics(
         ),
         "support_first_position": min(support_positions) if support_positions else None,
         "support_top5_recall": (
-            len(available_support & set(selection.node_ids[:5])) / len(available_support)
+            len(available_support & set(display_order[:5])) / len(available_support)
             if available_support
             else None
         ),
@@ -1541,7 +1580,7 @@ def strategy_metrics(
             else None
         ),
         "selected_node_ids": sorted(selected),
-        "selected_node_order": selection.node_ids,
+        "selected_node_order": display_order,
         "selected_relation_ids": sorted(selection.relation_ids),
     }
 
