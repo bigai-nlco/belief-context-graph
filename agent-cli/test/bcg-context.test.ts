@@ -211,12 +211,11 @@ describe("BCG context management", () => {
 		expect(effectiveSystem).toContain("`A contradicts B` conflicts with");
 		expect(effectiveSystem).toContain("Confidence estimates reliability, not answer relevance");
 		expect(effectiveSystem).toContain("Relations record reasoning or provenance, not truth");
-		expect(effectiveSystem).toContain("follow outgoing relations from a candidate");
+		expect(effectiveSystem).toContain("follow outgoing relations to its premises");
 		expect(effectiveSystem).toContain("incoming relations to later checks or results");
 		expect(effectiveSystem).toContain("generic high-confidence fact is not an answer");
-		expect(effectiveSystem).toContain("unresolved candidate-constraint pair");
-		expect(effectiveSystem).toContain("many beliefs about the same candidate");
-		expect(effectiveSystem).toContain("keep a plausible alternative");
+		expect(effectiveSystem).toContain("answer without re-verifying every clue");
+		expect(effectiveSystem).toContain("one parallel tool-call batch");
 	});
 
 	it("uses the connected selector result to render compact graph context", async () => {
