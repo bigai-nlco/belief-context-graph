@@ -215,6 +215,7 @@ describe("BCG context management", () => {
 		expect(effectiveSystem).toContain("incoming relations to later checks or results");
 		expect(effectiveSystem).toContain("generic high-confidence fact is not an answer");
 		expect(effectiveSystem).toContain("answer without re-verifying every clue");
+		expect(effectiveSystem).toContain("one parallel tool-call batch");
 	});
 
 	it("uses the connected selector result to render compact graph context", async () => {
