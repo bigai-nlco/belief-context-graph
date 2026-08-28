@@ -25,6 +25,8 @@ CONTENT_PLACEHOLDER = "<<<CONTENT>>>"
 SENTENCES_PLACEHOLDER = "<<<SENTENCES>>>"
 GRAPH_NODES_PLACEHOLDER = "<<<GRAPH_NODES>>>"
 GRAPH_EDGES_PLACEHOLDER = "<<<GRAPH_EDGES>>>"
+PREVIOUS_NODES_PLACEHOLDER = "<<<PREVIOUS_NODES>>>"
+CURRENT_NODES_PLACEHOLDER = "<<<CURRENT_NODES>>>"
 CANDIDATE_GROUP_PLACEHOLDER = "<<<CANDIDATE_GROUP>>>"
 BELIEFS_LIST_PLACEHOLDER = "<<<BELIEFS_LIST>>>"
 NEW_NODE_IDS_PLACEHOLDER = "<<<NEW_NODE_IDS>>>"
@@ -116,23 +118,22 @@ Rules:
 """
 
 _STANCE_DEFINITION = """\
-## Stance (choose ONE per belief or decision)
-- **asserted**   — stated as a plain fact or final answer ("X is Y", "released in 1980").
-- **recalled**   — based on memory ("I recall X", "I remember X").
-- **speculated** — hedged ("might", "maybe", "perhaps", "could", "possibly").
-- **judged**     — evaluative conclusion, recommendation, ranking, diagnosis, or selected option
-                  ("most likely", "best answer is", "I recommend X").
-
+## Stance
+Choose one per belief or decision: asserted = direct statement; recalled = based
+on previous memory; speculated = uncertain possibility; judged = assessment,
+recommendation, or conclusion.
 """
 
-_USER_BELIEF_DEFINITION = """\
+_COMPACT_BELIEF_DEFINITION = """\
 ## What is a belief
 A belief is a self-contained memory or reasoning unit, usually shaped like:
     <subject, predicate, object/value, scope, time, source>
 
 Preserve the most specific supported wording. Each belief must express one
 reusable semantic unit and remain understandable outside the original turn.
+"""
 
+_COMPACT_BELIEF_DETAILS = """\
 ## Granularity
 Merge clauses that jointly define one setup, condition, event, or causal step.
 Split only propositions that can be independently confirmed, contradicted, or
@@ -147,6 +148,29 @@ concepts explicitly present in it. Exclude pronouns, temporal expressions,
 bare generic nouns, vague concepts, and duplicates. Include task-defining
 qualified roles when they distinguish reusable constraints, such as "winning
 team", "first poet", or "target ODI match". Use [] when none exists.
+"""
+
+_ASSISTANT_BELIEF_DETAILS = """\
+## Granularity
+Keep a premise, its conditions, and derived conclusion together when they form
+one reusable reasoning step. Split claims that can be independently supported,
+contradicted, or reused. Separate facts, hypotheses, assessments,
+recommendations, and conclusions when their stance differs. Keep each final
+selected answer as one self-contained decision.
+
+## Entities
+For each belief or decision, list only specific named or uniquely qualified
+entities explicitly present in that node: people, organizations, places,
+products, datasets, files, tools, models, APIs, variables, and distinguishable
+concepts. Exclude pronouns, temporal expressions, bare generic nouns, vague
+concepts, output labels, and duplicates. Use [] when none exists.
+"""
+
+_ASSISTANT_DECISION_DEFINITION = """\
+## What is a decision
+A decision is the assistant's final selected answer, option, result, or explicit
+final conclusion, especially content inside ``\\boxed{...}``. A decision must be
+self-contained. Do not emit the same final answer as both a belief and a decision.
 """
 
 _USER_STANCE_DEFINITION = """\
@@ -202,6 +226,21 @@ CRITICAL — do NOT copy old node content as new output merely because it appear
   - However, if the CURRENT turn explicitly restates, confirms, corrects, or updates an existing belief, extract a NEW evidence-bearing belief for the CURRENT turn. Downstream merge/dedup may combine it later.
 
 ### Existing nodes
+{GRAPH_NODES_PLACEHOLDER}
+"""
+
+_ASSISTANT_NODE_GRAPH_CONTEXT_BLOCK = f"""\
+## Earlier belief context (read only)
+The nodes below come from earlier turns. Use them only to resolve references in
+the current Assistant turn and keep entity wording consistent. They are context,
+not evidence.
+
+Extract only beliefs and decisions directly supported by the current turn. Never
+copy an earlier node solely because it appears below. If the current turn
+explicitly restates, confirms, corrects, or updates an earlier belief, emit a new
+evidence-bearing node; downstream merge/deduplication may reconcile it.
+
+### Earlier nodes
 {GRAPH_NODES_PLACEHOLDER}
 """
 
@@ -395,17 +434,16 @@ Skip: pure greetings / pleasantries with no factual content; purely cosmetic for
         "reasoning chain without creating tiny redundant nodes.",
         """\
 ## Source role: ASSISTANT
-Extract:
-- **Factual claims and intermediate conclusions** the assistant commits to (domain facts, numbers, diagnoses, derived states).
-- **Recommendations / advice** given to the user.
-- **Assessments** of the user's situation.
-- **Final decisions**: when the assistant gives a final answer, especially inside ``\\boxed{...}``, put it in ``decisions`` instead of ``beliefs``.
-- **Key reasoning steps that are falsifiable, reusable, or needed by later turns** — keep enough detail to reconstruct causal/dependency chains between user request, tool result, reasoning, and final answer.
+Extract substantive factual claims, intermediate conclusions, recommendations,
+assessments, and reusable reasoning steps needed by later turns. Preserve enough
+detail to retain their causal or dependency roles.
 
-Do NOT extract: pure procedure / planning filler ("Let me search next", "First I need to…") unless it encodes a substantive dependency; self-questions; or politeness.
+Skip politeness, self-questions, and procedural narration unless it contains a
+substantive claim, hypothesis, dependency, or conclusion.
 
-Write each belief in the third person ("The assistant…", "The user…") so it is self-contained.
-Resolve pronouns using the existing graph context when unambiguous.""",
+Write each belief or decision in the third person about "The assistant", "The
+user", or a named subject. Resolve references from existing graph context only
+when unambiguous.""",
         'Assistant claims and final answers are typically "asserted"; recommendations and evaluations '
         'are "judged"; hedged possibilities ("might be", "could be") are "speculated".',
     ),
@@ -604,6 +642,29 @@ _HARD_CONSTRAINTS_SENTENCES_NODES = """\
 4. Empty beliefs / decisions lists are OK when the sentences express none.
 """
 
+_ASSISTANT_HARD_CONSTRAINTS_EXCERPT_NODES = """\
+## Hard constraints
+- Use only the current content as evidence; neither outside knowledge nor earlier
+  nodes may support an output node.
+- Preserve names, numbers, dates, quantities, versions, and unusual punctuation
+  exactly.
+- For every belief and decision, copy at least one exact, contiguous substring
+  into "supporting_excerpts". Omit nodes without a valid excerpt.
+- Empty "beliefs" and "decisions" lists are valid.
+"""
+
+_ASSISTANT_HARD_CONSTRAINTS_SENTENCES_NODES = """\
+## Hard constraints
+- Use only the current indexed sentences as evidence; neither outside knowledge
+  nor earlier nodes may support an output node.
+- Preserve names, numbers, dates, quantities, versions, and unusual punctuation
+  exactly.
+- For every belief and decision, list all and only [k] indices whose complete
+  sentences directly support it in "supporting_sentence_indices". Omit nodes
+  without direct support.
+- Empty "beliefs" and "decisions" lists are valid.
+"""
+
 _HARD_CONSTRAINTS_EXCERPT_USER_NODES = """\
 ## Hard constraints
 Preserve names, numbers, dates, quantities, and unusual punctuation exactly.
@@ -650,6 +711,8 @@ def build_node_extraction_prompt(
         task_intro = task_line
 
     parts: list[str] = ["# Task", task_intro]
+    if key == "user" and not has_existing_nodes:
+        parts.append("")
     if key != "user" or has_existing_nodes:
         node_kinds = "belief" if key == "user" else "belief/decision"
         parts.append(
@@ -658,20 +721,45 @@ def build_node_extraction_prompt(
             "Do not repeat existing nodes.\n"
         )
     belief_definition = _BELIEF_DEFINITION
+    decision_definition = ""
+    belief_details = ""
     stance_definition = _STANCE_DEFINITION
     role_guidance = guidance + "\n"
     if key == "user":
-        belief_definition = _USER_BELIEF_DEFINITION
+        belief_definition = _COMPACT_BELIEF_DEFINITION
+        belief_details = _COMPACT_BELIEF_DETAILS
         stance_definition = _USER_STANCE_DEFINITION
         role_guidance = _USER_GUIDANCE
-    parts.extend([belief_definition, stance_definition, role_guidance])
+    elif key == "assistant":
+        belief_definition = _COMPACT_BELIEF_DEFINITION
+        decision_definition = _ASSISTANT_DECISION_DEFINITION
+        belief_details = _ASSISTANT_BELIEF_DETAILS
+    parts.extend(
+        part
+        for part in (
+            belief_definition,
+            decision_definition,
+            belief_details,
+            stance_definition,
+            role_guidance,
+        )
+        if part
+    )
     if has_existing_nodes:
-        parts.append(_NODE_GRAPH_CONTEXT_BLOCK)
+        parts.append(
+            _ASSISTANT_NODE_GRAPH_CONTEXT_BLOCK
+            if key == "assistant"
+            else _NODE_GRAPH_CONTEXT_BLOCK
+        )
     if mode == "excerpt":
         parts.append(
             _HARD_CONSTRAINTS_EXCERPT_USER_NODES
             if key == "user"
-            else _HARD_CONSTRAINTS_EXCERPT_NODES
+            else (
+                _ASSISTANT_HARD_CONSTRAINTS_EXCERPT_NODES
+                if key == "assistant"
+                else _HARD_CONSTRAINTS_EXCERPT_NODES
+            )
         )
         parts.append(
             _OUTPUT_FORMAT_EXCERPT_USER_NODES
@@ -680,7 +768,7 @@ def build_node_extraction_prompt(
         )
         parts.append(f"## Current turn content\n{CONTENT_PLACEHOLDER}\n")
     else:
-        if key != "user":
+        if key == "tool":
             parts.append(
                 "## Sentence input\n"
                 "The current turn's content was split into COMPLETE sentences with stable indices [k]. "
@@ -689,7 +777,11 @@ def build_node_extraction_prompt(
         parts.append(
             _HARD_CONSTRAINTS_SENTENCES_USER_NODES
             if key == "user"
-            else _HARD_CONSTRAINTS_SENTENCES_NODES
+            else (
+                _ASSISTANT_HARD_CONSTRAINTS_SENTENCES_NODES
+                if key == "assistant"
+                else _HARD_CONSTRAINTS_SENTENCES_NODES
+            )
         )
         parts.append(
             _OUTPUT_FORMAT_SENTENCES_USER_NODES
@@ -904,6 +996,50 @@ Rules:
 """
 
 
+_TOOL_RESULT_RELATION_RULES = """\
+## Relation rules
+The current nodes are facts extracted from Tool Results. The prior nodes are
+beliefs extracted from the Assistant's Thinking that led to those tool calls.
+Tool Call provenance is paired deterministically by code and is not this task.
+
+Judge complete ``content`` fields; shared entities alone do not justify a relation.
+
+- ``depends_on``: A requires B as evidence, a premise, constraint, input, or context.
+- ``supplements``: A adds evidence or detail to B without changing it.
+- ``contradicts``: A conflicts with, corrects, negates, or rules out B.
+
+Direction is literal: ``A -> B`` means A depends on, supplements, or contradicts B.
+A search result does not depend on a Thinking node merely because that reasoning
+caused the search. Likewise, a result does not supplement a search plan merely
+because it came next; Tool Call provenance already records that sequence.
+"""
+
+_TOOL_RESULT_RELATION_HARD_CONSTRAINTS = """\
+## Hard Constraints
+- Every relation must connect exactly one current Tool Result node with one prior
+  Assistant Thinking node; never link two current nodes or two prior nodes.
+- For each current Tool Result node, choose the single prior Thinking node with the
+  strongest direct semantic link.
+- Add a second edge only when the result independently supports or contradicts a
+  distinct substantive claim.
+- Never connect a result to paraphrases, generic task restatements, or multiple
+  search plans.
+- A "no results" observation does not contradict the plan or query that produced it.
+- Every endpoint must be a shown integer id; never create a self-link.
+- Return {"relations": []} when no meaningful relation exists.
+"""
+
+
+_TOOL_RESULT_RELATION_OUTPUT_FORMAT = """\
+## Output (JSON only — no markdown fences, no commentary)
+{
+  "relations": [
+    { "from": <int node id>, "to": <int node id>, "type": "depends_on | supplements | contradicts", "note": "<semantic reason, at most 12 words>" }
+  ]
+}
+"""
+
+
 def build_relation_extraction_prompt(
     *,
     role: str,
@@ -911,9 +1047,32 @@ def build_relation_extraction_prompt(
     graph_nodes: str = "[]",
     graph_edges: str = "[]",
     new_node_ids: str = "[]",
+    previous_nodes: str | None = None,
+    current_nodes: str | None = None,
     current_date: str | None = None,
 ) -> str:
     """Phase 2 prompt: extract relations only (on post-merge graph)."""
+    if normalize_role(role) == "tool":
+        parts = [
+            "# Task",
+            "Link current Tool Result beliefs to the prior Assistant Thinking beliefs they semantically support, refine, or contradict.",
+            "## Candidate prior Thinking nodes\n"
+            + PREVIOUS_NODES_PLACEHOLDER
+            + "\n\n## Existing relations\n"
+            + GRAPH_EDGES_PLACEHOLDER
+            + "\n",
+            "## Current Tool Result nodes\n" + CURRENT_NODES_PLACEHOLDER + "\n",
+            _TOOL_RESULT_RELATION_RULES,
+            _TOOL_RESULT_RELATION_HARD_CONSTRAINTS,
+            _TOOL_RESULT_RELATION_OUTPUT_FORMAT,
+        ]
+        prompt = "\n".join(parts)
+        prompt = prompt.replace(
+            PREVIOUS_NODES_PLACEHOLDER, previous_nodes or graph_nodes or "[]"
+        )
+        prompt = prompt.replace(GRAPH_EDGES_PLACEHOLDER, graph_edges or "[]")
+        return prompt.replace(CURRENT_NODES_PLACEHOLDER, current_nodes or "[]")
+
     parts: list[str] = [
         "# Task",
         "Extract typed relations for the belief graph based on the current turn.",
@@ -952,17 +1111,6 @@ _LAYERED_RELATION_OUTPUT_FORMAT = """\
     { "from": <int node id>, "to": <int node id>, "type": "depends_on | supplements | contradicts", "note": "<one short sentence>" }
   ]
 }
-
-Hard output constraints:
-- You may connect current-turn nodes to nodes from ZERO OR ONE previous layer.
-- If any current-to-previous relation is emitted, every such relation MUST use the
-  same previous layer and ``selected_previous_layer`` MUST equal that layer number.
-- If no current-to-previous relation is emitted, set ``selected_previous_layer`` to null.
-- Current-turn to current-turn relations are allowed and do not select a previous layer.
-- Never connect nodes from two different previous layers in the same response.
-- Every endpoint must be an integer node id shown in the candidate graph.
-- At least one endpoint of each relation must be from the current-turn node list.
-- Empty relations are valid: {"selected_previous_layer": null, "relations": []}.
 """
 
 
@@ -976,12 +1124,21 @@ Judge meaningful semantic links using node ``content`` alone:
 Direction is literal: ``A -> B`` means A depends on, supplements, or contradicts B.
 Read each complete content field; a request to verify a claim does not assert it.
 Shared entities alone do not justify a relation.
+"""
 
-Constraints:
+_LAYERED_RELATION_HARD_CONSTRAINTS = """\
+## Hard constraints
+- Compare all candidate previous nodes in one pass.
 - Every relation must contain at least one current-turn node.
-- Current-to-current relations are allowed; previous-to-previous relations are not.
-- Use only shown integer ids; no self-links or invented ids.
-- Prefer 0-4 high-value relations per current node. An empty result is valid.
+- Cross-turn relations may use nodes from ZERO OR ONE previous layer, never a mixture.
+- If any current-to-previous relation is emitted, every such relation MUST use the
+  same previous layer and ``selected_previous_layer`` MUST equal that layer number.
+- If no current-to-previous relation is emitted, set ``selected_previous_layer`` to null.
+- Current-to-current relations are allowed and do not select a previous layer;
+  previous-to-previous relations are not allowed.
+- Every endpoint must be a shown integer node id; do not create self-links or invent ids.
+- Prefer 0-4 high-value relations per current node.
+- Empty relations are valid: {"selected_previous_layer": null, "relations": []}.
 """
 
 
@@ -989,10 +1146,9 @@ def build_layered_relation_extraction_prompt(
     *,
     role: str,
     content: str,
-    graph_nodes: str = "[]",
+    previous_nodes: str = "[]",
     graph_edges: str = "[]",
-    new_node_ids: str = "[]",
-    candidate_layers: str = "[]",
+    current_nodes: str = "[]",
     validation_feedback: str | None = None,
 ) -> str:
     """Build one relation prompt over several candidate previous-turn layers.
@@ -1011,19 +1167,16 @@ def build_layered_relation_extraction_prompt(
         )
     parts.extend(
         [
-            "## Candidate previous layers\n"
-            "Layer 1 is the nearest non-empty Graph turn; larger numbers are older. "
-            "Layer membership is authoritative.\n" + candidate_layers + "\n",
-            "## Candidate nodes\n"
-            + GRAPH_NODES_PLACEHOLDER
+            "## Candidate previous nodes\n"
+            "Each item contains its node id, previous-layer number, and belief "
+            "content. Layer 1 is the nearest non-empty Graph turn; larger layer "
+            "numbers are older.\n"
+            + PREVIOUS_NODES_PLACEHOLDER
             + "\n\n## Existing relations\n"
             + GRAPH_EDGES_PLACEHOLDER
             + "\n",
-            "## Current-turn node ids\n" + NEW_NODE_IDS_PLACEHOLDER + "\n",
+            "## Current-turn nodes\n" + CURRENT_NODES_PLACEHOLDER + "\n",
             _LAYERED_RELATION_EDGE_RULES,
-            "## Layer selection\n"
-            "Compare all candidates in one pass. Cross-turn relations may use ZERO OR "
-            "ONE previous layer, never a mixture. Select null when none is meaningful.\n",
         ]
     )
     if validation_feedback:
@@ -1032,12 +1185,13 @@ def build_layered_relation_extraction_prompt(
             + validation_feedback
             + "\nReturn a corrected complete JSON response.\n"
         )
+    parts.append(_LAYERED_RELATION_HARD_CONSTRAINTS)
     parts.append(_LAYERED_RELATION_OUTPUT_FORMAT)
     prompt = "\n".join(parts)
     prompt = prompt.replace(CONTENT_PLACEHOLDER, content or "")
-    prompt = prompt.replace(GRAPH_NODES_PLACEHOLDER, graph_nodes or "[]")
+    prompt = prompt.replace(PREVIOUS_NODES_PLACEHOLDER, previous_nodes or "[]")
     prompt = prompt.replace(GRAPH_EDGES_PLACEHOLDER, graph_edges or "[]")
-    prompt = prompt.replace(NEW_NODE_IDS_PLACEHOLDER, new_node_ids or "[]")
+    prompt = prompt.replace(CURRENT_NODES_PLACEHOLDER, current_nodes or "[]")
     return prompt
 
 

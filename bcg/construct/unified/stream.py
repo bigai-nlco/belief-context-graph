@@ -64,7 +64,7 @@ from .extract import (
     format_extraction_nodes,
     format_graph_edges,
     format_graph_nodes,
-    format_relation_nodes,
+    format_relation_node_sets,
 )
 from .graph import BeliefGraph
 from .llm import USAGE
@@ -1549,17 +1549,23 @@ class StreamingBeliefBuilder:
         survive (ties prefer the nearest layer).
         """
         previous_ids = set().union(*(ids for _idx, ids in candidate_layers))
-        edge_window_ids = surviving_new_ids | previous_ids
-        graph_nodes_post = format_relation_nodes(
-            [node for node in active_nodes if node.get("id") in edge_window_ids],
-            char_budget=context_chars,
-        )
-        # ``format_relation_nodes`` drops the oldest nodes when over budget. Keep
-        # the layer manifest and edge window exactly aligned with what the model
-        # can actually see.
-        displayed_ids = {
-            int(match) for match in re.findall(r'"id"\s*:\s*(\d+)', graph_nodes_post)
+        layer_by_id = {
+            node_id: layer_number
+            for layer_number, (_trajectory_index, node_ids) in enumerate(
+                candidate_layers, start=1
+            )
+            for node_id in node_ids
         }
+        previous_nodes_post, current_nodes_post, displayed_ids = (
+            format_relation_node_sets(
+                [node for node in active_nodes if node.get("id") in previous_ids],
+                [node for node in active_nodes if node.get("id") in surviving_new_ids],
+                layer_by_id=layer_by_id,
+                char_budget=context_chars,
+            )
+        )
+        # Keep the internal layer map and the edge window exactly aligned with
+        # the node content that remains visible after the shared character cap.
         displayed_new_ids = surviving_new_ids & displayed_ids
         displayed_layers: list[dict[str, Any]] = []
         layer_to_trajectory: dict[int, int] = {}
@@ -1582,7 +1588,9 @@ class StreamingBeliefBuilder:
         displayed_previous_ids = set().union(*layer_to_ids.values())
         displayed_window_ids = displayed_new_ids | displayed_previous_ids
         graph_edges_post = format_graph_edges(
-            self.graph.relations, keep_ids=displayed_window_ids
+            self.graph.relations,
+            keep_ids=displayed_window_ids,
+            include_id=False,
         )
         node_to_layer = {
             node_id: layer_number
@@ -1636,8 +1644,9 @@ class StreamingBeliefBuilder:
                 # surviving belief nodes. Avoid duplicating the raw reasoning in
                 # every relation request.
                 content="",
-                graph_nodes_str=graph_nodes_post,
+                previous_nodes_str=previous_nodes_post,
                 graph_edges_str=graph_edges_post,
+                current_nodes_str=current_nodes_post,
                 new_node_ids=displayed_new_ids,
                 candidate_layers=displayed_layers,
                 validation_feedback=feedback,
@@ -1815,17 +1824,42 @@ class StreamingBeliefBuilder:
         actually connect a current surviving node to the candidate prior turn;
         this is the backward-search stop condition.
         """
+        is_tool_result = normalize_role(role) == "tool"
+        previous_nodes_post: str | None = None
+        current_nodes_post: str | None = None
+        if is_tool_result:
+            previous_nodes_post, current_nodes_post, displayed_ids = (
+                format_relation_node_sets(
+                    [
+                        node
+                        for node in active_nodes
+                        if node.get("id") in previous_node_ids
+                    ],
+                    [
+                        node
+                        for node in active_nodes
+                        if node.get("id") in surviving_new_ids
+                    ],
+                    char_budget=context_chars,
+                )
+            )
+            previous_node_ids &= displayed_ids
+            surviving_new_ids &= displayed_ids
+            graph_nodes_post = "[]"
+        else:
+            window_nodes = [
+                node
+                for node in active_nodes
+                if node.get("id") in surviving_new_ids | previous_node_ids
+            ]
+            graph_nodes_post = format_graph_nodes(
+                window_nodes, char_budget=context_chars
+            )
         edge_window_ids = surviving_new_ids | previous_node_ids
-        window_nodes = [
-            node for node in active_nodes if node.get("id") in edge_window_ids
-        ]
-        graph_nodes_post = (
-            format_relation_nodes(window_nodes, char_budget=context_chars)
-            if normalize_role(role) == "tool"
-            else format_graph_nodes(window_nodes, char_budget=context_chars)
-        )
         graph_edges_post = format_graph_edges(
-            self.graph.relations, keep_ids=edge_window_ids
+            self.graph.relations,
+            keep_ids=edge_window_ids,
+            include_id=not is_tool_result,
         )
 
         previous_label = (
@@ -1842,9 +1876,11 @@ class StreamingBeliefBuilder:
             # current-turn nodes. The deterministic provenance pass separately
             # pairs each result with its exact Tool Call, so the raw result text
             # is redundant in this model-based relation request.
-            content="" if normalize_role(role) == "tool" else content,
+            content="" if is_tool_result else content,
             graph_nodes_str=graph_nodes_post,
             graph_edges_str=graph_edges_post,
+            previous_nodes_str=previous_nodes_post,
+            current_nodes_str=current_nodes_post,
             new_node_ids=surviving_new_ids,
             current_date=date,
             max_tokens=self.max_tokens,
