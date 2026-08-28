@@ -536,6 +536,9 @@ class LocalEmbeddingClient:
         self.extra_model_kwargs: dict[str, Any] = dict(cfg.get("model_kwargs") or {})
         self._model = None  # lazy-loaded
         self._model_lock = threading.Lock()  # guards lazy load under concurrency
+        # SentenceTransformer.encode mutates model-side padding/batch state and
+        # is not safe when several HTTP worker threads call it concurrently.
+        self._encode_lock = threading.Lock()
         self._cache: dict[str, list[float]] = {}
         self._cache_lock = threading.Lock()
         if log_path:
@@ -591,7 +594,10 @@ class LocalEmbeddingClient:
             )
             if self.max_length:
                 with contextlib.suppress(Exception):
-                    model.max_seq_length = int(self.max_length)
+                    # Never raise a SentenceTransformer above the sequence
+                    # length its underlying encoder was built to support.
+                    native_max = int(model.max_seq_length)
+                    model.max_seq_length = min(int(self.max_length), native_max)
             print(
                 f"[info] local embedding model ready ({time.time() - t0:.1f}s)",
                 file=sys.stderr,
@@ -618,13 +624,14 @@ class LocalEmbeddingClient:
         if missing_idx:
             model = self._ensure_model()
             batch = [texts[i] for i in missing_idx]
-            vecs = model.encode(
-                batch,
-                batch_size=self.batch_size,
-                normalize_embeddings=True,
-                convert_to_numpy=True,
-                show_progress_bar=False,
-            )
+            with self._encode_lock:
+                vecs = model.encode(
+                    batch,
+                    batch_size=self.batch_size,
+                    normalize_embeddings=True,
+                    convert_to_numpy=True,
+                    show_progress_bar=False,
+                )
             vec_lists = [list(map(float, v)) for v in vecs]
             if len(vec_lists) != len(batch):
                 raise RuntimeError(

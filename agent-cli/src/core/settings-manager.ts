@@ -16,6 +16,7 @@ export interface CompactionSettings {
 
 export type ContextManagementProvider = "default" | "bcg" | "summary" | "recent-only" | "rag";
 export type BcgGraphView = "full" | "compact";
+export type BcgGraphSelection = "ranked" | "connected";
 
 export interface BcgContextSettings {
 	url?: string; // default: BELIEF_GRAPH_URL or http://127.0.0.1:8848
@@ -25,6 +26,7 @@ export interface BcgContextSettings {
 	finalizationTimeoutMs?: number; // default: 900000; final unsent turns/finalize/release only
 	includeRelations?: boolean; // default: true
 	graphView?: BcgGraphView; // default: "full"; compact is the low-token search-ledger view
+	graphSelection?: BcgGraphSelection; // default: "connected"; ranked preserves the legacy independent ranking
 }
 
 export interface SummaryContextSettings {
@@ -65,6 +67,7 @@ export interface ResolvedContextManagementSettings {
 		finalizationTimeoutMs: number;
 		includeRelations: boolean;
 		graphView: BcgGraphView;
+		graphSelection: BcgGraphSelection;
 	};
 	summary: {
 		provider: string;
@@ -940,6 +943,7 @@ export class SettingsManager {
 				finalizationTimeoutMs,
 				includeRelations: settings?.bcg?.includeRelations ?? true,
 				graphView: settings?.bcg?.graphView === "compact" ? "compact" : "full",
+				graphSelection: settings?.bcg?.graphSelection === "ranked" ? "ranked" : "connected",
 			},
 			summary: {
 				provider: settings?.summary?.provider?.trim() || "summary",

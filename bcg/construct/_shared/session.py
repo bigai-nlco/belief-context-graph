@@ -325,6 +325,26 @@ class StreamingTrajectorySession:
             json.dump(snap, f, ensure_ascii=False, indent=2)
         return snap
 
+    def select_context(
+        self,
+        query: str,
+        *,
+        node_char_budget: int = 6_600,
+        max_depth: int = 4,
+    ) -> dict[str, Any]:
+        """Select a query-relevant connected subgraph without mutating it."""
+        from .context_selection import select_connected_context
+
+        with self._lock, self._engine():
+            result = select_connected_context(
+                self._snapshot(stage="query"),
+                query,
+                embedder=self.embedder,
+                node_char_budget=node_char_budget,
+                max_depth=max_depth,
+            )
+        return {"problem_id": self.problem_id, **result}
+
     # ------------------------------------------------------------- ingestion
     def _ingest(
         self,

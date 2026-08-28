@@ -55,6 +55,10 @@ Endpoints
   GET  /graph?problem_id=p1
         -> the latest snapshot for that trajectory (404 if unknown).
 
+  POST /context-selection
+        body: {"problem_id": "p1", "query": "current Agent state"}
+        -> ids of a query-relevant connected subgraph.
+
 Concurrency
 -----------
 Each problem_id is backed by its own StreamingTrajectorySession, which guards
@@ -257,6 +261,27 @@ def make_handler(manager, trajectory_closed_error: type, *, quiet: bool = False)
                         raise ValueError('body must be {"problem_id": "..."}')
                     graph = manager.finalize(pid)
                     self._send(200, graph)
+                    return
+
+                if url.path == "/context-selection":
+                    body = _parse_json_body(raw)
+                    if not isinstance(body, dict):
+                        raise ValueError("body must be a JSON object")
+                    pid = body.get("problem_id")
+                    query = body.get("query")
+                    if not isinstance(pid, str) or not pid:
+                        raise ValueError("body must include a non-empty problem_id")
+                    if not isinstance(query, str) or not query.strip():
+                        raise ValueError("body must include a non-empty query")
+                    result = manager.select_context(
+                        pid,
+                        query,
+                        node_char_budget=max(
+                            256, int(body.get("node_char_budget", 6_600))
+                        ),
+                        max_depth=max(1, min(8, int(body.get("max_depth", 4)))),
+                    )
+                    self._send(200, result)
                     return
 
                 if url.path == "/release":

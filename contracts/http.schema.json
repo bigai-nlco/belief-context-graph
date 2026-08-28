@@ -153,6 +153,30 @@
         "released": { "type": "boolean" }
       },
       "additionalProperties": false
+    },
+    "contextSelectionRequest": {
+      "type": "object",
+      "required": ["problem_id", "query"],
+      "properties": {
+        "problem_id": { "type": "string" },
+        "query": { "type": "string" },
+        "node_char_budget": { "type": "integer" },
+        "max_depth": { "type": "integer" }
+      },
+      "additionalProperties": false
+    },
+    "contextSelectionResponse": {
+      "type": "object",
+      "required": ["problem_id", "strategy", "retrieval", "node_ids", "relation_ids", "node_chars"],
+      "properties": {
+        "problem_id": { "type": "string" },
+        "strategy": { "enum": ["connected"] },
+        "retrieval": { "enum": ["all_fit", "embedding", "lexical", "none"] },
+        "node_ids": { "type": "array", "items": { "type": "integer" } },
+        "relation_ids": { "type": "array", "items": { "type": "integer" } },
+        "node_chars": { "type": "integer" }
+      },
+      "additionalProperties": false
     }
   }
 }

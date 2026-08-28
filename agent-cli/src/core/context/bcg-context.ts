@@ -1,7 +1,8 @@
 import type { AgentMessage } from "@bigai-nlco/bcg-agent-core";
 import { BcgClient, type BcgTurnPayload } from "./bcg-client.ts";
 import type { BcgSnapshot, BcgTurn } from "./bcg-contract.types.ts";
-import type { BcgGraphView } from "../settings-manager.ts";
+import type { BcgContextSelectionResponse } from "./bcg-contract.types.ts";
+import type { BcgGraphSelection, BcgGraphView } from "../settings-manager.ts";
 import { bashExecutionToText } from "../messages.ts";
 
 const GRAPH_PREFIX =
@@ -68,6 +69,7 @@ export interface BcgContextManagerOptions {
 	finalizationTimeoutMs?: number;
 	includeRelations: boolean;
 	graphView?: BcgGraphView;
+	graphSelection?: BcgGraphSelection;
 	getSystemPrompt: () => string;
 	getInitialUserMessage?: () => AgentMessage | undefined;
 	fetch?: typeof globalThis.fetch;
@@ -83,6 +85,10 @@ export interface BcgGraphContextTrace {
 	nRelations: number;
 	chars: number;
 	text: string;
+	selectionStrategy?: "ranked" | "connected";
+	selectionRetrieval?: string;
+	selectedNodeIds?: number[];
+	selectedRelationIds?: number[];
 }
 
 interface SerializedMessage {
@@ -394,7 +400,12 @@ function addCompactBeliefsWithinBudget(
  * tool-result metadata, or emits relations under a new label. Every displayed
  * graph item is copied from an existing belief.
  */
-export function formatCompactBcgDialogueContext(snapshot: BcgSnapshot, includeRelations = true): string {
+export function formatCompactBcgDialogueContext(
+	snapshot: BcgSnapshot,
+	includeRelations = true,
+	selectedNodeIds?: ReadonlySet<number>,
+	selectedRelationIds?: ReadonlySet<number>,
+): string {
 	const beliefs = Array.isArray(snapshot.beliefs) ? snapshot.beliefs : [];
 	if (beliefs.length === 0) {
 		return "";
@@ -405,7 +416,9 @@ export function formatCompactBcgDialogueContext(snapshot: BcgSnapshot, includeRe
 		// The initial system/user seed remains verbatim in every Agent request.
 		// Empty search observations remain in the source graph for auditability,
 		// but add no useful evidence to the bounded Agent-facing view.
-		return (sourceTurn < 0 || sourceTurn > 1) && !isCompactEmptySearchResultBelief(belief);
+		return (sourceTurn < 0 || sourceTurn > 1) &&
+			!isCompactEmptySearchResultBelief(belief) &&
+			(!selectedNodeIds || selectedNodeIds.has(belief.id));
 	});
 	if (retained.length === 0) {
 		return "";
@@ -434,7 +447,7 @@ export function formatCompactBcgDialogueContext(snapshot: BcgSnapshot, includeRe
 			facts,
 			selected,
 			lines,
-			COMPACT_FACT_CHAR_BUDGET,
+			selectedNodeIds ? Number.MAX_SAFE_INTEGER : COMPACT_FACT_CHAR_BUDGET,
 			true,
 		);
 	}
@@ -444,7 +457,7 @@ export function formatCompactBcgDialogueContext(snapshot: BcgSnapshot, includeRe
 			searchHistory,
 			selected,
 			lines,
-			COMPACT_SEARCH_CHAR_BUDGET,
+			selectedNodeIds ? Number.MAX_SAFE_INTEGER : COMPACT_SEARCH_CHAR_BUDGET,
 			false,
 		);
 	}
@@ -455,6 +468,7 @@ export function formatCompactBcgDialogueContext(snapshot: BcgSnapshot, includeRe
 		const selectedIds = new Set(selected.keys());
 		const relationLines = (snapshot.relations ?? [])
 			.filter((relation) => selectedIds.has(relation.from_id) && selectedIds.has(relation.to_id))
+			.filter((relation) => !selectedRelationIds || selectedRelationIds.has(relation.id))
 			.sort((left, right) => left.id - right.id)
 			.map((relation) => `- [B${relation.from_id}] ${relation.type} [B${relation.to_id}]`);
 		if (relationLines.length > 0) {
@@ -561,6 +575,19 @@ export function formatBcgDialogueContext(snapshot: BcgSnapshot, includeRelations
 	return parts.join("");
 }
 
+function compactSelectionQuery(initialUser: AgentMessage, retained: AgentMessage[]): string {
+	const question = contextMessageText(initialUser);
+	const parts = [question];
+	for (const message of retained) {
+		const value = contextMessageText(message);
+		if (value && value !== question) parts.push(value);
+	}
+	const combined = parts.join("\n\n");
+	if (combined.length <= 12_000) return combined;
+	const remaining = Math.max(0, 12_000 - question.length - 2);
+	return `${question}\n\n${combined.slice(-remaining)}`;
+}
+
 export class BcgContextManager {
 	private readonly baseUrl: string;
 	private readonly problemId: string;
@@ -570,6 +597,7 @@ export class BcgContextManager {
 	private readonly finalizationTimeoutMs: number;
 	private readonly includeRelations: boolean;
 	private readonly graphView: BcgGraphView;
+	private readonly graphSelection: BcgGraphSelection;
 	private readonly getSystemPrompt: () => string;
 	private readonly getInitialUserMessage?: () => AgentMessage | undefined;
 	private readonly client: BcgClient;
@@ -581,6 +609,7 @@ export class BcgContextManager {
 	private submittedTurns = 0;
 	private warned = false;
 	private graphText = "";
+	private latestSnapshot: BcgSnapshot | undefined;
 	private reportableTokenUsage: Record<string, unknown> | undefined;
 	private requestReady = false;
 	private initialUserMessage: AgentMessage | undefined;
@@ -597,6 +626,7 @@ export class BcgContextManager {
 		);
 		this.includeRelations = options.includeRelations;
 		this.graphView = options.graphView ?? "full";
+		this.graphSelection = options.graphSelection ?? "connected";
 		this.getSystemPrompt = options.getSystemPrompt;
 		this.getInitialUserMessage = options.getInitialUserMessage;
 		this.client = new BcgClient({ baseUrl: options.baseUrl, problemId: options.problemId, timeoutMs: options.timeoutMs, fetch: options.fetch });
@@ -641,6 +671,24 @@ export class BcgContextManager {
 			}
 			for (const group of unsent) {
 				for (const message of group.messages) this.sentMessages.add(message);
+			}
+
+			if (this.graphView === "compact" && this.graphSelection === "connected" && this.latestSnapshot) {
+				const query = compactSelectionQuery(initialUser, retained.flat());
+				try {
+					const selection = await this.client.selectContext(query, signal);
+					this.graphText = formatCompactBcgDialogueContext(
+						this.latestSnapshot,
+						this.includeRelations,
+						new Set(selection.node_ids),
+						new Set(selection.relation_ids),
+					);
+					this.emitGraphTrace(this.latestSnapshot, selection);
+				} catch (error) {
+					const detail = error instanceof Error ? error.message : String(error);
+					this.onWarning(`[BCG context selection] ${detail}; using ranked compact selection.`);
+					this.emitGraphTrace(this.latestSnapshot);
+				}
 			}
 
 			this.warned = false;
@@ -793,6 +841,7 @@ export class BcgContextManager {
 	}
 
 	private updateSnapshot(snapshot: BcgSnapshot, recordTokenUsage = true): void {
+		this.latestSnapshot = snapshot;
 		if (recordTokenUsage && snapshot.token_usage) {
 			this.reportableTokenUsage = snapshot.token_usage;
 		}
@@ -800,6 +849,15 @@ export class BcgContextManager {
 			this.graphView === "compact"
 				? formatCompactBcgDialogueContext(snapshot, this.includeRelations)
 				: formatBcgDialogueContext(snapshot, this.includeRelations);
+		if (this.graphView !== "compact" || this.graphSelection !== "connected") {
+			this.emitGraphTrace(snapshot);
+		}
+	}
+
+	private emitGraphTrace(
+		snapshot: BcgSnapshot,
+		selection?: BcgContextSelectionResponse,
+	): void {
 		this.onGraphContext?.({
 			view: this.graphView,
 			streamTurnIndex: snapshot.stream_turn_index,
@@ -808,6 +866,16 @@ export class BcgContextManager {
 			nRelations: snapshot.relations?.length ?? 0,
 			chars: this.graphText.length,
 			text: this.graphText,
+			...(this.graphView === "compact"
+				? { selectionStrategy: selection?.strategy ?? "ranked" }
+				: {}),
+			...(selection
+				? {
+						selectionRetrieval: selection.retrieval,
+						selectedNodeIds: selection.node_ids,
+						selectedRelationIds: selection.relation_ids,
+					}
+				: {}),
 		});
 	}
 }

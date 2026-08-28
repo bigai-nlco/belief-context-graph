@@ -195,6 +195,7 @@ describe("BCG context management", () => {
 			timeoutMs: 1000,
 			includeRelations: true,
 			graphView: "compact",
+			graphSelection: "ranked",
 			getSystemPrompt: () => "base system",
 			fetch: createFetch([]),
 		});
@@ -206,6 +207,65 @@ describe("BCG context management", () => {
 		expect(effectiveSystem).toContain("`A depends_on B` means A requires B");
 		expect(effectiveSystem).toContain("`A supplements B` means A adds compatible detail or evidence");
 		expect(effectiveSystem).toContain("`A contradicts B` means A conflicts with");
+	});
+
+	it("uses the connected selector result to render compact graph context", async () => {
+		const requests: Array<{ url: string; body: unknown }> = [];
+		const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+			const url = String(input);
+			const body = JSON.parse(String(init?.body));
+			requests.push({ url, body });
+			if (url.endsWith("/context-selection")) {
+				return new Response(
+					JSON.stringify({
+						problem_id: "problem",
+						strategy: "connected",
+						retrieval: "embedding",
+						node_ids: [2],
+						relation_ids: [],
+						node_chars: 40,
+					}),
+					{ status: 200 },
+				);
+			}
+			return new Response(
+				JSON.stringify({
+					latest: {
+						problem: {
+							beliefs: [
+								{ id: 1, belief: "hidden distractor", source: { turn_id: 3 } },
+								{ id: 2, belief: "selected evidence", source: { turn_id: 3 } },
+							],
+							relations: [],
+						},
+					},
+				}),
+				{ status: 200 },
+			);
+		}) as typeof globalThis.fetch;
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 2,
+			maxTurns: 100,
+			timeoutMs: 1000,
+			includeRelations: true,
+			graphView: "compact",
+			graphSelection: "connected",
+			getSystemPrompt: () => "base system",
+			fetch: fetchMock,
+		});
+
+		await manager.transform([user("initial question", 1)]);
+		const effectiveSystem = manager.augmentSystemPrompt("base system");
+
+		expect(requests.map((request) => request.url)).toEqual([
+			"http://127.0.0.1:8848/turns",
+			"http://127.0.0.1:8848/context-selection",
+		]);
+		expect(requests[1].body).toMatchObject({ query: "initial question" });
+		expect(effectiveSystem).toContain("selected evidence");
+		expect(effectiveSystem).not.toContain("hidden distractor");
 	});
 
 	it("serializes tool calls with XML tags while preserving Agent tool names", async () => {
@@ -751,6 +811,7 @@ describe("BCG context management", () => {
 					finalizationTimeoutMs: 5678,
 					includeRelations: false,
 					graphView: "compact",
+					graphSelection: "ranked",
 				},
 			},
 		});
@@ -765,6 +826,7 @@ describe("BCG context management", () => {
 				finalizationTimeoutMs: 5678,
 				includeRelations: false,
 				graphView: "compact",
+				graphSelection: "ranked",
 			},
 			summary: {
 				provider: "summary",

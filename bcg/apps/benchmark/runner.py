@@ -67,6 +67,7 @@ class RunConfig:
     rag_top_k: int = 6
     rag_max_chars: int = 12_000
     graph_view: str = "full"
+    graph_selection: str = "connected"
     summary_model: str = ""
     summary_base_url: str = ""
     summary_api_key: str = field(default="", repr=False)
@@ -112,6 +113,7 @@ def run_benchmarks(
         "rag_top_k": config.rag_top_k,
         "rag_max_chars": config.rag_max_chars,
         "graph_view": config.graph_view,
+        "graph_selection": config.graph_selection,
         "summary_model": config.summary_model,
         "summary_base_url": config.summary_base_url,
         "summary_thinking": config.summary_thinking,
@@ -287,6 +289,8 @@ def _validate_run(
 ) -> None:
     if config.graph_view not in {"full", "compact"}:
         raise ValueError("graph_view must be 'full' or 'compact'.")
+    if config.graph_selection not in {"ranked", "connected"}:
+        raise ValueError("graph_selection must be 'ranked' or 'connected'.")
     invalid_modes = set(config.modes) - {
         "default",
         "bcg",
@@ -348,6 +352,7 @@ def _write_agent_configuration(
                 "finalizationTimeoutMs": config.graph_finalization_timeout_ms,
                 "includeRelations": True,
                 "graphView": config.graph_view,
+                "graphSelection": config.graph_selection,
             },
             "summary": {
                 "provider": "summary",

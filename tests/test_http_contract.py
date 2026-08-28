@@ -87,6 +87,25 @@ class FakeManager:
         self._released.add(problem_id)
         return {"problem_id": problem_id, "released": True}
 
+    def select_context(
+        self,
+        problem_id: str,
+        query: str,
+        *,
+        node_char_budget: int,
+        max_depth: int,
+    ) -> dict[str, Any]:
+        if problem_id not in self.all_problem_ids():
+            raise KeyError(problem_id)
+        return {
+            "problem_id": problem_id,
+            "strategy": "connected",
+            "retrieval": "embedding",
+            "node_ids": [3, 2],
+            "relation_ids": [1],
+            "node_chars": min(node_char_budget, 420),
+        }
+
     def _snapshot(self, problem_id: str) -> dict[str, Any]:
         return {
             "problem_id": problem_id,
@@ -224,6 +243,26 @@ def test_release_matches_schema(server: Any) -> None:
     _status, unknown = _post(base, "/release", {"problem_id": "nope"})
     _validate(unknown, "releaseResponse")
     assert unknown["released"] is False
+
+
+def test_context_selection_matches_schema(server: Any) -> None:
+    base, manager = server
+    manager.push({"problem_id": "pid-1", "role": "user", "content": "hi"})
+
+    status, selection = _post(
+        base,
+        "/context-selection",
+        {
+            "problem_id": "pid-1",
+            "query": "current question and recent state",
+            "node_char_budget": 6_600,
+            "max_depth": 4,
+        },
+    )
+
+    assert status == 200
+    _validate(selection, "contextSelectionResponse")
+    assert selection["node_ids"] == [3, 2]
 
 
 def test_error_envelope_matches_schema(server: Any) -> None:

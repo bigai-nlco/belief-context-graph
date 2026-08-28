@@ -64,6 +64,41 @@ describe("BcgClient (contract-backed HTTP client, step 11)", () => {
 		);
 	});
 
+	it("requests a connected context selection for the current Agent state", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				problem_id: "p",
+				strategy: "connected",
+				retrieval: "embedding",
+				node_ids: [8, 5],
+				relation_ids: [3],
+				node_chars: 420,
+			}),
+		) as typeof globalThis.fetch;
+		const client = new BcgClient({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "p",
+			timeoutMs: 1000,
+			fetch: fetchMock,
+		});
+
+		const selection = await client.selectContext("question plus recent state");
+
+		expect(selection.node_ids).toEqual([8, 5]);
+		expect(fetchMock).toHaveBeenCalledWith(
+			"http://127.0.0.1:8848/context-selection",
+			expect.objectContaining({
+				method: "POST",
+				body: JSON.stringify({
+					problem_id: "p",
+					query: "question plus recent state",
+					node_char_budget: 6600,
+					max_depth: 4,
+				}),
+			}),
+		);
+	});
+
 	it("treats release 404 as idempotent success and reports released", async () => {
 		const fetchMock = vi.fn(async () =>
 			jsonResponse({ error: "no trajectory for problem_id 'p'" }, 404),

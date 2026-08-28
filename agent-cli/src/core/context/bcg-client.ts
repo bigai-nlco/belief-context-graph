@@ -1,4 +1,5 @@
 import type {
+	BcgContextSelectionResponse,
 	BcgReleaseResponse,
 	BcgSnapshot,
 	BcgTurn,
@@ -56,6 +57,28 @@ export class BcgClient {
 			throw new Error("BCG server returned an invalid graph snapshot");
 		}
 		return snapshot;
+	}
+
+	/** Select a query-relevant connected view of the current graph. */
+	async selectContext(
+		query: string,
+		signal?: AbortSignal,
+	): Promise<BcgContextSelectionResponse> {
+		const response = await this.fetchImpl(`${this.baseUrl}/context-selection`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				problem_id: this.problemId,
+				query,
+				node_char_budget: 6600,
+				max_depth: 4,
+			}),
+			signal: this.composeSignal(signal),
+		});
+		if (!response.ok) {
+			throw await this.httpError(response);
+		}
+		return (await response.json()) as BcgContextSelectionResponse;
 	}
 
 	/** POST /finalize and return the final persisted graph snapshot. */

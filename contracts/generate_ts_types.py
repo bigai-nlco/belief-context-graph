@@ -93,6 +93,8 @@ def generate() -> str:
         "finalizeRequest",
         "releaseRequest",
         "releaseResponse",
+        "contextSelectionRequest",
+        "contextSelectionResponse",
     ):
         if name in defs:
             d = defs[name]

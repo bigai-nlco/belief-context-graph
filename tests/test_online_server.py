@@ -96,6 +96,27 @@ class FakeManager:
             "released": self.graphs.pop(problem_id, None) is not None,
         }
 
+    def select_context(
+        self,
+        problem_id: str,
+        query: str,
+        *,
+        node_char_budget: int,
+        max_depth: int,
+    ) -> dict[str, Any]:
+        if problem_id not in self.graphs:
+            raise KeyError(problem_id)
+        return {
+            "problem_id": problem_id,
+            "strategy": "connected",
+            "retrieval": "embedding",
+            "node_ids": [2, 1],
+            "relation_ids": [3],
+            "node_chars": node_char_budget,
+            "max_depth": max_depth,
+            "query": query,
+        }
+
 
 @pytest.fixture
 def http_service() -> Any:
@@ -154,6 +175,22 @@ def test_http_happy_path_and_query_mapping(http_service: Any) -> None:
     status, fetched = request(address, "GET", "/graph?problem_id=p1")
     assert status == 200
     assert fetched == graph
+
+    status, selection = request(
+        address,
+        "POST",
+        "/context-selection",
+        payload={
+            "problem_id": "p1",
+            "query": "which evidence supports the answer?",
+            "node_char_budget": 2048,
+            "max_depth": 3,
+        },
+    )
+    assert status == 200
+    assert selection["node_ids"] == [2, 1]
+    assert selection["node_chars"] == 2048
+    assert selection["max_depth"] == 3
 
     status, result = request(
         address,

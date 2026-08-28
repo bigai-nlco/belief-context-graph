@@ -192,6 +192,15 @@ def run(
             )
         ),
     ] = "full",
+    graph_selection: Annotated[
+        str,
+        typer.Option(
+            help=(
+                "Compact Graph selector: ranked uses the legacy independent ranking; "
+                "connected uses query-aware relation paths."
+            )
+        ),
+    ] = "connected",
     allow_graph_fallback: Annotated[
         bool,
         typer.Option(help="Score BCG tasks even when Graph falls back to raw context."),
@@ -337,6 +346,8 @@ def run(
         )
     if graph_view not in {"full", "compact"}:
         raise typer.BadParameter("--graph-view must be `full` or `compact`.")
+    if graph_selection not in {"ranked", "connected"}:
+        raise typer.BadParameter("--graph-selection must be `ranked` or `connected`.")
 
     resolved_modes = tuple(value.strip() for value in modes.split(",") if value.strip())
     valid_modes = {"default", "bcg", "summary", "recent-only", "rag"}
@@ -382,6 +393,7 @@ def run(
         rag_top_k=rag_top_k,
         rag_max_chars=rag_max_chars,
         graph_view=graph_view,
+        graph_selection=graph_selection,
         summary_model=resolved_summary_model,
         summary_base_url=resolved_summary_base_url,
         summary_api_key=summary_api_key,
