@@ -25,16 +25,18 @@ const GRAPH_DIALOGUE_CONTEXT_GUIDE =
 
 const COMPACT_GRAPH_DIALOGUE_CONTEXT_GUIDE =
 	"<context_blocks_guide>\n" +
-	"Earlier raw turns are omitted; the Answer-directed evidence, Search history, and Relation paths below are Graph memory, not verified evidence. " +
+	"Earlier raw turns are omitted; the Candidate evidence, Search history, and Relation paths below are Graph memory, not verified evidence. " +
 	"A belief is a self-contained fact, hypothesis, intermediate conclusion, or decision. " +
-	"Answer-directed evidence was selected for the question and current investigation, then ordered by extraction quality, confidence, and recency; confidence estimates reliability, not relevance. " +
-	"A specific low-confidence belief that supplies the requested value remains a candidate to verify, while a generic high-confidence fact is not an answer. " +
+	"Confidence estimates reliability, not answer relevance. Factual beliefs are candidate evidence; search-action beliefs only record prior work. " +
+	"A specific low-confidence belief that fills the requested value remains a candidate to verify; a generic high-confidence fact is not an answer unless it satisfies the question. " +
 	"Relations record reasoning or provenance, not truth by themselves. Direction is literal: `A depends_on B` means A requires B as a premise, evidence, input, constraint, or context; " +
 	"`A supplements B` adds compatible detail or evidence; `A contradicts B` conflicts with, corrects, negates, or replaces B. " +
-	"Start with the highest-ranked concrete answer candidates. For each, follow outgoing relations to premises or provenance and incoming relations to later checks; prefer a connected support path over an isolated topical match. " +
-	"Compare the leading candidates on the pivotal constraints. A missing edge or empty search is not disproof, and a contradiction is answer-changing only when it is specific and directly applicable. " +
-	"Search only for a missing fact that can distinguish the leading candidates or resolve a direct conflict. Search history records prior work: do not repeat it or an equivalent query; batch distinct remaining gaps when possible. " +
-	"Answer when one concrete value or entity has direct source-grounded support, covers the pivotal constraints, and has no specific unresolved contradiction. Preserve the exact supported value and add no unsupported precision.\n" +
+	"For each plausible answer, follow outgoing relations to its premises and incoming relations to later checks or results. " +
+	"Compare candidates against every pivotal constraint using direct, source-grounded evidence; missing edges or empty searches do not disprove a candidate. " +
+	"Before searching, check whether a concrete answer value is already stated by a Tool Result belief and has no retained contradiction; if so, answer without re-verifying every clue. " +
+	"Resolve only answer-changing gaps or conflicts. If evidence is still missing, use one parallel tool-call batch of non-equivalent, discriminating queries to cover the remaining decisive gaps. " +
+	"After that batch returns, answer from the best-supported candidate instead of opening another search branch, unless a concrete contradiction directly blocks the answer. " +
+	"Answer once one candidate covers the pivotal constraints without a decisive contradiction. Preserve the exact supported value; add no unsupported precision.\n" +
 	"</context_blocks_guide>";
 
 const DIALOGUE_BOS = "<｜begin▁of▁sentence｜>";
@@ -619,7 +621,7 @@ export function formatCompactBcgDialogueContext(
 			);
 		const candidateLines: CompactTrailLine[] = [];
 		if (facts.length > 0) {
-			candidateLines.push({ text: "#### Answer-directed evidence", kind: "separator" });
+			candidateLines.push({ text: "#### Candidate evidence", kind: "separator" });
 			candidateLines.push(
 				...facts.map((belief) => ({ text: compactBeliefLine(belief), kind: "node" as const })),
 			);
