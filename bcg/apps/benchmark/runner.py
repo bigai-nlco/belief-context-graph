@@ -39,6 +39,7 @@ RETRYABLE_CACHED_STATUSES = {
     "cancelled_after_quota",
     "graph_fallback",
     "summary_fallback",
+    "rag_fallback",
 }
 
 
@@ -63,6 +64,8 @@ class RunConfig:
     graph_finalization_timeout_ms: int = 900_000
     graph_max_turns: int = 160
     recent_turns: int = 2
+    rag_top_k: int = 6
+    rag_max_chars: int = 12_000
     graph_view: str = "full"
     summary_model: str = ""
     summary_base_url: str = ""
@@ -72,6 +75,7 @@ class RunConfig:
     summary_max_tokens: int = 2048
     allow_graph_fallback: bool = False
     allow_summary_fallback: bool = False
+    allow_rag_fallback: bool = False
     allow_no_search: bool = False
     overwrite: bool = False
     agent_command: tuple[str, ...] | None = None
@@ -104,6 +108,8 @@ def run_benchmarks(
         "graph_finalization_timeout_ms": config.graph_finalization_timeout_ms,
         "graph_max_turns": config.graph_max_turns,
         "recent_turns": config.recent_turns,
+        "rag_top_k": config.rag_top_k,
+        "rag_max_chars": config.rag_max_chars,
         "graph_view": config.graph_view,
         "summary_model": config.summary_model,
         "summary_base_url": config.summary_base_url,
@@ -112,6 +118,7 @@ def run_benchmarks(
         "summary_max_tokens": config.summary_max_tokens,
         "allow_graph_fallback": config.allow_graph_fallback,
         "allow_summary_fallback": config.allow_summary_fallback,
+        "allow_rag_fallback": config.allow_rag_fallback,
         "benchmarks": {
             benchmark: len(tasks) for benchmark, tasks in tasks_by_benchmark.items()
         },
@@ -278,7 +285,13 @@ def _validate_run(
 ) -> None:
     if config.graph_view not in {"full", "compact"}:
         raise ValueError("graph_view must be 'full' or 'compact'.")
-    invalid_modes = set(config.modes) - {"default", "bcg", "summary"}
+    invalid_modes = set(config.modes) - {
+        "default",
+        "bcg",
+        "summary",
+        "recent-only",
+        "rag",
+    }
     if invalid_modes:
         raise ValueError(f"Invalid context modes: {', '.join(sorted(invalid_modes))}.")
     if not config.model.strip() or not config.base_url.strip():
@@ -341,6 +354,15 @@ def _write_agent_configuration(
                 "timeoutMs": config.summary_timeout_ms,
                 "maxTokens": config.summary_max_tokens,
                 "thinkingLevel": config.summary_thinking,
+            },
+            "recentOnly": {
+                "recentTurns": config.recent_turns,
+            },
+            "rag": {
+                "recentTurns": config.recent_turns,
+                "databasePath": "",
+                "topK": config.rag_top_k,
+                "maxChars": config.rag_max_chars,
             },
         },
     }
@@ -420,6 +442,20 @@ def _run_one(
         / "summary-contexts"
         / f"{safe_key}.jsonl"
     )
+    rag_context_trace_path = (
+        config.output_dir.expanduser().resolve()
+        / task.benchmark
+        / mode
+        / "rag-contexts"
+        / f"{safe_key}.jsonl"
+    )
+    rag_database_path = (
+        config.output_dir.expanduser().resolve()
+        / task.benchmark
+        / mode
+        / "rag-memory"
+        / f"{safe_key}.sqlite"
+    )
     model_io_trace_path = (
         config.output_dir.expanduser().resolve()
         / task.benchmark
@@ -429,6 +465,11 @@ def _run_one(
     )
     model_io_trace_path.parent.mkdir(parents=True, exist_ok=True)
     model_io_trace_path.unlink(missing_ok=True)
+    if mode == "rag":
+        rag_database_path.parent.mkdir(parents=True, exist_ok=True)
+        rag_database_path.unlink(missing_ok=True)
+        rag_database_path.with_suffix(".sqlite-shm").unlink(missing_ok=True)
+        rag_database_path.with_suffix(".sqlite-wal").unlink(missing_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="bcg-benchmark-") as temporary:
         workspace = Path(temporary)
@@ -468,6 +509,8 @@ def _run_one(
                 "BCG_SKIP_VERSION_CHECK": "1",
                 "BCG_GRAPH_TRACE_PATH": str(graph_context_trace_path),
                 "BCG_SUMMARY_TRACE_PATH": str(summary_context_trace_path),
+                "BCG_RAG_TRACE_PATH": str(rag_context_trace_path),
+                "BCG_RAG_DB_PATH": str(rag_database_path),
                 "BCG_MODEL_IO_TRACE_PATH": str(model_io_trace_path),
                 "SUMMARY_API_KEY": config.summary_api_key or config.api_key or "EMPTY",
             }
@@ -489,6 +532,7 @@ def _run_one(
     )
     graph_finalization_warning = mode == "bcg" and "[BCG finalization]" in stderr
     summary_fallback = mode == "summary" and "[Summary context]" in stderr
+    rag_fallback = mode == "rag" and "[RAG context]" in stderr
     status = "completed"
     error: str | None = None
     score = None
@@ -534,6 +578,12 @@ def _run_one(
         status = "summary_fallback"
         error = (
             "Summary context failed and the Agent fell back to full raw context; "
+            "this sample is excluded from accuracy."
+        )
+    elif rag_fallback and not config.allow_rag_fallback:
+        status = "rag_fallback"
+        error = (
+            "RAG retrieval failed and the Agent fell back to recent-only context; "
             "this sample is excluded from accuracy."
         )
     elif not task.answers:
@@ -587,6 +637,7 @@ def _run_one(
         "graph_fallback": graph_fallback,
         "graph_finalization_warning": graph_finalization_warning,
         "summary_fallback": summary_fallback,
+        "rag_fallback": rag_fallback,
         "agent_exit_code": return_code,
         "agent_stop_reason": parsed["stop_reason"],
         "stderr": stderr,
@@ -600,6 +651,12 @@ def _run_one(
             str(summary_context_trace_path)
             if summary_context_trace_path.is_file()
             else None
+        ),
+        "rag_context_trace": (
+            str(rag_context_trace_path) if rag_context_trace_path.is_file() else None
+        ),
+        "rag_database": (
+            str(rag_database_path) if rag_database_path.is_file() else None
         ),
         "model_io_trace": (
             str(model_io_trace_path) if model_io_trace_path.is_file() else None
@@ -861,6 +918,7 @@ def summarize_results(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
             "summary_fallbacks": sum(
                 bool(value.get("summary_fallback")) for value in values
             ),
+            "rag_fallbacks": sum(bool(value.get("rag_fallback")) for value in values),
             "wall_time_seconds_total": sum(
                 float(value.get("wall_time_seconds", 0)) for value in values
             ),
@@ -1099,6 +1157,7 @@ def _unexpected_failure(
         "graph_fallback": False,
         "graph_finalization_warning": False,
         "summary_fallback": False,
+        "rag_fallback": False,
         "tool_calls": {},
         "search_calls": 0,
         "metrics": {},

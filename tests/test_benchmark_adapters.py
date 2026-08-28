@@ -111,6 +111,31 @@ def test_benchmark_summary_uses_an_independent_model_configuration(
     assert models["providers"]["summary"]["models"][0]["id"] == "summary-model"
 
 
+@pytest.mark.parametrize("mode", ["recent-only", "rag"])
+def test_benchmark_writes_bounded_context_mode_configuration(
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    config = RunConfig(
+        output_dir=tmp_path,
+        model="agent-model",
+        base_url="https://agent.test/v1",
+        recent_turns=2,
+    )
+
+    agent_dir = _write_agent_configuration(tmp_path, config, mode)
+    settings = json.loads((agent_dir / "settings.json").read_text(encoding="utf-8"))
+
+    assert settings["contextManagement"]["provider"] == mode
+    assert settings["contextManagement"]["recentOnly"] == {"recentTurns": 2}
+    assert settings["contextManagement"]["rag"] == {
+        "recentTurns": 2,
+        "databasePath": "",
+        "topK": 6,
+        "maxChars": 12000,
+    }
+
+
 def test_loads_all_supported_benchmark_schemas(tmp_path: Path) -> None:
     _write_json(
         tmp_path / "browse_comp" / "data.json",
@@ -607,6 +632,54 @@ print(json.dumps({
     assert result["correct"] is True
     assert result["graph_fallback"] is False
     assert result["graph_finalization_warning"] is True
+
+
+def test_runner_excludes_rag_recent_only_fallback_from_accuracy(tmp_path: Path) -> None:
+    fake_agent = tmp_path / "rag_fallback_agent.py"
+    fake_agent.write_text(
+        """
+import json
+import sys
+
+print("[RAG context] database unavailable; using recent-only context for this request.", file=sys.stderr)
+print(json.dumps({
+    "type": "message_end",
+    "message": {
+        "role": "assistant",
+        "content": [{"type": "text", "text": "FINAL ANSWER: A"}],
+        "usage": {},
+        "stopReason": "stop",
+    },
+}))
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    task = BenchmarkTask(
+        benchmark="mmlu_pro",
+        task_id="rag-fallback",
+        question="Question\n\nA. yes\nB. no",
+        answers=("A",),
+    )
+    output = tmp_path / "results"
+    config = RunConfig(
+        output_dir=output,
+        model="fake",
+        base_url="https://unused.test/v1",
+        modes=("rag",),
+        workers=1,
+        agent_command=(sys.executable, str(fake_agent)),
+    )
+
+    summary = run_benchmarks({"mmlu_pro": [task]}, config, judge=None)
+    result = json.loads(
+        (output / "mmlu_pro" / "rag" / "tasks" / "rag-fallback.json").read_text()
+    )
+
+    assert result["status"] == "rag_fallback"
+    assert result["rag_fallback"] is True
+    assert summary["benchmarks"]["mmlu_pro"]["rag"]["evaluated"] == 0
+    assert summary["benchmarks"]["mmlu_pro"]["rag"]["rag_fallbacks"] == 1
 
 
 def test_runner_persists_per_task_model_io_trace_reference(tmp_path: Path) -> None:

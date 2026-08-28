@@ -9,6 +9,7 @@ import { AgentSession } from "./agent-session.ts";
 import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import { BcgContextManager } from "./context/bcg-context.ts";
 import { ensureSessionContextMode, getSessionContextMode } from "./context/context-mode.ts";
+import { RagContextManager, RecentOnlyContextManager } from "./context/recent-context.ts";
 import { SummaryContextManager } from "./context/summary-context.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ExtensionRunner, LoadExtensionsResult, SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
@@ -308,10 +309,13 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	const bcgProblemId = `${sessionManager.getSessionId()}:${randomUUID()}`;
 	const graphTracePath = process.env.BCG_GRAPH_TRACE_PATH?.trim();
 	const summaryTracePath = process.env.BCG_SUMMARY_TRACE_PATH?.trim();
+	const ragTracePath = process.env.BCG_RAG_TRACE_PATH?.trim();
 	const modelIoTracePath = process.env.BCG_MODEL_IO_TRACE_PATH?.trim();
 	const modelIoTrace = modelIoTracePath ? new ModelIoTraceRecorder(modelIoTracePath) : undefined;
 	let bcgContextManager: BcgContextManager | undefined;
 	let summaryContextManager: SummaryContextManager | undefined;
+	let recentOnlyContextManager: RecentOnlyContextManager | undefined;
+	let ragContextManager: RagContextManager | undefined;
 	const getInitialUserMessage = (): AgentMessage | undefined => {
 		for (const entry of sessionManager.getBranch()) {
 			if (entry.type === "message" && entry.message.role === "user") {
@@ -407,7 +411,50 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		});
 		return summaryContextManager;
 	};
-	const getActiveContextManager = () => getBcgContextManager() ?? getSummaryContextManager();
+	const getRecentOnlyContextManager = (): RecentOnlyContextManager | undefined => {
+		if (getSessionContextMode(sessionManager) !== "recent-only") {
+			return undefined;
+		}
+		const contextManagementSettings = settingsManager.getContextManagementSettings();
+		recentOnlyContextManager ??= new RecentOnlyContextManager({
+			recentTurns: contextManagementSettings.recentOnly.recentTurns,
+			getInitialUserMessage,
+		});
+		return recentOnlyContextManager;
+	};
+	const getRagContextManager = (): RagContextManager | undefined => {
+		if (getSessionContextMode(sessionManager) !== "rag") {
+			return undefined;
+		}
+		const contextManagementSettings = settingsManager.getContextManagementSettings();
+		const ragSettings = contextManagementSettings.rag;
+		const databasePath = ragSettings.databasePath
+			? resolvePath(ragSettings.databasePath)
+			: join(agentDir, "rag", `${sessionManager.getSessionId()}.sqlite`);
+		ragContextManager ??= new RagContextManager({
+			recentTurns: ragSettings.recentTurns,
+			databasePath,
+			topK: ragSettings.topK,
+			maxChars: ragSettings.maxChars,
+			getInitialUserMessage,
+			onRagContext: ragTracePath
+				? (trace) => {
+						mkdirSync(dirname(ragTracePath), { recursive: true });
+						appendFileSync(
+							ragTracePath,
+							`${JSON.stringify({ timestamp: new Date().toISOString(), ...trace })}\n`,
+							"utf8",
+						);
+					}
+				: undefined,
+		});
+		return ragContextManager;
+	};
+	const getActiveContextManager = () =>
+		getBcgContextManager() ??
+		getSummaryContextManager() ??
+		getRecentOnlyContextManager() ??
+		getRagContextManager();
 
 	agent = new Agent({
 		initialState: {
@@ -552,6 +599,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			if (summaryUsage) {
 				session.emitSummaryUsage({ ...summaryUsage });
 			}
+			ragContextManager?.release();
 		},
 	};
 }

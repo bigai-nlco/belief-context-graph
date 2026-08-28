@@ -62,7 +62,7 @@ import {
 	prepareCompaction,
 	shouldCompact,
 } from "./compaction/index.ts";
-import { getSessionContextMode } from "./context/context-mode.ts";
+import { getSessionContextMode, usesBoundedContext } from "./context/context-mode.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.ts";
 import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
@@ -1776,8 +1776,8 @@ export class AgentSession {
 	 */
 	async compact(customInstructions?: string): Promise<CompactionResult> {
 		const contextMode = getSessionContextMode(this.sessionManager);
-		if (contextMode === "bcg" || contextMode === "summary") {
-			throw new Error("Traditional compaction is disabled in BCG and Summary modes.");
+		if (usesBoundedContext(contextMode)) {
+			throw new Error("Traditional compaction is disabled in bounded-context modes.");
 		}
 		this._disconnectFromAgent();
 		await this.abort();
@@ -1950,7 +1950,7 @@ export class AgentSession {
 	 */
 	private async _checkCompaction(assistantMessage: AssistantMessage, skipAbortedCheck = true): Promise<boolean> {
 		const contextMode = getSessionContextMode(this.sessionManager);
-		if (contextMode === "bcg" || contextMode === "summary") {
+		if (usesBoundedContext(contextMode)) {
 			return false;
 		}
 		const settings = this.settingsManager.getCompactionSettings();
@@ -2226,7 +2226,7 @@ export class AgentSession {
 	/** Whether auto-compaction is enabled */
 	get autoCompactionEnabled(): boolean {
 		const contextMode = getSessionContextMode(this.sessionManager);
-		return contextMode !== "bcg" && contextMode !== "summary" && this.settingsManager.getCompactionEnabled();
+		return !usesBoundedContext(contextMode) && this.settingsManager.getCompactionEnabled();
 	}
 
 	async bindExtensions(bindings: ExtensionBindings): Promise<void> {

@@ -30,6 +30,16 @@ export class ContextModeSelectorComponent extends Container {
 				description: "Rolling LLM summary · initial request + recent turns",
 			},
 			{
+				value: "rag",
+				label: "RAG",
+				description: "Retrieved local history · initial request + recent turns",
+			},
+			{
+				value: "recent-only",
+				label: "Recent-Only",
+				description: "Initial request + recent turns · no long-term memory",
+			},
+			{
 				value: "default",
 				label: "Default",
 				description: "Full agent context · automatic compaction",
@@ -37,8 +47,9 @@ export class ContextModeSelectorComponent extends Container {
 		];
 
 		this.addChild(new DynamicBorder());
-		this.selectList = new SelectList(items, 5, getSelectListTheme(), CONTEXT_MODE_SELECT_LIST_LAYOUT);
-		this.selectList.setSelectedIndex(currentMode === "bcg" ? 0 : currentMode === "summary" ? 1 : 2);
+		this.selectList = new SelectList(items, 7, getSelectListTheme(), CONTEXT_MODE_SELECT_LIST_LAYOUT);
+		const selectedIndex = items.findIndex((item) => item.value === currentMode);
+		this.selectList.setSelectedIndex(selectedIndex >= 0 ? selectedIndex : items.length - 1);
 		this.selectList.onSelect = (item) => {
 			onSelect(item.value as ContextManagementProvider);
 		};

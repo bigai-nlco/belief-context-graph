@@ -33,7 +33,7 @@ def _bootstrap_env() -> None:
 
 app = typer.Typer(
     name="bcg benchmark",
-    help="Evaluate the reference Agent in Default, BCG, and Summary modes.",
+    help="Evaluate the reference Agent across supported context modes.",
     add_completion=False,
     context_settings={"help_option_names": ["-h", "--help"]},
     rich_markup_mode="rich",
@@ -43,7 +43,7 @@ console = Console()
 
 @app.callback()
 def _root() -> None:
-    """Evaluate the reference Agent in Default, BCG, and Summary modes."""
+    """Evaluate the reference Agent across supported context modes."""
 
 
 @app.command("run")
@@ -65,7 +65,9 @@ def run(
     ] = None,
     modes: Annotated[
         str,
-        typer.Option(help="Comma-separated context modes: default,bcg,summary."),
+        typer.Option(
+            help=("Comma-separated context modes: default,bcg,summary,recent-only,rag.")
+        ),
     ] = "default,bcg",
     output_dir: Annotated[
         Path | None,
@@ -142,9 +144,19 @@ def run(
         int,
         typer.Option(
             min=-1,
-            help="Completed turns retained verbatim in BCG and Summary modes.",
+            help="Completed turns retained verbatim in bounded-context modes.",
         ),
     ] = 2,
+    rag_top_k: Annotated[
+        int,
+        typer.Option(min=1, help="Maximum historical turns retrieved in RAG mode."),
+    ] = 6,
+    rag_max_chars: Annotated[
+        int,
+        typer.Option(
+            min=256, help="Maximum retrieved-history characters injected in RAG mode."
+        ),
+    ] = 12_000,
     summary_model: Annotated[
         str | None,
         typer.Option(help="Rolling-summary model; defaults to the Agent model."),
@@ -188,6 +200,12 @@ def run(
         bool,
         typer.Option(
             help="Score Summary tasks even when summarization falls back to raw context."
+        ),
+    ] = False,
+    allow_rag_fallback: Annotated[
+        bool,
+        typer.Option(
+            help="Score RAG tasks even when retrieval falls back to Recent-Only."
         ),
     ] = False,
     allow_no_search: Annotated[
@@ -314,10 +332,12 @@ def run(
         raise typer.BadParameter("--graph-view must be `full` or `compact`.")
 
     resolved_modes = tuple(value.strip() for value in modes.split(",") if value.strip())
-    invalid_modes = set(resolved_modes) - {"default", "bcg", "summary"}
+    valid_modes = {"default", "bcg", "summary", "recent-only", "rag"}
+    invalid_modes = set(resolved_modes) - valid_modes
     if not resolved_modes or invalid_modes:
         raise typer.BadParameter(
-            "--modes must contain only `default`, `bcg`, and/or `summary`."
+            "--modes must contain only `default`, `bcg`, `summary`, "
+            "`recent-only`, and/or `rag`."
         )
     resolved_summary_model = (summary_model or resolved_model).strip()
     resolved_summary_base_url = (summary_base_url or resolved_base_url).strip()
@@ -352,6 +372,8 @@ def run(
         graph_finalization_timeout_ms=graph_finalization_timeout_ms,
         graph_max_turns=graph_max_turns,
         recent_turns=recent_turns,
+        rag_top_k=rag_top_k,
+        rag_max_chars=rag_max_chars,
         graph_view=graph_view,
         summary_model=resolved_summary_model,
         summary_base_url=resolved_summary_base_url,
@@ -361,6 +383,7 @@ def run(
         summary_max_tokens=summary_max_tokens,
         allow_graph_fallback=allow_graph_fallback,
         allow_summary_fallback=allow_summary_fallback,
+        allow_rag_fallback=allow_rag_fallback,
         allow_no_search=allow_no_search,
         overwrite=overwrite,
         agent_command=tuple(shlex.split(agent_command)) if agent_command else None,

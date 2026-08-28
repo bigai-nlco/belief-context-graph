@@ -3,8 +3,18 @@ import type { ContextManagementProvider } from "../settings-manager.ts";
 
 export const CONTEXT_MODE_ENTRY_TYPE = "bcg.context_mode";
 
+export function usesBoundedContext(provider: ContextManagementProvider | undefined): boolean {
+	return provider === "bcg" || provider === "summary" || provider === "recent-only" || provider === "rag";
+}
+
 function isContextManagementProvider(value: unknown): value is ContextManagementProvider {
-	return value === "default" || value === "bcg" || value === "summary";
+	return (
+		value === "default" ||
+		value === "bcg" ||
+		value === "summary" ||
+		value === "recent-only" ||
+		value === "rag"
+	);
 }
 
 export function getSessionContextMode(sessionManager: SessionManager): ContextManagementProvider | undefined {
