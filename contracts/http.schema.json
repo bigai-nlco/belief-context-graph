@@ -160,6 +160,9 @@
       "properties": {
         "problem_id": { "type": "string" },
         "query": { "type": "string" },
+        "focus_query": { "type": "string" },
+        "question": { "type": "string" },
+        "strategy": { "enum": ["connected", "focused"] },
         "node_char_budget": { "type": "integer" },
         "max_depth": { "type": "integer" }
       },
@@ -170,7 +173,7 @@
       "required": ["problem_id", "strategy", "retrieval", "node_ids", "relation_ids", "node_chars"],
       "properties": {
         "problem_id": { "type": "string" },
-        "strategy": { "enum": ["connected"] },
+        "strategy": { "enum": ["connected", "focused"] },
         "retrieval": { "enum": ["all_fit", "embedding", "lexical", "none"] },
         "node_ids": { "type": "array", "items": { "type": "integer" } },
         "relation_ids": { "type": "array", "items": { "type": "integer" } },

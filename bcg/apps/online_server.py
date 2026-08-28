@@ -273,9 +273,23 @@ def make_handler(manager, trajectory_closed_error: type, *, quiet: bool = False)
                         raise ValueError("body must include a non-empty problem_id")
                     if not isinstance(query, str) or not query.strip():
                         raise ValueError("body must include a non-empty query")
+                    strategy = body.get("strategy", "connected")
+                    if strategy not in {"connected", "focused"}:
+                        raise ValueError(
+                            "body strategy must be `connected` or `focused`"
+                        )
+                    focus_query = body.get("focus_query")
+                    question = body.get("question")
+                    if focus_query is not None and not isinstance(focus_query, str):
+                        raise ValueError("body focus_query must be a string")
+                    if question is not None and not isinstance(question, str):
+                        raise ValueError("body question must be a string")
                     result = manager.select_context(
                         pid,
                         query,
+                        strategy=strategy,
+                        focus_query=focus_query,
+                        question=question,
                         node_char_budget=max(
                             256, int(body.get("node_char_budget", 6_600))
                         ),

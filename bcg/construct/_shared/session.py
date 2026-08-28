@@ -329,20 +329,39 @@ class StreamingTrajectorySession:
         self,
         query: str,
         *,
+        strategy: str = "connected",
+        focus_query: str | None = None,
+        question: str | None = None,
         node_char_budget: int = 6_600,
         max_depth: int = 4,
     ) -> dict[str, Any]:
         """Select a query-relevant connected subgraph without mutating it."""
-        from .context_selection import select_connected_context
+        from .context_selection import select_connected_context, select_focused_context
 
         with self._lock, self._engine():
-            result = select_connected_context(
-                self._snapshot(stage="query"),
-                query,
-                embedder=self.embedder,
-                node_char_budget=node_char_budget,
-                max_depth=max_depth,
-            )
+            snapshot = self._snapshot(stage="query")
+            if strategy == "focused":
+                result = select_focused_context(
+                    snapshot,
+                    query,
+                    focus_query or query,
+                    question or query,
+                    embedder=self.embedder,
+                    node_char_budget=node_char_budget,
+                    max_depth=max_depth,
+                )
+            elif strategy == "connected":
+                result = select_connected_context(
+                    snapshot,
+                    query,
+                    embedder=self.embedder,
+                    node_char_budget=node_char_budget,
+                    max_depth=max_depth,
+                )
+            else:
+                raise ValueError(
+                    f"unsupported context-selection strategy: {strategy!r}"
+                )
         return {"problem_id": self.problem_id, **result}
 
     # ------------------------------------------------------------- ingestion

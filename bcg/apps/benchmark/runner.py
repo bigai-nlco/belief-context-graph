@@ -289,8 +289,8 @@ def _validate_run(
 ) -> None:
     if config.graph_view not in {"full", "compact"}:
         raise ValueError("graph_view must be 'full' or 'compact'.")
-    if config.graph_selection not in {"ranked", "connected"}:
-        raise ValueError("graph_selection must be 'ranked' or 'connected'.")
+    if config.graph_selection not in {"ranked", "connected", "focused"}:
+        raise ValueError("graph_selection must be 'ranked', 'connected', or 'focused'.")
     invalid_modes = set(config.modes) - {
         "default",
         "bcg",

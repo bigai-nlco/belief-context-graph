@@ -197,7 +197,8 @@ def run(
         typer.Option(
             help=(
                 "Compact Graph selector: ranked uses the legacy independent ranking; "
-                "connected uses query-aware relation paths."
+                "connected uses query-aware relation paths; focused preserves its "
+                "evidence while pruning redundant investigation chains."
             )
         ),
     ] = "connected",
@@ -346,8 +347,10 @@ def run(
         )
     if graph_view not in {"full", "compact"}:
         raise typer.BadParameter("--graph-view must be `full` or `compact`.")
-    if graph_selection not in {"ranked", "connected"}:
-        raise typer.BadParameter("--graph-selection must be `ranked` or `connected`.")
+    if graph_selection not in {"ranked", "connected", "focused"}:
+        raise typer.BadParameter(
+            "--graph-selection must be `ranked`, `connected`, or `focused`."
+        )
 
     resolved_modes = tuple(value.strip() for value in modes.split(",") if value.strip())
     valid_modes = {"default", "bcg", "summary", "recent-only", "rag"}

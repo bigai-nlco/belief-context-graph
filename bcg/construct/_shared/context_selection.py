@@ -116,6 +116,66 @@ def _similarities(
     }, "embedding"
 
 
+def _selection_features(
+    query: str,
+    focus_query: str,
+    question: str,
+    nodes: list[dict[str, Any]],
+    embedder: Any | None,
+) -> tuple[
+    dict[int, float],
+    dict[int, float],
+    dict[int, float],
+    dict[int, list[float]] | None,
+    str,
+]:
+    """Embed one selector request once and expose endpoint vectors."""
+    if embedder is None:
+        query_scores = {
+            node["id"]: max(
+                _lexical_similarity(query, unit) for unit in _embedding_units(node)
+            )
+            for node in nodes
+        }
+        question_scores = {
+            node["id"]: max(
+                _lexical_similarity(question, unit) for unit in _embedding_units(node)
+            )
+            for node in nodes
+        }
+        focus_scores = {
+            node["id"]: max(
+                _lexical_similarity(focus_query, unit)
+                for unit in _embedding_units(node)
+            )
+            for node in nodes
+        }
+        return query_scores, focus_scores, question_scores, None, "lexical"
+
+    units = [query, focus_query, question]
+    spans: dict[int, tuple[int, int]] = {}
+    for node in nodes:
+        start = len(units)
+        units.extend(_embedding_units(node))
+        spans[node["id"]] = (start, len(units))
+    vectors = embedder.embed(units, purpose="compact_context_selection")
+    query_vector, focus_vector, question_vector = vectors[:3]
+    query_scores = {
+        node_id: max(_cosine(query_vector, vector) for vector in vectors[start:end])
+        for node_id, (start, end) in spans.items()
+    }
+    question_scores = {
+        node_id: max(_cosine(question_vector, vector) for vector in vectors[start:end])
+        for node_id, (start, end) in spans.items()
+    }
+    focus_scores = {
+        node_id: max(_cosine(focus_vector, vector) for vector in vectors[start:end])
+        for node_id, (start, end) in spans.items()
+    }
+    node_vectors = {node_id: vectors[start] for node_id, (start, _end) in spans.items()}
+    return query_scores, focus_scores, question_scores, node_vectors, "embedding"
+
+
 def _normalize(values: dict[int, float]) -> dict[int, float]:
     if not values:
         return {}
@@ -201,53 +261,23 @@ def _path_proposals(
     return sorted(proposals, key=lambda item: (item[0], len(item[1])), reverse=True)
 
 
-def select_connected_context(
-    snapshot: dict[str, Any],
-    query: str,
+def _connected_from_similarities(
+    nodes: list[dict[str, Any]],
+    relations: list[dict[str, Any]],
+    similarities: dict[int, float],
+    retrieval: str,
     *,
-    embedder: Any | None,
-    node_char_budget: int = DEFAULT_NODE_CHAR_BUDGET,
-    max_depth: int = 4,
+    node_char_budget: int,
+    max_depth: int,
+    strategy: str = "connected",
 ) -> dict[str, Any]:
-    """Return a cost-aware connected subgraph selected for ``query``."""
-    nodes = _eligible(snapshot)
     by_id = {node["id"]: node for node in nodes}
     node_ids = set(by_id)
     costs = {node_id: _node_line_cost(node) for node_id, node in by_id.items()}
-    relations = [
-        relation
-        for relation in snapshot.get("relations", [])
-        if relation.get("from_id") in node_ids and relation.get("to_id") in node_ids
-    ]
-    if not nodes:
-        return {
-            "strategy": "connected",
-            "retrieval": "none",
-            "node_ids": [],
-            "relation_ids": [],
-            "node_chars": 0,
-        }
-    if sum(costs.values()) <= node_char_budget:
-        selected = set(node_ids)
-        return {
-            "strategy": "connected",
-            "retrieval": "all_fit",
-            "node_ids": [node["id"] for node in nodes],
-            "relation_ids": [
-                relation["id"]
-                for relation in relations
-                if isinstance(relation.get("id"), int)
-            ],
-            "node_chars": sum(costs.values()),
-        }
-
-    similarities, retrieval = _similarities(query, nodes, embedder)
     turns = [_source_turn(node) for node in nodes]
     low, high = min(turns), max(turns)
     span = max(1, high - low)
     recency = {node["id"]: (_source_turn(node) - low) / span for node in nodes}
-    # Treat repeated relation records as one directed edge. Otherwise a
-    # duplicate endpoint pair receives artificial PageRank/path weight.
     outgoing_by_target: dict[int, dict[int, float]] = defaultdict(dict)
     for relation in relations:
         outgoing_by_target[relation["from_id"]][relation["to_id"]] = (
@@ -361,7 +391,7 @@ def select_connected_context(
         raw_results += int(is_raw)
 
     return {
-        "strategy": "connected",
+        "strategy": strategy,
         "retrieval": retrieval,
         "node_ids": selected,
         "relation_ids": [
@@ -371,5 +401,307 @@ def select_connected_context(
             and relation.get("to_id") in selected_set
             and isinstance(relation.get("id"), int)
         ],
+        "node_chars": used,
+    }
+
+
+def select_connected_context(
+    snapshot: dict[str, Any],
+    query: str,
+    *,
+    embedder: Any | None,
+    node_char_budget: int = DEFAULT_NODE_CHAR_BUDGET,
+    max_depth: int = 4,
+) -> dict[str, Any]:
+    """Return a cost-aware connected subgraph selected for ``query``."""
+    nodes = _eligible(snapshot)
+    by_id = {node["id"]: node for node in nodes}
+    node_ids = set(by_id)
+    costs = {node_id: _node_line_cost(node) for node_id, node in by_id.items()}
+    relations = [
+        relation
+        for relation in snapshot.get("relations", [])
+        if relation.get("from_id") in node_ids and relation.get("to_id") in node_ids
+    ]
+    if not nodes:
+        return {
+            "strategy": "connected",
+            "retrieval": "none",
+            "node_ids": [],
+            "relation_ids": [],
+            "node_chars": 0,
+        }
+    if sum(costs.values()) <= node_char_budget:
+        return {
+            "strategy": "connected",
+            "retrieval": "all_fit",
+            "node_ids": [node["id"] for node in nodes],
+            "relation_ids": [
+                relation["id"]
+                for relation in relations
+                if isinstance(relation.get("id"), int)
+            ],
+            "node_chars": sum(costs.values()),
+        }
+
+    similarities, retrieval = _similarities(query, nodes, embedder)
+    return _connected_from_similarities(
+        nodes,
+        relations,
+        similarities,
+        retrieval,
+        node_char_budget=node_char_budget,
+        max_depth=max_depth,
+    )
+
+
+def _coherent_relations(
+    relations: list[dict[str, Any]],
+    by_id: dict[int, dict[str, Any]],
+    node_vectors: dict[int, list[float]] | None,
+) -> list[tuple[int, int, float, dict[str, Any]]]:
+    """Return one retrieval edge per endpoint pair, suppressing noisy conflicts."""
+    best: dict[tuple[int, int], tuple[float, dict[str, Any]]] = {}
+    for relation in relations:
+        source = relation.get("from_id")
+        target = relation.get("to_id")
+        if source not in by_id or target not in by_id:
+            continue
+        coherence = (
+            max(0.0, _cosine(node_vectors[source], node_vectors[target]))
+            if node_vectors is not None
+            else _lexical_similarity(_text(by_id[source]), _text(by_id[target]))
+        )
+        relation_type = str(relation.get("type"))
+        if relation_type == "contradicts" and coherence < 0.28:
+            continue
+        role_factor = (
+            0.78 if _is_search(by_id[source]) or _is_search(by_id[target]) else 1.0
+        )
+        weight = (
+            RELATION_WEIGHTS.get(relation_type, 0.72)
+            * (0.30 + 0.70 * coherence)
+            * role_factor
+        )
+        key = (source, target)
+        if key not in best or weight > best[key][0]:
+            best[key] = (weight, relation)
+    return [
+        (source, target, weight, relation)
+        for (source, target), (weight, relation) in best.items()
+    ]
+
+
+def _component_map(
+    selected: set[int],
+    relations: list[tuple[int, int, float, dict[str, Any]]],
+) -> dict[int, int]:
+    neighbors: dict[int, set[int]] = defaultdict(set)
+    for source, target, _weight, _relation in relations:
+        if source in selected and target in selected:
+            neighbors[source].add(target)
+            neighbors[target].add(source)
+    result: dict[int, int] = {}
+    component = 0
+    for node_id in selected:
+        if node_id in result:
+            continue
+        stack = [node_id]
+        result[node_id] = component
+        while stack:
+            current = stack.pop()
+            for neighbor in neighbors.get(current, set()):
+                if neighbor not in result:
+                    result[neighbor] = component
+                    stack.append(neighbor)
+        component += 1
+    return result
+
+
+def select_focused_context(
+    snapshot: dict[str, Any],
+    query: str,
+    focus_query: str,
+    question: str,
+    *,
+    embedder: Any | None,
+    node_char_budget: int = DEFAULT_NODE_CHAR_BUDGET,
+    max_depth: int = 4,
+) -> dict[str, Any]:
+    """Select answer evidence first and retain only useful search connectors."""
+    nodes = _eligible(snapshot)
+    by_id = {node["id"]: node for node in nodes}
+    node_ids = set(by_id)
+    costs = {node_id: _node_line_cost(node) for node_id, node in by_id.items()}
+    relations = [
+        relation
+        for relation in snapshot.get("relations", [])
+        if relation.get("from_id") in node_ids and relation.get("to_id") in node_ids
+    ]
+    if not nodes:
+        return {
+            "strategy": "focused",
+            "retrieval": "none",
+            "node_ids": [],
+            "relation_ids": [],
+            "node_chars": 0,
+        }
+    if sum(costs.values()) <= node_char_budget:
+        return {
+            "strategy": "focused",
+            "retrieval": "all_fit",
+            "node_ids": [node["id"] for node in nodes],
+            "relation_ids": [
+                relation["id"]
+                for relation in relations
+                if isinstance(relation.get("id"), int)
+            ],
+            "node_chars": sum(costs.values()),
+        }
+
+    (
+        query_similarities,
+        focus_similarities,
+        question_similarities,
+        node_vectors,
+        retrieval,
+    ) = _selection_features(query, focus_query, question, nodes, embedder)
+    base = _connected_from_similarities(
+        nodes,
+        relations,
+        query_similarities,
+        retrieval,
+        node_char_budget=node_char_budget,
+        max_depth=max_depth,
+        strategy="focused",
+    )
+    coherent = _coherent_relations(relations, by_id, node_vectors)
+    selected = [
+        node_id for node_id in base["node_ids"] if not _is_search(by_id[node_id])
+    ]
+    selected_set = set(selected)
+    used = sum(costs[node_id] for node_id in selected)
+    turns = [_source_turn(node) for node in nodes]
+    low, high = min(turns), max(turns)
+    span = max(1, high - low)
+    recency = {node["id"]: (_source_turn(node) - low) / span for node in nodes}
+    base_searches = [
+        node_id for node_id in base["node_ids"] if _is_search(by_id[node_id])
+    ]
+    search_reserve = min(900, sum(costs[node_id] for node_id in base_searches))
+
+    def redundancy(node_id: int) -> float:
+        other_facts = [other for other in selected_set if not _is_search(by_id[other])]
+        if not other_facts:
+            return 0.0
+        if node_vectors is not None:
+            return max(
+                max(0.0, _cosine(node_vectors[node_id], node_vectors[other]))
+                for other in other_facts
+            )
+        return max(
+            _lexical_similarity(_text(by_id[node_id]), _text(by_id[other]))
+            for other in other_facts
+        )
+
+    fact_candidates = [
+        node_id
+        for node_id in node_ids
+        if not _is_search(by_id[node_id]) and node_id not in selected_set
+    ]
+    raw_results = sum(
+        by_id[node_id].get("extraction_method") == "rule_tool_result"
+        for node_id in selected_set
+    )
+    while fact_candidates:
+        best = max(
+            fact_candidates,
+            key=lambda node_id: (
+                (
+                    0.44 * question_similarities[node_id]
+                    + 0.28 * focus_similarities[node_id]
+                    + 0.12 * query_similarities[node_id]
+                    + 0.10 * _confidence(by_id[node_id])
+                    + 0.06 * recency[node_id]
+                    + _adjustment(by_id[node_id])
+                    - 0.18 * redundancy(node_id)
+                )
+                / ((1.0 + costs[node_id] / 240.0) ** 0.34)
+            ),
+        )
+        fact_candidates.remove(best)
+        is_raw = by_id[best].get("extraction_method") == "rule_tool_result"
+        if is_raw and raw_results >= 2:
+            continue
+        if used + costs[best] > node_char_budget - search_reserve:
+            continue
+        selected.append(best)
+        selected_set.add(best)
+        used += costs[best]
+        raw_results += int(is_raw)
+
+    latest_search = max(
+        base_searches,
+        key=lambda node_id: _source_turn(by_id[node_id]),
+        default=None,
+    )
+    remaining_searches = set(base_searches)
+    kept_searches = 0
+    while remaining_searches and kept_searches < 6:
+        components = _component_map(selected_set, coherent)
+
+        def search_utility(
+            node_id: int,
+            component_map: dict[int, int] = components,
+        ) -> tuple[float, float, int]:
+            adjacency = 0.0
+            neighbor_components: set[int] = set()
+            produced_evidence = False
+            for source, target, weight, _relation in coherent:
+                neighbor: int | None = None
+                if source == node_id and target in selected_set:
+                    neighbor = target
+                elif target == node_id and source in selected_set:
+                    neighbor = source
+                    produced_evidence = True
+                if neighbor is not None:
+                    adjacency = max(adjacency, weight)
+                    if neighbor in component_map:
+                        neighbor_components.add(component_map[neighbor])
+            connectivity = min(2, len(neighbor_components)) / 2.0
+            score = (
+                0.28 * focus_similarities[node_id]
+                + 0.20 * question_similarities[node_id]
+                + 0.24 * connectivity
+                + 0.12 * adjacency
+                + 0.08 * recency[node_id]
+                + 0.08 * float(produced_evidence)
+            )
+            return score, adjacency, _source_turn(by_id[node_id])
+
+        best_search = max(remaining_searches, key=search_utility)
+        remaining_searches.remove(best_search)
+        _score, adjacency, _turn = search_utility(best_search)
+        if adjacency <= 0.0 and best_search != latest_search:
+            continue
+        if used + costs[best_search] > node_char_budget:
+            continue
+        selected.append(best_search)
+        selected_set.add(best_search)
+        used += costs[best_search]
+        kept_searches += 1
+
+    relation_ids = [
+        relation["id"]
+        for source, target, _weight, relation in coherent
+        if source in selected_set
+        and target in selected_set
+        and isinstance(relation.get("id"), int)
+    ]
+    return {
+        "strategy": "focused",
+        "retrieval": retrieval,
+        "node_ids": selected,
+        "relation_ids": relation_ids,
         "node_chars": used,
     }

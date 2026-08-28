@@ -9,7 +9,10 @@ from typing import Any
 
 import pytest
 
-from bcg.construct._shared.context_selection import select_connected_context
+from bcg.construct._shared.context_selection import (
+    select_connected_context,
+    select_focused_context,
+)
 from bcg.construct.hybrid.llm import LocalEmbeddingClient as HybridLocalEmbedder
 from bcg.construct.unified.llm import LocalEmbeddingClient as UnifiedLocalEmbedder
 
@@ -78,6 +81,48 @@ def test_connected_selection_keeps_every_eligible_node_when_all_fit() -> None:
     assert result["node_ids"] == [1, 2]
     assert result["relation_ids"] == [7]
     assert result["retrieval"] == "all_fit"
+
+
+def test_focused_selection_preserves_evidence_and_prunes_search_noise() -> None:
+    searches = [
+        node(
+            10 + index,
+            f'The assistant is using web_search to search for "query {index}". '
+            + "q" * 120,
+            3 + index,
+            extraction_method="rule_tool_call",
+            query=f"query {index}",
+        )
+        for index in range(10)
+    ]
+    snapshot = {
+        "beliefs": [
+            node(1, "target answer evidence " + "a" * 180, 4),
+            node(2, "target supporting fact " + "b" * 180, 5),
+            node(3, "unrelated claim " + "c" * 180, 6),
+            *searches,
+        ],
+        "relations": [
+            {"id": 1, "from_id": 1, "to_id": 10, "type": "depends_on"},
+            {"id": 2, "from_id": 2, "to_id": 10, "type": "supplements"},
+            {"id": 99, "from_id": 1, "to_id": 3, "type": "contradicts"},
+        ],
+    }
+
+    result = select_focused_context(
+        snapshot,
+        "target plus latest raw result",
+        "target investigation",
+        "find target answer",
+        embedder=KeywordEmbedder(),
+        node_char_budget=900,
+    )
+
+    assert result["strategy"] == "focused"
+    assert {1, 2}.issubset(result["node_ids"])
+    selected_searches = set(range(10, 20)) & set(result["node_ids"])
+    assert len(selected_searches) <= 6
+    assert 99 not in result["relation_ids"]
 
 
 @pytest.mark.parametrize("client_class", [UnifiedLocalEmbedder, HybridLocalEmbedder])

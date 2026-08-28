@@ -92,6 +92,47 @@ describe("BcgClient (contract-backed HTTP client, step 11)", () => {
 				body: JSON.stringify({
 					problem_id: "p",
 					query: "question plus recent state",
+					strategy: "connected",
+					node_char_budget: 6600,
+					max_depth: 4,
+				}),
+			}),
+		);
+	});
+
+	it("sends focused selection intent separately from raw Agent state", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				problem_id: "p",
+				strategy: "focused",
+				retrieval: "embedding",
+				node_ids: [8],
+				relation_ids: [],
+				node_chars: 120,
+			}),
+		) as typeof globalThis.fetch;
+		const client = new BcgClient({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "p",
+			timeoutMs: 1000,
+			fetch: fetchMock,
+		});
+
+		await client.selectContext("question plus raw result", {
+			strategy: "focused",
+			focusQuery: "question plus reasoning intent",
+			question: "question",
+		});
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"http://127.0.0.1:8848/context-selection",
+			expect.objectContaining({
+				body: JSON.stringify({
+					problem_id: "p",
+					query: "question plus raw result",
+					strategy: "focused",
+					focus_query: "question plus reasoning intent",
+					question: "question",
 					node_char_budget: 6600,
 					max_depth: 4,
 				}),

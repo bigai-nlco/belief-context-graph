@@ -268,6 +268,69 @@ describe("BCG context management", () => {
 		expect(effectiveSystem).not.toContain("hidden distractor");
 	});
 
+	it("uses a Tool-Result-free focus query for focused compact selection", async () => {
+		const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+		const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+			const url = String(input);
+			const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+			requests.push({ url, body });
+			if (url.endsWith("/context-selection")) {
+				return new Response(
+					JSON.stringify({
+						problem_id: "problem",
+						strategy: "focused",
+						retrieval: "embedding",
+						node_ids: [2],
+						relation_ids: [],
+						node_chars: 40,
+					}),
+					{ status: 200 },
+				);
+			}
+			return new Response(
+				JSON.stringify({
+					latest: {
+						problem: {
+							beliefs: [
+								{ id: 1, belief: "hidden distractor", source: { turn_id: 3 } },
+								{ id: 2, belief: "selected evidence", source: { turn_id: 3 } },
+							],
+							relations: [],
+						},
+					},
+				}),
+				{ status: 200 },
+			);
+		}) as typeof globalThis.fetch;
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 2,
+			maxTurns: 100,
+			timeoutMs: 1000,
+			includeRelations: true,
+			graphView: "compact",
+			graphSelection: "focused",
+			getSystemPrompt: () => "base system",
+			fetch: fetchMock,
+		});
+
+		await manager.transform([
+			user("permanent question", 1),
+			assistant("compare the leading candidates", 2),
+			tool("raw result that must not become retrieval intent", 3),
+		]);
+
+		const selection = requests.find((request) => request.url.endsWith("/context-selection"));
+		expect(selection?.body.strategy).toBe("focused");
+		expect(selection?.body.question).toBe("permanent question");
+		expect(selection?.body.query).toContain("raw result that must not become retrieval intent");
+		expect(selection?.body.focus_query).toContain("compare the leading candidates");
+		expect(selection?.body.focus_query).not.toContain(
+			"raw result that must not become retrieval intent",
+		);
+	});
+
 	it("serializes tool calls with XML tags while preserving Agent tool names", async () => {
 		const requests: Array<Record<string, unknown>[]> = [];
 		const initial = user("initial", 1);

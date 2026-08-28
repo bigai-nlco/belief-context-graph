@@ -101,6 +101,9 @@ class FakeManager:
         problem_id: str,
         query: str,
         *,
+        strategy: str = "connected",
+        focus_query: str | None = None,
+        question: str | None = None,
         node_char_budget: int,
         max_depth: int,
     ) -> dict[str, Any]:
@@ -108,13 +111,15 @@ class FakeManager:
             raise KeyError(problem_id)
         return {
             "problem_id": problem_id,
-            "strategy": "connected",
             "retrieval": "embedding",
             "node_ids": [2, 1],
             "relation_ids": [3],
             "node_chars": node_char_budget,
             "max_depth": max_depth,
             "query": query,
+            "focus_query": focus_query,
+            "question": question,
+            "strategy": strategy,
         }
 
 
@@ -191,6 +196,26 @@ def test_http_happy_path_and_query_mapping(http_service: Any) -> None:
     assert selection["node_ids"] == [2, 1]
     assert selection["node_chars"] == 2048
     assert selection["max_depth"] == 3
+
+    status, focused = request(
+        address,
+        "POST",
+        "/context-selection",
+        payload={
+            "problem_id": "p1",
+            "query": "question plus raw result",
+            "focus_query": "question plus reasoning intent",
+            "question": "question",
+            "strategy": "focused",
+            "node_char_budget": 2048,
+            "max_depth": 3,
+        },
+    )
+    assert status == 200
+    assert focused["strategy"] == "focused"
+    assert focused["query"] == "question plus raw result"
+    assert focused["focus_query"] == "question plus reasoning intent"
+    assert focused["question"] == "question"
 
     status, result = request(
         address,

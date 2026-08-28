@@ -92,6 +92,9 @@ class FakeManager:
         problem_id: str,
         query: str,
         *,
+        strategy: str = "connected",
+        focus_query: str | None = None,
+        question: str | None = None,
         node_char_budget: int,
         max_depth: int,
     ) -> dict[str, Any]:
@@ -99,7 +102,7 @@ class FakeManager:
             raise KeyError(problem_id)
         return {
             "problem_id": problem_id,
-            "strategy": "connected",
+            "strategy": strategy,
             "retrieval": "embedding",
             "node_ids": [3, 2],
             "relation_ids": [1],
@@ -263,6 +266,23 @@ def test_context_selection_matches_schema(server: Any) -> None:
     assert status == 200
     _validate(selection, "contextSelectionResponse")
     assert selection["node_ids"] == [3, 2]
+
+    status, focused = _post(
+        base,
+        "/context-selection",
+        {
+            "problem_id": "pid-1",
+            "query": "question plus raw result",
+            "focus_query": "question plus reasoning intent",
+            "question": "question",
+            "strategy": "focused",
+            "node_char_budget": 6_600,
+            "max_depth": 4,
+        },
+    )
+    assert status == 200
+    _validate(focused, "contextSelectionResponse")
+    assert focused["strategy"] == "focused"
 
 
 def test_error_envelope_matches_schema(server: Any) -> None:

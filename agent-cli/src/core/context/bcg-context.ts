@@ -85,7 +85,7 @@ export interface BcgGraphContextTrace {
 	nRelations: number;
 	chars: number;
 	text: string;
-	selectionStrategy?: "ranked" | "connected";
+	selectionStrategy?: "ranked" | "connected" | "focused";
 	selectionRetrieval?: string;
 	selectedNodeIds?: number[];
 	selectedRelationIds?: number[];
@@ -588,6 +588,22 @@ function compactSelectionQuery(initialUser: AgentMessage, retained: AgentMessage
 	return `${question}\n\n${combined.slice(-remaining)}`;
 }
 
+function compactFocusSelectionQuery(initialUser: AgentMessage, retained: AgentMessage[]): string {
+	const question = contextMessageText(initialUser);
+	const parts = [question];
+	for (const message of retained) {
+		// Raw Tool Results are evidence candidates inside the Graph, not the
+		// retrieval intent. Echoing them here creates a last-result feedback loop.
+		if (message.role === "toolResult" || message.role === "bashExecution") continue;
+		const value = contextMessageText(message);
+		if (value && value !== question) parts.push(value);
+	}
+	const combined = parts.join("\n\n");
+	if (combined.length <= 6_000) return combined;
+	const remaining = Math.max(0, 6_000 - question.length - 2);
+	return `${question}\n\n${combined.slice(-remaining)}`;
+}
+
 export class BcgContextManager {
 	private readonly baseUrl: string;
 	private readonly problemId: string;
@@ -673,10 +689,20 @@ export class BcgContextManager {
 				for (const message of group.messages) this.sentMessages.add(message);
 			}
 
-			if (this.graphView === "compact" && this.graphSelection === "connected" && this.latestSnapshot) {
+			if (this.graphView === "compact" && this.graphSelection !== "ranked" && this.latestSnapshot) {
 				const query = compactSelectionQuery(initialUser, retained.flat());
+				const question = contextMessageText(initialUser);
+				const focusQuery = compactFocusSelectionQuery(initialUser, retained.flat());
 				try {
-					const selection = await this.client.selectContext(query, signal);
+					const selection = await this.client.selectContext(
+						query,
+						{
+							strategy: this.graphSelection,
+							focusQuery,
+							question,
+						},
+						signal,
+					);
 					this.graphText = formatCompactBcgDialogueContext(
 						this.latestSnapshot,
 						this.includeRelations,
@@ -849,7 +875,7 @@ export class BcgContextManager {
 			this.graphView === "compact"
 				? formatCompactBcgDialogueContext(snapshot, this.includeRelations)
 				: formatBcgDialogueContext(snapshot, this.includeRelations);
-		if (this.graphView !== "compact" || this.graphSelection !== "connected") {
+		if (this.graphView !== "compact" || this.graphSelection === "ranked") {
 			this.emitGraphTrace(snapshot);
 		}
 	}
