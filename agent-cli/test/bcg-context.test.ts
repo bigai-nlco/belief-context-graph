@@ -211,9 +211,10 @@ describe("BCG context management", () => {
 		expect(effectiveSystem).toContain("`A contradicts B` conflicts with");
 		expect(effectiveSystem).toContain("Confidence estimates reliability, not answer relevance");
 		expect(effectiveSystem).toContain("Relations record reasoning or provenance, not truth");
-		expect(effectiveSystem).toContain("follow outgoing relations to its premises");
+		expect(effectiveSystem).toContain("follow outgoing relations to premises");
 		expect(effectiveSystem).toContain("incoming relations to later checks or results");
 		expect(effectiveSystem).toContain("generic high-confidence fact is not an answer");
+		expect(effectiveSystem).toContain("Do not repeat or paraphrase a Search history query");
 	});
 
 	it("uses the connected selector result to render compact graph context", async () => {
