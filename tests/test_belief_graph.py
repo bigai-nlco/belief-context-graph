@@ -40,6 +40,7 @@ from bcg.construct.unified.extract import (
     extract_compact_tool_result_nodes_batch,
     extract_nodes,
     extract_rule_tool_result_nodes,
+    format_extraction_nodes,
     format_graph_nodes,
     format_relation_nodes,
 )
@@ -633,6 +634,27 @@ def test_unified_relation_nodes_include_only_id_and_content() -> None:
     )
 
     assert json.loads(rendered) == [{"id": 7, "content": "A compact semantic fact."}]
+
+
+def test_unified_extraction_history_includes_only_content() -> None:
+    rendered = format_extraction_nodes(
+        [
+            {
+                "id": 7,
+                "node_type": "belief",
+                "belief": "A prior semantic fact.",
+                "role": "assistant",
+                "stance": "speculated",
+                "confidence": 0.6,
+                "entities": ["fact"],
+                "event_time": "2026-08-27T00:00:00Z",
+                "source": {"turn_index": 3},
+            }
+        ],
+        char_budget=None,
+    )
+
+    assert json.loads(rendered) == [{"content": "A prior semantic fact."}]
     assert "stance" not in rendered
     assert "confidence" not in rendered
     assert "entities" not in rendered
@@ -719,10 +741,11 @@ def test_unified_assistant_relations_judge_three_layers_in_one_call(
         2,
         3,
     ]
-    assert "<thinking>Current reasoning.</thinking>" in layered_calls[0]["content"]
-    assert "Visible reasoning." in layered_calls[0]["content"]
-    assert "<tool_call>" not in layered_calls[0]["content"]
-    assert "secret query" not in layered_calls[0]["content"]
+    assert all(
+        "trajectory_index" not in layer
+        for layer in layered_calls[0]["candidate_layers"]
+    )
+    assert layered_calls[0]["content"] == ""
     assert '"stance"' not in layered_calls[0]["graph_nodes_str"]
     assert '"entities"' not in layered_calls[0]["graph_nodes_str"]
     assert event["edge_attempts"][0]["validation_passed"] is True
@@ -845,6 +868,82 @@ def test_unified_node_extraction_prompt_omits_edges() -> None:
     assert "The latest node." in prompt
     assert "Existing relations" not in prompt
     assert '"from": 1' not in prompt
+    assert '"tool_name"' not in prompt
+    assert '"query"' not in prompt
+    assert "query-bearing tool call" not in prompt
+
+
+def test_unified_node_extraction_prompt_omits_empty_context_and_tmp_ids() -> None:
+    prompt = build_node_extraction_prompt(
+        "user",
+        mode="sentences",
+        sentences_block="[0] The user asks a question.",
+        graph_nodes="[]",
+    )
+
+    assert prompt is not None
+    assert "Existing belief nodes" not in prompt
+    assert '"tmp_id"' not in prompt
+    assert '"decisions"' not in prompt
+    assert "decision" not in prompt.lower()
+    assert '"stance"' in prompt
+    assert '"entities"' in prompt
+    assert '"supporting_sentence_indices"' in prompt
+    assert "confidence is assigned downstream" not in prompt
+    assert "event metadata is assigned" not in prompt
+    assert "You maintain a belief graph INCREMENTALLY" not in prompt
+    assert "independently searchable numbered clues" in prompt
+    assert "task-defining" in prompt
+    assert "qualified roles" in prompt
+
+
+def test_unified_node_extraction_assigns_code_owned_tmp_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_call(*args: Any, **kwargs: Any) -> str:
+        del args, kwargs
+        return json.dumps(
+            {
+                "beliefs": [
+                    {
+                        "tmp_id": "model-chosen-id",
+                        "belief": "First belief.",
+                        "stance": "asserted",
+                        "entities": ["First"],
+                        "supporting_sentence_indices": [0],
+                    },
+                    {
+                        "tmp_id": "model-chosen-id",
+                        "belief": "Second belief.",
+                        "stance": "judged",
+                        "entities": ["Second"],
+                        "supporting_sentence_indices": [1],
+                    },
+                ],
+                "decisions": [
+                    {
+                        "tmp_id": "another-model-id",
+                        "decision": "Final decision.",
+                        "stance": "judged",
+                        "entities": ["Final"],
+                        "supporting_sentence_indices": [1],
+                    }
+                ],
+            }
+        )
+
+    monkeypatch.setattr("bcg.construct.unified.extract.llm.call_model", fake_call)
+    result = extract_nodes(
+        object(),
+        "graph-model",
+        role="assistant",
+        mode="sentences",
+        sentences=["First belief.", "Second belief and final decision."],
+    )
+
+    assert [node["tmp_id"] for node in result["nodes"]] == ["n0", "n1", "d2"]
+    assert result["nodes"][1]["stance"] == "judged"
+    assert result["nodes"][1]["entities"] == ["Second"]
 
 
 def test_stream_node_extraction_respects_context_chars(
@@ -894,7 +993,7 @@ def test_stream_node_extraction_respects_context_chars(
     )
     builder.ingest_turn("user", "oldest " + "a" * 260)
     builder.ingest_turn("user", "newest " + "b" * 260)
-    expected = format_graph_nodes(builder.graph.active(), char_budget=450)
+    expected = format_extraction_nodes(builder.graph.active(), char_budget=450)
     builder.ingest_turn("user", "current")
 
     assert extraction_contexts[-1] == expected
@@ -1065,6 +1164,7 @@ def test_grouped_parallel_results_pair_exact_calls_then_model_link_thinking(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     relation_windows: list[str] = []
+    relation_contents: list[str] = []
 
     def fake_extract_nodes(*args: Any, **kwargs: Any) -> dict[str, Any]:
         del args
@@ -1127,6 +1227,7 @@ def test_grouped_parallel_results_pair_exact_calls_then_model_link_thinking(
         del args
         graph_nodes = str(kwargs["graph_nodes_str"])
         relation_windows.append(graph_nodes)
+        relation_contents.append(str(kwargs["content"]))
         if thinking_id is not None and "Alpha result" in graph_nodes:
             current_ids = sorted(kwargs["new_node_ids"])
             return {
@@ -1203,6 +1304,18 @@ def test_grouped_parallel_results_pair_exact_calls_then_model_link_thinking(
         for relation in builder.graph.relations
     )
     assert len(relation_windows) == 1
+    assert json.loads(relation_windows[0]) == [
+        {"id": node["id"], "content": node["belief"]}
+        for node in [
+            next(
+                graph_node
+                for graph_node in builder.graph.active()
+                if graph_node["id"] == thinking_id
+            ),
+            *results,
+        ]
+    ]
+    assert relation_contents[0] == ""
     assert "The assistant is comparing alpha and beta." in relation_windows[0]
     assert "using web_search" not in relation_windows[0]
     assert event["edge_attempts"][0]["pairing_strategy"] == "tool_call_id"
@@ -1614,7 +1727,8 @@ Snippet: Alpha fact."""
 
     assert len(extraction_prompts) == 2
     assistant_prompt, tool_prompt = extraction_prompts
-    assert "## Existing belief nodes" in assistant_prompt
+    assert "## Existing belief nodes" not in assistant_prompt
+    assert '"tmp_id"' not in assistant_prompt
     assert "Alpha may be relevant." in assistant_prompt
     assert "alpha query" not in assistant_prompt
     assert "Items:" in tool_prompt

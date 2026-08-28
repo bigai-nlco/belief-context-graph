@@ -90,11 +90,12 @@
       "enable_thinking": false,
       "fail_on_error": true,
       "search_previous_turns": true,
-      "max_previous_windows": 4
+      "max_previous_windows": 3
     },
     "runtime": {
       "evidence_mode": "chunk",
       "context_chars": 12000,
+      "extraction_history_turns": 2,
       "min_content_len": 0
     },
     "incremental_merge": {

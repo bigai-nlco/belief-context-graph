@@ -81,6 +81,7 @@ def _clean_node(
     ordinal: int,
     *,
     node_type: str,
+    preserve_model_tmp_id: bool = False,
 ) -> dict[str, Any] | None:
     """Validate / coerce one belief or decision object from the model."""
     if not isinstance(raw, dict):
@@ -95,10 +96,16 @@ def _clean_node(
         else:
             return None
 
-    tmp = raw.get("tmp_id")
-    if not isinstance(tmp, str) or not tmp.strip():
-        tmp = f"n{ordinal}"
-    tmp = tmp.strip()
+    # Two-phase extraction does not need the model to invent temporary ids:
+    # relations are generated later against code-owned global ids.  Keep the
+    # model-provided value only for the legacy single-response node+edge API,
+    # where relations in that same response must reference temporary ids.
+    prefix = "d" if node_type == "decision" else "n"
+    tmp = f"{prefix}{ordinal}"
+    if preserve_model_tmp_id:
+        model_tmp = raw.get("tmp_id")
+        if isinstance(model_tmp, str) and model_tmp.strip():
+            tmp = model_tmp.strip()
 
     primary_text_key = "decision" if node_type == "decision" else "belief"
     out: dict[str, Any] = {
@@ -952,10 +959,42 @@ def format_graph_nodes(
     return "[\n" + ",\n".join(items) + "\n]"
 
 
+def format_extraction_nodes(
+    nodes: list[dict[str, Any]], char_budget: int | None = 9000
+) -> str:
+    """Render only prior semantic content needed during node extraction."""
+    if not nodes:
+        return "[]"
+    ordered = sorted(nodes, key=lambda b: b.get("id", 0))
+    lines: list[str] = []
+    for node in ordered:
+        content = (
+            node.get("decision")
+            if node.get("node_type") == "decision"
+            else node.get("belief")
+        )
+        content = content or node.get("belief") or node.get("decision") or ""
+        if len(content) > 240:
+            content = content[:220] + " …"
+        lines.append(json.dumps({"content": content}, ensure_ascii=False))
+
+    total = sum(len(line) + 4 for line in lines)
+    omitted = 0
+    while char_budget is not None and lines and total > char_budget:
+        total -= len(lines[0]) + 4
+        lines.pop(0)
+        omitted += 1
+    items = (
+        [f"  (... {omitted} earlier node(s) omitted for length ...)"] if omitted else []
+    )
+    items += ["  " + line for line in lines]
+    return "[\n" + ",\n".join(items) + "\n]"
+
+
 def format_relation_nodes(
     nodes: list[dict[str, Any]], char_budget: int | None = 9000
 ) -> str:
-    """Render only the semantic fields needed for Assistant relation judgment."""
+    """Render only the semantic fields needed for relation judgment."""
     if not nodes:
         return "[]"
     ordered = sorted(nodes, key=lambda b: b.get("id", 0))
@@ -1124,7 +1163,14 @@ def update_graph(
     ordinal = 0
 
     for b in parsed.get("beliefs", []) or []:
-        cb = _clean_node(b, mode, n_sentences, ordinal, node_type="belief")
+        cb = _clean_node(
+            b,
+            mode,
+            n_sentences,
+            ordinal,
+            node_type="belief",
+            preserve_model_tmp_id=True,
+        )
         if cb is None:
             continue
         if cb["tmp_id"] in seen_tmp:
@@ -1147,7 +1193,14 @@ def update_graph(
     out_nodes.extend(out_beliefs[parsed_belief_count:])
 
     for d in parsed.get("decisions", []) or []:
-        cd = _clean_node(d, mode, n_sentences, ordinal, node_type="decision")
+        cd = _clean_node(
+            d,
+            mode,
+            n_sentences,
+            ordinal,
+            node_type="decision",
+            preserve_model_tmp_id=True,
+        )
         if cd is None:
             continue
         if cd["tmp_id"] in seen_tmp:

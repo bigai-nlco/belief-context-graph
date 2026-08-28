@@ -30,7 +30,7 @@ pipeline:
     # Node-extraction history window. 0 keeps every recent node that fits
     # context_chars; positive values keep only nodes from the latest N
     # non-empty Graph turns before applying the character budget.
-    extraction_history_turns: 0
+    extraction_history_turns: 2
     min_content_len: 0
   tool_results:
     max_search_results: 10

@@ -92,7 +92,7 @@ Do NOT include:
 - generic filler: "the content", "this turn", "the answer", "the issue", "the thing", "the result";
 - bare generic nouns: car, file, code, graph, node, edge, model, prompt, time, data, message, unless they are qualified enough to be identifiable;
 - abstract feelings or vague concepts unless the belief is specifically about that concept;
-- temporal expressions as entities; preserve temporal information in the belief or decision text instead (event metadata is assigned by the graph builder);
+- temporal expressions as entities; preserve temporal information in the belief or decision text instead;
 - duplicate surface forms referring to the same entity in one belief.
 
 Use the most specific form supported by the CURRENT turn and existing graph context.
@@ -123,8 +123,46 @@ _STANCE_DEFINITION = """\
 - **judged**     — evaluative conclusion, recommendation, ranking, diagnosis, or selected option
                   ("most likely", "best answer is", "I recommend X").
 
-NOTE: do NOT output a confidence number — confidence is assigned downstream by code
-rules based on (role, stance).
+"""
+
+_USER_BELIEF_DEFINITION = """\
+## What is a belief
+A belief is a self-contained memory or reasoning unit, usually shaped like:
+    <subject, predicate, object/value, scope, time, source>
+
+Preserve the most specific supported wording. Each belief must express one
+reusable semantic unit and remain understandable outside the original turn.
+
+## Granularity
+Merge clauses that jointly define one setup, condition, event, or causal step.
+Split only propositions that can be independently confirmed, contradicted, or
+reused. Do not merge independently searchable numbered clues solely because
+they describe the same target. Keep claims with different epistemic status
+separate.
+
+## Entities
+For each belief, list specific named or uniquely qualified people,
+organizations, places, products, files, tools, models, APIs, datasets, and
+concepts explicitly present in it. Exclude pronouns, temporal expressions,
+bare generic nouns, vague concepts, and duplicates. Include task-defining
+qualified roles when they distinguish reusable constraints, such as "winning
+team", "first poet", or "target ODI match". Use [] when none exists.
+"""
+
+_USER_STANCE_DEFINITION = """\
+## Stance
+Choose one per belief: asserted = direct statement; recalled = explicit memory;
+speculated = uncertain possibility; judged = assessment, recommendation, or
+conclusion.
+"""
+
+_USER_GUIDANCE = """\
+## Source role: USER
+Extract the user's substantive request, facts, events, preferences, plans,
+constraints, questions, corrections, and updates. Rewrite questions as
+self-contained statements about what the user wants to know. Preserve related
+constraints together. Write in the third person about "The user" or the named
+subject. Skip greetings and purely cosmetic instructions.
 """
 
 _GRAPH_CONTEXT_BLOCK = f"""\
@@ -166,6 +204,13 @@ CRITICAL — do NOT copy old node content as new output merely because it appear
 ### Existing nodes
 {GRAPH_NODES_PLACEHOLDER}
 """
+
+
+def _has_existing_nodes(graph_nodes: str | None) -> bool:
+    """Return whether a rendered graph-node block contains any nodes."""
+
+    return (graph_nodes or "").strip() not in {"", "[]", "null", "None"}
+
 
 _FORWARD_EDGE_RULES = """\
 ## Relations between nodes
@@ -242,8 +287,6 @@ _OUTPUT_FORMAT_EXCERPT = """\
       "belief": "<self-contained coherent belief>",
       "stance": "asserted | recalled | speculated | judged",
       "entities": ["<specific entity>", "..."],
-      "tool_name": "<exact tool name; include only for a query-derived belief>",
-      "query": "<exact query string; include only for a query-derived belief>",
       "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
     }
   ],
@@ -271,8 +314,6 @@ _OUTPUT_FORMAT_SENTENCES = """\
       "belief": "<self-contained coherent belief>",
       "stance": "asserted | recalled | speculated | judged",
       "entities": ["<specific entity>", "..."],
-      "tool_name": "<exact tool name; include only for a query-derived belief>",
-      "query": "<exact query string; include only for a query-derived belief>",
       "supporting_sentence_indices": [0, 2]
     }
   ],
@@ -300,7 +341,6 @@ _HARD_CONSTRAINTS_EXCERPT = """\
 4. Each new belief needs a unique "tmp_id": n0, n1, n2, … in output order.
 5. Each new decision needs a unique "tmp_id": d0, d1, d2, … in output order.
 6. Empty beliefs / decisions / relations lists are OK when the content expresses none.
-7. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
 """
 
 _HARD_CONSTRAINTS_SENTENCES = """\
@@ -313,7 +353,6 @@ _HARD_CONSTRAINTS_SENTENCES = """\
 4. Each new belief needs a unique "tmp_id": n0, n1, n2, … in output order.
 5. Each new decision needs a unique "tmp_id": d0, d1, d2, … in output order.
 6. Empty beliefs / decisions / relations lists are OK when the sentences express none.
-7. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
 """
 
 
@@ -352,26 +391,18 @@ Skip: pure greetings / pleasantries with no factual content; purely cosmetic for
         'hedged guesses are "speculated".',
     ),
     "assistant": (
-        "Extract coherent BELIEFS and DECISIONS from the ASSISTANT turn below. The content may "
-        "contain reasoning, tool-call syntax, and a final answer all together — read through ALL "
-        "of it and preserve the reasoning chain without creating tiny redundant nodes.",
+        "Extract coherent BELIEFS and DECISIONS from the ASSISTANT turn below. Preserve the "
+        "reasoning chain without creating tiny redundant nodes.",
         """\
 ## Source role: ASSISTANT
-The turn may mix internal reasoning, tool invocations, and the final answer. Extract:
+Extract:
 - **Factual claims and intermediate conclusions** the assistant commits to (domain facts, numbers, diagnoses, derived states).
 - **Recommendations / advice** given to the user.
 - **Assessments** of the user's situation.
 - **Final decisions**: when the assistant gives a final answer, especially inside ``\\boxed{...}``, put it in ``decisions`` instead of ``beliefs``.
-- **Tool calls**: extract every tool call as a belief — describe the assistant's information-seeking intent in natural language, capturing the tool name, the key parameters or constraints issued, and any hypothesis the call presupposes or commits to.
-- **Query-bearing tool calls are mandatory**: for every ``<tool_call>`` whose
-  ``arguments`` contains a string ``query`` (or ``q``), emit exactly one belief
-  for that call. Add ``tool_name`` and ``query`` properties to that belief and
-  copy both values exactly, character-for-character, from the tool call. Never
-  paraphrase, shorten, normalize, or omit either field. Do not add these
-  properties to beliefs derived from non-query content.
 - **Key reasoning steps that are falsifiable, reusable, or needed by later turns** — keep enough detail to reconstruct causal/dependency chains between user request, tool result, reasoning, and final answer.
 
-Do NOT extract: pure procedure / planning filler ("Let me search next", "First I need to…") unless it encodes a substantive dependency; self-questions; raw tool-call JSON syntax / key names; or politeness.
+Do NOT extract: pure procedure / planning filler ("Let me search next", "First I need to…") unless it encodes a substantive dependency; self-questions; or politeness.
 
 Write each belief in the third person ("The assistant…", "The user…") so it is self-contained.
 Resolve pronouns using the existing graph context when unambiguous.""",
@@ -447,9 +478,10 @@ def build_update_prompt(
         _BELIEF_DEFINITION,
         _STANCE_DEFINITION,
         guidance + "\n",
-        _GRAPH_CONTEXT_BLOCK,
-        _FORWARD_EDGE_RULES,
     ]
+    if _has_existing_nodes(graph_nodes):
+        parts.append(_GRAPH_CONTEXT_BLOCK)
+    parts.append(_FORWARD_EDGE_RULES)
     if mode == "excerpt":
         parts.append(_HARD_CONSTRAINTS_EXCERPT)
         parts.append(_OUTPUT_FORMAT_EXCERPT)
@@ -486,18 +518,14 @@ _OUTPUT_FORMAT_EXCERPT_NODES = """\
 {
   "beliefs": [
     {
-      "tmp_id": "n0",
       "belief": "<self-contained coherent belief>",
       "stance": "asserted | recalled | speculated | judged",
       "entities": ["<specific entity>", "..."],
-      "tool_name": "<exact tool name; include only for a query-derived belief>",
-      "query": "<exact query string; include only for a query-derived belief>",
       "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
     }
   ],
   "decisions": [
     {
-      "tmp_id": "d0",
       "decision": "<final selected answer, especially content inside \\boxed{...}>",
       "stance": "asserted | recalled | speculated | judged",
       "entities": ["<specific entity>", "..."],
@@ -512,22 +540,46 @@ _OUTPUT_FORMAT_SENTENCES_NODES = """\
 {
   "beliefs": [
     {
-      "tmp_id": "n0",
       "belief": "<self-contained coherent belief>",
       "stance": "asserted | recalled | speculated | judged",
       "entities": ["<specific entity>", "..."],
-      "tool_name": "<exact tool name; include only for a query-derived belief>",
-      "query": "<exact query string; include only for a query-derived belief>",
       "supporting_sentence_indices": [0, 2]
     }
   ],
   "decisions": [
     {
-      "tmp_id": "d0",
       "decision": "<final selected answer, especially content inside \\boxed{...}>",
       "stance": "asserted | recalled | speculated | judged",
       "entities": ["<specific entity>", "..."],
       "supporting_sentence_indices": [3]
+    }
+  ]
+}
+"""
+
+_OUTPUT_FORMAT_EXCERPT_USER_NODES = """\
+## Output (JSON only — no markdown fences, no commentary)
+{
+  "beliefs": [
+    {
+      "belief": "<self-contained coherent belief>",
+      "stance": "asserted | recalled | speculated | judged",
+      "entities": ["<specific entity>", "..."],
+      "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
+    }
+  ]
+}
+"""
+
+_OUTPUT_FORMAT_SENTENCES_USER_NODES = """\
+## Output (JSON only — no markdown fences, no commentary)
+{
+  "beliefs": [
+    {
+      "belief": "<self-contained coherent belief>",
+      "stance": "asserted | recalled | speculated | judged",
+      "entities": ["<specific entity>", "..."],
+      "supporting_sentence_indices": [0, 2]
     }
   ]
 }
@@ -539,10 +591,7 @@ _HARD_CONSTRAINTS_EXCERPT_NODES = """\
 2. Do NOT add information not present in the content. No outside knowledge.
 3. Every belief and decision MUST have at least one supporting excerpt — a VERBATIM, CONTIGUOUS substring copied
    character-for-character from the content. No excerpt → drop that node.
-4. Each new belief needs a unique "tmp_id": n0, n1, n2, … in output order.
-5. Each new decision needs a unique "tmp_id": d0, d1, d2, … in output order.
-6. Empty beliefs / decisions lists are OK when the content expresses none.
-7. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
+4. Empty beliefs / decisions lists are OK when the content expresses none.
 """
 
 _HARD_CONSTRAINTS_SENTENCES_NODES = """\
@@ -552,10 +601,25 @@ _HARD_CONSTRAINTS_SENTENCES_NODES = """\
 3. Every belief and decision MUST list the indices of the COMPLETE sentence(s) that support it in
    "supporting_sentence_indices" (use the [k] indices shown). Evidence is always a whole sentence.
    If the whole group supports it, list all its indices.
-4. Each new belief needs a unique "tmp_id": n0, n1, n2, … in output order.
-5. Each new decision needs a unique "tmp_id": d0, d1, d2, … in output order.
-6. Empty beliefs / decisions lists are OK when the sentences express none.
-7. Every query-bearing tool call MUST produce one belief with exact "tool_name" and "query" properties. Code validates both fields against the source call.
+4. Empty beliefs / decisions lists are OK when the sentences express none.
+"""
+
+_HARD_CONSTRAINTS_EXCERPT_USER_NODES = """\
+## Hard constraints
+Preserve names, numbers, dates, quantities, and unusual punctuation exactly.
+Use only the current content; do not add outside knowledge. Every belief must
+include at least one VERBATIM, CONTIGUOUS "supporting_excerpts" substring copied
+from the content. Drop beliefs without an excerpt. An empty beliefs list is valid
+when the input expresses none.
+"""
+
+_HARD_CONSTRAINTS_SENTENCES_USER_NODES = """\
+## Hard constraints
+Preserve names, numbers, dates, quantities, and unusual punctuation exactly.
+Use only the current indexed sentences; do not add outside knowledge. For every
+belief, return all COMPLETE sentence indices that directly support it in
+"supporting_sentence_indices". Drop beliefs without supporting sentences. An
+empty beliefs list is valid when the input expresses none.
 """
 
 
@@ -576,29 +640,62 @@ def build_node_extraction_prompt(
         return None
     task_line, guidance, _stance_hint = _GUIDANCE[key]
 
-    parts: list[str] = [
-        "# Task",
-        task_line,
-        "\nYou maintain a belief graph INCREMENTALLY. From the CURRENT turn, output only the NEW "
-        "belief/decision nodes. Relations will be extracted in a separate step. "
-        "Existing nodes (shown below) must not be repeated.\n",
-        _BELIEF_DEFINITION,
-        _STANCE_DEFINITION,
-        guidance + "\n",
-        _NODE_GRAPH_CONTEXT_BLOCK,
-    ]
+    has_existing_nodes = _has_existing_nodes(graph_nodes)
+    if key == "user" and not has_existing_nodes:
+        task_intro = (
+            "Extract coherent, self-contained beliefs from the current USER turn only. "
+            "Preserve distinct constraints without fragmenting one coherent request."
+        )
+    else:
+        task_intro = task_line
+
+    parts: list[str] = ["# Task", task_intro]
+    if key != "user" or has_existing_nodes:
+        node_kinds = "belief" if key == "user" else "belief/decision"
+        parts.append(
+            "\nMaintain the belief graph incrementally. Output only NEW "
+            f"{node_kinds} nodes from the CURRENT turn; relation extraction is separate. "
+            "Do not repeat existing nodes.\n"
+        )
+    belief_definition = _BELIEF_DEFINITION
+    stance_definition = _STANCE_DEFINITION
+    role_guidance = guidance + "\n"
+    if key == "user":
+        belief_definition = _USER_BELIEF_DEFINITION
+        stance_definition = _USER_STANCE_DEFINITION
+        role_guidance = _USER_GUIDANCE
+    parts.extend([belief_definition, stance_definition, role_guidance])
+    if has_existing_nodes:
+        parts.append(_NODE_GRAPH_CONTEXT_BLOCK)
     if mode == "excerpt":
-        parts.append(_HARD_CONSTRAINTS_EXCERPT_NODES)
-        parts.append(_OUTPUT_FORMAT_EXCERPT_NODES)
+        parts.append(
+            _HARD_CONSTRAINTS_EXCERPT_USER_NODES
+            if key == "user"
+            else _HARD_CONSTRAINTS_EXCERPT_NODES
+        )
+        parts.append(
+            _OUTPUT_FORMAT_EXCERPT_USER_NODES
+            if key == "user"
+            else _OUTPUT_FORMAT_EXCERPT_NODES
+        )
         parts.append(f"## Current turn content\n{CONTENT_PLACEHOLDER}\n")
     else:
+        if key != "user":
+            parts.append(
+                "## Sentence input\n"
+                "The current turn's content was split into COMPLETE sentences with stable indices [k]. "
+                "Reference them in supporting_sentence_indices; evidence is always a whole sentence.\n"
+            )
         parts.append(
-            "## Sentence input\n"
-            "The current turn's content was split into COMPLETE sentences with stable indices [k]. "
-            "Reference them in supporting_sentence_indices; evidence is always a whole sentence.\n"
+            _HARD_CONSTRAINTS_SENTENCES_USER_NODES
+            if key == "user"
+            else _HARD_CONSTRAINTS_SENTENCES_NODES
         )
-        parts.append(_HARD_CONSTRAINTS_SENTENCES_NODES)
-        parts.append(_OUTPUT_FORMAT_SENTENCES_NODES)
+        parts.append(
+            _OUTPUT_FORMAT_SENTENCES_USER_NODES
+            if key == "user"
+            else _OUTPUT_FORMAT_SENTENCES_NODES
+        )
         parts.append(f"## Current turn sentences\n{SENTENCES_PLACEHOLDER}\n")
 
     prompt = "\n".join(parts)
@@ -646,6 +743,12 @@ def build_assistant_tool_result_extraction_prompt(
             f"{assistant_sentences_block or ''}"
         )
     )
+    graph_context = ""
+    if _has_existing_nodes(graph_nodes):
+        graph_context = f"""## Existing belief nodes (read only)
+{graph_nodes}
+
+"""
     return f"""# Task
 Extract belief/decision nodes from TWO ORDERED SOURCE LAYERS in one response:
 1. the Assistant turn;
@@ -664,9 +767,7 @@ Assistant tool-call JSON is handled deterministically by code. Extract the
 Assistant's substantive reasoning, hypotheses, conclusions, and decisions, but
 do not copy raw tool-call syntax as semantic beliefs.
 
-## Existing belief nodes (read only)
-{graph_nodes or "[]"}
-
+{graph_context}
 {assistant_input}
 
 ## Tool Result items
@@ -682,7 +783,6 @@ between item_index values.
   "assistant": {{
     "beliefs": [
       {{
-        "tmp_id": "n0",
         "belief": "<self-contained Assistant belief>",
         "stance": "asserted | recalled | speculated | judged",
         "entities": ["<specific entity>", "..."],
@@ -691,7 +791,6 @@ between item_index values.
     ],
     "decisions": [
       {{
-        "tmp_id": "d0",
         "decision": "<final selected answer only>",
         "stance": "asserted | recalled | speculated | judged",
         "entities": ["<specific entity>", "..."],
@@ -822,16 +921,21 @@ def build_relation_extraction_prompt(
         "into the graph. Your job is to identify meaningful semantic relations inside the "
         "candidate node window below: current-turn surviving new nodes plus at most one "
         "candidate prior turn, or current-turn nodes only.\n",
-        f"## Current turn ({role})\n" + CONTENT_PLACEHOLDER + "\n",
-        "## Candidate node window\n"
-        "The graph below is deliberately limited to the current turn's surviving new nodes "
-        "and one candidate prior turn's surviving nodes. It is not the full graph.\n\n"
-        "### Candidate nodes\n" + GRAPH_NODES_PLACEHOLDER + "\n\n"
-        "### Existing relations\n" + GRAPH_EDGES_PLACEHOLDER + "\n",
-        "## Nodes from this turn\n" + NEW_NODE_IDS_PLACEHOLDER + "\n",
-        _RELATION_EDGE_RULES,
-        _RELATION_OUTPUT_FORMAT,
     ]
+    if content.strip():
+        parts.append(f"## Current turn ({role})\n" + CONTENT_PLACEHOLDER + "\n")
+    parts.extend(
+        [
+            "## Candidate node window\n"
+            "The graph below is deliberately limited to the current turn's surviving new nodes "
+            "and one candidate prior turn's surviving nodes. It is not the full graph.\n\n"
+            "### Candidate nodes\n" + GRAPH_NODES_PLACEHOLDER + "\n\n"
+            "### Existing relations\n" + GRAPH_EDGES_PLACEHOLDER + "\n",
+            "## Nodes from this turn\n" + NEW_NODE_IDS_PLACEHOLDER + "\n",
+            _RELATION_EDGE_RULES,
+            _RELATION_OUTPUT_FORMAT,
+        ]
+    )
     prompt = "\n".join(parts)
     prompt = prompt.replace(CONTENT_PLACEHOLDER, content or "")
     prompt = prompt.replace(GRAPH_NODES_PLACEHOLDER, graph_nodes or "[]")
@@ -900,21 +1004,28 @@ def build_layered_relation_extraction_prompt(
     parts: list[str] = [
         "# Task",
         "Link the current Assistant belief nodes to the most relevant prior layer.",
-        f"## Current Assistant reasoning ({role})\n" + CONTENT_PLACEHOLDER + "\n",
-        "## Candidate previous layers\n"
-        "Layer 1 is the nearest non-empty Graph turn; larger numbers are older. "
-        "Layer membership is authoritative.\n" + candidate_layers + "\n",
-        "## Candidate nodes\n"
-        + GRAPH_NODES_PLACEHOLDER
-        + "\n\n## Existing relations\n"
-        + GRAPH_EDGES_PLACEHOLDER
-        + "\n",
-        "## Current-turn node ids\n" + NEW_NODE_IDS_PLACEHOLDER + "\n",
-        _LAYERED_RELATION_EDGE_RULES,
-        "## Layer selection\n"
-        "Compare all candidates in one pass. Cross-turn relations may use ZERO OR "
-        "ONE previous layer, never a mixture. Select null when none is meaningful.\n",
     ]
+    if content.strip():
+        parts.append(
+            f"## Current Assistant reasoning ({role})\n" + CONTENT_PLACEHOLDER + "\n"
+        )
+    parts.extend(
+        [
+            "## Candidate previous layers\n"
+            "Layer 1 is the nearest non-empty Graph turn; larger numbers are older. "
+            "Layer membership is authoritative.\n" + candidate_layers + "\n",
+            "## Candidate nodes\n"
+            + GRAPH_NODES_PLACEHOLDER
+            + "\n\n## Existing relations\n"
+            + GRAPH_EDGES_PLACEHOLDER
+            + "\n",
+            "## Current-turn node ids\n" + NEW_NODE_IDS_PLACEHOLDER + "\n",
+            _LAYERED_RELATION_EDGE_RULES,
+            "## Layer selection\n"
+            "Compare all candidates in one pass. Cross-turn relations may use ZERO OR "
+            "ONE previous layer, never a mixture. Select null when none is meaningful.\n",
+        ]
+    )
     if validation_feedback:
         parts.append(
             "## Validation feedback from the previous attempt\n"
