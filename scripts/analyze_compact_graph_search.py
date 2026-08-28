@@ -1360,7 +1360,11 @@ def normalized_answer(value: str) -> str:
 
 
 def answer_node_ids(
-    nodes: list[dict[str, Any]], answer: str, question: str = ""
+    nodes: list[dict[str, Any]],
+    answer: str,
+    question: str = "",
+    *,
+    source_grounded_only: bool = False,
 ) -> set[int]:
     answer_norm = normalized_answer(answer)
     if not answer_norm:
@@ -1375,6 +1379,16 @@ def answer_node_ids(
                 required_phrases.append(f"{answer_norm} {unit[:-1]}")
     result: set[int] = set()
     for node in nodes:
+        source = node.get("source")
+        source_role = source.get("role") if isinstance(source, dict) else None
+        role = node.get("role") or source_role
+        source_grounded = (
+            role in {"tool", "function"}
+            or node.get("extraction_method")
+            in {"compact_llm_tool_result", "rule_tool_result"}
+        )
+        if source_grounded_only and not source_grounded:
+            continue
         content = normalized_answer(node_text(node))
         # Exact normalized phrases are deliberately preferred over bag-of-word
         # matching: the latter mislabels unrelated URLs and snippets as answer
@@ -1582,7 +1596,13 @@ def strategy_metrics(
     largest, isolated, retained = component_metrics(
         graph, selected, displayed_graph
     )
-    answer_ids = answer_node_ids(nodes, item.answer, item.question)
+    answer_mentions = answer_node_ids(nodes, item.answer, item.question)
+    answer_ids = answer_node_ids(
+        nodes,
+        item.answer,
+        item.question,
+        source_grounded_only=True,
+    )
     available_support = item.final_support_ids & {node["id"] for node in nodes}
     selected_values = [similarities[node_id] for node_id in selected]
     answer_values = [answer_similarities[node_id] for node_id in selected]
@@ -1690,6 +1710,13 @@ def strategy_metrics(
             if answer_ids
             else None
         ),
+        "answer_mentions_available": len(answer_mentions),
+        "answer_mentions_selected": len(answer_mentions & selected),
+        "answer_mention_recall": (
+            len(answer_mentions & selected) / len(answer_mentions)
+            if answer_mentions
+            else None
+        ),
         "selector_answer_first_position": min(selector_answer_positions)
         if selector_answer_positions
         else None,
@@ -1786,6 +1813,7 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         "next_action_similarity_top3",
         "answer_node_recall",
         "answer_node_precision",
+        "answer_mention_recall",
         "answer_first_position",
         "answer_top5_recall",
         "selector_answer_first_position",
