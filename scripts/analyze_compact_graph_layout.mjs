@@ -72,8 +72,56 @@ function endpointDistances(graph) {
 	});
 }
 
+function relationContinuity(relations) {
+	if (relations.length < 2) return null;
+	let connected = 0;
+	for (let index = 1; index < relations.length; index += 1) {
+		const previous = relations[index - 1];
+		const current = relations[index];
+		if (
+			previous.from === current.from ||
+			previous.from === current.to ||
+			previous.to === current.from ||
+			previous.to === current.to
+		) {
+			connected += 1;
+		}
+	}
+	return connected / (relations.length - 1);
+}
+
+function answerRelationCoverage(relations, answerIds) {
+	if (answerIds.size === 0) return null;
+	return relations.some((relation) => answerIds.has(relation.from) || answerIds.has(relation.to)) ? 1 : 0;
+}
+
 function sameSet(left, right) {
 	return left.size === right.size && Array.from(left).every((value) => right.has(value));
+}
+
+function normalizedAnswer(value) {
+	return String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function answerNodeIds(snapshot, answer) {
+	const normalized = normalizedAnswer(answer);
+	if (!normalized) return new Set();
+	const tokens = normalized.split(" ");
+	return new Set(
+		(snapshot.beliefs ?? [])
+			.filter((node) => {
+				const content = normalizedAnswer(node.belief ?? node.decision ?? "");
+				return normalized.length > 0 &&
+					(content.includes(normalized) ||
+						(tokens.length > 1 && tokens.every((token) => content.split(" ").includes(token))));
+			})
+			.map((node) => node.id),
+	);
+}
+
+function firstSelectedPosition(nodeIds, answerIds) {
+	const positions = nodeIds.flatMap((nodeId, index) => (answerIds.has(nodeId) ? [index + 1] : []));
+	return positions.length > 0 ? Math.min(...positions) : null;
 }
 
 const args = parseArgs(process.argv.slice(2));
@@ -86,6 +134,8 @@ const rows = [];
 
 for (const taskName of readdirSync(join(modeDir, "tasks")).filter((name) => name.endsWith(".json")).sort()) {
 	const taskId = basename(taskName, ".json");
+	const task = JSON.parse(readFileSync(join(modeDir, "tasks", taskName), "utf8"));
+	const answer = task.reference_answers?.[0] ?? "";
 	const trajectory = readJsonl(join(modeDir, "trajectories", `browsecomp-bcg-${taskId}.jsonl`));
 	const sessionId = String(trajectory[0]?.id ?? "");
 	const graphDir = sessions.get(sessionId);
@@ -112,6 +162,20 @@ for (const taskName of readdirSync(join(modeDir, "tasks")).filter((name) => name
 		const candidateDistances = endpointDistances(candidate);
 		const baselineRelations = new Set(baseline.relations.map(relationKey));
 		const candidateRelations = new Set(candidate.relations.map(relationKey));
+		const answerIds = answerNodeIds(snapshot, answer);
+		const answerNodeMetadata = (snapshot.beliefs ?? [])
+			.filter((node) => answerIds.has(node.id))
+			.map((node) => ({
+				id: node.id,
+				confidence: node.confidence ?? null,
+				stance: node.stance ?? null,
+				node_type: node.node_type ?? null,
+				extraction_method: node.extraction_method ?? null,
+				source_turn: node.source?.turn_id ?? null,
+				selected: trace.selectedNodeIds.includes(node.id),
+			}));
+		const baselineAnswerPosition = firstSelectedPosition(baseline.nodeIds, answerIds);
+		const candidateAnswerPosition = firstSelectedPosition(candidate.nodeIds, answerIds);
 		rows.push({
 			case_id: `${taskId}:graph-context:${index + 1}`,
 			stream_turn_index: trace.streamTurnIndex,
@@ -127,6 +191,18 @@ for (const taskName of readdirSync(join(modeDir, "tasks")).filter((name) => name
 			candidate_endpoint_distance_mean: mean(candidateDistances),
 			baseline_endpoint_distances: baselineDistances.length,
 			candidate_endpoint_distances: candidateDistances.length,
+			baseline_relation_continuity: relationContinuity(baseline.relations),
+			candidate_relation_continuity: relationContinuity(candidate.relations),
+			answer_nodes_available: answerIds.size,
+			answer_node_metadata: answerNodeMetadata,
+			baseline_answer_first_position: baselineAnswerPosition,
+			candidate_answer_first_position: candidateAnswerPosition,
+			baseline_answer_relation_coverage: answerRelationCoverage(baseline.relations, answerIds),
+			candidate_answer_relation_coverage: answerRelationCoverage(candidate.relations, answerIds),
+			baseline_answer_first_position_fraction:
+				baselineAnswerPosition === null ? null : baselineAnswerPosition / baseline.nodeIds.length,
+			candidate_answer_first_position_fraction:
+				candidateAnswerPosition === null ? null : candidateAnswerPosition / candidate.nodeIds.length,
 		});
 	}
 }
@@ -153,6 +229,43 @@ const summary = {
 	candidate_endpoint_distance_mean: weightedDistance("candidate"),
 	baseline_relations_mean: mean(rows.map((row) => row.baseline_relations)),
 	candidate_relations_mean: mean(rows.map((row) => row.candidate_relations)),
+	baseline_relation_continuity_mean: mean(
+		rows.flatMap((row) => row.baseline_relation_continuity === null ? [] : [row.baseline_relation_continuity]),
+	),
+	candidate_relation_continuity_mean: mean(
+		rows.flatMap((row) => row.candidate_relation_continuity === null ? [] : [row.candidate_relation_continuity]),
+	),
+	answer_bearing_snapshots: rows.filter((row) => row.answer_nodes_available > 0).length,
+	baseline_answer_first_position_mean: mean(
+		rows.flatMap((row) =>
+			row.baseline_answer_first_position === null ? [] : [row.baseline_answer_first_position],
+		),
+	),
+	candidate_answer_first_position_mean: mean(
+		rows.flatMap((row) =>
+			row.candidate_answer_first_position === null ? [] : [row.candidate_answer_first_position],
+		),
+	),
+	baseline_answer_relation_coverage_mean: mean(
+		rows.flatMap((row) => row.baseline_answer_relation_coverage === null ? [] : [row.baseline_answer_relation_coverage]),
+	),
+	candidate_answer_relation_coverage_mean: mean(
+		rows.flatMap((row) => row.candidate_answer_relation_coverage === null ? [] : [row.candidate_answer_relation_coverage]),
+	),
+	baseline_answer_first_position_fraction_mean: mean(
+		rows.flatMap((row) =>
+			row.baseline_answer_first_position_fraction === null
+				? []
+				: [row.baseline_answer_first_position_fraction],
+		),
+	),
+	candidate_answer_first_position_fraction_mean: mean(
+		rows.flatMap((row) =>
+			row.candidate_answer_first_position_fraction === null
+				? []
+				: [row.candidate_answer_first_position_fraction],
+		),
+	),
 };
 
 mkdirSync(outputDir, { recursive: true });
