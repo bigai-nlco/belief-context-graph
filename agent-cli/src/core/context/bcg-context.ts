@@ -339,6 +339,14 @@ interface GraphDialogueBeliefMessage {
 	confidence: number | null;
 }
 
+type CompactRelation = BcgSnapshot["relations"][number];
+
+interface CompactTrailLine {
+	text: string;
+	kind: "node" | "tree_relation" | "cross_relation" | "separator";
+	relationType?: CompactRelation["type"];
+}
+
 const COMPACT_GRAPH_CHAR_BUDGET = 8_000;
 const COMPACT_FACT_CHAR_BUDGET = 4_900;
 const COMPACT_SEARCH_CHAR_BUDGET = 1_700;
@@ -392,6 +400,159 @@ function addCompactBeliefsWithinBudget(
 	}
 }
 
+function compactBeliefLine(belief: BcgSnapshot["beliefs"][number]): string {
+	const confidence = isCompactSearchHistoryBelief(belief) ? "" : compactConfidence(belief);
+	return `- [B${belief.id}] ${belief.belief}${confidence}`;
+}
+
+function compactRelationLine(relation: CompactRelation): string {
+	return `- [B${relation.from_id}] ${relation.type} [B${relation.to_id}]`;
+}
+
+/**
+ * Arrange a selected subgraph as relation-adjacent belief trails.
+ *
+ * The selector's node order supplies trail/root priority. Traversal follows
+ * only original Graph relations and emits each relation immediately before a
+ * newly reached endpoint whenever possible. No belief or relation is rewritten.
+ */
+function compactRelationTrailLines(
+	retained: BcgSnapshot["beliefs"],
+	relations: CompactRelation[],
+	selectedNodeIds: ReadonlySet<number>,
+): CompactTrailLine[] {
+	const byId = new Map(retained.map((belief) => [belief.id, belief]));
+	const orderedIds = [
+		...Array.from(selectedNodeIds).filter((nodeId) => byId.has(nodeId)),
+		...retained.map((belief) => belief.id).filter((nodeId) => !selectedNodeIds.has(nodeId)),
+	];
+	const priority = new Map(orderedIds.map((nodeId, index) => [nodeId, index]));
+	const adjacency = new Map<
+		number,
+		Array<{ relation: CompactRelation; neighbor: number; incoming: boolean }>
+	>();
+	for (const relation of relations) {
+		if (!byId.has(relation.from_id) || !byId.has(relation.to_id)) continue;
+		const outgoing = adjacency.get(relation.from_id) ?? [];
+		outgoing.push({ relation, neighbor: relation.to_id, incoming: false });
+		adjacency.set(relation.from_id, outgoing);
+		const incoming = adjacency.get(relation.to_id) ?? [];
+		incoming.push({ relation, neighbor: relation.from_id, incoming: true });
+		adjacency.set(relation.to_id, incoming);
+	}
+
+	const seenNodes = new Set<number>();
+	const seenRelations = new Set<number>();
+	const lines: CompactTrailLine[] = [];
+	const edgePriority = (edge: {
+		relation: CompactRelation;
+		neighbor: number;
+		incoming: boolean;
+	}): [number, number, number, number] => [
+		edge.relation.type === "contradicts" ? 0 : 1,
+		edge.incoming ? 0 : 1,
+		priority.get(edge.neighbor) ?? Number.MAX_SAFE_INTEGER,
+		edge.relation.id,
+	];
+	const compareEdges = (
+		left: { relation: CompactRelation; neighbor: number; incoming: boolean },
+		right: { relation: CompactRelation; neighbor: number; incoming: boolean },
+	): number => {
+		const leftKey = edgePriority(left);
+		const rightKey = edgePriority(right);
+		for (let index = 0; index < leftKey.length; index += 1) {
+			if (leftKey[index] !== rightKey[index]) return leftKey[index] - rightKey[index];
+		}
+		return 0;
+	};
+
+	const visit = (nodeId: number): void => {
+		const belief = byId.get(nodeId);
+		if (!belief || seenNodes.has(nodeId)) return;
+		seenNodes.add(nodeId);
+		lines.push({ text: compactBeliefLine(belief), kind: "node" });
+		const edges = [...(adjacency.get(nodeId) ?? [])].sort(compareEdges);
+
+		// Cross-links are most legible beside the newly displayed endpoint.
+		for (const edge of edges) {
+			if (!seenNodes.has(edge.neighbor) || seenRelations.has(edge.relation.id)) continue;
+			seenRelations.add(edge.relation.id);
+			lines.push({
+				text: compactRelationLine(edge.relation),
+				kind: "cross_relation",
+				relationType: edge.relation.type,
+			});
+		}
+
+		for (const edge of edges) {
+			if (seenNodes.has(edge.neighbor) || seenRelations.has(edge.relation.id)) continue;
+			seenRelations.add(edge.relation.id);
+			lines.push({
+				text: compactRelationLine(edge.relation),
+				kind: "tree_relation",
+				relationType: edge.relation.type,
+			});
+			visit(edge.neighbor);
+		}
+	};
+
+	for (const nodeId of orderedIds) {
+		if (seenNodes.has(nodeId)) continue;
+		if (lines.length > 0) lines.push({ text: "", kind: "separator" });
+		visit(nodeId);
+	}
+
+	// Defensive: retain any selected relation that was not reached because of
+	// malformed duplicate IDs, but mark it as a lower-priority cross-link.
+	for (const relation of relations) {
+		if (seenRelations.has(relation.id)) continue;
+		lines.push({
+			text: compactRelationLine(relation),
+			kind: "cross_relation",
+			relationType: relation.type,
+		});
+	}
+	return lines;
+}
+
+function trimCompactTrailRelationsToBudget(
+	heading: string,
+	sectionHeading: string,
+	lines: CompactTrailLine[],
+): CompactTrailLine[] {
+	const result = [...lines];
+	const renderedChars = (): number =>
+		heading.length + 2 + sectionHeading.length + 1 + result.map((line) => line.text).join("\n").length;
+	const removableKinds: CompactTrailLine["kind"][] = ["cross_relation", "tree_relation"];
+	for (const kind of removableKinds) {
+		while (renderedChars() > COMPACT_GRAPH_CHAR_BUDGET) {
+			let removable = -1;
+			for (let index = result.length - 1; index >= 0; index -= 1) {
+				if (result[index].kind !== kind) continue;
+				// Preserve answer-changing conflicts until every other relation type
+				// of this class has been considered.
+				if (result[index].relationType === "contradicts") continue;
+				removable = index;
+				break;
+			}
+			if (removable < 0) break;
+			result.splice(removable, 1);
+		}
+	}
+	while (renderedChars() > COMPACT_GRAPH_CHAR_BUDGET) {
+		let removable = -1;
+		for (let index = result.length - 1; index >= 0; index -= 1) {
+			if (result[index].kind === "cross_relation" || result[index].kind === "tree_relation") {
+				removable = index;
+				break;
+			}
+		}
+		if (removable < 0) break;
+		result.splice(removable, 1);
+	}
+	return result;
+}
+
 /**
  * Render a bounded historical-dialogue memory view without mutating the graph.
  *
@@ -405,6 +566,7 @@ export function formatCompactBcgDialogueContext(
 	includeRelations = true,
 	selectedNodeIds?: ReadonlySet<number>,
 	selectedRelationIds?: ReadonlySet<number>,
+	relationTrailLayout = false,
 ): string {
 	const beliefs = Array.isArray(snapshot.beliefs) ? snapshot.beliefs : [];
 	if (beliefs.length === 0) {
@@ -422,6 +584,26 @@ export function formatCompactBcgDialogueContext(
 	});
 	if (retained.length === 0) {
 		return "";
+	}
+	if (relationTrailLayout && selectedNodeIds) {
+		const retainedIds = new Set(retained.map((belief) => belief.id));
+		const relations = includeRelations
+			? (snapshot.relations ?? [])
+					.filter(
+						(relation) =>
+							retainedIds.has(relation.from_id) && retainedIds.has(relation.to_id),
+					)
+					.filter((relation) => !selectedRelationIds || selectedRelationIds.has(relation.id))
+			: [];
+		const heading = "### Earlier investigation memory";
+		const sectionHeading = "#### Connected belief trails";
+		const trailLines = trimCompactTrailRelationsToBudget(
+			heading,
+			sectionHeading,
+			compactRelationTrailLines(retained, relations, selectedNodeIds),
+		);
+		const payload = `${heading}\n\n${sectionHeading}\n${trailLines.map((line) => line.text).join("\n")}`;
+		return DIALOGUE_BOS + DIALOGUE_USER + payload + DIALOGUE_ASSISTANT + DIALOGUE_EOS;
 	}
 	const facts = retained
 		.filter((belief) => !isCompactSearchHistoryBelief(belief))
@@ -708,6 +890,7 @@ export class BcgContextManager {
 						this.includeRelations,
 						new Set(selection.node_ids),
 						new Set(selection.relation_ids),
+						this.graphSelection === "focused",
 					);
 					this.emitGraphTrace(this.latestSnapshot, selection);
 				} catch (error) {

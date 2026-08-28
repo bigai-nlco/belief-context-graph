@@ -775,6 +775,48 @@ describe("BCG context management", () => {
 		expect(encoded).not.toContain("depends_on");
 	});
 
+	it("renders focused selections as relation-adjacent connected belief trails", () => {
+		const encoded = formatCompactBcgDialogueContext(
+			{
+				beliefs: [
+					{ id: 2, belief: "specific candidate", confidence: 0.61, source: { turn_id: 3 } },
+					{ id: 3, belief: "candidate premise", confidence: 0.82, source: { turn_id: 4 } },
+					{
+						id: 4,
+						belief: 'The assistant is using web_search to search for "candidate evidence".',
+						extraction_method: "rule_tool_call",
+						query: "candidate evidence",
+						source: { turn_id: 5 },
+					},
+					{ id: 6, belief: "later search evidence", confidence: 0.88, source: { turn_id: 6 } },
+				],
+				relations: [
+					{ id: 20, from_id: 2, to_id: 3, type: "depends_on" },
+					{ id: 21, from_id: 4, to_id: 2, type: "depends_on" },
+					{ id: 22, from_id: 6, to_id: 4, type: "depends_on" },
+				],
+			},
+			true,
+			new Set([2, 3, 4, 6]),
+			new Set([20, 21, 22]),
+			true,
+		);
+
+		expect(encoded).toContain("#### Connected belief trails");
+		expect(encoded).not.toContain("#### Factual beliefs");
+		expect(encoded).not.toContain("#### Search-history beliefs");
+		expect(encoded).not.toContain("#### Retained relations");
+		const candidate = encoded.indexOf("[B2] specific candidate");
+		const incoming = encoded.indexOf("[B4] depends_on [B2]");
+		const search = encoded.indexOf('[B4] The assistant is using web_search');
+		const evidenceEdge = encoded.indexOf("[B6] depends_on [B4]");
+		const evidence = encoded.indexOf("[B6] later search evidence");
+		expect(candidate).toBeLessThan(incoming);
+		expect(incoming).toBeLessThan(search);
+		expect(search).toBeLessThan(evidenceEdge);
+		expect(evidenceEdge).toBeLessThan(evidence);
+	});
+
 	it("ranks factual confidence before recency and treats queries as history", () => {
 		const encoded = formatCompactBcgDialogueContext({
 			beliefs: [
