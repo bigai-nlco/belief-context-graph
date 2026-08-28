@@ -125,14 +125,16 @@ _STANCE_DEFINITION = """\
 
 """
 
-_USER_BELIEF_DEFINITION = """\
+_COMPACT_BELIEF_DEFINITION = """\
 ## What is a belief
 A belief is a self-contained memory or reasoning unit, usually shaped like:
     <subject, predicate, object/value, scope, time, source>
 
 Preserve the most specific supported wording. Each belief must express one
 reusable semantic unit and remain understandable outside the original turn.
+"""
 
+_COMPACT_BELIEF_DETAILS = """\
 ## Granularity
 Merge clauses that jointly define one setup, condition, event, or causal step.
 Split only propositions that can be independently confirmed, contradicted, or
@@ -667,20 +669,24 @@ def build_node_extraction_prompt(
         )
     belief_definition = _BELIEF_DEFINITION
     decision_definition = ""
+    belief_details = ""
     stance_definition = _STANCE_DEFINITION
     role_guidance = guidance + "\n"
     if key == "user":
-        belief_definition = _USER_BELIEF_DEFINITION
+        belief_definition = _COMPACT_BELIEF_DEFINITION
+        belief_details = _COMPACT_BELIEF_DETAILS
         stance_definition = _USER_STANCE_DEFINITION
         role_guidance = _USER_GUIDANCE
     elif key == "assistant":
-        belief_definition = _USER_BELIEF_DEFINITION
+        belief_definition = _COMPACT_BELIEF_DEFINITION
         decision_definition = _ASSISTANT_DECISION_DEFINITION
+        belief_details = _COMPACT_BELIEF_DETAILS
     parts.extend(
         part
         for part in (
             belief_definition,
             decision_definition,
+            belief_details,
             stance_definition,
             role_guidance,
         )

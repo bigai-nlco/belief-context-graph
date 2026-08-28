@@ -940,7 +940,9 @@ def test_unified_assistant_node_prompt_reuses_compact_belief_definition() -> Non
     assert "COCO instance segmentation" not in prompt
     assert "capture those links in relations" not in prompt
     assert prompt.index("## What is a belief") < prompt.index("## What is a decision")
-    assert prompt.index("## What is a decision") < prompt.index("## Stance")
+    assert prompt.index("## What is a decision") < prompt.index("## Granularity")
+    assert prompt.index("## Granularity") < prompt.index("## Entities")
+    assert prompt.index("## Entities") < prompt.index("## Stance")
 
 
 def test_unified_node_extraction_assigns_code_owned_tmp_ids(
