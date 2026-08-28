@@ -869,6 +869,7 @@ def evidence_pruned_chain_selection(
     # Reinvest most released search-ledger space in relevant, diverse facts,
     # while reserving enough room for a small set of relation connectors.
     search_reserve = min(900, sum(costs[node_id] for node_id in base_searches))
+
     fact_candidates = [
         node["id"]
         for node in nodes
@@ -977,6 +978,181 @@ def evidence_pruned_chain_selection(
     return Selection(f"focused_budget_{node_budget}", selected, relation_ids, used)
 
 
+_PROCEDURAL_FACT_RE = re.compile(
+    r"\b(?:requires? verification|needs? verification|is investigating|"
+    r"considers? the possibility|could be|may be|might be|exact .* unknown)\b",
+    re.I,
+)
+_SPECIFIC_VALUE_RE = re.compile(
+    r"(?:\b\d+(?:[.,:/-]\d+)*\b|[\"“][^\"”]{2,}[\"”]|"
+    r"\b[A-Z][a-z]+(?:\s+[A-Z][A-Za-z.'-]+)+\b)"
+)
+
+
+def answer_directed_selection(
+    snapshot: dict[str, Any],
+    nodes: list[dict[str, Any]],
+    query_similarities: dict[int, float],
+    focus_similarities: dict[int, float],
+    question_similarities: dict[int, float],
+    node_vectors: dict[int, np.ndarray],
+    *,
+    node_budget: int,
+) -> Selection:
+    """Select compact answer candidates first, then their useful connectors.
+
+    Unlike ``evidence_pruned_chain_selection``, this strategy does not let a
+    generic connected-subgraph pass pre-fill the fact budget.  The question
+    and the Agent's current investigation focus decide the factual anchors;
+    stored relations then reward coherent support/conflict neighborhoods.
+    """
+    by_id = {node["id"]: node for node in nodes}
+    costs = {
+        node["id"]: len(node_line(node, include_confidence=not is_search(node))) + 1
+        for node in nodes
+    }
+    graph = coherent_graph_for_snapshot(snapshot, nodes, node_vectors)
+    recency = recency_scores(nodes)
+    search_reserve = min(700, max(0, node_budget // 7))
+    fact_budget = max(0, node_budget - search_reserve)
+
+    def factual_value(node_id: int) -> float:
+        node = by_id[node_id]
+        text = node_text(node)
+        value = (
+            0.50 * question_similarities[node_id]
+            + 0.29 * focus_similarities[node_id]
+            + 0.07 * query_similarities[node_id]
+            + 0.06 * confidence(node)
+            + 0.04 * recency[node_id]
+            + compact_node_adjustment(node)
+        )
+        if node.get("node_type") == "decision" or node.get("decision"):
+            value += 0.14
+        if _SPECIFIC_VALUE_RE.search(text):
+            value += 0.055
+        if _PROCEDURAL_FACT_RE.search(text):
+            value -= 0.12
+        return value
+
+    fact_candidates = [node["id"] for node in nodes if not is_search(node)]
+    selected_facts: list[int] = []
+    selected_set: set[int] = set()
+    used = 0
+    raw_results = 0
+    while fact_candidates:
+
+        def fact_utility(node_id: int) -> float:
+            redundancy = max(
+                (
+                    max(
+                        0.0,
+                        float(np.dot(node_vectors[node_id], node_vectors[other])),
+                    )
+                    for other in selected_facts
+                ),
+                default=0.0,
+            )
+            relation_bonus = 0.0
+            contradiction_bonus = 0.0
+            for other in selected_set:
+                for source, target in ((node_id, other), (other, node_id)):
+                    edge = graph.get_edge_data(source, target)
+                    if edge is None:
+                        continue
+                    relation_bonus = max(
+                        relation_bonus, 0.13 * float(edge.get("weight", 0.0))
+                    )
+                    relation = edge.get("relation")
+                    if isinstance(relation, dict) and relation.get("type") == "contradicts":
+                        contradiction_bonus = max(contradiction_bonus, 0.08)
+            value = (
+                factual_value(node_id)
+                + relation_bonus
+                + contradiction_bonus
+                - 0.17 * redundancy
+            )
+            return value / ((1.0 + costs[node_id] / 240.0) ** 0.34)
+
+        best = max(fact_candidates, key=fact_utility)
+        fact_candidates.remove(best)
+        is_raw = by_id[best].get("extraction_method") == "rule_tool_result"
+        if is_raw and raw_results >= 1:
+            continue
+        if used + costs[best] > fact_budget:
+            continue
+        selected_facts.append(best)
+        selected_set.add(best)
+        used += costs[best]
+        raw_results += int(is_raw)
+
+    # Re-sort after dynamic MMR selection so the Prompt starts with the most
+    # answer-directed evidence rather than the first connected path discovered.
+    selected_facts.sort(
+        key=lambda node_id: (
+            factual_value(node_id),
+            source_turn(by_id[node_id]),
+            node_id,
+        ),
+        reverse=True,
+    )
+
+    search_candidates = [node["id"] for node in nodes if is_search(node)]
+
+    def search_utility(node_id: int) -> tuple[float, float, int]:
+        adjacency = 0.0
+        produced_evidence = False
+        for fact_id in selected_set:
+            outgoing = graph.get_edge_data(node_id, fact_id)
+            incoming = graph.get_edge_data(fact_id, node_id)
+            if outgoing is not None:
+                adjacency = max(adjacency, float(outgoing.get("weight", 0.0)))
+            if incoming is not None:
+                adjacency = max(adjacency, float(incoming.get("weight", 0.0)))
+                produced_evidence = True
+        value = (
+            0.34 * focus_similarities[node_id]
+            + 0.18 * question_similarities[node_id]
+            + 0.26 * adjacency
+            + 0.12 * float(produced_evidence)
+            + 0.10 * recency[node_id]
+        )
+        return value, adjacency, source_turn(by_id[node_id])
+
+    selected_searches: list[int] = []
+    latest_search = max(
+        search_candidates,
+        key=lambda node_id: source_turn(by_id[node_id]),
+        default=None,
+    )
+    for search_id in sorted(search_candidates, key=search_utility, reverse=True):
+        if len(selected_searches) >= 4:
+            break
+        _value, adjacency, _turn = search_utility(search_id)
+        if adjacency <= 0.0 and search_id != latest_search:
+            continue
+        if used + costs[search_id] > node_budget:
+            continue
+        selected_searches.append(search_id)
+        selected_set.add(search_id)
+        used += costs[search_id]
+
+    relation_ids = [
+        relation["id"]
+        for source, target, _data in graph.edges(data=True)
+        if source in selected_set
+        and target in selected_set
+        and isinstance((relation := graph[source][target].get("relation")), dict)
+        and isinstance(relation.get("id"), int)
+    ]
+    return Selection(
+        f"answer_directed_budget_{node_budget}",
+        [*selected_facts, *selected_searches],
+        relation_ids,
+        used,
+    )
+
+
 def induced_relation_ids(snapshot: dict[str, Any], selected: set[int]) -> list[int]:
     return [
         relation["id"]
@@ -1049,14 +1225,13 @@ def answer_node_ids(nodes: list[dict[str, Any]], answer: str) -> set[int]:
     answer_norm = normalized_answer(answer)
     if not answer_norm:
         return set()
-    answer_tokens = answer_norm.split()
     result: set[int] = set()
     for node in nodes:
         content = normalized_answer(node_text(node))
-        if answer_norm in content or (
-            len(answer_tokens) > 1
-            and all(token in content.split() for token in answer_tokens)
-        ):
+        # Exact normalized phrases are deliberately preferred over bag-of-word
+        # matching: the latter mislabels unrelated URLs and snippets as answer
+        # evidence (for example, a date containing "11" plus a later "months").
+        if answer_norm in content:
             result.add(node["id"])
     return result
 
@@ -1231,7 +1406,9 @@ def strategy_metrics(
     selected = set(selection.node_ids)
     allowed_relations = (
         set(selection.relation_ids)
-        if selection.strategy in {"evidence_first_chains", "evidence_pruned_chains"}
+        if selection.strategy == "evidence_first_chains"
+        or selection.strategy.startswith("focused_budget_")
+        or selection.strategy.startswith("answer_directed_budget_")
         else None
     )
     rendered_chars, displayed_relations = rendered_selection(
@@ -1277,6 +1454,16 @@ def strategy_metrics(
         relation_coherences.append(value)
         if relation.get("type") == "contradicts":
             contradiction_coherences.append(value)
+    answer_positions = [
+        index + 1
+        for index, node_id in enumerate(selection.node_ids)
+        if node_id in answer_ids
+    ]
+    support_positions = [
+        index + 1
+        for index, node_id in enumerate(selection.node_ids)
+        if node_id in available_support
+    ]
     return {
         "task_id": item.task_id,
         "call_id": item.call_id,
@@ -1307,10 +1494,22 @@ def strategy_metrics(
         "answer_node_recall": len(answer_ids & selected) / len(answer_ids)
         if answer_ids
         else None,
+        "answer_first_position": min(answer_positions) if answer_positions else None,
+        "answer_top5_recall": (
+            len(answer_ids & set(selection.node_ids[:5])) / len(answer_ids)
+            if answer_ids
+            else None
+        ),
         "support_nodes_available": len(available_support),
         "support_nodes_selected": len(available_support & selected),
         "support_node_recall": (
             len(available_support & selected) / len(available_support)
+            if available_support
+            else None
+        ),
+        "support_first_position": min(support_positions) if support_positions else None,
+        "support_top5_recall": (
+            len(available_support & set(selection.node_ids[:5])) / len(available_support)
             if available_support
             else None
         ),
@@ -1342,6 +1541,7 @@ def strategy_metrics(
             else None
         ),
         "selected_node_ids": sorted(selected),
+        "selected_node_order": selection.node_ids,
         "selected_relation_ids": sorted(selection.relation_ids),
     }
 
@@ -1360,7 +1560,11 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         "next_action_similarity_top3",
         "answer_node_recall",
         "answer_node_precision",
+        "answer_first_position",
+        "answer_top5_recall",
         "support_node_recall",
+        "support_first_position",
+        "support_top5_recall",
         "largest_component_ratio",
         "isolated_node_ratio",
         "relation_endpoint_retention",
@@ -1501,6 +1705,18 @@ def main() -> None:
             ),
             *[
                 evidence_pruned_chain_selection(
+                    item.snapshot,
+                    nodes,
+                    similarities,
+                    focus_similarities,
+                    question_similarities,
+                    node_vectors,
+                    node_budget=budget,
+                )
+                for budget in (args.focused_budget or [NODE_BUDGET])
+            ],
+            *[
+                answer_directed_selection(
                     item.snapshot,
                     nodes,
                     similarities,
