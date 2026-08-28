@@ -97,7 +97,7 @@ def _construct(ctx: typer.Context) -> None:
 
 @app.command(
     "benchmark",
-    help="Evaluate the Agent in Default, BCG, and Summary context modes.",
+    help="Evaluate the Agent across full, bounded, retrieved, summary, and BCG context modes.",
     context_settings=_FORWARD_CONTEXT,
     add_help_option=False,
 )

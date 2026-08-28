@@ -14,7 +14,7 @@ export interface CompactionSettings {
 	keepRecentTokens?: number; // default: 20000
 }
 
-export type ContextManagementProvider = "default" | "bcg" | "summary";
+export type ContextManagementProvider = "default" | "bcg" | "summary" | "recent-only" | "rag";
 export type BcgGraphView = "full" | "compact";
 
 export interface BcgContextSettings {
@@ -36,10 +36,23 @@ export interface SummaryContextSettings {
 	thinkingLevel?: ThinkingLevel; // default: "off"
 }
 
+export interface RecentOnlyContextSettings {
+	recentTurns?: number; // default: 2; -1 keeps all raw turns
+}
+
+export interface RagContextSettings {
+	recentTurns?: number; // default: 2; -1 keeps all raw turns
+	databasePath?: string; // default: ~/.bcg/agent/rag/<session-id>.sqlite
+	topK?: number; // default: 6 retrieved historical turns
+	maxChars?: number; // default: 12000 injected history characters
+}
+
 export interface ContextManagementSettings {
 	provider?: ContextManagementProvider; // default: "default"
 	bcg?: BcgContextSettings;
 	summary?: SummaryContextSettings;
+	recentOnly?: RecentOnlyContextSettings;
+	rag?: RagContextSettings;
 }
 
 export interface ResolvedContextManagementSettings {
@@ -60,6 +73,15 @@ export interface ResolvedContextManagementSettings {
 		timeoutMs: number;
 		maxTokens: number;
 		thinkingLevel: ThinkingLevel;
+	};
+	recentOnly: {
+		recentTurns: number;
+	};
+	rag: {
+		recentTurns: number;
+		databasePath: string;
+		topK: number;
+		maxChars: number;
 	};
 }
 
@@ -881,10 +903,33 @@ export class SettingsManager {
 				? Math.max(1, Math.trunc(configuredSummaryMaxTokens))
 				: 2048;
 		const configuredProvider = settings?.provider;
+		const configuredRecentOnlyTurns = settings?.recentOnly?.recentTurns;
+		const recentOnlyTurns =
+			typeof configuredRecentOnlyTurns === "number" && Number.isFinite(configuredRecentOnlyTurns)
+				? Math.max(-1, Math.trunc(configuredRecentOnlyTurns))
+				: recentTurns;
+		const configuredRagRecentTurns = settings?.rag?.recentTurns;
+		const ragRecentTurns =
+			typeof configuredRagRecentTurns === "number" && Number.isFinite(configuredRagRecentTurns)
+				? Math.max(-1, Math.trunc(configuredRagRecentTurns))
+				: recentTurns;
+		const configuredRagTopK = settings?.rag?.topK;
+		const ragTopK =
+			typeof configuredRagTopK === "number" && Number.isFinite(configuredRagTopK)
+				? Math.max(1, Math.trunc(configuredRagTopK))
+				: 6;
+		const configuredRagMaxChars = settings?.rag?.maxChars;
+		const ragMaxChars =
+			typeof configuredRagMaxChars === "number" && Number.isFinite(configuredRagMaxChars)
+				? Math.max(256, Math.trunc(configuredRagMaxChars))
+				: 12000;
 
 		return {
 			provider:
-				configuredProvider === "bcg" || configuredProvider === "summary"
+				configuredProvider === "bcg" ||
+				configuredProvider === "summary" ||
+				configuredProvider === "recent-only" ||
+				configuredProvider === "rag"
 					? configuredProvider
 					: "default",
 			bcg: {
@@ -907,6 +952,15 @@ export class SettingsManager {
 				timeoutMs: summaryTimeoutMs,
 				maxTokens: summaryMaxTokens,
 				thinkingLevel: settings?.summary?.thinkingLevel ?? "off",
+			},
+			recentOnly: {
+				recentTurns: recentOnlyTurns,
+			},
+			rag: {
+				recentTurns: ragRecentTurns,
+				databasePath: settings?.rag?.databasePath?.trim() || process.env.BCG_RAG_DB_PATH?.trim() || "",
+				topK: ragTopK,
+				maxChars: ragMaxChars,
 			},
 		};
 	}

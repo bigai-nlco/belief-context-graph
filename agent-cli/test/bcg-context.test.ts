@@ -721,6 +721,15 @@ describe("BCG context management", () => {
 				maxTokens: 2048,
 				thinkingLevel: "off",
 			},
+			recentOnly: {
+				recentTurns: -1,
+			},
+			rag: {
+				recentTurns: -1,
+				databasePath: "",
+				topK: 6,
+				maxChars: 12000,
+			},
 		});
 	});
 
@@ -735,6 +744,10 @@ describe("BCG context management", () => {
 		expect(getSessionContextMode(session)).toBe("bcg");
 		setSessionContextMode(session, "summary");
 		expect(getSessionContextMode(session)).toBe("summary");
+		setSessionContextMode(session, "recent-only");
+		expect(getSessionContextMode(session)).toBe("recent-only");
+		setSessionContextMode(session, "rag");
+		expect(getSessionContextMode(session)).toBe("rag");
 
 		session.appendMessage(user("first message", 1));
 		expect(hasSessionConversationStarted(session)).toBe(true);

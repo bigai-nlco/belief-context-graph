@@ -21,8 +21,8 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "model", description: "Select the inference model", argumentHint: "<provider/model>" },
 	{
 		name: "mode",
-		description: "Choose Default, BCG, or Summary context",
-		argumentHint: "<default|bcg|summary>",
+		description: "Choose the session context strategy",
+		argumentHint: "<default|bcg|summary|recent-only|rag>",
 	},
 	{ name: "login", description: "Configure the model API key", argumentHint: "<provider>" },
 	{ name: "logout", description: "Remove a saved model API key" },

@@ -556,6 +556,8 @@ def apply_user_configuration(
         "BCG_GRAPH_EMBEDDING_KEY": str(graph.get("embeddingKey") or EMBEDDING_KEY),
         "BCG_RECENT_TURNS": str(context.get("recentTurns", 2)),
         "BCG_CONTEXT_MODE": str(context.get("mode") or "bcg"),
+        "BCG_RAG_TOP_K": str(context.get("ragTopK", 6)),
+        "BCG_RAG_MAX_CHARS": str(context.get("ragMaxChars", 12000)),
         "BCG_SUMMARY_MODEL": str(summary.get("model") or agent.get("model") or ""),
         "BCG_SUMMARY_BASE_URL": str(
             summary.get("baseUrl") or agent.get("baseUrl") or ""
@@ -721,12 +723,14 @@ def run_setup(
             ("bcg", "BCG graph-backed context"),
             ("default", "Default full-context agent with compaction"),
             ("summary", "Rolling LLM summary with recent raw turns"),
+            ("recent-only", "Initial user input plus recent raw turns only"),
+            ("rag", "Retrieved local history plus recent raw turns"),
         ],
         default=_current_default(current, "context", "mode", "bcg"),
         input_fn=input_fn,
     )
     recent_turns = 2
-    if context_mode in {"bcg", "summary"}:
+    if context_mode in {"bcg", "summary", "recent-only", "rag"}:
         recent_turns_text = _ask(
             f"Recent completed turns kept verbatim in {context_mode} mode",
             default=str(
