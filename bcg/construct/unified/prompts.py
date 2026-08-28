@@ -149,6 +149,13 @@ qualified roles when they distinguish reusable constraints, such as "winning
 team", "first poet", or "target ODI match". Use [] when none exists.
 """
 
+_ASSISTANT_DECISION_DEFINITION = """\
+## What is a decision
+A decision is the assistant's final selected answer, option, result, or explicit
+final conclusion, especially content inside ``\\boxed{...}``. A decision must be
+self-contained. Do not emit the same final answer as both a belief and a decision.
+"""
+
 _USER_STANCE_DEFINITION = """\
 ## Stance
 Choose one per belief: asserted = direct statement; recalled = explicit memory;
@@ -399,7 +406,6 @@ Extract:
 - **Factual claims and intermediate conclusions** the assistant commits to (domain facts, numbers, diagnoses, derived states).
 - **Recommendations / advice** given to the user.
 - **Assessments** of the user's situation.
-- **Final decisions**: when the assistant gives a final answer, especially inside ``\\boxed{...}``, put it in ``decisions`` instead of ``beliefs``.
 - **Key reasoning steps that are falsifiable, reusable, or needed by later turns** — keep enough detail to reconstruct causal/dependency chains between user request, tool result, reasoning, and final answer.
 
 Do NOT extract: pure procedure / planning filler ("Let me search next", "First I need to…") unless it encodes a substantive dependency; self-questions; or politeness.
@@ -660,13 +666,26 @@ def build_node_extraction_prompt(
             "Do not repeat existing nodes.\n"
         )
     belief_definition = _BELIEF_DEFINITION
+    decision_definition = ""
     stance_definition = _STANCE_DEFINITION
     role_guidance = guidance + "\n"
     if key == "user":
         belief_definition = _USER_BELIEF_DEFINITION
         stance_definition = _USER_STANCE_DEFINITION
         role_guidance = _USER_GUIDANCE
-    parts.extend([belief_definition, stance_definition, role_guidance])
+    elif key == "assistant":
+        belief_definition = _USER_BELIEF_DEFINITION
+        decision_definition = _ASSISTANT_DECISION_DEFINITION
+    parts.extend(
+        part
+        for part in (
+            belief_definition,
+            decision_definition,
+            stance_definition,
+            role_guidance,
+        )
+        if part
+    )
     if has_existing_nodes:
         parts.append(_NODE_GRAPH_CONTEXT_BLOCK)
     if mode == "excerpt":

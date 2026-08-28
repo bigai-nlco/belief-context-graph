@@ -921,6 +921,28 @@ def test_unified_node_extraction_prompt_omits_empty_context_and_tmp_ids() -> Non
     assert "qualified roles" in prompt
 
 
+def test_unified_assistant_node_prompt_reuses_compact_belief_definition() -> None:
+    prompt = build_node_extraction_prompt(
+        "assistant",
+        mode="sentences",
+        sentences_block="[0] The assistant selects option B.",
+        graph_nodes='[{"content": "The user asked for one option."}]',
+    )
+
+    assert prompt is not None
+    assert prompt.count("## What is a belief") == 1
+    assert prompt.count("## What is a decision") == 1
+    assert "Merge clauses that jointly define one setup" in prompt
+    assert "A decision must be\nself-contained" in prompt
+    assert "Do not emit the same final answer as both a belief and a decision" in prompt
+    assert "**Final decisions**" not in prompt
+    assert "Too fine-grained" not in prompt
+    assert "COCO instance segmentation" not in prompt
+    assert "capture those links in relations" not in prompt
+    assert prompt.index("## What is a belief") < prompt.index("## What is a decision")
+    assert prompt.index("## What is a decision") < prompt.index("## Stance")
+
+
 def test_unified_node_extraction_assigns_code_owned_tmp_ids(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
