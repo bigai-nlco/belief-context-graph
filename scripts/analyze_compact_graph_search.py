@@ -537,6 +537,7 @@ def cost_aware_chain_selection(
     snapshot: dict[str, Any],
     nodes: list[dict[str, Any]],
     similarities: dict[int, float],
+    node_budget: int = NODE_BUDGET,
 ) -> Selection:
     """Select coherent paths by value per visible character, not node count."""
     by_id = {node["id"]: node for node in nodes}
@@ -548,7 +549,7 @@ def cost_aware_chain_selection(
         node["id"]: len(node_line(node, include_confidence=not is_search(node))) + 1
         for node in nodes
     }
-    if sum(costs.values()) <= NODE_BUDGET:
+    if sum(costs.values()) <= node_budget:
         selected = [node["id"] for node in nodes]
         selected_set = set(selected)
         return Selection(
@@ -606,7 +607,7 @@ def cost_aware_chain_selection(
             ),
         )
         reserved_id = reserved["id"]
-        if costs[reserved_id] <= NODE_BUDGET:
+        if costs[reserved_id] <= node_budget:
             selected.append(reserved_id)
             selected_set.add(reserved_id)
             used += costs[reserved_id]
@@ -620,7 +621,7 @@ def cost_aware_chain_selection(
         )
         # Avoid allowing several verbose fallback summaries to crowd out the
         # semantic facts distilled from those same results.
-        if raw_results + new_raw > 2 or not additions or used + size > NODE_BUDGET:
+        if raw_results + new_raw > 2 or not additions or used + size > node_budget:
             continue
         selected.extend(additions)
         selected_set.update(additions)
@@ -649,7 +650,7 @@ def cost_aware_chain_selection(
         if is_raw and raw_results >= 2:
             continue
         size = costs[node_id]
-        if used + size > NODE_BUDGET:
+        if used + size > node_budget:
             continue
         selected.append(node_id)
         selected_set.add(node_id)
@@ -841,16 +842,19 @@ def evidence_pruned_chain_selection(
     focus_similarities: dict[int, float],
     question_similarities: dict[int, float],
     node_vectors: dict[int, np.ndarray],
+    node_budget: int = NODE_BUDGET,
 ) -> Selection:
     """Keep connected-selector evidence while pruning investigation noise."""
-    base = cost_aware_chain_selection(snapshot, nodes, query_similarities)
+    base = cost_aware_chain_selection(
+        snapshot, nodes, query_similarities, node_budget=node_budget
+    )
     by_id = {node["id"]: node for node in nodes}
     costs = {
         node["id"]: len(node_line(node, include_confidence=not is_search(node))) + 1
         for node in nodes
     }
-    if sum(costs.values()) <= NODE_BUDGET:
-        base.strategy = "evidence_pruned_chains"
+    if sum(costs.values()) <= node_budget:
+        base.strategy = f"focused_budget_{node_budget}"
         return base
 
     graph = coherent_graph_for_snapshot(snapshot, nodes, node_vectors)
@@ -900,7 +904,7 @@ def evidence_pruned_chain_selection(
         )
         if is_raw and current_raw >= 2:
             continue
-        if used + costs[best] > NODE_BUDGET - search_reserve:
+        if used + costs[best] > node_budget - search_reserve:
             continue
         selected.append(best)
         selected_set.add(best)
@@ -957,7 +961,7 @@ def evidence_pruned_chain_selection(
         # unconnected query survives solely as a duplicate-search reminder.
         if adjacency <= 0.0 and best_search != latest_search:
             continue
-        if used + costs[best_search] > NODE_BUDGET:
+        if used + costs[best_search] > node_budget:
             continue
         selected.append(best_search)
         selected_set.add(best_search)
@@ -970,7 +974,7 @@ def evidence_pruned_chain_selection(
         relation_id = relation.get("id") if isinstance(relation, dict) else None
         if source in selected_set and target in selected_set and isinstance(relation_id, int):
             relation_ids.append(relation_id)
-    return Selection("evidence_pruned_chains", selected, relation_ids, used)
+    return Selection(f"focused_budget_{node_budget}", selected, relation_ids, used)
 
 
 def induced_relation_ids(snapshot: dict[str, Any], selected: set[int]) -> list[int]:
@@ -1388,6 +1392,13 @@ def main() -> None:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--task-limit", type=int, default=0)
     parser.add_argument("--task-id", action="append", default=[])
+    parser.add_argument(
+        "--focused-budget",
+        action="append",
+        type=int,
+        default=[],
+        help="Repeat to compare Focused selector node-character budgets.",
+    )
     args = parser.parse_args()
 
     items = collect_replay_items(args.run_dir, args.graphs_dir)
@@ -1488,14 +1499,18 @@ def main() -> None:
                 question_similarities,
                 node_vectors,
             ),
-            evidence_pruned_chain_selection(
-                item.snapshot,
-                nodes,
-                similarities,
-                focus_similarities,
-                question_similarities,
-                node_vectors,
-            ),
+            *[
+                evidence_pruned_chain_selection(
+                    item.snapshot,
+                    nodes,
+                    similarities,
+                    focus_similarities,
+                    question_similarities,
+                    node_vectors,
+                    node_budget=budget,
+                )
+                for budget in (args.focused_budget or [NODE_BUDGET])
+            ],
         ]
         for selection in selections:
             rows.append(
