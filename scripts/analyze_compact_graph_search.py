@@ -538,6 +538,8 @@ def cost_aware_chain_selection(
     nodes: list[dict[str, Any]],
     similarities: dict[int, float],
     node_budget: int = NODE_BUDGET,
+    *,
+    keep_all_fit: bool = True,
 ) -> Selection:
     """Select coherent paths by value per visible character, not node count."""
     by_id = {node["id"]: node for node in nodes}
@@ -549,7 +551,7 @@ def cost_aware_chain_selection(
         node["id"]: len(node_line(node, include_confidence=not is_search(node))) + 1
         for node in nodes
     }
-    if sum(costs.values()) <= node_budget:
+    if keep_all_fit and sum(costs.values()) <= node_budget:
         selected = [node["id"] for node in nodes]
         selected_set = set(selected)
         return Selection(
@@ -843,17 +845,23 @@ def evidence_pruned_chain_selection(
     question_similarities: dict[int, float],
     node_vectors: dict[int, np.ndarray],
     node_budget: int = NODE_BUDGET,
+    *,
+    always_select: bool = False,
 ) -> Selection:
     """Keep connected-selector evidence while pruning investigation noise."""
     base = cost_aware_chain_selection(
-        snapshot, nodes, query_similarities, node_budget=node_budget
+        snapshot,
+        nodes,
+        query_similarities,
+        node_budget=node_budget,
+        keep_all_fit=not always_select,
     )
     by_id = {node["id"]: node for node in nodes}
     costs = {
         node["id"]: len(node_line(node, include_confidence=not is_search(node))) + 1
         for node in nodes
     }
-    if sum(costs.values()) <= node_budget:
+    if not always_select and sum(costs.values()) <= node_budget:
         base.strategy = f"focused_budget_{node_budget}"
         return base
 
@@ -975,7 +983,8 @@ def evidence_pruned_chain_selection(
         relation_id = relation.get("id") if isinstance(relation, dict) else None
         if source in selected_set and target in selected_set and isinstance(relation_id, int):
             relation_ids.append(relation_id)
-    return Selection(f"focused_budget_{node_budget}", selected, relation_ids, used)
+    prefix = "focused_always" if always_select else "focused_budget"
+    return Selection(f"{prefix}_{node_budget}", selected, relation_ids, used)
 
 
 _PROCEDURAL_FACT_RE = re.compile(
@@ -1573,6 +1582,7 @@ def strategy_metrics(
         set(selection.relation_ids)
         if selection.strategy == "evidence_first_chains"
         or selection.strategy.startswith("focused_budget_")
+        or selection.strategy.startswith("focused_always_")
         or selection.strategy.startswith("answer_directed_budget_")
         else None
     )
@@ -1974,6 +1984,19 @@ def main() -> None:
                     question_similarities,
                     node_vectors,
                     node_budget=budget,
+                )
+                for budget in (args.focused_budget or [NODE_BUDGET])
+            ],
+            *[
+                evidence_pruned_chain_selection(
+                    item.snapshot,
+                    nodes,
+                    similarities,
+                    focus_similarities,
+                    question_similarities,
+                    node_vectors,
+                    node_budget=budget,
+                    always_select=True,
                 )
                 for budget in (args.focused_budget or [NODE_BUDGET])
             ],
