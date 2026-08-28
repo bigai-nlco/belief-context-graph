@@ -40,8 +40,6 @@ const DIALOGUE_EOS = "<｜end▁of▁sentence｜>";
 const DIALOGUE_USER = "<｜User｜>";
 const DIALOGUE_ASSISTANT = "<｜Assistant｜>";
 const DIALOGUE_VALID_ROLES = new Set(["system", "user", "assistant"]);
-const BELIEF_CONTEXT_OPEN = "<belief_context>";
-const BELIEF_CONTEXT_CLOSE = "</belief_context>";
 
 export const BCG_TURN_LIMIT_MARKER = "BCG_TURN_LIMIT_EXCEEDED";
 
@@ -470,7 +468,13 @@ export function formatCompactBcgDialogueContext(snapshot: BcgSnapshot, includeRe
 		}
 	}
 	const payload = `${heading}\n\n${lines.join("\n")}`;
-	return `${BELIEF_CONTEXT_OPEN}\n${payload}\n${BELIEF_CONTEXT_CLOSE}`;
+	return (
+		DIALOGUE_BOS +
+		DIALOGUE_USER +
+		payload +
+		DIALOGUE_ASSISTANT +
+		DIALOGUE_EOS
+	);
 }
 
 function formatDialogueBeliefMarkdown(message: GraphDialogueBeliefMessage): string {

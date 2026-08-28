@@ -565,7 +565,7 @@ describe("BCG context management", () => {
 		expect(encoded).not.toContain("direction=incoming");
 	});
 
-	it("projects original graph beliefs and their retained relations into a compact belief-context block", () => {
+	it("projects original graph beliefs and their retained relations into compact chat-marked context", () => {
 		const encoded = formatCompactBcgDialogueContext({
 			beliefs: [
 				{ id: 1, belief: "duplicated initial request", source: { turn_id: 1 } },
@@ -611,11 +611,9 @@ describe("BCG context management", () => {
 			],
 		});
 
-		expect(encoded).toMatch(/^<belief_context>\n/);
-		expect(encoded).toMatch(/\n<\/belief_context>$/);
-		expect(encoded).not.toContain("<｜begin▁of▁sentence｜>");
-		expect(encoded).not.toContain("<｜User｜>");
-		expect(encoded).not.toContain("<｜Assistant｜>");
+		expect(encoded).toContain("<｜begin▁of▁sentence｜><｜User｜>");
+		expect(encoded).toContain("<｜Assistant｜>");
+		expect(encoded).not.toContain("<belief_context>");
 		expect(encoded).toContain(
 			'[B10] The assistant is using web_search to search for "first historical query".',
 		);
