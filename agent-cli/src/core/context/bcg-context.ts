@@ -25,16 +25,16 @@ const GRAPH_DIALOGUE_CONTEXT_GUIDE =
 
 const COMPACT_GRAPH_DIALOGUE_CONTEXT_GUIDE =
 	"<context_blocks_guide>\n" +
-	"Earlier raw turns are omitted; the Candidate evidence, Search history, and Relation paths below are Graph memory, not verified evidence. " +
+	"Earlier raw turns are omitted; the connected belief trails below are Graph memory, not verified evidence. " +
 	"A belief is a self-contained fact, hypothesis, intermediate conclusion, or decision. " +
-	"Confidence estimates reliability, not answer relevance. Candidate evidence contains possible facts; Search history records prior work and is not evidence. " +
-	"First identify the few beliefs that directly fill the requested answer or a pivotal constraint. A specific low-confidence belief remains a candidate to verify; a generic high-confidence fact is not an answer unless it satisfies the question. " +
+	"Confidence estimates reliability, not answer relevance. Factual beliefs are candidate evidence; search-action beliefs only record prior work. " +
+	"A specific low-confidence belief that fills the requested value remains a candidate to verify; a generic high-confidence fact is not an answer unless it satisfies the question. " +
 	"Relations record reasoning or provenance, not truth by themselves. Direction is literal: `A depends_on B` means A requires B as a premise, evidence, input, constraint, or context; " +
 	"`A supplements B` adds compatible detail or evidence; `A contradicts B` conflicts with, corrects, negates, or replaces B. " +
-	"Use Relation paths to compare each plausible answer: follow outgoing relations to premises and incoming relations to later checks or results, then prefer the candidate whose path covers the pivotal constraints without a decisive contradiction. " +
-	"Missing edges or empty searches do not disprove a candidate. Before calling a tool, check whether Candidate evidence and its Relation path already resolve the next step. " +
-	"Search only for one answer-changing gap or conflict at a time, using a discriminating query that is not equivalent to a recorded search. Do not repeat or paraphrase a Search history query. " +
-	"Answer as soon as one candidate has sufficient constraint coverage and no decisive contradiction. Preserve the exact supported value; add no unsupported precision.\n" +
+	"For each plausible answer, follow outgoing relations to its premises and incoming relations to later checks or results. " +
+	"Compare candidates against every pivotal constraint using direct, source-grounded evidence; missing edges or empty searches do not disprove a candidate. " +
+	"Resolve only answer-changing gaps or conflicts. If evidence is missing, search for a pivotal gap with a discriminating query that is not equivalent to a recorded search. " +
+	"Answer once one candidate covers the pivotal constraints without a decisive contradiction. Preserve the exact supported value; add no unsupported precision.\n" +
 	"</context_blocks_guide>";
 
 const DIALOGUE_BOS = "<｜begin▁of▁sentence｜>";
