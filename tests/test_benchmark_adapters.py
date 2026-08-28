@@ -754,6 +754,54 @@ print(json.dumps({
     assert trace_path.is_file()
 
 
+def test_runner_can_disable_per_task_model_io_traces(tmp_path: Path) -> None:
+    fake_agent = tmp_path / "no_trace_agent.py"
+    fake_agent.write_text(
+        """
+import json
+import os
+
+assert "BCG_MODEL_IO_TRACE_PATH" not in os.environ
+print(json.dumps({
+    "type": "message_end",
+    "message": {
+        "role": "assistant",
+        "content": [{"type": "text", "text": "FINAL ANSWER: A"}],
+        "usage": {},
+        "stopReason": "stop",
+    },
+}))
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    task = BenchmarkTask(
+        benchmark="mmlu_pro",
+        task_id="no-trace",
+        question="Question\n\nA. yes\nB. no",
+        answers=("A",),
+    )
+    output = tmp_path / "results"
+    config = RunConfig(
+        output_dir=output,
+        model="fake",
+        base_url="https://unused.test/v1",
+        modes=("default",),
+        workers=1,
+        record_model_io=False,
+        agent_command=(sys.executable, str(fake_agent)),
+    )
+
+    run_benchmarks({"mmlu_pro": [task]}, config, judge=None)
+
+    result_path = output / "mmlu_pro" / "default" / "tasks" / "no-trace.json"
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    assert result["model_io_trace"] is None
+    assert run_metadata["record_model_io"] is False
+    assert not (output / "mmlu_pro" / "default" / "model-io").exists()
+
+
 def test_runner_interleaves_benchmarks_before_modes() -> None:
     browsecomp = [
         BenchmarkTask("browsecomp", f"bc-{index}", "Question", ("answer",))

@@ -253,6 +253,13 @@ def run(
         str | None,
         typer.Option(help="Override the bcg-agent executable command."),
     ] = None,
+    record_model_io: Annotated[
+        bool,
+        typer.Option(
+            "--record-model-io/--no-record-model-io",
+            help="Record every Agent model request and response as per-task JSONL.",
+        ),
+    ] = True,
     overwrite: Annotated[
         bool,
         typer.Option(help="Rerun task artifacts that already exist."),
@@ -385,6 +392,7 @@ def run(
         allow_summary_fallback=allow_summary_fallback,
         allow_rag_fallback=allow_rag_fallback,
         allow_no_search=allow_no_search,
+        record_model_io=record_model_io,
         overwrite=overwrite,
         agent_command=tuple(shlex.split(agent_command)) if agent_command else None,
     )

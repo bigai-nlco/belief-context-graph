@@ -19,6 +19,8 @@ Data policy:
 
 The reference Agent can be evaluated head-to-head in **Default**, **Recent-Only**, **RAG**, **Summary**, and **BCG** modes against **BrowseComp** and **BrowseComp (ZH)**. All modes use the same Agent model, prompt, and scorer; only context management changes. Every bounded mode permanently retains the initial user input.
 
+Per-task Agent model request/response traces are recorded under `model-io/` by default. Pass `--no-record-model-io` for lower disk usage; trajectories, task results, and token summaries are still retained.
+
 ```bash
 bcg benchmark run browsecomp browsecomp_zh --modes default,recent-only,rag,summary,bcg \
     --thinking off \

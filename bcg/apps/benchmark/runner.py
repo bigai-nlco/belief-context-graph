@@ -77,6 +77,7 @@ class RunConfig:
     allow_summary_fallback: bool = False
     allow_rag_fallback: bool = False
     allow_no_search: bool = False
+    record_model_io: bool = True
     overwrite: bool = False
     agent_command: tuple[str, ...] | None = None
 
@@ -119,6 +120,7 @@ def run_benchmarks(
         "allow_graph_fallback": config.allow_graph_fallback,
         "allow_summary_fallback": config.allow_summary_fallback,
         "allow_rag_fallback": config.allow_rag_fallback,
+        "record_model_io": config.record_model_io,
         "benchmarks": {
             benchmark: len(tasks) for benchmark, tasks in tasks_by_benchmark.items()
         },
@@ -463,7 +465,8 @@ def _run_one(
         / "model-io"
         / f"{safe_key}.jsonl"
     )
-    model_io_trace_path.parent.mkdir(parents=True, exist_ok=True)
+    if config.record_model_io:
+        model_io_trace_path.parent.mkdir(parents=True, exist_ok=True)
     model_io_trace_path.unlink(missing_ok=True)
     if mode == "rag":
         rag_database_path.parent.mkdir(parents=True, exist_ok=True)
@@ -511,10 +514,13 @@ def _run_one(
                 "BCG_SUMMARY_TRACE_PATH": str(summary_context_trace_path),
                 "BCG_RAG_TRACE_PATH": str(rag_context_trace_path),
                 "BCG_RAG_DB_PATH": str(rag_database_path),
-                "BCG_MODEL_IO_TRACE_PATH": str(model_io_trace_path),
                 "SUMMARY_API_KEY": config.summary_api_key or config.api_key or "EMPTY",
             }
         )
+        if config.record_model_io:
+            environment["BCG_MODEL_IO_TRACE_PATH"] = str(model_io_trace_path)
+        else:
+            environment.pop("BCG_MODEL_IO_TRACE_PATH", None)
         started = time.monotonic()
         return_code, stdout, stderr, timed_out, cancelled = _execute(
             arguments,
@@ -659,7 +665,9 @@ def _run_one(
             str(rag_database_path) if rag_database_path.is_file() else None
         ),
         "model_io_trace": (
-            str(model_io_trace_path) if model_io_trace_path.is_file() else None
+            str(model_io_trace_path)
+            if config.record_model_io and model_io_trace_path.is_file()
+            else None
         ),
         "metadata": task.metadata,
     }
