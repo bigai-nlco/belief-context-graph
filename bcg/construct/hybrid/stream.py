@@ -63,6 +63,26 @@ from .stance import (
 BELIEF_ROLES = {"user", "assistant", "tool"}
 
 
+def _confidence_source_type(
+    *,
+    role: str,
+    extraction_method: str | None,
+    source_text: str,
+) -> str:
+    """Map a graph node to the configured fine-grained confidence source."""
+    if extraction_method == "rule_tool_call":
+        return "tool_call"
+    if role in {"tool", "function"}:
+        return "tool_result"
+    if role == "user":
+        return "user_input"
+    if role == "assistant" and any(
+        marker in source_text.casefold() for marker in ("<think>", "<thinking>")
+    ):
+        return "llm_reasoning"
+    return "assistant_other" if role == "assistant" else "unknown"
+
+
 @dataclass
 class StreamOptions:
     """Runtime options populated from ``model_config.json > belief_graph``."""
@@ -705,6 +725,12 @@ class StreamingBeliefBuilder:
                 "stance_scores": dict(stance_prediction.scores),
                 "stance_model": stance_prediction.model_path,
             }
+            source_type = _confidence_source_type(
+                role=role,
+                extraction_method=extracted.extraction_method,
+                source_text=chunk.text,
+            )
+            cleaned["source_type"] = source_type
             if extracted.query is not None:
                 cleaned["tool_name"] = extracted.tool_name or "tool"
                 cleaned["query"] = extracted.query
@@ -728,6 +754,7 @@ class StreamingBeliefBuilder:
                 stance_scores=stance_prediction.scores,
                 stance_model=stance_prediction.model_path,
                 role=role,
+                source_type=source_type,
             )
             node = self._make_node(cleaned, src, [evidence], role)
             new_nodes.append(node)
@@ -1138,6 +1165,7 @@ class StreamingBeliefBuilder:
             "stance_scores": dict(cleaned.get("stance_scores") or {}),
             "stance_model": str(cleaned.get("stance_model") or ""),
             "role": role,
+            "source_type": str(cleaned.get("source_type") or role),
             "entities": list(cleaned.get("entities") or []),
             "event_time": datetime.now(UTC).isoformat(),
             "source": dict(src),

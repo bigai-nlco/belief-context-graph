@@ -165,7 +165,7 @@ class BeliefGraph:
             weight = default
         if not math.isfinite(weight):
             weight = default
-        return max(0.0, weight)
+        return min(1.0, max(0.0, weight))
 
     def _clean_relation_condition(
         self,

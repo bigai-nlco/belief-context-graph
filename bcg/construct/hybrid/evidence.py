@@ -55,6 +55,7 @@ def evidence_from_chunk(
     stance_scores: dict[str, float] | None = None,
     stance_model: str | None = None,
     role: str = "unknown",
+    source_type: str | None = None,
 ) -> dict[str, Any]:
     """Build one exact evidence record for a contiguous semantic chunk."""
     start = max(0, int(chunk_start))
@@ -72,6 +73,8 @@ def evidence_from_chunk(
         "role": role,
         "source": dict(source),
     }
+    if source_type:
+        record["source_type"] = str(source_type)
     if stance_confidence is not None:
         record["stance_confidence"] = float(stance_confidence)
     if isinstance(stance_scores, dict):

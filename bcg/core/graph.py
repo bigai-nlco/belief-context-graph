@@ -216,7 +216,7 @@ class RelationPayload(BaseModel):
     to_id: int = Field(..., ge=0)
     type: RelationType
     note: str = ""
-    weight: float | None = Field(default=None, ge=0.0)
+    weight: float | None = Field(default=None, ge=0.0, le=1.0)
     activated_condition: RelationActivationCondition | None = None
 
     @model_validator(mode="after")

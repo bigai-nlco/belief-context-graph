@@ -11,7 +11,7 @@ The confidence module follows the current confidence design:
 Code fields:
     initial_confidence  == P_prior
     evidence_confidence == sum(w_i * evidence_i) for ADDITIONAL evidence only
-    factor_confidence   == sum(direction * relation_weight * input_confidence)
+    factor_confidence   == strongest support + strongest contradiction
     confidence          == P_posterior
 
 Important implementation detail:
@@ -76,11 +76,14 @@ def normalize_confidence_config(config: dict[str, Any] | None = None) -> dict[st
         rel_raw = {}
     return {
         "relation_propagation": {
-            "default_relation_weight": max(
-                0.0,
-                _as_float(
-                    rel_raw.get("default_relation_weight"),
-                    rel_defaults["default_relation_weight"],
+            "default_relation_weight": min(
+                1.0,
+                max(
+                    0.0,
+                    _as_float(
+                        rel_raw.get("default_relation_weight"),
+                        rel_defaults["default_relation_weight"],
+                    ),
                 ),
             ),
             "input_confidence_threshold": min(
@@ -336,7 +339,16 @@ def _relation_weight(relation: dict[str, Any], config: dict[str, Any]) -> float:
         value = float(config["default_relation_weight"])
     if not math.isfinite(value):
         value = float(config["default_relation_weight"])
-    return max(0.0, value)
+    return min(1.0, max(0.0, value))
+
+
+def _is_procedural_output(node: dict[str, Any]) -> bool:
+    """Return whether a node records an action/query rather than its truth."""
+    if node.get("extraction_method") == "rule_tool_call":
+        return True
+    if node.get("query"):
+        return True
+    return bool(node.get("tool_arguments")) and not bool(node.get("tool_result_items"))
 
 
 def relation_factor_contribution(
@@ -344,6 +356,7 @@ def relation_factor_contribution(
     nodes_by_id: dict[int, dict[str, Any]],
     *,
     config: dict[str, Any] | None = None,
+    confidence_by_id: dict[int, float] | None = None,
 ) -> dict[str, Any] | None:
     signal = _relation_signal(relation)
     if signal is None:
@@ -353,15 +366,27 @@ def relation_factor_contribution(
     input_node = nodes_by_id.get(input_id)
     if output is None or input_node is None:
         return None
+    if direction > 0 and _is_procedural_output(output):
+        return None
 
     prop_cfg = relation_propagation_config(config)
-    input_confidence = float(input_node.get("confidence") or 0.0)
+    if confidence_by_id is None:
+        input_confidence = float(input_node.get("confidence") or 0.0)
+    else:
+        input_confidence = float(confidence_by_id.get(input_id, 0.0))
     threshold = _relation_input_threshold(relation, prop_cfg)
     if input_confidence <= threshold:
         return None
 
     weight = _relation_weight(relation, prop_cfg)
-    contribution = direction * weight * input_confidence
+    available_range = 1.0 - threshold
+    if available_range <= 0.0:
+        return None
+    activation_strength = min(
+        1.0,
+        max(0.0, (input_confidence - threshold) / available_range),
+    )
+    contribution = direction * weight * activation_strength
     return {
         "relation_id": relation.get("id"),
         "relation_type": relation.get("type"),
@@ -371,6 +396,7 @@ def relation_factor_contribution(
         "weight": weight,
         "input_confidence": round(input_confidence, 6),
         "input_conf_threshold": threshold,
+        "activation_strength": round(activation_strength, 6),
         "contribution": round(contribution, 6),
     }
 
@@ -381,9 +407,9 @@ def compute_factor_confidence(
     relations: Iterable[dict[str, Any]],
     *,
     config: dict[str, Any] | None = None,
+    confidence_by_id: dict[int, float] | None = None,
 ) -> tuple[float, list[dict[str, Any]]]:
     contributions: list[dict[str, Any]] = []
-    total = 0.0
     for relation in relations:
         signal = _relation_signal(relation)
         if signal is None or signal[0] != output_node_id:
@@ -392,12 +418,28 @@ def compute_factor_confidence(
             relation,
             nodes_by_id,
             config=config,
+            confidence_by_id=confidence_by_id,
         )
         if contribution is None:
             continue
         contributions.append(contribution)
-        total += float(contribution["contribution"])
-    return round(total, 6), contributions
+
+    positive = [
+        item for item in contributions if float(item.get("contribution") or 0.0) > 0
+    ]
+    negative = [
+        item for item in contributions if float(item.get("contribution") or 0.0) < 0
+    ]
+    selected: list[dict[str, Any]] = []
+    if positive:
+        selected.append(max(positive, key=lambda item: float(item["contribution"])))
+    if negative:
+        selected.append(min(negative, key=lambda item: float(item["contribution"])))
+    selected.sort(
+        key=lambda item: (float(item["contribution"]), str(item.get("relation_id")))
+    )
+    total = sum(float(item["contribution"]) for item in selected)
+    return round(total, 6), selected
 
 
 def propagate_relation_confidences(
@@ -439,6 +481,11 @@ def propagate_relation_confidences(
         current = sorted(frontier & set(nodes_by_id))
         frontier = set()
         changed_this_round: list[int] = []
+        confidence_snapshot = {
+            node_id: float(node.get("confidence") or 0.0)
+            for node_id, node in nodes_by_id.items()
+        }
+        pending_updates: dict[int, dict[str, Any]] = {}
         for node_id in current:
             node = nodes_by_id.get(node_id)
             if node is None:
@@ -450,14 +497,36 @@ def propagate_relation_confidences(
                 nodes_by_id,
                 relation_list,
                 config=config,
+                confidence_by_id=confidence_snapshot,
             )
-            node["factor_confidence"] = factor_score
-            recompute_node_confidence(node)
-            new_confidence = float(node.get("confidence") or 0.0)
+            new_confidence = posterior_confidence(
+                float(node.get("initial_confidence") or 0.55),
+                float(node.get("evidence_confidence") or 0.0),
+                factor_score,
+            )
             confidence_delta = new_confidence - old_confidence
             factor_delta = factor_score - old_factor
             if abs(confidence_delta) <= min_delta and abs(factor_delta) <= min_delta:
                 continue
+            pending_updates[node_id] = {
+                "factor_score": factor_score,
+                "new_confidence": new_confidence,
+                "confidence_delta": confidence_delta,
+                "factor_delta": factor_delta,
+                "contributions": contributions,
+            }
+
+        for node_id in current:
+            update = pending_updates.get(node_id)
+            if update is None:
+                continue
+            node = nodes_by_id[node_id]
+            factor_score = float(update["factor_score"])
+            confidence_delta = float(update["confidence_delta"])
+            factor_delta = float(update["factor_delta"])
+            contributions = list(update["contributions"])
+            node["factor_confidence"] = factor_score
+            node["confidence"] = float(update["new_confidence"])
             updated_ids.add(node_id)
             changed_this_round.append(node_id)
             if record_history:
