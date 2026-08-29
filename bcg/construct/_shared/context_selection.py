@@ -843,7 +843,20 @@ def select_focused_context(
         )
         return True
 
-    current_coverage = [0.0 for _ in constraints]
+    newest_turn = max(turns)
+    newest_raw_results = [
+        node_id
+        for node_id in fact_ids
+        if by_id[node_id].get("extraction_method") == "rule_tool_result"
+        and _source_turn(by_id[node_id]) == newest_turn
+        and "Search budget exhausted" not in _text(by_id[node_id])
+    ]
+    if newest_raw_results:
+        add_fact(max(newest_raw_results, key=node_scores.get))
+
+    current_coverage = _constraint_ratios(
+        selected_set, constraint_similarities, constraint_best
+    )
     remaining_branches = list(branches)
     for _ in range(6):
         best_branch: list[int] | None = None

@@ -244,6 +244,37 @@ def test_selected_relations_prioritize_exclusion_and_validation_over_provenance(
     assert len({13, 14} & set(selected)) == 1
 
 
+def test_focused_selection_reserves_the_latest_raw_tool_result() -> None:
+    snapshot = {
+        "beliefs": [
+            node(100, "The answer must satisfy the named constraint.", 1, role="user"),
+            node(1, "named constraint evidence " + "a" * 180, 4),
+            node(2, "older candidate evidence " + "b" * 180, 5),
+            node(
+                3,
+                "The latest bounded tool result contains a possible exact answer. "
+                + "c" * 100,
+                9,
+                extraction_method="rule_tool_result",
+            ),
+            node(4, "large distractor " + "d" * 350, 8),
+        ],
+        "relations": [],
+    }
+
+    result = select_focused_context(
+        snapshot,
+        "named constraint",
+        "named constraint",
+        "Find the answer satisfying the named constraint.",
+        embedder=None,
+        node_char_budget=650,
+    )
+
+    assert result["retrieval"] == "lexical"
+    assert 3 in result["node_ids"]
+
+
 @pytest.mark.parametrize("client_class", [UnifiedLocalEmbedder, HybridLocalEmbedder])
 def test_local_embedding_encode_is_serialized_across_workers(client_class: Any) -> None:
     class FakeModel:
