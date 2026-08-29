@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from bcg.construct._shared.context_selection import (
+    _selected_relation_ids,
     select_connected_context,
     select_focused_context,
 )
@@ -123,6 +124,124 @@ def test_focused_selection_preserves_evidence_and_prunes_search_noise() -> None:
     selected_searches = set(range(10, 20)) & set(result["node_ids"])
     assert len(selected_searches) <= 6
     assert 99 not in result["relation_ids"]
+
+
+def test_focused_selection_keeps_all_fit_behavior_unchanged() -> None:
+    snapshot = {
+        "beliefs": [
+            node(
+                100, "The requested candidate must match the red clue.", 1, role="user"
+            ),
+            node(1, "candidate evidence", 2),
+            node(2, "supporting evidence", 3),
+        ],
+        "relations": [{"id": 8, "from_id": 2, "to_id": 1, "type": "depends_on"}],
+    }
+
+    result = select_focused_context(
+        snapshot,
+        "candidate",
+        "candidate",
+        "find candidate",
+        embedder=KeywordEmbedder(),
+        node_char_budget=1_000,
+    )
+
+    assert result == {
+        "strategy": "focused",
+        "retrieval": "all_fit",
+        "node_ids": [1, 2],
+        "relation_ids": [8],
+        "node_chars": result["node_chars"],
+    }
+
+
+def test_focused_selection_uses_initial_constraints_and_only_related_searches() -> None:
+    snapshot = {
+        "beliefs": [
+            node(
+                100, "The answer must match the red observatory clue.", 1, role="user"
+            ),
+            node(
+                101, "The answer must match the 1974 expedition clue.", 1, role="user"
+            ),
+            node(1, "Aurora matches the red observatory clue. " + "a" * 100, 3),
+            node(2, "Aurora matches the 1974 expedition clue. " + "b" * 100, 4),
+            node(
+                3, "Recent target distractor unrelated to either clue. " + "c" * 260, 9
+            ),
+            node(
+                10,
+                'The assistant is using web_search to search for "Aurora evidence".',
+                4,
+                extraction_method="rule_tool_call",
+                query="Aurora evidence",
+            ),
+            node(
+                11,
+                'The assistant is using web_search to search for "target distractor".',
+                10,
+                extraction_method="rule_tool_call",
+                query="target distractor",
+            ),
+        ],
+        "relations": [
+            {"id": 1, "from_id": 2, "to_id": 1, "type": "supplements"},
+            {"id": 2, "from_id": 1, "to_id": 10, "type": "depends_on", "weight": 0},
+        ],
+    }
+
+    result = select_focused_context(
+        snapshot,
+        "target distractor",
+        "target distractor",
+        "Find the answer matching the red observatory and 1974 expedition clues.",
+        embedder=None,
+        node_char_budget=650,
+    )
+
+    assert {1, 2}.issubset(result["node_ids"])
+    assert 10 in result["node_ids"]
+    assert 11 not in result["node_ids"]
+    assert {1, 2}.issubset(result["relation_ids"])
+
+
+def test_selected_relations_prioritize_exclusion_and_validation_over_provenance() -> (
+    None
+):
+    by_id = {
+        1: node(1, "candidate A", 4),
+        2: node(2, "candidate A supporting constraint", 3),
+        3: node(3, "candidate A is excluded", 5),
+        10: node(
+            10,
+            "The assistant is using web_search for candidate A.",
+            2,
+            extraction_method="rule_tool_call",
+            query="candidate A",
+        ),
+    }
+    relations = [
+        (
+            1,
+            10,
+            0.3,
+            {"id": 13, "from_id": 1, "to_id": 10, "type": "depends_on", "weight": 0},
+        ),
+        (
+            2,
+            10,
+            0.2,
+            {"id": 14, "from_id": 2, "to_id": 10, "type": "depends_on", "weight": 0},
+        ),
+        (1, 2, 0.8, {"id": 12, "from_id": 1, "to_id": 2, "type": "depends_on"}),
+        (3, 1, 0.7, {"id": 11, "from_id": 3, "to_id": 1, "type": "contradicts"}),
+    ]
+
+    selected = _selected_relation_ids({1, 2, 3, 10}, relations, by_id)
+
+    assert selected[:2] == [11, 12]
+    assert len({13, 14} & set(selected)) == 1
 
 
 @pytest.mark.parametrize("client_class", [UnifiedLocalEmbedder, HybridLocalEmbedder])

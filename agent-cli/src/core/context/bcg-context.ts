@@ -32,12 +32,13 @@ const COMPACT_GRAPH_DIALOGUE_CONTEXT_GUIDE =
 	"Relations record reasoning or provenance, not truth by themselves. Direction is literal: `A depends_on B` means A requires B as a premise, evidence, input, constraint, or context; " +
 	"`A supplements B` adds compatible detail or evidence; `A contradicts B` conflicts with, corrects, negates, or replaces B. " +
 	"When a relation includes a note, the note explains why the Graph connected its endpoints; it is rationale for the link, not independent evidence. " +
-	"For each plausible answer, follow outgoing relations to its premises and incoming relations to later checks or results. " +
-	"Compare candidates against every pivotal constraint using direct, source-grounded evidence; missing edges or empty searches do not disprove a candidate. " +
-	"Before searching, check whether a concrete answer value is already stated by a Tool Result belief and has no retained contradiction; if so, answer without re-verifying every clue. " +
-	"Resolve only answer-changing gaps or conflicts. If evidence is still missing, use one parallel tool-call batch of non-equivalent, discriminating queries to cover the remaining decisive gaps. " +
-	"After that batch returns, answer from the best-supported candidate instead of opening another search branch, unless a concrete contradiction directly blocks the answer. " +
-	"Answer once one candidate covers the pivotal constraints without a decisive contradiction. Preserve the exact supported value; add no unsupported precision.\n" +
+	"Treat every stated answer value as a candidate, not as sufficient reason to stop. First identify the pivotal independent constraints in the original user request. " +
+	"For each plausible candidate, follow outgoing relations to its premises and incoming relations to later validation, supplementation, or contradiction. " +
+	"Compare candidates by constraint coverage using direct, source-grounded evidence; missing edges or empty searches do not disprove a candidate. " +
+	"Do not converge until one candidate has support for the pivotal constraints and no decisive retained contradiction. " +
+	"Resolve only answer-changing gaps or conflicts. If coverage is incomplete or candidates remain tied, use one parallel tool-call batch of non-equivalent, discriminating queries for the missing constraints. " +
+	"Do not reopen a satisfied constraint or repeat an equivalent search. After new results arrive, re-check coverage and contradictions before answering. " +
+	"If the search budget is exhausted, choose the candidate with the strongest supported coverage and state only the exact supported value; add no unsupported precision.\n" +
 	"</context_blocks_guide>";
 
 const DIALOGUE_BOS = "<｜begin▁of▁sentence｜>";
@@ -480,12 +481,22 @@ function compactRelationPathLines(
 		noteChars += note.length;
 		return `${base} — ${note}`;
 	};
+	const relationRole = (relation: CompactRelation): number => {
+		if (relation.type === "contradicts") return 0;
+		const source = byId.get(relation.from_id);
+		const target = byId.get(relation.to_id);
+		const hasSearchEndpoint =
+			(source ? isCompactSearchHistoryBelief(source) : false) ||
+			(target ? isCompactSearchHistoryBelief(target) : false);
+		if (!hasSearchEndpoint) return 1;
+		return relation.weight === 0 ? 3 : 2;
+	};
 	const edgePriority = (edge: {
 		relation: CompactRelation;
 		neighbor: number;
 		incoming: boolean;
 	}): [number, number, number, number] => [
-		edge.relation.type === "contradicts" ? 0 : 1,
+		relationRole(edge.relation),
 		edge.incoming ? 1 : 0,
 		priority.get(edge.neighbor) ?? Number.MAX_SAFE_INTEGER,
 		edge.relation.id,
@@ -533,7 +544,9 @@ function compactRelationPathLines(
 
 	// Defensive: retain any selected relation that was not reached because of
 	// malformed duplicate IDs, but mark it as a lower-priority cross-link.
-	for (const relation of relations) {
+	for (const relation of [...relations].sort(
+		(left, right) => relationRole(left) - relationRole(right) || left.id - right.id,
+	)) {
 		if (seenRelations.has(relation.id)) continue;
 		lines.push({
 			text: relationLine(relation),

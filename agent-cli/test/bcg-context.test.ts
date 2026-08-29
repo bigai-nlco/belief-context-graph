@@ -213,10 +213,19 @@ describe("BCG context management", () => {
 		expect(effectiveSystem).toContain("Relations record reasoning or provenance, not truth");
 		expect(effectiveSystem).toContain("rationale for the link, not independent evidence");
 		expect(effectiveSystem).toContain("follow outgoing relations to its premises");
-		expect(effectiveSystem).toContain("incoming relations to later checks or results");
+		expect(effectiveSystem).toContain(
+			"incoming relations to later validation, supplementation, or contradiction",
+		);
 		expect(effectiveSystem).toContain("generic high-confidence fact is not an answer");
-		expect(effectiveSystem).toContain("answer without re-verifying every clue");
+		expect(effectiveSystem).toContain(
+			"Treat every stated answer value as a candidate, not as sufficient reason to stop",
+		);
+		expect(effectiveSystem).toContain("Compare candidates by constraint coverage");
+		expect(effectiveSystem).toContain("Do not converge until one candidate has support");
 		expect(effectiveSystem).toContain("one parallel tool-call batch");
+		expect(effectiveSystem).toContain(
+			"Do not reopen a satisfied constraint or repeat an equivalent search",
+		);
 	});
 
 	it("uses the connected selector result to render compact graph context", async () => {
@@ -882,6 +891,41 @@ describe("BCG context management", () => {
 		expect(nodeOrder).toEqual([8, 7, 6, 5, 4, 3, 2, 1]);
 		expect(new Set(nodeOrder)).toEqual(new Set([1, 2, 3, 4, 5, 6, 7, 8]));
 		expect(encoded.indexOf("[B1] belief 1")).toBeLessThan(encoded.indexOf("#### Relation paths"));
+	});
+
+	it("renders exclusion and factual validation before query provenance", () => {
+		const encoded = formatCompactBcgDialogueContext(
+			{
+				beliefs: [
+					{ id: 1, belief: "candidate answer", confidence: 0.95, source: { turn_id: 6 } },
+					{ id: 2, belief: "candidate premise", confidence: 0.82, source: { turn_id: 4 } },
+					{ id: 3, belief: "candidate exclusion", confidence: 0.86, source: { turn_id: 5 } },
+					{
+						id: 10,
+						belief: 'The assistant is using web_search to search for "candidate".',
+						extraction_method: "rule_tool_call",
+						query: "candidate",
+						source: { turn_id: 3 },
+					},
+				],
+				relations: [
+					{ id: 1, from_id: 1, to_id: 10, type: "depends_on", weight: 0 },
+					{ id: 2, from_id: 1, to_id: 2, type: "depends_on", weight: 0.5 },
+					{ id: 3, from_id: 3, to_id: 1, type: "contradicts", weight: 0.5 },
+				],
+			},
+			true,
+			new Set([1, 2, 3, 10]),
+			new Set([1, 2, 3]),
+			true,
+		);
+
+		const exclusion = encoded.indexOf("[B3] contradicts [B1]");
+		const validation = encoded.indexOf("[B1] depends_on [B2]");
+		const provenance = encoded.indexOf("[B1] depends_on [B10]");
+		expect(exclusion).toBeGreaterThan(-1);
+		expect(exclusion).toBeLessThan(validation);
+		expect(validation).toBeLessThan(provenance);
 	});
 
 	it("ranks factual confidence before recency and treats queries as history", () => {

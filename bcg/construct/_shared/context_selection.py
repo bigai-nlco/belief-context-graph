@@ -13,6 +13,9 @@ from collections import defaultdict
 from typing import Any
 
 DEFAULT_NODE_CHAR_BUDGET = 6_600
+FOCUSED_SEARCH_CHAR_BUDGET = 650
+FOCUSED_SEARCH_LIMIT = 4
+FOCUSED_RELATION_LIMIT = 24
 RELATION_WEIGHTS = {"depends_on": 1.0, "supplements": 0.82, "contradicts": 0.92}
 _EMPTY_SEARCH = re.compile(
     r"^The (?:web_search|\S+ tool) (?:tool )?returned no results\.?$", re.I
@@ -57,6 +60,41 @@ def _eligible(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
         and (_source_turn(node) < 0 or _source_turn(node) > 1)
         and not _EMPTY_SEARCH.match(_text(node))
     ]
+
+
+def _question_constraints(snapshot: dict[str, Any], question: str) -> list[str]:
+    """Recover atomic task constraints from the permanent initial user turn.
+
+    Initial user beliefs are deliberately excluded from the rendered compact
+    graph because the raw user request remains in every Agent call. They are,
+    however, the best available decomposition of a long question and can guide
+    selection without being re-injected.
+    """
+    values = snapshot.get("beliefs") or snapshot.get("nodes") or []
+    constraints: list[str] = []
+    seen: set[str] = set()
+    for node in values:
+        if not isinstance(node, dict) or _source_turn(node) != 1:
+            continue
+        if node.get("role") not in {None, "user"}:
+            continue
+        value = _text(node)
+        folded = value.casefold()
+        if not value or folded in seen:
+            continue
+        # Execution and response-format instructions are not evidence constraints.
+        if (
+            "web_search" in folded
+            or "final answer" in folded
+            or folded.startswith("external evidence ")
+            or folded.startswith("the response must ")
+        ):
+            continue
+        seen.add(folded)
+        constraints.append(value)
+        if len(constraints) >= 12:
+            break
+    return constraints or [question]
 
 
 def _embedding_units(node: dict[str, Any]) -> list[str]:
@@ -121,11 +159,13 @@ def _selection_features(
     focus_query: str,
     question: str,
     nodes: list[dict[str, Any]],
+    constraints: list[str],
     embedder: Any | None,
 ) -> tuple[
     dict[int, float],
     dict[int, float],
     dict[int, float],
+    dict[int, list[float]],
     dict[int, list[float]] | None,
     str,
 ]:
@@ -150,9 +190,27 @@ def _selection_features(
             )
             for node in nodes
         }
-        return query_scores, focus_scores, question_scores, None, "lexical"
+        constraint_scores = {
+            node["id"]: [
+                max(
+                    _lexical_similarity(constraint, unit)
+                    for unit in _embedding_units(node)
+                )
+                for constraint in constraints
+            ]
+            for node in nodes
+        }
+        return (
+            query_scores,
+            focus_scores,
+            question_scores,
+            constraint_scores,
+            None,
+            "lexical",
+        )
 
-    units = [query, focus_query, question]
+    units = [query, focus_query, question, *constraints]
+    node_offset = len(units)
     spans: dict[int, tuple[int, int]] = {}
     for node in nodes:
         start = len(units)
@@ -172,8 +230,23 @@ def _selection_features(
         node_id: max(_cosine(focus_vector, vector) for vector in vectors[start:end])
         for node_id, (start, end) in spans.items()
     }
+    constraint_vectors = vectors[3:node_offset]
+    constraint_scores = {
+        node_id: [
+            max(_cosine(constraint_vector, vector) for vector in vectors[start:end])
+            for constraint_vector in constraint_vectors
+        ]
+        for node_id, (start, end) in spans.items()
+    }
     node_vectors = {node_id: vectors[start] for node_id, (start, _end) in spans.items()}
-    return query_scores, focus_scores, question_scores, node_vectors, "embedding"
+    return (
+        query_scores,
+        focus_scores,
+        question_scores,
+        constraint_scores,
+        node_vectors,
+        "embedding",
+    )
 
 
 def _normalize(values: dict[int, float]) -> dict[int, float]:
@@ -492,29 +565,122 @@ def _coherent_relations(
     ]
 
 
-def _component_map(
-    selected: set[int],
-    relations: list[tuple[int, int, float, dict[str, Any]]],
-) -> dict[int, int]:
-    neighbors: dict[int, set[int]] = defaultdict(set)
-    for source, target, _weight, _relation in relations:
-        if source in selected and target in selected:
-            neighbors[source].add(target)
-            neighbors[target].add(source)
-    result: dict[int, int] = {}
-    component = 0
-    for node_id in selected:
-        if node_id in result:
+def _relation_role(
+    source: int,
+    target: int,
+    relation: dict[str, Any],
+    by_id: dict[int, dict[str, Any]],
+) -> int:
+    """Rank answer-changing and validating edges before search provenance."""
+    if relation.get("type") == "contradicts":
+        return 0
+    source_search = _is_search(by_id[source])
+    target_search = _is_search(by_id[target])
+    if not source_search and not target_search:
+        return 1
+    if relation.get("weight") != 0:
+        return 2
+    return 3
+
+
+def _fact_adjacency(
+    coherent: list[tuple[int, int, float, dict[str, Any]]],
+    by_id: dict[int, dict[str, Any]],
+) -> dict[int, list[tuple[int, float, dict[str, Any]]]]:
+    adjacency: dict[int, list[tuple[int, float, dict[str, Any]]]] = defaultdict(list)
+    for source, target, weight, relation in coherent:
+        if _is_search(by_id[source]) or _is_search(by_id[target]):
             continue
-        stack = [node_id]
-        result[node_id] = component
-        while stack:
-            current = stack.pop()
-            for neighbor in neighbors.get(current, set()):
-                if neighbor not in result:
-                    result[neighbor] = component
-                    stack.append(neighbor)
-        component += 1
+        adjacency[source].append((target, weight, relation))
+        adjacency[target].append((source, weight, relation))
+    return adjacency
+
+
+def _branch_from_seed(
+    seed: int,
+    adjacency: dict[int, list[tuple[int, float, dict[str, Any]]]],
+    node_scores: dict[int, float],
+    *,
+    max_depth: int,
+    max_nodes: int = 8,
+) -> list[int]:
+    """Follow the strongest factual relations without crossing search hubs."""
+    branch: list[int] = []
+    seen = {seed}
+    frontier = [(seed, 0)]
+    while frontier and len(branch) < max_nodes:
+        current, depth = frontier.pop(0)
+        branch.append(current)
+        if depth >= max_depth:
+            continue
+        neighbors = sorted(
+            adjacency.get(current, []),
+            key=lambda item: (
+                item[2].get("type") == "contradicts",
+                item[1] * (0.35 + 0.65 * node_scores[item[0]]),
+            ),
+            reverse=True,
+        )
+        for neighbor, _weight, _relation in neighbors:
+            if neighbor in seen:
+                continue
+            seen.add(neighbor)
+            frontier.append((neighbor, depth + 1))
+    return branch
+
+
+def _constraint_ratios(
+    node_ids: list[int] | set[int],
+    constraint_scores: dict[int, list[float]],
+    constraint_best: list[float],
+) -> list[float]:
+    if not constraint_best:
+        return []
+    return [
+        min(
+            1.0,
+            max(
+                (max(0.0, constraint_scores[node_id][index]) for node_id in node_ids),
+                default=0.0,
+            )
+            / max(0.08, best),
+        )
+        for index, best in enumerate(constraint_best)
+    ]
+
+
+def _selected_relation_ids(
+    selected: set[int],
+    coherent: list[tuple[int, int, float, dict[str, Any]]],
+    by_id: dict[int, dict[str, Any]],
+) -> list[int]:
+    candidates = [
+        item
+        for item in coherent
+        if item[0] in selected
+        and item[1] in selected
+        and isinstance(item[3].get("id"), int)
+    ]
+    candidates.sort(
+        key=lambda item: (
+            _relation_role(item[0], item[1], item[3], by_id),
+            -item[2],
+            -max(_source_turn(by_id[item[0]]), _source_turn(by_id[item[1]])),
+            item[3]["id"],
+        )
+    )
+    result: list[int] = []
+    retained_provenance_for_search: set[int] = set()
+    for source, target, _weight, relation in candidates:
+        role = _relation_role(source, target, relation, by_id)
+        if role == 3:
+            search_id = source if _is_search(by_id[source]) else target
+            if search_id in retained_provenance_for_search:
+                continue
+            retained_provenance_for_search.add(search_id)
+        result.append(relation["id"])
+        if len(result) >= FOCUSED_RELATION_LIMIT:
+            break
     return result
 
 
@@ -558,149 +724,277 @@ def select_focused_context(
             ],
             "node_chars": sum(costs.values()),
         }
+    constraints = _question_constraints(snapshot, question)
     (
         query_similarities,
         focus_similarities,
         question_similarities,
+        constraint_similarities,
         node_vectors,
         retrieval,
-    ) = _selection_features(query, focus_query, question, nodes, embedder)
-    base = _connected_from_similarities(
+    ) = _selection_features(
+        query,
+        focus_query,
+        question,
         nodes,
-        relations,
-        query_similarities,
-        retrieval,
-        node_char_budget=node_char_budget,
-        max_depth=max_depth,
-        strategy="focused",
+        constraints,
+        embedder,
     )
     coherent = _coherent_relations(relations, by_id, node_vectors)
-    selected = [
-        node_id for node_id in base["node_ids"] if not _is_search(by_id[node_id])
-    ]
-    selected_set = set(selected)
-    used = sum(costs[node_id] for node_id in selected)
+    fact_ids = [node_id for node_id in node_ids if not _is_search(by_id[node_id])]
+    if not fact_ids:
+        return {
+            "strategy": "focused",
+            "retrieval": retrieval,
+            "node_ids": [],
+            "relation_ids": [],
+            "node_chars": 0,
+        }
+
     turns = [_source_turn(node) for node in nodes]
     low, high = min(turns), max(turns)
     span = max(1, high - low)
     recency = {node["id"]: (_source_turn(node) - low) / span for node in nodes}
-    base_searches = [
-        node_id for node_id in base["node_ids"] if _is_search(by_id[node_id])
+    constraint_best = [
+        max(max(0.0, constraint_similarities[node_id][index]) for node_id in fact_ids)
+        for index in range(len(constraints))
     ]
-    search_reserve = min(900, sum(costs[node_id] for node_id in base_searches))
+
+    def node_constraint_value(node_id: int) -> tuple[float, float]:
+        ratios = _constraint_ratios([node_id], constraint_similarities, constraint_best)
+        return max(ratios, default=0.0), sum(ratios) / max(1, len(ratios))
+
+    node_scores: dict[int, float] = {}
+    for node_id in fact_ids:
+        constraint_max, constraint_mean = node_constraint_value(node_id)
+        node_scores[node_id] = max(
+            0.001,
+            0.24 * max(0.0, question_similarities[node_id])
+            + 0.22 * max(0.0, focus_similarities[node_id])
+            + 0.10 * max(0.0, query_similarities[node_id])
+            + 0.20 * constraint_max
+            + 0.09 * constraint_mean
+            + 0.08 * recency[node_id]
+            + 0.07 * _confidence(by_id[node_id])
+            + _adjustment(by_id[node_id]),
+        )
+
+    adjacency = _fact_adjacency(coherent, by_id)
+    seed_ids: list[int] = []
+    for index in range(len(constraints)):
+        seed_ids.extend(
+            sorted(
+                fact_ids,
+                key=lambda node_id, position=index: (
+                    constraint_similarities[node_id][position],
+                    node_scores[node_id],
+                ),
+                reverse=True,
+            )[:2]
+        )
+    seed_ids.extend(sorted(fact_ids, key=node_scores.get, reverse=True)[:12])
+    for source, target, _weight, relation in coherent:
+        if relation.get("type") == "contradicts":
+            if not _is_search(by_id[source]):
+                seed_ids.append(source)
+            if not _is_search(by_id[target]):
+                seed_ids.append(target)
+    seed_ids = list(dict.fromkeys(seed_ids))
+
+    branches: list[list[int]] = []
+    seen_branches: set[tuple[int, ...]] = set()
+    for seed in seed_ids:
+        branch = _branch_from_seed(
+            seed,
+            adjacency,
+            node_scores,
+            max_depth=min(3, max_depth),
+        )
+        key = tuple(sorted(branch))
+        if key and key not in seen_branches:
+            seen_branches.add(key)
+            branches.append(branch)
+
+    selected: list[int] = []
+    selected_set: set[int] = set()
+    used = 0
+    raw_results = 0
+    fact_budget = max(
+        0,
+        node_char_budget - min(FOCUSED_SEARCH_CHAR_BUDGET, node_char_budget // 5),
+    )
+
+    def can_add_fact(node_id: int) -> bool:
+        nonlocal raw_results
+        is_raw = by_id[node_id].get("extraction_method") == "rule_tool_result"
+        return (
+            not (is_raw and raw_results >= 2) and used + costs[node_id] <= fact_budget
+        )
+
+    def add_fact(node_id: int) -> bool:
+        nonlocal raw_results, used
+        if node_id in selected_set or not can_add_fact(node_id):
+            return False
+        selected.append(node_id)
+        selected_set.add(node_id)
+        used += costs[node_id]
+        raw_results += int(
+            by_id[node_id].get("extraction_method") == "rule_tool_result"
+        )
+        return True
+
+    current_coverage = [0.0 for _ in constraints]
+    remaining_branches = list(branches)
+    for _ in range(6):
+        best_branch: list[int] | None = None
+        best_utility = -1.0
+        for branch in remaining_branches:
+            additions = [node_id for node_id in branch if node_id not in selected_set]
+            feasible = [node_id for node_id in additions if can_add_fact(node_id)]
+            if not feasible:
+                continue
+            coverage = _constraint_ratios(
+                set(selected_set) | set(feasible),
+                constraint_similarities,
+                constraint_best,
+            )
+            marginal = sum(
+                max(0.0, value - current_coverage[index])
+                for index, value in enumerate(coverage)
+            ) / max(1, len(coverage))
+            breadth = sum(value >= 0.80 for value in coverage) / max(1, len(coverage))
+            branch_quality = (
+                0.48 * (sum(coverage) / max(1, len(coverage)))
+                + 0.22 * breadth
+                + 0.20 * max(node_scores[node_id] for node_id in feasible)
+                + 0.10 * max(recency[node_id] for node_id in feasible)
+            )
+            branch_cost = sum(costs[node_id] for node_id in feasible)
+            utility = (0.62 * marginal + 0.38 * branch_quality) / (
+                (1.0 + branch_cost / 900.0) ** 0.28
+            )
+            if utility > best_utility:
+                best_branch = branch
+                best_utility = utility
+        if best_branch is None:
+            break
+        remaining_branches.remove(best_branch)
+        ordered = [
+            best_branch[0],
+            *sorted(best_branch[1:], key=node_scores.get, reverse=True),
+        ]
+        for node_id in ordered:
+            add_fact(node_id)
+        current_coverage = _constraint_ratios(
+            selected_set, constraint_similarities, constraint_best
+        )
 
     def redundancy(node_id: int) -> float:
-        other_facts = [other for other in selected_set if not _is_search(by_id[other])]
-        if not other_facts:
+        if not selected_set:
             return 0.0
         if node_vectors is not None:
             return max(
                 max(0.0, _cosine(node_vectors[node_id], node_vectors[other]))
-                for other in other_facts
+                for other in selected_set
             )
         return max(
             _lexical_similarity(_text(by_id[node_id]), _text(by_id[other]))
-            for other in other_facts
+            for other in selected_set
         )
 
-    fact_candidates = [
-        node_id
-        for node_id in node_ids
-        if not _is_search(by_id[node_id]) and node_id not in selected_set
-    ]
-    raw_results = sum(
-        by_id[node_id].get("extraction_method") == "rule_tool_result"
-        for node_id in selected_set
-    )
-    while fact_candidates:
-        best = max(
-            fact_candidates,
-            key=lambda node_id: (
-                (
-                    0.44 * question_similarities[node_id]
-                    + 0.28 * focus_similarities[node_id]
-                    + 0.12 * query_similarities[node_id]
-                    + 0.10 * _confidence(by_id[node_id])
-                    + 0.06 * recency[node_id]
-                    + _adjustment(by_id[node_id])
-                    - 0.18 * redundancy(node_id)
-                )
-                / ((1.0 + costs[node_id] / 240.0) ** 0.34)
-            ),
-        )
-        fact_candidates.remove(best)
-        is_raw = by_id[best].get("extraction_method") == "rule_tool_result"
-        if is_raw and raw_results >= 2:
-            continue
-        if used + costs[best] > node_char_budget - search_reserve:
-            continue
-        selected.append(best)
-        selected_set.add(best)
-        used += costs[best]
-        raw_results += int(is_raw)
+    # Spend the remaining evidence budget on nodes that add a missing constraint
+    # or directly extend one of the selected factual branches.
+    remaining_facts = set(fact_ids) - selected_set
+    while remaining_facts:
 
-    latest_search = max(
-        base_searches,
-        key=lambda node_id: _source_turn(by_id[node_id]),
-        default=None,
-    )
-    remaining_searches = set(base_searches)
-    kept_searches = 0
-    while remaining_searches and kept_searches < 6:
-        components = _component_map(selected_set, coherent)
-
-        def search_utility(
+        def fill_utility(
             node_id: int,
-            component_map: dict[int, int] = components,
-        ) -> tuple[float, float, int]:
-            adjacency = 0.0
-            neighbor_components: set[int] = set()
-            produced_evidence = False
-            for source, target, weight, _relation in coherent:
-                neighbor: int | None = None
-                if source == node_id and target in selected_set:
-                    neighbor = target
-                elif target == node_id and source in selected_set:
-                    neighbor = source
-                    produced_evidence = True
-                if neighbor is not None:
-                    adjacency = max(adjacency, weight)
-                    if neighbor in component_map:
-                        neighbor_components.add(component_map[neighbor])
-            connectivity = min(2, len(neighbor_components)) / 2.0
+            baseline_coverage: tuple[float, ...] = tuple(current_coverage),
+        ) -> float:
+            candidate_ratios = _constraint_ratios(
+                [node_id], constraint_similarities, constraint_best
+            )
+            candidate_coverage = [
+                max(value, candidate_ratios[index])
+                for index, value in enumerate(baseline_coverage)
+            ]
+            marginal = sum(
+                max(0.0, value - baseline_coverage[index])
+                for index, value in enumerate(candidate_coverage)
+            ) / max(1, len(candidate_coverage))
+            connected = any(
+                neighbor in selected_set
+                for neighbor, _weight, _relation in adjacency.get(node_id, [])
+            )
+            return (
+                node_scores[node_id]
+                + 0.24 * marginal
+                + 0.12 * float(connected)
+                - 0.16 * redundancy(node_id)
+            ) / ((1.0 + costs[node_id] / 240.0) ** 0.34)
+
+        best = max(remaining_facts, key=fill_utility)
+        remaining_facts.remove(best)
+        if not add_fact(best):
+            continue
+        current_coverage = _constraint_ratios(
+            selected_set, constraint_similarities, constraint_best
+        )
+
+    # Search history is useful only as provenance for a retained evidence branch.
+    search_neighbors: dict[int, list[tuple[int, float, dict[str, Any]]]] = defaultdict(
+        list
+    )
+    for source, target, weight, relation in coherent:
+        if _is_search(by_id[source]) and target in selected_set:
+            search_neighbors[source].append((target, weight, relation))
+        elif _is_search(by_id[target]) and source in selected_set:
+            search_neighbors[target].append((source, weight, relation))
+    search_candidates = set(search_neighbors)
+    search_chars = 0
+    while (
+        search_candidates
+        and len([item for item in selected if _is_search(by_id[item])])
+        < FOCUSED_SEARCH_LIMIT
+    ):
+
+        def search_utility(node_id: int) -> tuple[float, int]:
+            neighbors = search_neighbors[node_id]
+            evidence_count = (
+                min(3, len({neighbor for neighbor, _weight, _rel in neighbors})) / 3.0
+            )
+            strongest_edge = max(weight for _neighbor, weight, _relation in neighbors)
+            produced_evidence = any(
+                relation.get("from_id") == neighbor and relation.get("to_id") == node_id
+                for neighbor, _weight, relation in neighbors
+            )
             score = (
-                0.28 * focus_similarities[node_id]
-                + 0.20 * question_similarities[node_id]
-                + 0.24 * connectivity
-                + 0.12 * adjacency
-                + 0.08 * recency[node_id]
+                0.28 * evidence_count
+                + 0.22 * strongest_edge
+                + 0.18 * max(0.0, focus_similarities[node_id])
+                + 0.12 * max(0.0, question_similarities[node_id])
+                + 0.12 * recency[node_id]
                 + 0.08 * float(produced_evidence)
             )
-            return score, adjacency, _source_turn(by_id[node_id])
+            return score, _source_turn(by_id[node_id])
 
-        best_search = max(remaining_searches, key=search_utility)
-        remaining_searches.remove(best_search)
-        _score, adjacency, _turn = search_utility(best_search)
-        if adjacency <= 0.0 and best_search != latest_search:
-            continue
-        if used + costs[best_search] > node_char_budget:
+        best_search = max(search_candidates, key=search_utility)
+        search_candidates.remove(best_search)
+        cost = costs[best_search]
+        if (
+            search_chars + cost > FOCUSED_SEARCH_CHAR_BUDGET
+            or used + cost > node_char_budget
+        ):
             continue
         selected.append(best_search)
         selected_set.add(best_search)
-        used += costs[best_search]
-        kept_searches += 1
+        used += cost
+        search_chars += cost
 
-    relation_ids = [
-        relation["id"]
-        for source, target, _weight, relation in coherent
-        if source in selected_set
-        and target in selected_set
-        and isinstance(relation.get("id"), int)
-    ]
     return {
         "strategy": "focused",
         "retrieval": retrieval,
         "node_ids": selected,
-        "relation_ids": relation_ids,
+        "relation_ids": _selected_relation_ids(selected_set, coherent, by_id),
         "node_chars": used,
     }
