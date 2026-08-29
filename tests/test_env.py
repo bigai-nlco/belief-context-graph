@@ -165,7 +165,7 @@ def test_hybrid_configs_resolve_all_credentials_from_environment(
         "temperature": 0,
         "max_tokens": 64,
         "retries": 1,
-        "enable_thinking": False,
+        "reasoning_effort": "none",
     }
     extractor = normalize_extractor_config(
         {
@@ -194,7 +194,9 @@ def test_hybrid_configs_resolve_all_credentials_from_environment(
     assert embedding is not None
     assert embedding["api_key"] == "embedding-secret"
     assert extractor["api_key"] == "local-secret"
+    assert extractor["reasoning_effort"] == "none"
     assert edge["api_key"] == "local-secret"
+    assert edge["reasoning_effort"] == "none"
     assert edge["max_previous_windows"] == 3
 
 
@@ -212,7 +214,7 @@ def test_hybrid_edge_config_accepts_bounded_historical_window_override(
             "temperature": 0,
             "max_tokens": 64,
             "retries": 1,
-            "enable_thinking": False,
+            "reasoning_effort": "none",
             "fail_on_error": True,
             "search_previous_turns": True,
             "max_previous_windows": 7,

@@ -172,7 +172,7 @@ class SessionManager:
         print(
             f"[online] edge_generator={edge_cfg['model']}  "
             f"base_url={edge_cfg['base_url']}  "
-            f"non_thinking={not edge_cfg['enable_thinking']}"
+            f"reasoning_effort={edge_cfg['reasoning_effort']}"
         )
         stance_cfg = self.options.to_dict()["stance"]
         print(

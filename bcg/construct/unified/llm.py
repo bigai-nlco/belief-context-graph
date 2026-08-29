@@ -248,13 +248,15 @@ def resolve_reasoning_effort(
 ) -> str:
     """Resolve the unified construction model's reasoning effort.
 
-    Explicit configuration always wins.  GPT-5.6-Luna defaults to ``none``
-    because graph extraction/linking is structured JSON work where hidden
-    reasoning adds latency and cost without improving the wire contract.
-    Other models retain the unified backend's historical ``medium`` default.
+    Explicit configuration always wins. Graph construction defaults to
+    ``none`` for every model because extraction/linking is structured JSON
+    work where changing the model must not silently change latency, cost, or
+    behavior. Provider adapters may translate this common setting to a
+    model-native thinking switch.
     """
+    del model
     if configured is None or not str(configured).strip():
-        return "none" if "gpt-5.6-luna" in str(model).casefold() else "medium"
+        return "none"
     value = str(configured).strip().casefold()
     if value not in REASONING_EFFORTS:
         choices = ", ".join(sorted(REASONING_EFFORTS))

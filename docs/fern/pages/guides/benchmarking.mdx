@@ -64,7 +64,7 @@ Use `--graph-view compact` in BCG mode to inject the low-token belief projection
 </Info>
 
 <Info>
-Use `--thinking medium` (or another supported level) to set the Agent's reasoning effort for the run. This setting is independent of the Graph Construction model's `pipeline.extractor.enable_thinking` and `pipeline.edge_generation.enable_thinking` settings — see [Configuration](/reference/configuration).
+Use `--thinking medium` (or another supported level) to set the Agent's reasoning effort for the run. This setting is independent of the Graph Construction model's `reasoning_effort`, `pipeline.extractor.reasoning_effort`, and `pipeline.edge_generation.reasoning_effort` settings. Graph construction defaults to `none` for every model, so changing only a Graph model name never changes its reasoning behavior — see [Configuration](/reference/configuration).
 </Info>
 
 ## How BCG mode reaches the Graph server

@@ -127,7 +127,8 @@ def run_input(
     edge_cfg = options.to_dict()["edge_generation"]
     print(
         f"[info] edge_generator={edge_cfg['model']}  "
-        f"base_url={edge_cfg['base_url']}  non_thinking={not edge_cfg['enable_thinking']}"
+        f"base_url={edge_cfg['base_url']}  "
+        f"reasoning_effort={edge_cfg['reasoning_effort']}"
     )
     stance_cfg = options.to_dict()["stance"]
     print(

@@ -294,10 +294,10 @@ def call_model(
     output. Providers that only accept their default temperature pass ``None``
     so the field is omitted.
 
-    ``reasoning_effort`` is sent only when not None; pass None to omit it (e.g.
-    for extraction against a thinking model where reasoning is undesirable).
-    ``extra_body`` is forwarded verbatim (e.g. {"chat_template_kwargs":
-    {"enable_thinking": False}} to turn off Qwen3 thinking).
+    ``reasoning_effort`` is sent only when not None. ``extra_body`` is
+    forwarded verbatim so provider adapters can translate the shared Graph
+    reasoning setting to model-native controls such as Qwen chat-template
+    arguments.
     """
     kwargs: dict[str, Any] = {
         "model": model,
@@ -357,22 +357,37 @@ def call_model(
     raise RuntimeError(f"All retries failed: {last_err}")
 
 
+REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+
+
+def normalize_reasoning_effort(value: Any) -> str:
+    """Validate and normalize the shared Graph reasoning setting."""
+    effort = str(value or "none").strip().casefold()
+    if effort not in REASONING_EFFORTS:
+        raise ValueError(
+            f"Unsupported reasoning_effort {value!r}; choose one of: "
+            + ", ".join(sorted(REASONING_EFFORTS))
+        )
+    return effort
+
+
 def thinking_request_options(
-    model: str, *, enabled: bool
+    model: str, *, reasoning_effort: str | None
 ) -> tuple[str | None, dict[str, Any] | None]:
     """Return provider-safe reasoning controls for a construction request.
 
-    GPT-5.6 endpoints require ``reasoning_effort=none`` to disable reasoning;
-    omitting the field lets the provider choose its default effort. Qwen uses
-    its chat-template switch instead.
+    Configuration always uses ``reasoning_effort``. GPT-5.6 accepts that field
+    directly, while Qwen uses a boolean chat-template switch. Other endpoints
+    retain the historical behavior: non-``none`` efforts are forwarded and
+    ``none`` is omitted when no portable off control is known.
     """
-    if enabled:
-        return "medium", None
-    if "gpt-5.6" in model.casefold():
-        return "none", None
-    if "qwen" in model.casefold():
-        return None, {"chat_template_kwargs": {"enable_thinking": False}}
-    return None, None
+    effort = normalize_reasoning_effort(reasoning_effort)
+    model_name = model.casefold()
+    if "qwen" in model_name:
+        return None, {"chat_template_kwargs": {"enable_thinking": effort != "none"}}
+    if "gpt-5.6" in model_name:
+        return effort, None
+    return (None, None) if effort == "none" else (effort, None)
 
 
 def temperature_request_value(model: str, configured: float) -> float | None:
