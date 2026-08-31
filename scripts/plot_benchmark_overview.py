@@ -67,11 +67,11 @@ def compose(summary: Path, horizon: Path, output: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--summary", type=Path, default=Path("assert/benchmark_summary.svg")
+        "--summary", type=Path, default=Path("assets/benchmark_summary.svg")
     )
-    parser.add_argument("--horizon", type=Path, default=Path("assert/token_cost.svg"))
+    parser.add_argument("--horizon", type=Path, default=Path("assets/token_cost.svg"))
     parser.add_argument(
-        "--output", type=Path, default=Path("assert/benchmark_overview.svg")
+        "--output", type=Path, default=Path("assets/benchmark_overview.svg")
     )
     args = parser.parse_args()
     compose(args.summary, args.horizon, args.output)

@@ -280,7 +280,7 @@ def render_svg(output: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--output", type=Path, default=Path("assert/benchmark_summary.svg")
+        "--output", type=Path, default=Path("assets/benchmark_summary.svg")
     )
     args = parser.parse_args()
     render_svg(args.output)
