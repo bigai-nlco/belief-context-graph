@@ -6,9 +6,9 @@ on:
       - main
     paths:
       - "website/**"
-      - "assert/architecture.svg"
-      - "assert/benchmark_overview.svg"
-      - "assert/case_study.svg"
+      - "assets/architecture.svg"
+      - "assets/benchmark_overview.svg"
+      - "assets/case_study.svg"
       - "scripts/build-pages-site.sh"
       - ".github/workflows/deploy-docs.yml"
   workflow_dispatch:

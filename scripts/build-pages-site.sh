@@ -14,9 +14,9 @@ cp "$ROOT_DIR/website/favicon.svg" "$OUTPUT_DIR/favicon.svg"
 cp "$ROOT_DIR/website/site.webmanifest" "$OUTPUT_DIR/site.webmanifest"
 cp "$ROOT_DIR/website/index.html" "$OUTPUT_DIR/404.html"
 
-cp "$ROOT_DIR/assert/benchmark_overview.svg" "$OUTPUT_DIR/assets/benchmark-overview.svg"
-cp "$ROOT_DIR/assert/architecture.svg" "$OUTPUT_DIR/assets/architecture.svg"
-cp "$ROOT_DIR/assert/case_study.svg" "$OUTPUT_DIR/assets/case-study.svg"
+cp "$ROOT_DIR/assets/benchmark_overview.svg" "$OUTPUT_DIR/assets/benchmark-overview.svg"
+cp "$ROOT_DIR/assets/architecture.svg" "$OUTPUT_DIR/assets/architecture.svg"
+cp "$ROOT_DIR/assets/case_study.svg" "$OUTPUT_DIR/assets/case-study.svg"
 
 : > "$OUTPUT_DIR/.nojekyll"
 

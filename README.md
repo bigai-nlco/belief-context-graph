@@ -12,14 +12,14 @@
 [![Website](https://img.shields.io/badge/website-live-5B5BD6.svg?style=flat-square)](https://bigai-nlco.github.io/belief-context-graph/)
 [![Documentation](https://img.shields.io/badge/documentation-online-0F766E.svg?style=flat-square&logo=readthedocs&logoColor=white)](https://belief-context-graph.docs.buildwithfern.com/)
 <br>
-[![WeChat](https://img.shields.io/badge/WeChat-Community-07C160.svg?style=flat-square&logo=wechat&logoColor=white)](assert/bcg_qr_code.png)
-[![Discord](https://img.shields.io/badge/Discord-Community-5865F2.svg?style=flat-square&logo=discord&logoColor=white)](assert/bcg_discard_qr_code.png)
+[![WeChat](https://img.shields.io/badge/WeChat-Community-07C160.svg?style=flat-square&logo=wechat&logoColor=white)](assets/bcg_qr_code.png)
+[![Discord](https://img.shields.io/badge/Discord-Community-5865F2.svg?style=flat-square&logo=discord&logoColor=white)](assets/bcg_discard_qr_code.png)
 
 </div>
 
 <div align="center">
-  <a href="assert/benchmark_overview.svg">
-    <img src="assert/benchmark_overview.svg" width="100%" alt="Full-dataset benchmark comparison with Accuracy grouped by benchmark on the left, mean Token Cost grouped by benchmark on the right, and Default-versus-BCG token-horizon curves below">
+  <a href="assets/benchmark_overview.svg">
+    <img src="assets/benchmark_overview.svg" width="100%" alt="Full-dataset benchmark comparison with Accuracy grouped by benchmark on the left, mean Token Cost grouped by benchmark on the right, and Default-versus-BCG token-horizon curves below">
   </a>
 </div>
 <div align="left"><sub><sub>Agent: gpt-5.6-luna with low-effort thinking · Graph/Summary: gpt-5.6-luna with thinking disabled · Harness: <a href="agent-cli/packages/agent-core/src/harness">repository harness</a></sub></sub></div>
@@ -50,7 +50,7 @@ Belief Context Graph (`BCG`) upgrades agent memory from **retrieval memory** to 
 - **Temporal Awareness:** Run-based lifecycle with sessions and timestamps — know when each belief was formed and how it evolved
 - **Relation Linking:** Forward and backward relationship edges between beliefs, forming a casual decision graph/trace.
 
-  
+
 
 ## Live Demo
 
@@ -100,8 +100,8 @@ The first run walks you through model credentials, context mode, and Graph Const
 BCG is an optional context layer between an Agent and its model. In BCG mode, the initial user input and recent completed turns remain in the raw context, while older completed turns stream into Graph Construction; the resulting belief snapshot is then injected into the system prompt. Both the HTTP service and the Python SDK use the same backend registry, construction pipeline, confidence semantics, and graph artifacts.
 
 <p align="center">
-  <a href="assert/architecture.svg">
-    <img src="assert/architecture.svg" width="100%" alt="BCG architecture: Agent context management and Python SDK feed unified or hybrid Graph Construction backends, which share an incremental belief graph pipeline and return Graph snapshots to the Agent system prompt">
+  <a href="assets/architecture.svg">
+    <img src="assets/architecture.svg" width="100%" alt="BCG architecture: Agent context management and Python SDK feed unified or hybrid Graph Construction backends, which share an incremental belief graph pipeline and return Graph snapshots to the Agent system prompt">
   </a>
 </p>
 
@@ -113,7 +113,7 @@ BCG is an optional context layer between an Agent and its model. In BCG mode, th
 This successful BrowseComp case (`browsecomp-0836`) shows Kimi K3 using belief identities and confidence from BCG instead of repeating an already completed search.
 
 <p align="center">
-  <img src="assert/case_study.svg" alt="BrowseComp task, injected graph beliefs, and selected Kimi K3 thinking passages with graph references highlighted in red" width="100%">
+  <img src="assets/case_study.svg" alt="BrowseComp task, injected graph beliefs, and selected Kimi K3 thinking passages with graph references highlighted in red" width="100%">
 </p>
 
 ---
