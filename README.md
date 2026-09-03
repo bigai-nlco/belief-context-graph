@@ -148,17 +148,11 @@ Agent memory systems serve different purposes. Below is a feature-level comparis
 
 ---
 
-## Contributing
-
-Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
-
----
-
 ## License
 
 MIT — see the [LICENSE](LICENSE) file for details.
 
 ---
 
-## Contacts
-We are very pleased to answer any questions about BCG: [lijiaqi@bigai.ai](mailto:lijiaqi@bigai.ai),  [zlzheng@bigai.ai](mailto:zlzheng@bigai.ai)
+## Corresponding and Contributing
+We are very pleased to answer any questions about BCG: [lijiaqi@bigai.ai](mailto:lijiaqi@bigai.ai),  [zlzheng@bigai.ai](mailto:zlzheng@bigai.ai)  We appreciate your interest in contributing to our open-source initiative. 
