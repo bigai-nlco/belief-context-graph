@@ -1,0 +1,27 @@
+# Review-only configuration. Nothing is started by loading this file.
+# Set the BASE URL of a provider supporting /responses, not /chat/completions.
+upstream_base_url: https://api.openai.com/v1
+upstream_api_key_env: BCG_CODEX_UPSTREAM_API_KEY
+
+# A separate local secret; do NOT put the upstream API key in Codex's config.
+gateway_token_env: BCG_CODEX_GATEWAY_TOKEN
+host: 127.0.0.1
+port: 8860
+
+# Run/configure Graph Construction separately after reviewing this prototype.
+# Its model, credentials, prompts, propagation and construction backend are
+# unchanged by this gateway. No existing .env is copied into this directory.
+graph_base_url: http://127.0.0.1:8848
+graph_timeout: 300
+upstream_timeout: 300
+
+mode: bcg
+recent_turns: 2
+node_char_budget: 6600
+request_reasoning_summary: true
+max_sessions: 128
+max_request_bytes: 33554432
+
+# Only counts, selected node IDs, latencies and usage; never raw model I/O.
+# Set null to disable this metadata log. Graph Server logs are separate.
+audit_dir: var/codex-proxy

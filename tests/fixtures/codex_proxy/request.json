@@ -1,0 +1,21 @@
+{
+  "model": "offline-example-model",
+  "instructions": "You are a coding assistant. Respect the user's instructions, tool approvals and sandbox.",
+  "reasoning": {"effort": "low"},
+  "tools": [{"type": "function", "name": "read_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}],
+  "input": [
+    {"role": "user", "content": "Fix configuration parsing. Do not change the public API."},
+    {"type": "reasoning", "id": "rs_1", "summary": [{"type": "summary_text", "text": "Read the parser and its tests before making changes."}], "encrypted_content": "DEMO_NOT_REAL_CIPHERTEXT_1"},
+    {"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "read_file", "arguments": "{\"path\":\"config.py\"}"},
+    {"type": "function_call", "id": "fc_2", "call_id": "call_2", "name": "read_file", "arguments": "{\"path\":\"test_config.py\"}"},
+    {"type": "function_call_output", "call_id": "call_1", "output": "def parse_port(value):\n    return int(value)"},
+    {"type": "function_call_output", "call_id": "call_2", "output": "The public API must reject ports outside 1..65535."},
+    {"type": "reasoning", "id": "rs_2", "summary": [{"type": "summary_text", "text": "Look for callers of parse_port."}], "encrypted_content": "DEMO_NOT_REAL_CIPHERTEXT_2"},
+    {"type": "function_call", "id": "fc_3", "call_id": "call_3", "name": "read_file", "arguments": "{\"path\":\"app.py\"}"},
+    {"type": "function_call_output", "call_id": "call_3", "output": "The application imports parse_port from config.py."},
+    {"type": "reasoning", "id": "rs_3", "summary": [{"type": "summary_text", "text": "Check supported Python versions before editing."}], "encrypted_content": "DEMO_NOT_REAL_CIPHERTEXT_3"},
+    {"type": "function_call", "id": "fc_4", "call_id": "call_4", "name": "read_file", "arguments": "{\"path\":\"pyproject.toml\"}"},
+    {"type": "function_call_output", "call_id": "call_4", "output": "requires-python = \">=3.11\""}
+  ],
+  "stream": true
+}

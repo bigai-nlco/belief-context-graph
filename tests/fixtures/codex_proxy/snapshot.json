@@ -1,0 +1,11 @@
+{
+  "nodes": [
+    {"id": 1, "belief": "The user requires the configuration parser's public API to remain unchanged.", "confidence": 0.99},
+    {"id": 2, "belief": "config.py defines parse_port(value) as int(value), without a port-range check.", "confidence": 0.95},
+    {"id": 3, "belief": "test_config.py requires parse_port to reject ports outside 1..65535.", "confidence": 0.95}
+  ],
+  "relations": [
+    {"id": 1, "from_id": 3, "to_id": 2, "type": "supplements", "note": "The test specifies a constraint not enforced by the implementation."}
+  ],
+  "token_usage": {}
+}
