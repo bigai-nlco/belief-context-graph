@@ -12,6 +12,7 @@ from bcg.apps import agent_runtime
 def _clean_generated_runtime_environment(monkeypatch) -> None:
     for name in (
         "BCG_AGENT_MODEL",
+        "BCG_AGENT_API",
         "BCG_AGENT_PROVIDER",
         "BCG_CONTEXT_MODE",
         "BCG_GRAPH_AUTOSTART",
@@ -79,9 +80,32 @@ def test_agent_configuration_enables_bcg_and_references_env_key(
     provider = models["providers"]["bcg"]
     assert "bcg-openai" not in models["providers"]
     assert provider["baseUrl"] == "https://example.test/v1"
+    assert provider["api"] == "openai-completions"
     assert provider["apiKey"] == "$OPENAI_API_KEY"
     assert models["providers"]["bcg-summary"]["apiKey"] == "$BCG_SUMMARY_API_KEY"
     assert "secret-that-must-not-be-written" not in models_text
+
+
+def test_agent_configuration_supports_openrouter_responses_without_removing_chat(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("BCG_HOME", str(tmp_path))
+    monkeypatch.setenv(
+        "OPENAI_BASE_URL", "https://openrouter.ai/api/v1/chat/completions"
+    )
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-5.6-luna")
+    monkeypatch.setenv("BCG_AGENT_API", "responses")
+
+    agent_dir = agent_runtime.ensure_agent_configuration("http://127.0.0.1:8848")
+    models = json.loads((agent_dir / "models.json").read_text())
+    provider = models["providers"]["bcg"]
+    definition = provider["models"][0]
+
+    assert provider["baseUrl"] == "https://openrouter.ai/api/v1"
+    assert provider["api"] == "openai-responses"
+    assert definition["reasoning"] is True
+    assert definition["thinkingLevelMap"] == {"off": "none"}
 
 
 def test_summary_context_uses_independent_model_configuration(

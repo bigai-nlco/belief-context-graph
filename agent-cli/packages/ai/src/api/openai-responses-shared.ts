@@ -45,6 +45,32 @@ import { transformMessages } from "./transform-messages.ts";
 // Utilities
 // =============================================================================
 
+export type ResponsesReasoningContext = "current_turn" | "all_turns";
+
+/**
+ * Stateless Responses calls can reuse prior reasoning only when the request
+ * explicitly renders earlier reasoning items.  A persisted Responses
+ * reasoning item is stored verbatim in `thinkingSignature`; ordinary Chat
+ * thinking signatures must not switch this mode.
+ */
+export function resolveResponsesReasoningContext(
+	context: Pick<Context, "messages">,
+): ResponsesReasoningContext {
+	for (const message of context.messages) {
+		if (message.role !== "assistant") continue;
+		for (const block of message.content) {
+			if (block.type !== "thinking" || !block.thinkingSignature) continue;
+			try {
+				const item = JSON.parse(block.thinkingSignature) as { type?: unknown };
+				if (item?.type === "reasoning") return "all_turns";
+			} catch {
+				// Non-Responses providers may use opaque, non-JSON signatures.
+			}
+		}
+	}
+	return "current_turn";
+}
+
 function encodeTextSignatureV1(id: string, phase?: TextSignatureV1["phase"]): string {
 	const payload: TextSignatureV1 = { v: 1, id };
 	if (phase) payload.phase = phase;
@@ -512,22 +538,19 @@ export async function processResponsesStream<TApi extends Api>(
 	const getOrCreateSlot = (outputIndex: number, item: ResponseOutputItem): ResponsesOutputSlot | undefined => {
 		return outputSlots.get(outputIndex) ?? createSlot(outputIndex, item);
 	};
-	// Azure OpenAI can omit reasoning.encrypted_content from response.output_item.done
-	// and provide it only in response.completed.response.output. Backfill the
-	// persisted reasoning signature from the terminal response to keep store:false
-	// Keep multi-turn replay stateless.
+	// The terminal response.output array is the authoritative replay payload.
+	// Some compatible providers omit encrypted_content or the completed summary
+	// from response.output_item.done and expose them only here. Persist the exact
+	// terminal item so stateless replay and Graph summary extraction see the same
+	// fields that the API returned.
 	const backfillReasoningSignatures = (responseOutput: ResponseOutputItem[]): void => {
 		for (const item of responseOutput) {
-			if (item.type !== "reasoning" || !item.encrypted_content) continue;
+			if (item.type !== "reasoning") continue;
 			const block = reasoningBlocksById.get(item.id);
-			if (!block?.thinkingSignature) continue;
-
-			const storedItem = JSON.parse(block.thinkingSignature) as ResponseReasoningItem;
-			if (storedItem.encrypted_content) continue;
-			block.thinkingSignature = JSON.stringify({
-				...storedItem,
-				encrypted_content: item.encrypted_content,
-			});
+			if (!block) continue;
+			const terminalSummary = item.summary?.map((part) => part.text).join("\n\n") || "";
+			if (terminalSummary) block.thinking = terminalSummary;
+			block.thinkingSignature = JSON.stringify(item);
 		}
 	};
 	const finalizeResponse = (

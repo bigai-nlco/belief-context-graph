@@ -73,9 +73,46 @@ function assistantToolCalls(timestamp: number): AssistantMessage {
 function assistantThinkingToolCalls(timestamp: number): AssistantMessage {
 	return {
 		...assistantToolCalls(timestamp),
+		api: "openai-completions",
 		content: [
 			{ type: "thinking", thinking: "Compare both searches before deciding." },
 			...assistantToolCalls(timestamp).content,
+		],
+	};
+}
+
+function responsesSummaryToolCall(
+	timestamp: number,
+	summary: string,
+	reasoningText?: string,
+	includeEncryptedContent = true,
+): AssistantMessage {
+	const reasoningItem = {
+		id: "rs_test",
+		type: "reasoning",
+		summary: summary ? [{ type: "summary_text", text: summary }] : [],
+		...(reasoningText
+			? { content: [{ type: "reasoning_text", text: reasoningText }] }
+			: {}),
+		...(includeEncryptedContent
+			? { encrypted_content: "opaque-encrypted-reasoning" }
+			: {}),
+	};
+	return {
+		...assistantToolCalls(timestamp),
+		api: "openai-responses",
+		content: [
+			{
+				type: "thinking",
+				thinking: "raw or streamed fallback that must not be graphed",
+				thinkingSignature: JSON.stringify(reasoningItem),
+			},
+			{
+				type: "toolCall",
+				id: "call-response|fc-response",
+				name: "web_search",
+				arguments: { query: "response api query", page: 2 },
+			},
 		],
 	};
 }
@@ -397,6 +434,122 @@ describe("BCG context management", () => {
 			"<thinking>\nCompare both searches before deciding.\n</thinking>",
 		);
 		expect(requests[1][0].content).toContain("<tool_call>");
+	});
+
+	it("uses the Responses reasoning summary for Graph thinking and preserves the full tool call", async () => {
+		const requests: Array<Record<string, unknown>[]> = [];
+		const initial = user("initial", 1);
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 0,
+			maxTurns: 100,
+			timeoutMs: 1000,
+			includeRelations: true,
+			getSystemPrompt: () => "system",
+			fetch: createFetch(requests),
+		});
+
+		await manager.transform([initial]);
+		await manager.transform([
+			initial,
+			responsesSummaryToolCall(2, "Compare the two candidate sources, then verify the date."),
+		]);
+
+		const content = String(requests[1][0].content);
+		expect(content).toContain(
+			"<thinking>\nCompare the two candidate sources, then verify the date.\n</thinking>",
+		);
+		expect(content).toContain(
+			'<tool_call>\n{"id": "call-response|fc-response", "name": "web_search", "arguments": {"query": "response api query", "page": 2}}\n</tool_call>',
+		);
+		expect(content).not.toContain("raw or streamed fallback");
+		expect(content).not.toContain("opaque-encrypted-reasoning");
+	});
+
+	it("uses Responses reasoning_text for Graph thinking when the summary is empty", async () => {
+		const requests: Array<Record<string, unknown>[]> = [];
+		const initial = user("initial", 1);
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 0,
+			maxTurns: 100,
+			timeoutMs: 1000,
+			includeRelations: true,
+			getSystemPrompt: () => "system",
+			fetch: createFetch(requests),
+		});
+
+		await manager.transform([initial]);
+		await manager.transform([
+			initial,
+			responsesSummaryToolCall(
+				2,
+				"",
+				"Compare the modular constraints before choosing the tool argument.",
+				false,
+			),
+		]);
+
+		const content = String(requests[1][0].content);
+		expect(content).toContain(
+			"<thinking>\nCompare the modular constraints before choosing the tool argument.\n</thinking>",
+		);
+		expect(content).toContain("<tool_call>");
+		expect(content).not.toContain("raw or streamed fallback");
+		expect(content).not.toContain("opaque-encrypted-reasoning");
+	});
+
+	it("prefers Responses reasoning_text when both it and a summary are present", async () => {
+		const requests: Array<Record<string, unknown>[]> = [];
+		const initial = user("initial", 1);
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 0,
+			maxTurns: 100,
+			timeoutMs: 1000,
+			includeRelations: true,
+			getSystemPrompt: () => "system",
+			fetch: createFetch(requests),
+		});
+
+		await manager.transform([initial]);
+		await manager.transform([
+			initial,
+			responsesSummaryToolCall(
+				2,
+				"Short summary that should not be selected.",
+				"Full provider-exposed reasoning text.",
+			),
+		]);
+
+		const content = String(requests[1][0].content);
+		expect(content).toContain("<thinking>\nFull provider-exposed reasoning text.\n</thinking>");
+		expect(content).not.toContain("Short summary that should not be selected.");
+	});
+
+	it("does not invent Responses thinking when summary and reasoning_text are missing", async () => {
+		const requests: Array<Record<string, unknown>[]> = [];
+		const initial = user("initial", 1);
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 0,
+			maxTurns: 100,
+			timeoutMs: 1000,
+			includeRelations: true,
+			getSystemPrompt: () => "system",
+			fetch: createFetch(requests),
+		});
+
+		await manager.transform([initial]);
+		await manager.transform([initial, responsesSummaryToolCall(2, "")]);
+
+		const content = String(requests[1][0].content);
+		expect(content).not.toContain("<thinking>");
+		expect(content).toContain("<tool_call>");
 	});
 
 	it("groups parallel tool results into one ID-bearing graph turn", async () => {

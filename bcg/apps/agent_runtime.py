@@ -25,10 +25,40 @@ DEFAULT_GRAPH_TIMEOUT_MS = 300_000
 GENERATED_PROVIDER = "bcg"
 GENERATED_SUMMARY_PROVIDER = "bcg-summary"
 LEGACY_GENERATED_PROVIDER = "bcg-openai"
+_AGENT_API_ALIASES = {
+    "chat": "openai-completions",
+    "chat-completions": "openai-completions",
+    "openai-completions": "openai-completions",
+    "responses": "openai-responses",
+    "response": "openai-responses",
+    "openai-responses": "openai-responses",
+}
 
 
 class AgentLaunchError(RuntimeError):
     """Raised when the interactive BCG runtime cannot be started."""
+
+
+def _normalize_agent_api(value: str | None) -> str:
+    normalized = (value or "chat").strip().lower().replace("_", "-")
+    try:
+        return _AGENT_API_ALIASES[normalized]
+    except KeyError as exc:
+        raise AgentLaunchError(
+            "Agent API must be `chat`/`openai-completions` or "
+            "`responses`/`openai-responses`."
+        ) from exc
+
+
+def _normalize_openai_base_url(value: str) -> str:
+    """Accept either an SDK base URL or a full Chat/Responses endpoint."""
+
+    normalized = value.strip().rstrip("/")
+    lowered = normalized.casefold()
+    for suffix in ("/chat/completions", "/responses"):
+        if lowered.endswith(suffix):
+            return normalized[: -len(suffix)].rstrip("/")
+    return normalized
 
 
 def _bootstrap_env() -> None:
@@ -210,8 +240,11 @@ def ensure_agent_configuration(graph_url: str) -> Path:
         or os.environ.get("MODEL")
         or ""
     ).strip()
-    base_url = os.environ.get("OPENAI_BASE_URL", "").strip()
-    summary_base_url = (os.environ.get("BCG_SUMMARY_BASE_URL") or base_url).strip()
+    base_url = _normalize_openai_base_url(os.environ.get("OPENAI_BASE_URL", ""))
+    summary_base_url = _normalize_openai_base_url(
+        os.environ.get("BCG_SUMMARY_BASE_URL") or base_url
+    )
+    agent_api = _normalize_agent_api(os.environ.get("BCG_AGENT_API"))
     agent_provider = os.environ.get("BCG_AGENT_PROVIDER", "").strip()
     models_path = agent_dir / "models.json"
     models = _read_json(models_path)
@@ -220,12 +253,21 @@ def ensure_agent_configuration(graph_url: str) -> Path:
         providers = {}
     providers.pop(LEGACY_GENERATED_PROVIDER, None)
     if model_id and base_url:
+        is_gpt_56 = "gpt-5.6" in model_id.casefold()
+        default_thinking = str(settings.get("defaultThinkingLevel") or "off")
+        model_definition: dict[str, Any] = {
+            "id": model_id,
+            "name": model_id,
+            "reasoning": default_thinking != "off" or is_gpt_56,
+        }
+        if is_gpt_56:
+            model_definition["thinkingLevelMap"] = {"off": "none"}
         providers[GENERATED_PROVIDER] = {
             "baseUrl": base_url,
-            "api": "openai-completions",
+            "api": agent_api,
             "apiKey": "$OPENAI_API_KEY",
             "authHeader": True,
-            "models": [{"id": model_id, "name": model_id}],
+            "models": [model_definition],
         }
         settings["defaultProvider"] = GENERATED_PROVIDER
         settings["defaultModel"] = model_id

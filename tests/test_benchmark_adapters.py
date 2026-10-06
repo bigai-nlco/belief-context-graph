@@ -49,6 +49,26 @@ def test_benchmark_agent_thinking_is_written_to_runtime_config(tmp_path: Path) -
 
     assert settings["defaultThinkingLevel"] == "medium"
     assert models["providers"]["benchmark"]["models"][0]["reasoning"] is True
+    assert models["providers"]["benchmark"]["api"] == "openai-completions"
+
+
+def test_benchmark_can_select_responses_api_and_normalizes_full_endpoint(
+    tmp_path: Path,
+) -> None:
+    config = RunConfig(
+        output_dir=tmp_path,
+        model="gpt-5.6-luna",
+        base_url="https://openrouter.ai/api/v1/chat/completions",
+        agent_api="responses",
+        thinking="low",
+    )
+
+    agent_dir = _write_agent_configuration(tmp_path, config, "bcg")
+    models = json.loads((agent_dir / "models.json").read_text(encoding="utf-8"))
+    provider = models["providers"]["benchmark"]
+
+    assert provider["baseUrl"] == "https://openrouter.ai/api/v1"
+    assert provider["api"] == "openai-responses"
 
 
 def test_benchmark_graph_view_is_written_to_runtime_config(tmp_path: Path) -> None:
@@ -418,6 +438,10 @@ def test_agent_json_events_capture_graph_model_usage() -> None:
                 "reasoning_tokens": 5,
                 "total_tokens": 52,
             },
+            "cost": {
+                "total": 0.0042,
+                "source": "provider",
+            },
         },
     }
 
@@ -426,6 +450,7 @@ def test_agent_json_events_capture_graph_model_usage() -> None:
     assert parsed["graph_usage"].input == 40
     assert parsed["graph_usage"].reasoning == 5
     assert parsed["graph_usage"].output == 12
+    assert parsed["graph_usage"].total_cost == pytest.approx(0.0042)
 
 
 def test_agent_json_events_capture_summary_model_usage_and_latency() -> None:
@@ -907,12 +932,14 @@ def test_summary_separates_agent_graph_and_combined_model_tokens() -> None:
                     "input": 40,
                     "output": 10,
                     "reasoning": 4,
+                    "total_cost": 0.0042,
                 },
                 "summary_usage": {
                     "input": 30,
                     "cache_read": 5,
                     "output": 8,
                     "reasoning": 2,
+                    "total_cost": 0.0031,
                 },
                 "metrics": {},
                 "metadata": {"category": "math"},
@@ -944,6 +971,12 @@ def test_summary_separates_agent_graph_and_combined_model_tokens() -> None:
         },
     }
     assert run_summary["model_token_usage"] == summary["model_token_usage"]
+    assert summary["model_cost_usage"]["graph_model"]["total"] == pytest.approx(0.0042)
+    assert summary["model_cost_usage"]["summary_model"]["total"] == pytest.approx(
+        0.0031
+    )
+    assert summary["model_cost_usage"]["combined"]["total"] == pytest.approx(0.0073)
+    assert run_summary["model_cost_usage"] == summary["model_cost_usage"]
 
 
 def test_runner_compares_default_and_bcg_with_fake_agent(

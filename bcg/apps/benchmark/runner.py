@@ -18,7 +18,11 @@ from pathlib import Path
 from threading import Event
 from typing import Any
 
-from bcg.apps.agent_runtime import _resolve_agent_command
+from bcg.apps.agent_runtime import (
+    _normalize_agent_api,
+    _normalize_openai_base_url,
+    _resolve_agent_command,
+)
 from bcg.apps.benchmark.models import BenchmarkTask, TokenUsage, is_api_quota_error
 from bcg.apps.benchmark.scoring import LLMJudge, score_task
 
@@ -55,6 +59,7 @@ class RunConfig:
     model: str
     base_url: str
     api_key: str = field(default="", repr=False)
+    agent_api: str = "chat"
     modes: tuple[str, ...] = ("default", "bcg")
     thinking: str = "off"
     workers: int = 4
@@ -101,6 +106,7 @@ def run_benchmarks(
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "model": config.model,
         "base_url": config.base_url,
+        "agent_api": _normalize_agent_api(config.agent_api),
         "modes": list(config.modes),
         "thinking": config.thinking,
         "workers": config.workers,
@@ -334,7 +340,11 @@ def _write_agent_configuration(
     agent_dir = output_dir / ".agent-config" / mode
     agent_dir.mkdir(parents=True, exist_ok=True)
     summary_model = config.summary_model or config.model
-    summary_base_url = config.summary_base_url or config.base_url
+    summary_base_url = _normalize_openai_base_url(
+        config.summary_base_url or config.base_url
+    )
+    agent_base_url = _normalize_openai_base_url(config.base_url)
+    agent_api = _normalize_agent_api(config.agent_api)
     settings = {
         "defaultProvider": "benchmark",
         "defaultModel": config.model,
@@ -394,8 +404,8 @@ def _write_agent_configuration(
     models = {
         "providers": {
             "benchmark": {
-                "baseUrl": config.base_url,
-                "api": "openai-completions",
+                "baseUrl": agent_base_url,
+                "api": agent_api,
                 "apiKey": "$OPENAI_API_KEY",
                 "authHeader": True,
                 "models": [model_definition],
@@ -796,6 +806,9 @@ def parse_agent_events(stdout: str) -> dict[str, Any]:
                     graph_usage.output += _int(totals.get("output_tokens"))
                     graph_usage.reasoning += _int(totals.get("reasoning_tokens"))
                     graph_usage.total += _int(totals.get("total_tokens"))
+                costs = raw_graph_usage.get("cost")
+                if isinstance(costs, dict):
+                    graph_usage.total_cost += _float(costs.get("total"))
             continue
         if event.get("type") == "summary_usage":
             raw_summary_usage = event.get("usage")
@@ -898,6 +911,7 @@ def summarize_results(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
             for key in usage_keys
         }
         model_token_usage = _model_token_usage(values)
+        model_cost_usage = _model_cost_usage(values)
         cost_keys = (
             "input_cost",
             "output_cost",
@@ -967,6 +981,7 @@ def summarize_results(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
             ),
             "tokens": token_totals,
             "model_token_usage": model_token_usage,
+            "model_cost_usage": model_cost_usage,
             "cost": cost_totals,
             "search_calls_total": sum(
                 int(value.get("search_calls", 0)) for value in values
@@ -1022,6 +1037,7 @@ def summarize_results(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
     return {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "model_token_usage": _model_token_usage(all_values),
+        "model_cost_usage": _model_cost_usage(all_values),
         "benchmarks": summaries,
     }
 
@@ -1084,6 +1100,46 @@ def _model_token_usage(values: list[dict[str, Any]]) -> dict[str, dict[str, int]
     combined = {
         key: agent_model[key] + graph_model[key] + summary_model[key]
         for key in ("input_tokens", "reasoning_tokens", "output_tokens")
+    }
+    return {
+        "agent_model": agent_model,
+        "graph_model": graph_model,
+        "summary_model": summary_model,
+        "combined": combined,
+    }
+
+
+def _aggregate_model_cost(
+    values: list[dict[str, Any]],
+    *,
+    usage_key: str,
+) -> dict[str, float]:
+    keys = (
+        "input_cost",
+        "output_cost",
+        "cache_read_cost",
+        "cache_write_cost",
+        "total_cost",
+    )
+    return {
+        key.removesuffix("_cost"): sum(
+            _float(value.get(usage_key, {}).get(key))
+            for value in values
+            if isinstance(value.get(usage_key), dict)
+        )
+        for key in keys
+    }
+
+
+def _model_cost_usage(values: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
+    """Return model-reported costs separated by runtime responsibility."""
+
+    agent_model = _aggregate_model_cost(values, usage_key="usage")
+    graph_model = _aggregate_model_cost(values, usage_key="graph_usage")
+    summary_model = _aggregate_model_cost(values, usage_key="summary_usage")
+    combined = {
+        key: agent_model[key] + graph_model[key] + summary_model[key]
+        for key in ("input", "output", "cache_read", "cache_write", "total")
     }
     return {
         "agent_model": agent_model,

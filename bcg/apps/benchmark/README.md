@@ -34,6 +34,8 @@ bcg benchmark run browsecomp browsecomp_zh --modes default,recent-only,rag,summa
     --output-dir results/browsecomp-comparison
 ```
 
+Omit `--agent-api responses` to retain the default Chat Completions path. Responses mode uses the API's readable reasoning summary as BCG Assistant thinking while preserving complete structured tool calls and encrypted reasoning replay state.
+
 RAG stores one SQLite database per task under `BENCHMARK/rag/rag-memory/` and writes retrieved-context snapshots under `BENCHMARK/rag/rag-contexts/`.
 
 See [Evaluate with benchmarks](https://belief-context-graph.docs.buildwithfern.com/operate/benchmarking) for dataset setup, scoring, output artifacts, and every `bcg benchmark run` option.

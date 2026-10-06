@@ -46,6 +46,11 @@ const DIALOGUE_EOS = "<｜end▁of▁sentence｜>";
 const DIALOGUE_USER = "<｜User｜>";
 const DIALOGUE_ASSISTANT = "<｜Assistant｜>";
 const DIALOGUE_VALID_ROLES = new Set(["system", "user", "assistant"]);
+const RESPONSES_APIS = new Set([
+	"openai-responses",
+	"azure-openai-responses",
+	"openai-codex-responses",
+]);
 
 export const BCG_TURN_LIMIT_MARKER = "BCG_TURN_LIMIT_EXCEEDED";
 
@@ -126,7 +131,53 @@ function compactJson(value: unknown): string {
 	}
 }
 
-export function contextContentToText(content: unknown): string {
+function responseReasoningText(signature: unknown): string | undefined {
+	if (typeof signature !== "string" || !signature.trim()) return undefined;
+	try {
+		const item = JSON.parse(signature) as unknown;
+		if (!isRecord(item) || item.type !== "reasoning") return undefined;
+		// Some Responses providers (for example Gemini through OpenRouter) expose
+		// readable reasoning as reasoning_text. Use only the final persisted item
+		// so Graph Construction never consumes a partial streaming buffer.
+		const reasoningText = Array.isArray(item.content)
+			? item.content
+					.flatMap((part) =>
+						isRecord(part) &&
+						part.type === "reasoning_text" &&
+						typeof part.text === "string"
+							? [part.text.trim()]
+							: [],
+					)
+					.filter(Boolean)
+					.join("\n\n")
+			: "";
+		if (reasoningText) return reasoningText;
+
+		const summary =
+			typeof item.summary === "string"
+				? item.summary.trim()
+				: Array.isArray(item.summary)
+					? item.summary
+							.flatMap((part) =>
+								isRecord(part) && typeof part.text === "string" ? [part.text.trim()] : [],
+							)
+							.filter(Boolean)
+							.join("\n\n")
+					: "";
+		return summary;
+	} catch {
+		return undefined;
+	}
+}
+
+interface ContextContentToTextOptions {
+	assistantApi?: string;
+}
+
+export function contextContentToText(
+	content: unknown,
+	options: ContextContentToTextOptions = {},
+): string {
 	if (typeof content === "string") {
 		return content;
 	}
@@ -146,7 +197,15 @@ export function contextContentToText(content: unknown): string {
 				}
 				break;
 			case "thinking":
-				if (typeof block.thinking === "string" && block.thinking.trim()) {
+				if (options.assistantApi && RESPONSES_APIS.has(options.assistantApi)) {
+					// Prefer provider-exposed reasoning_text, then fall back to a
+					// readable summary. Opaque encrypted reasoning remains only in
+					// thinkingSignature for replay and is never sent to Graph as prose.
+					const reasoning = responseReasoningText(block.thinkingSignature);
+					if (reasoning) parts.push(`<thinking>\n${reasoning}\n</thinking>`);
+				} else if (typeof block.thinking === "string" && block.thinking.trim()) {
+					// Chat Completions and other legacy providers keep their existing
+					// visible-thinking behavior.
 					parts.push(`<thinking>\n${block.thinking.trim()}\n</thinking>`);
 				}
 				break;
@@ -189,8 +248,9 @@ export function contextToolResultsToText(messages: AgentMessage[]): string {
 export function contextMessageText(message: AgentMessage): string {
 	switch (message.role) {
 		case "user":
-		case "assistant":
 			return contextContentToText(message.content);
+		case "assistant":
+			return contextContentToText(message.content, { assistantApi: message.api });
 		case "toolResult": {
 			return contextToolResultsToText([message]);
 		}

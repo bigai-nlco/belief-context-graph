@@ -40,6 +40,7 @@ Benchmarking reuses the same credentials as the terminal Agent. Set them in `~/.
 OPENAI_BASE_URL=https://your-openai-compatible-server/v1
 OPENAI_API_KEY=...
 OPENAI_MODEL=your-agent-model
+BCG_AGENT_API=chat       # use responses for the Responses API
 SERPER_API_KEY=...      # required for BrowseComp and BrowseComp (ZH)
 SERPER_MAX_CALLS=20     # hard web_search budget per Agent session
 ```
@@ -56,6 +57,8 @@ bcg benchmark run browsecomp browsecomp_zh \
 ```
 
 This runs the same selected examples in all three context modes.
+
+`chat` remains the backward-compatible Agent protocol. Set `BCG_AGENT_API=responses` or pass `--agent-api responses` to use the Responses API. In that mode the Agent requests a readable reasoning summary for BCG construction, preserves encrypted reasoning items for stateless replay, and keeps function calls structured. Use the API base URL (for example `https://openrouter.ai/api/v1`); a trailing `/chat/completions` or `/responses` is also accepted and normalized.
 
 Summary mode uses the same initial-question pinning, recent raw-turn window, eviction boundary, and tool-result batching as BCG. Instead of calling the Graph server, it sends the previous rolling summary plus the newest evicted messages to a summary model and replaces the summary block in the system prompt. It reuses the Agent endpoint and key by default; configure an independent model with `--summary-model`, `--summary-base-url`, and `--summary-api-key-env`.
 

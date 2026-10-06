@@ -19,6 +19,8 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.text import Text
 
+from bcg.apps.agent_runtime import _normalize_openai_base_url
+
 CONFIG_VERSION = 1
 GRAPH_MODEL_KEY = "graph-model"
 EMBEDDING_KEY = "embedding"
@@ -543,6 +545,7 @@ def apply_user_configuration(
 
     values = {
         "BCG_AGENT_PROVIDER": str(agent.get("provider") or ""),
+        "BCG_AGENT_API": str(agent.get("api") or "chat"),
         "BCG_AGENT_MODEL": str(agent.get("model") or ""),
         "OPENAI_MODEL": str(agent.get("model") or ""),
         "OPENAI_BASE_URL": str(agent.get("baseUrl") or ""),
@@ -645,14 +648,31 @@ def run_setup(
     )
     pending_login = False
     if auth_method == "api_key":
-        agent_base_url = _ask(
-            "Agent API base URL",
-            default=_current_default(
-                current,
-                "agent",
-                "baseUrl",
-                DEFAULT_AGENT_BASE_URL,
-            ),
+        agent_base_url = _normalize_openai_base_url(
+            _ask(
+                "Agent API base URL",
+                default=_current_default(
+                    current,
+                    "agent",
+                    "baseUrl",
+                    DEFAULT_AGENT_BASE_URL,
+                ),
+                input_fn=input_fn,
+            )
+        )
+        agent_api = _choose(
+            "Agent API protocol",
+            [
+                (
+                    "chat",
+                    "Chat Completions (backward-compatible default)",
+                ),
+                (
+                    "responses",
+                    "Responses API (reasoning summary + encrypted replay)",
+                ),
+            ],
+            default=_current_default(current, "agent", "api", "chat"),
             input_fn=input_fn,
         )
         agent_model = _ask(
@@ -674,6 +694,7 @@ def run_setup(
         login_provider = ""
     else:
         credentials.pop("OPENAI_API_KEY", None)
+        agent_api = _current_default(current, "agent", "api", "chat")
         login_provider = _ask(
             "Login provider (for example openai or anthropic)",
             default=_current_default(current, "agent", "loginProvider", "openai"),
@@ -952,6 +973,7 @@ def run_setup(
         "agent": {
             "authMethod": auth_method,
             "provider": agent_provider,
+            "api": agent_api,
             "baseUrl": agent_base_url,
             "model": agent_model,
             "loginProvider": login_provider,
@@ -996,6 +1018,8 @@ def run_setup(
         summary.add_column(style="dim")
         summary.add_column(style="cyan")
         summary.add_row("Agent", f"{agent_provider} / {agent_model}")
+        if auth_method == "api_key":
+            summary.add_row("Agent API", agent_api)
         summary.add_row(
             "Search",
             "Serper web search" if search_provider == "serper" else "disabled",

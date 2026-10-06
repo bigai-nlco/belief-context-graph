@@ -79,6 +79,7 @@ def test_graph_usage_tracks_reasoning_and_excludes_embeddings_from_llm_totals() 
         prompt_tokens=100,
         completion_tokens=30,
         total_tokens=130,
+        cost=0.0042,
         completion_tokens_details=SimpleNamespace(reasoning_tokens=12),
     )
     counts = _coerce_usage(usage)
@@ -89,6 +90,8 @@ def test_graph_usage_tracks_reasoning_and_excludes_embeddings_from_llm_totals() 
         completion_tokens=counts["completion_tokens"],
         reasoning_tokens=counts["reasoning_tokens"],
         total_tokens=counts["total_tokens"],
+        total_cost=counts["total_cost"],
+        response_id="gen-graph-1",
         label="extractor",
     )
     tracker.record(
@@ -106,6 +109,18 @@ def test_graph_usage_tracks_reasoning_and_excludes_embeddings_from_llm_totals() 
         "reasoning_tokens": 12,
         "total_tokens": 130,
     }
+    assert tracker.summary()["cost"] == {
+        "currency": "USD",
+        "total": 0.0042,
+        "provider_reported": 0.0042,
+        "estimated": 0.0,
+        "reported_calls": 1,
+        "estimated_calls": 0,
+        "unpriced_calls": 0,
+        "complete": True,
+        "source": "provider",
+    }
+    assert tracker.to_dict()["calls"][0]["response_id"] == "gen-graph-1"
 
 
 @pytest.mark.parametrize("manager_type", [HybridSessionManager, UnifiedSessionManager])

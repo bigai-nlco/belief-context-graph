@@ -30,6 +30,7 @@ def test_unified_setup_persists_global_configuration(
         [
             "1",  # API key authentication
             "https://agent.test/v1",
+            "1",  # Chat Completions protocol
             "agent-model",
             "2",  # disable Serper web search
             "1",  # BCG context
@@ -48,6 +49,7 @@ def test_unified_setup_persists_global_configuration(
     )
 
     assert config["agent"]["provider"] == "bcg"
+    assert config["agent"]["api"] == "chat"
     assert config["context"] == {"mode": "bcg", "recentTurns": 2}
     assert config["graph"]["serverMode"] == "managed"
     assert config["graph"]["backend"] == "unified"
@@ -74,6 +76,35 @@ def test_unified_setup_persists_global_configuration(
     assert not (tmp_path / "model_config.json").exists()
     assert (tmp_path / ".env").read_text().endswith("OPENAI_API_KEY=agent-secret\n")
     assert stat.S_IMODE((tmp_path / ".env").stat().st_mode) == 0o600
+
+
+def test_setup_can_select_responses_api_without_changing_chat_default(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("BCG_HOME", str(tmp_path))
+    answers = iter(
+        [
+            "1",  # API key authentication
+            "https://openrouter.ai/api/v1/responses",
+            "2",  # Responses protocol
+            "gpt-5.6-luna",
+            "2",  # disable Serper web search
+            "2",  # default context
+            "2",  # existing Graph server
+            "https://graph.test",
+        ]
+    )
+
+    config = setup.run_setup(
+        input_fn=lambda _prompt: next(answers),
+        secret_fn=lambda _prompt: "agent-secret",
+    )
+
+    assert config["agent"]["api"] == "responses"
+    assert config["agent"]["baseUrl"] == "https://openrouter.ai/api/v1"
+    setup.apply_user_configuration(config, override=True)
+    assert os.environ["BCG_AGENT_API"] == "responses"
 
 
 def test_hybrid_config_points_every_graph_model_at_vllm() -> None:
@@ -104,6 +135,7 @@ def test_managed_hybrid_setup_asks_for_generator_endpoint(
         [
             "1",
             "https://agent.test/v1",
+            "1",  # Chat Completions protocol
             "agent-model",
             "2",  # disable Serper web search
             "1",
@@ -149,6 +181,7 @@ def test_existing_graph_server_skips_local_model_configuration(
         [
             "1",  # API key authentication
             "https://agent.test/v1",
+            "1",  # Chat Completions protocol
             "agent-model",
             "2",  # disable Serper web search
             "2",  # default context
@@ -185,6 +218,7 @@ def test_setup_persists_serper_key_for_web_search(
         [
             "1",  # API key authentication
             "https://agent.test/v1",
+            "1",  # Chat Completions protocol
             "agent-model",
             "1",  # configure Serper
             "2",  # default context
@@ -214,6 +248,7 @@ def test_setup_configures_summary_mode_with_agent_endpoint(
         [
             "1",  # API key authentication
             "https://agent.test/v1",
+            "1",  # Chat Completions protocol
             "agent-model",
             "2",  # disable Serper
             "3",  # summary context
@@ -258,6 +293,7 @@ def test_setup_configures_bounded_context_modes(
         [
             "1",  # API key authentication
             "https://agent.test/v1",
+            "1",  # Chat Completions protocol
             "agent-model",
             "2",  # disable Serper
             selection,
@@ -288,6 +324,7 @@ def test_apply_user_configuration_uses_global_values(
     for name in (
         "OPENAI_MODEL",
         "OPENAI_BASE_URL",
+        "BCG_AGENT_API",
         "BCG_AGENT_PROVIDER",
         "BELIEF_GRAPH_URL",
         "BCG_GRAPH_BACKEND",
@@ -302,6 +339,7 @@ def test_apply_user_configuration_uses_global_values(
     config = {
         "agent": {
             "provider": "bcg",
+            "api": "responses",
             "model": "agent-model",
             "baseUrl": "https://agent.test/v1",
         },
@@ -320,6 +358,7 @@ def test_apply_user_configuration_uses_global_values(
 
     assert os.environ["OPENAI_API_KEY"] == "global-secret"
     assert os.environ["OPENAI_MODEL"] == "agent-model"
+    assert os.environ["BCG_AGENT_API"] == "responses"
     assert os.environ["BCG_CONTEXT_MODE"] == "default"
     assert os.environ["BCG_GRAPH_BACKEND"] == "unified"
     assert os.environ["BCG_GRAPH_AUTOSTART"] == "false"

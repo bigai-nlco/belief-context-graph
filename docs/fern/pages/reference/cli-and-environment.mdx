@@ -60,6 +60,14 @@ OPENAI_TIMEOUT
 OPENAI_MAX_RETRIES
 ```
 
+The reference Agent additionally accepts:
+
+```text
+BCG_AGENT_API
+```
+
+Use `chat` (the default) for Chat Completions or `responses` for the Responses API. Responses mode requests reasoning summaries for graph construction and replays the original encrypted reasoning items between stateless calls.
+
 ## Unified config selection
 
 ```text

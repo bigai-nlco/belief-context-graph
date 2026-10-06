@@ -14,6 +14,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from bcg.apps.agent_runtime import AgentLaunchError, _normalize_agent_api
 from bcg.apps.benchmark.loaders import (
     BENCHMARKS,
     BenchmarkDataError,
@@ -86,6 +87,16 @@ def run(
     base_url: Annotated[
         str | None,
         typer.Option(help="Agent OpenAI-compatible API base URL."),
+    ] = None,
+    agent_api: Annotated[
+        str | None,
+        typer.Option(
+            "--agent-api",
+            help=(
+                "Agent protocol: chat/openai-completions or "
+                "responses/openai-responses (default: BCG_AGENT_API or chat)."
+            ),
+        ),
     ] = None,
     api_key_env: Annotated[
         str,
@@ -329,6 +340,12 @@ def run(
         or ""
     ).strip()
     resolved_base_url = (base_url or os.environ.get("OPENAI_BASE_URL") or "").strip()
+    try:
+        resolved_agent_api = _normalize_agent_api(
+            agent_api or os.environ.get("BCG_AGENT_API")
+        )
+    except AgentLaunchError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     api_key = os.environ.get(api_key_env, "")
     if not resolved_model:
         raise typer.BadParameter(
@@ -384,6 +401,7 @@ def run(
         model=resolved_model,
         base_url=resolved_base_url,
         api_key=api_key,
+        agent_api=resolved_agent_api,
         modes=resolved_modes,
         thinking=thinking,
         workers=workers,
@@ -451,6 +469,7 @@ def _print_summary(summary: dict[str, object], output_dir: Path) -> None:
     token_table.add_column("Input (total)", justify="right")
     token_table.add_column("Reasoning", justify="right")
     token_table.add_column("Output (non-reasoning)", justify="right")
+    token_table.add_column("Total cost", justify="right")
     benchmark_summaries = summary.get("benchmarks", {})
     if isinstance(benchmark_summaries, dict):
         for benchmark, mode_values in benchmark_summaries.items():
@@ -471,6 +490,9 @@ def _print_summary(summary: dict[str, object], output_dir: Path) -> None:
                 model_tokens = values.get("model_token_usage")
                 if not isinstance(model_tokens, dict):
                     continue
+                model_costs = values.get("model_cost_usage")
+                if not isinstance(model_costs, dict):
+                    model_costs = {}
                 for scope, label in (
                     ("agent_model", "Agent model"),
                     ("graph_model", "Graph model"),
@@ -480,6 +502,12 @@ def _print_summary(summary: dict[str, object], output_dir: Path) -> None:
                     tokens = model_tokens.get(scope)
                     if not isinstance(tokens, dict):
                         continue
+                    costs = model_costs.get(scope)
+                    total_cost = (
+                        float(costs.get("total", 0.0))
+                        if isinstance(costs, dict)
+                        else 0.0
+                    )
                     token_table.add_row(
                         str(benchmark),
                         str(mode),
@@ -487,9 +515,13 @@ def _print_summary(summary: dict[str, object], output_dir: Path) -> None:
                         f"{int(tokens.get('input_tokens', 0)):,}",
                         f"{int(tokens.get('reasoning_tokens', 0)):,}",
                         f"{int(tokens.get('output_tokens', 0)):,}",
+                        f"${total_cost:.6f}" if total_cost else "—",
                     )
     overall_tokens = summary.get("model_token_usage")
     if isinstance(overall_tokens, dict):
+        overall_costs = summary.get("model_cost_usage")
+        if not isinstance(overall_costs, dict):
+            overall_costs = {}
         token_table.add_section()
         for scope, label in (
             ("agent_model", "Agent model"),
@@ -500,6 +532,10 @@ def _print_summary(summary: dict[str, object], output_dir: Path) -> None:
             tokens = overall_tokens.get(scope)
             if not isinstance(tokens, dict):
                 continue
+            costs = overall_costs.get(scope)
+            total_cost = (
+                float(costs.get("total", 0.0)) if isinstance(costs, dict) else 0.0
+            )
             token_table.add_row(
                 "ALL",
                 "all",
@@ -507,6 +543,7 @@ def _print_summary(summary: dict[str, object], output_dir: Path) -> None:
                 f"{int(tokens.get('input_tokens', 0)):,}",
                 f"{int(tokens.get('reasoning_tokens', 0)):,}",
                 f"{int(tokens.get('output_tokens', 0)):,}",
+                f"${total_cost:.6f}" if total_cost else "—",
             )
     console.print(result_table)
     console.print(token_table)
