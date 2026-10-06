@@ -46,6 +46,9 @@ class ProxyConfig:
     max_sessions: int = 128
     max_request_bytes: int = 32 * 1024 * 1024
     request_reasoning_summary: bool = True
+    replay_reasoning_context: bool = False
+    record_model_io: bool = False
+    max_session_requests: int | None = None
     audit_dir: str | None = "var/codex-proxy"
 
     def __post_init__(self) -> None:
@@ -70,6 +73,15 @@ class ProxyConfig:
             raise ValueError("timeouts must be positive")
         if type(self.request_reasoning_summary) is not bool:
             raise ValueError("request_reasoning_summary must be a boolean")
+        for name in ("replay_reasoning_context", "record_model_io"):
+            if type(getattr(self, name)) is not bool:
+                raise ValueError(f"{name} must be a boolean")
+        if self.max_session_requests is not None and (
+            type(self.max_session_requests) is not int or self.max_session_requests < 1
+        ):
+            raise ValueError("max_session_requests must be a positive integer or null")
+        if self.record_model_io and not self.audit_dir:
+            raise ValueError("record_model_io requires audit_dir")
 
     @classmethod
     def load(cls, path: Path) -> ProxyConfig:

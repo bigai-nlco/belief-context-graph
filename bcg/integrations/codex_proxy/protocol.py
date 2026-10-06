@@ -222,9 +222,18 @@ def partition(items: list[dict], recent_turns: int) -> Partition:
     evicted = steps[:-recent_turns] if recent_turns else steps[:]
     removed = {index for step in evicted for index in step.indices}
     retained = [item for index, item in enumerate(items) if index not in removed]
-    first_user_index = users[0][0] if users else -1
+    # Codex can precede the real question with a separate user-role environment
+    # message. Seed the entire initial user prefix, not only its first item.
+    first_assistant = min(
+        (index for step in [*steps, active] for index in step.indices),
+        default=len(items),
+    )
+    initial_user_frontier = max(
+        (index for index, _ in users if index < first_assistant), default=-1
+    )
     frontier = max(
-        (index for step in evicted for index in step.indices), default=first_user_index
+        (index for step in evicted for index in step.indices),
+        default=initial_user_frontier,
     )
     events = [
         (index, [{"role": "user", "content": plain_text(item["content"])}])

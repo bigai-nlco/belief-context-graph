@@ -45,15 +45,43 @@ class AuditLog:
                 handle.write(line)
 
 
+class ModelIoLog:
+    """Explicit opt-in protocol audit, bounded to 100 MiB; no HTTP headers."""
+
+    def __init__(self, directory: str | None, enabled: bool):
+        self.root = Path(directory) / "model_io" if enabled and directory else None
+        self.lock = threading.Lock()
+        if self.root:
+            self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+    def write(self, request_id: str, event: dict) -> None:
+        if self.root is None:
+            return
+        data = (json.dumps(event, ensure_ascii=False) + "\n").encode()
+        with self.lock:
+            size = sum(path.stat().st_size for path in self.root.glob("*.jsonl"))
+            if size + len(data) > 100 * 1024 * 1024:
+                return
+            fd = os.open(
+                self.root / f"{request_id}.jsonl",
+                os.O_APPEND | os.O_WRONLY | os.O_CREAT,
+                0o600,
+            )
+            with os.fdopen(fd, "ab") as handle:
+                handle.write(data)
+
+
 class StreamUsage:
     """Observe bounded SSE frames without reserializing the forwarded stream."""
 
-    def __init__(self, max_frame_bytes: int):
+    def __init__(self, max_frame_bytes: int, *, capture_response: bool = False):
         self.pending = b""
         self.max_frame_bytes = max_frame_bytes
         self.disabled = False
         self.usage: dict = {}
         self.terminal: str | None = None
+        self.capture_response = capture_response
+        self.response: dict | None = None
 
     def feed(self, chunk: bytes) -> None:
         if self.disabled:
@@ -85,6 +113,8 @@ class StreamUsage:
                     response.get("usage"), dict
                 ):
                     self.usage = response["usage"]
+                if self.capture_response and isinstance(response, dict):
+                    self.response = response
         if len(self.pending) > self.max_frame_bytes:
             self.pending = b""
             self.disabled = True
@@ -116,6 +146,7 @@ class ProxyServer(ThreadingHTTPServer):
         )
         self.sessions = SessionStore(config.max_sessions)
         self.audit = AuditLog(config.audit_dir)
+        self.model_io = ModelIoLog(config.audit_dir, config.record_model_io)
         self.engine = ContextEngine(
             config,
             HttpGraphBackend(
@@ -219,10 +250,26 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 )
             locked_session = session
             body = self._request_body()
+            limit = self.server.config.max_session_requests
+            if limit is not None and session.requests >= limit:
+                raise RequestError("Configured session request budget exhausted", 429)
+            session.requests += 1
+            metadata["request_index"] = session.requests
             graph_started = time.monotonic()
             outgoing, prepared = self.server.engine.prepare(body, session)
             metadata.update(prepared)
             metadata["context_prepare_seconds"] = time.monotonic() - graph_started
+            with suppress(OSError):
+                self.server.model_io.write(
+                    metadata["request_id"],
+                    {
+                        "event": "request",
+                        "request_index": session.requests,
+                        "incoming": body,
+                        "forwarded": outgoing,
+                        "context": prepared,
+                    },
+                )
             with self.server.upstream.stream(
                 "POST",
                 self.server.config.upstream_base_url + "/responses",
@@ -249,7 +296,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     self.send_header("X-Request-ID", response.headers["x-request-id"])
                 self.end_headers()
                 sent_headers = True
-                observer = StreamUsage(self.server.config.max_request_bytes)
+                observer = StreamUsage(
+                    self.server.config.max_request_bytes,
+                    capture_response=self.server.config.record_model_io,
+                )
                 plain = bytearray()
                 oversized = False
                 for chunk in response.iter_bytes():
@@ -274,11 +324,30 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 if "text/event-stream" in content_type:
                     metadata["agent_usage"] = observer.usage
                     metadata["stream_terminal"] = observer.terminal
+                    with suppress(OSError):
+                        self.server.model_io.write(
+                            metadata["request_id"],
+                            {
+                                "event": "response",
+                                "status": response.status_code,
+                                "response": observer.response,
+                                "terminal": observer.terminal,
+                            },
+                        )
                 elif not oversized:
                     try:
                         result = json.loads(plain)
                         if isinstance(result, dict):
                             metadata["agent_usage"] = result.get("usage", {})
+                            with suppress(OSError):
+                                self.server.model_io.write(
+                                    metadata["request_id"],
+                                    {
+                                        "event": "response",
+                                        "status": response.status_code,
+                                        "response": result,
+                                    },
+                                )
                     except (ValueError, UnicodeDecodeError):
                         pass
         except RequestError as exc:

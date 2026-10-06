@@ -7,6 +7,7 @@ import json
 import threading
 import tomllib
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 
 import httpx
@@ -699,3 +700,19 @@ def test_invalid_or_empty_graph_selection_fails_open():
         render_graph(
             {"beliefs": None, "decisions": []}, {"node_ids": [1], "relation_ids": []}
         )
+
+
+def test_http_session_budget_stops_before_more_graph_or_model_calls(
+    monkeypatch, tmp_path
+):
+    with mock_server(monkeypatch, tmp_path) as (client, upstream, graph, _, _, server):
+        server.config = replace(server.config, max_session_requests=1)
+        assert (
+            client.post("/responses", headers=HEADERS, json=request()).status_code
+            == 200
+        )
+        graph_calls = len(graph)
+        result = client.post("/responses", headers=HEADERS, json=request(4))
+        assert result.status_code == 429
+        assert "budget exhausted" in result.json()["error"]["message"]
+        assert len(upstream) == 1 and len(graph) == graph_calls

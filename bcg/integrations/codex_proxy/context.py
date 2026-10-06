@@ -33,6 +33,7 @@ class Session:
     acknowledged: list[str] = field(default_factory=list)
     snapshot: dict = field(default_factory=dict)
     tainted: bool = False
+    requests: int = 0
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def reset_graph(self) -> None:
@@ -130,6 +131,17 @@ class ContextEngine:
         require a fresh graph ID on the next request (no duplicate ingestion).
         """
         outgoing = normalize_request(body, self.config.request_reasoning_summary)
+        if self.config.replay_reasoning_context and isinstance(
+            outgoing.get("reasoning"), dict
+        ):
+            has_prior_output = any(
+                item.get("type") in {"reasoning", "function_call", "custom_tool_call"}
+                or item.get("role") == "assistant"
+                for item in outgoing["input"]
+            )
+            outgoing["reasoning"].setdefault(
+                "context", "all_turns" if has_prior_output else "current_turn"
+            )
         metadata = {
             "mode": self.config.mode,
             "session_hash": session.session_hash,

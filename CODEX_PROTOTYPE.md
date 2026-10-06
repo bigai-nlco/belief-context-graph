@@ -103,7 +103,7 @@ git diff b646e41
 
 `preview` 使用明确标注的虚构 graph fixture，不代表真实 Graph Server 会抽出同样的节点。它用于检查窗口边界、输入输出结构、注入位置和内容。
 
-本次验证：新增代理测试与原有 CLI、HTTP contract、context selection、config、refactor contract 回归共 **130 项通过**，Ruff 检查及格式检查通过。使用的是本副本导入路径；没有启动真实 Codex，没有调用真实 Graph 或付费模型，测试临时服务均已关闭。
+最新离线验证：新增代理及 live-test setup 测试与原有 CLI、HTTP contract、context selection、config、refactor contract 回归共 **142 项通过**，Ruff 检查及格式检查通过。使用的是本副本导入路径；这些离线测试没有启动真实 Codex、调用真实 Graph 或付费模型，测试临时服务均已关闭。真实 API preflight 的失败状态另见下文。
 
 ## 检查通过之后才进行的真实接入
 
@@ -150,9 +150,34 @@ python -m bcg.integrations.codex_proxy codex-config --model YOUR_MODEL_ID
 
 ## 记录与文件定位
 
-- 代理只记录统计到 `var/codex-proxy/requests.jsonl`，达到约 10 MiB 滚动一次，最多约 20 MiB。包括 fallback 原因、裁剪轮数、selected node/edge IDs、耗时、Agent usage、Graph 累计 usage，不记录原始 Model I/O。
+- 代理默认只记录统计到 `var/codex-proxy/requests.jsonl`，达到约 10 MiB 滚动一次，最多约 20 MiB。包括 fallback 原因、裁剪轮数、selected node/edge IDs、耗时、Agent usage、Graph 累计 usage。
+- `record_model_io: true` 是显式调试选项，会将完整输入、实际转发请求和终态响应保存到 `audit_dir/model_io/`，不保存 HTTP headers；文件权限为 0600，目录总量上限约 100 MiB。这些记录可能包含代码和加密 reasoning item，不应公开上传。默认关闭。
+- 可选的 `max_session_requests` 限制单会话请求数；到达限制后，在继续建图/调用模型之前返回 429。`replay_reasoning_context: true` 会在请求未指定时，根据是否已有模型输出设置 `reasoning.context` 为 `current_turn` 或 `all_turns`。
 - `graph_usage_cumulative` 是该 `problem_id` 的累计用量，**不能把每条日志中的这个字段直接相加**。代理不把 Agent 和 Graph 的 token 混为一项。
 - 真正的 Graph/trajectory/prompt 记录仍在 Graph Server 启动时指定的输出目录中，使用日志里的 `problem_id`（`codex_...`）对应查找。Graph Server 的记录策略不受代理日志设置控制。
 - session lock 与 ledger：[`context.py`](bcg/integrations/codex_proxy/context.py)。Responses 分组与序列化：[`protocol.py`](bcg/integrations/codex_proxy/protocol.py)。HTTP/SSE：[`server.py`](bcg/integrations/codex_proxy/server.py)。离线测试：[`tests/test_codex_proxy.py`](tests/test_codex_proxy.py)。
 
 协议依据：[Codex 配置参考](https://learn.chatgpt.com/docs/config-file/config-reference)、[Responses reasoning 与无状态 replay](https://developers.openai.com/api/docs/guides/reasoning)。文档能力不等于本原型已经通过真实 Codex 集成测试。
+
+## BrowseComp 真实接入测试入口
+
+[`scripts/codex_browsecomp_smoke.py`](scripts/codex_browsecomp_smoke.py) 为人工授权之后的单题实测入口，不自动运行。它使用真实 `codex exec`、独立 `/tmp` 下的 HOME/CODEX_HOME/工作目录、独立 Graph Server 和本代理。只提供只读 Serper MCP 搜索工具，关闭 shell 与多 Agent 工具，问题答案不会进入模型 prompt。结束或出错会关闭它自己启动的服务，不动现有 tmux 服务。选用的 key 只在进程环境和认证 header 中流转，不写入配置。
+
+例如（会产生真实 API 费用）：
+
+```bash
+PYTHONPATH=. "$PYTHON" -m scripts.codex_browsecomp_smoke \
+  --provider openrouter \
+  --preflight-only \
+  --output results/codex-browsecomp-live/preflight
+
+PYTHONPATH=. "$PYTHON" -m scripts.codex_browsecomp_smoke \
+  --provider openrouter \
+  --dataset /path/to/browse_comp/data.json \
+  --task-id browsecomp-0000 \
+  --output results/codex-browsecomp-live/attempt-01
+```
+
+Agent 为 GPT-5.6-Luna/low，Graph 为同型号/none，最近两轮、focused/6600。也支持 `--provider litellm`，分别读取 `--env-file`（默认 `~/.bcg/.env`）中的 `OPENROUTER_OPENAI_API_KEY` 或 `LITELLM_OPENAI_API_KEY`。两种路由都需要 `SERPER_API_KEY`，并使用该文件的 `SERPER_ENDPOINT`。单题最多 40 个模型请求、30 次搜索，默认运行上限 1800 秒；不会以正确率为目标反复重跑同题。
+
+2026-10-06 实测准备状态：Serper 返回 200；OpenRouter Responses 返回 401 `User not found`；两个现有 LiteLLM key 都返回 429 `budget_exceeded`。因此尚未启动 BrowseComp 模型求解，也未获得正常完成的实测结果。需更新凭据/额度后继续，不能将离线测试或 preflight 错误当作真实测试成功。
