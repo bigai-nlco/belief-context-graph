@@ -49,6 +49,7 @@ class ProxyConfig:
     request_reasoning_summary: bool = True
     replay_reasoning_context: bool = False
     record_model_io: bool = False
+    allow_native_compaction: bool = False
     max_session_requests: int | None = None
     audit_dir: str | None = "var/codex-proxy"
 
@@ -82,7 +83,11 @@ class ProxyConfig:
             raise ValueError("timeouts must be positive")
         if type(self.request_reasoning_summary) is not bool:
             raise ValueError("request_reasoning_summary must be a boolean")
-        for name in ("replay_reasoning_context", "record_model_io"):
+        for name in (
+            "replay_reasoning_context",
+            "record_model_io",
+            "allow_native_compaction",
+        ):
             if type(getattr(self, name)) is not bool:
                 raise ValueError(f"{name} must be a boolean")
         if self.max_session_requests is not None and (

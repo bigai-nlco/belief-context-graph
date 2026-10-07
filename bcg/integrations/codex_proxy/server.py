@@ -259,6 +259,40 @@ class ProxyHandler(BaseHTTPRequestHandler):
             raise RequestError("Request body must be a JSON object")
         return value
 
+    def _native_compact(self, upstream_headers: dict) -> None:
+        """Let Codex compact its OWN original history; never compact the crop.
+
+        This is deliberately opt-in. An opaque compaction item in a later
+        request causes the existing parser to fall back to native context,
+        rather than claiming it can safely trim hidden history.
+        """
+        session = self.server.sessions.get(self.headers.get("X-BCG-Session-ID", ""))
+        if not session.lock.acquire(blocking=False):
+            raise RequestError("Session has an in-flight model request", 409)
+        try:
+            body = self._request_body()
+            limit = self.server.config.max_session_requests
+            if limit is not None and session.requests >= limit:
+                raise RequestError("Configured session request budget exhausted", 429)
+            session.requests += 1
+            response = self.server.upstream.post(
+                self.server.config.upstream_base_url + "/responses/compact",
+                headers={**upstream_headers, "Content-Type": "application/json"},
+                json=body,
+                timeout=self.server.config.upstream_timeout,
+            )
+            try:
+                result = response.json()
+            except ValueError as exc:
+                raise RequestError("Invalid native compaction response", 502) from exc
+            if not isinstance(result, dict):
+                raise RequestError("Invalid native compaction response", 502)
+            if response.is_success:
+                session.tainted = True
+            self._json(response.status_code, result)
+        finally:
+            session.lock.release()
+
     def do_POST(self) -> None:
         sent_headers = False
         locked_session = None
@@ -268,6 +302,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
         metadata: dict = {"request_id": uuid.uuid4().hex}
         try:
             upstream_headers = self._upstream_headers()
+            if (
+                self.path in {"/v1/responses/compact", "/responses/compact"}
+                and self.server.config.allow_native_compaction
+            ):
+                self._native_compact(upstream_headers)
+                metadata["native_compaction_passthrough"] = True
+                return
             if self.path not in {"/v1/responses", "/responses"}:
                 raise RequestError(
                     "This prototype does not support remote compaction, Chat Completions, or other API routes",

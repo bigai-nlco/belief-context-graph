@@ -120,6 +120,18 @@ def _codex_proxy(ctx: typer.Context) -> None:
 
 
 @app.command(
+    "codex",
+    help="Opt-in native Codex graph memory, compaction assistance, and context gateway.",
+    context_settings=_FORWARD_CONTEXT,
+    add_help_option=False,
+)
+def _codex(ctx: typer.Context) -> None:
+    from bcg.integrations.codex.cli import main as codex_main
+
+    codex_main(list(ctx.args))
+
+
+@app.command(
     "setup",
     help="Configure global Agent, model, context, and Graph settings.",
 )

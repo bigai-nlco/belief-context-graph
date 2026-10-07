@@ -555,6 +555,21 @@ HEADERS = {
 }
 
 
+def test_native_compaction_is_opt_in_and_forwards_original_input(monkeypatch, tmp_path):
+    from dataclasses import replace
+
+    with mock_server(monkeypatch, tmp_path) as (client, upstream, graph, _, _, server):
+        server.config = replace(server.config, allow_native_compaction=True)
+        original = request()
+        response = client.post("/v1/responses/compact", json=original, headers=HEADERS)
+        assert response.status_code == 200
+        assert upstream[-1].url.path == "/v1/responses/compact"
+        assert json.loads(upstream[-1].content) == original
+        assert graph == []
+        assert server.sessions.get("test-session").tainted
+        assert server.sessions.get("test-session").requests == 1
+
+
 def test_codex_login_forwarding_is_separate_and_does_not_log_auth(
     monkeypatch, tmp_path
 ):
