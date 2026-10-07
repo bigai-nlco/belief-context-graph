@@ -103,7 +103,7 @@ git diff b646e41
 
 `preview` 使用明确标注的虚构 graph fixture，不代表真实 Graph Server 会抽出同样的节点。它用于检查窗口边界、输入输出结构、注入位置和内容。
 
-最新离线验证：新增代理及 live-test setup 测试与原有 CLI、HTTP contract、context selection、config、refactor contract 回归共 **142 项通过**，Ruff 检查及格式检查通过。使用的是本副本导入路径；这些离线测试没有启动真实 Codex、调用真实 Graph 或付费模型，测试临时服务均已关闭。真实 API preflight 的失败状态另见下文。
+最新离线验证：新增代理、live-test setup、实测记录校验与原有 CLI、HTTP contract、context selection、config、refactor contract 回归共 **157 项通过**，Ruff 检查及格式检查通过。使用的是本副本导入路径；这些离线测试没有启动真实 Codex、调用真实 Graph 或付费模型，测试临时服务均已关闭。真实验证结果另见下文。
 
 ## 检查通过之后才进行的真实接入
 
@@ -185,7 +185,11 @@ PYTHONPATH=. "$PYTHON" -m scripts.codex_browsecomp_smoke \
 
 代理示例配置：[`examples/codex-proxy-chatgpt.yaml`](examples/codex-proxy-chatgpt.yaml)。使用 `bcg codex-proxy codex-config --model gpt-6-luna --chatgpt` 可以打印供审查的 provider 配置片段，不自动安装到全局 Codex。
 
-2026-10-07 模型变更：真实 Codex CLI 的 `gpt-6-luna / low` 登录测试已通过；此前 Graph `openai/gpt-6-luna / none` 请求返回 403。按用户明确要求，仅将建图模型切换为 `qwen/qwen3.8-flash`，保留 `reasoning_effort: none`、unified 建图、最近两轮、focused/6600 及其余设置。新模型的连通性与完整单题流程需要分别验证，不能把登录测试或最小 API 请求当作端到端成功。
+2026-10-07 模型变更：此前 Graph `openai/gpt-6-luna / none` 请求返回 403。按用户明确要求，仅将建图模型切换为 `qwen/qwen3.8-flash`，保留 `reasoning_effort: none`、unified 建图、最近两轮、focused/6600 及其余设置。
+
+2026-10-07 真实验证：`results/codex-browsecomp-live-20261007/codex-qwen38-bcg-attempt-01/` 的单题 `browsecomp-0000` 已完成，`verification.json` 的 18 项机械检查全部通过。真实 Codex 发出 5 次模型请求、完成 13 次 Serper 搜索，写入 6 条 Graph turn，2 次请求实际裁剪旧轮次并注入 Graph，没有 fallback；Graph 的 4 次模型调用均记录为 Qwen3.8 Flash / none，返回 reasoning tokens 为 0。Agent 最终答案为 `1985–1986`，与数据集参考答案 `1988–96` 不符：这是接入流程通过，不是答题正确或性能提升的证据。
+
+本次实测的限制：Codex Code Mode 将并行搜索包装为 `exec`，代理保留该原始名称、代码与 call ID，不推测内部 MCP 调用映射。因此当前 Graph 中这些 `exec` 工具结果使用原有通用规则摘要，尚未逐条拆成搜索结果的语义 beliefs。最后两轮和最终答案仍保留在原始上下文，不做 final flush。测试还记录了 `model_supports_reasoning_summaries` 被当前 Codex 版本忽略的非致命配置警告；实际请求中的 `summary: auto` 由代理保留。未为使答案正确而重跑本题或修改检索、抽点、建边策略。
 
 ### 原有 API key 路径
 
