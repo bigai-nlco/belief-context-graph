@@ -251,6 +251,32 @@ def test_bcg_tool_output_does_not_reenter_graph(config):
     assert handle(event, config) == {}
 
 
+def test_sensitive_auth_fields_and_non_text_outputs(config):
+    payload = '{"access_token":"sample-jwt-secret", "refresh_token":"sample-refresh-secret", "api_key":"new-key-not-in-env"}'
+    text = redact(payload, [])
+    assert "sample-jwt" not in text
+    assert "sample-refresh" not in text
+    assert "new-key" not in text
+    for response in (
+        {"content": [{"type": "image", "data": "private-image-data"}]},
+        [{"type": "image", "data": "private-image-data"}],
+    ):
+        assert (
+            normalize_event(
+                raw(
+                    config,
+                    "PostToolUse",
+                    tool_name="view_image",
+                    tool_use_id="image-1",
+                    tool_response=response,
+                ),
+                config,
+                [],
+            )
+            is None
+        )
+
+
 def test_envelope_cannot_be_closed_by_tool_content(config):
     event = normalize_event(
         raw(

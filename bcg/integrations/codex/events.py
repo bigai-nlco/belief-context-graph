@@ -15,6 +15,22 @@ def redact(text: str, secrets: list[str]) -> str:
             text = text.replace(secret, "[redacted]")
     text = re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [redacted]", text)
     text = re.sub(r"\bsk-[A-Za-z0-9_-]{12,}", "[redacted]", text)
+    text = re.sub(
+        r"""(?i)(["']?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)["']?\s*[:=]\s*)(["'])(.*?)\2""",
+        lambda m: m[1] + m[2] + "[redacted]" + m[2],
+        text,
+    )
+    text = re.sub(
+        r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b",
+        "[redacted]",
+        text,
+    )
+    text = re.sub(
+        r"-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----",
+        "[private key redacted]",
+        text,
+        flags=re.S,
+    )
     return text
 
 
@@ -26,6 +42,15 @@ def visible_text(value: object) -> str:
             part.get("text", "")
             for part in value["content"]
             if isinstance(part, dict) and part.get("type") == "text"
+        )
+    if isinstance(value, list) and all(
+        isinstance(part, dict) and "type" in part for part in value
+    ):
+        return "\n".join(
+            part.get("text", "")
+            for part in value
+            if part.get("type") in {"text", "input_text", "output_text"}
+            and isinstance(part.get("text"), str)
         )
     return json.dumps(value, ensure_ascii=False)
 
@@ -57,11 +82,17 @@ def normalize_event(raw: dict, config: Config, secrets: list[str]) -> dict | Non
         call_id = str(raw.get("tool_use_id", ""))
         if not name or not call_id:
             raise ValueError("missing native tool name or call id")
+        response = raw.get("tool_response", "")
+        text = visible_text(response)
+        if not text.strip() and isinstance(response, (dict, list)):
+            # An image-only/non-text result is not an empty search result.
+            # Do not invent a failure or upload encoded attachments.
+            return None
         payload = {
             "name": name[:200],
             "call_id": call_id[:240],
             "arguments": clean(visible_text(raw.get("tool_input", {}))),
-            "text": clean(visible_text(raw.get("tool_response", ""))),
+            "text": clean(text),
             "is_error": bool(
                 isinstance(raw.get("tool_response"), dict)
                 and raw["tool_response"].get("isError")

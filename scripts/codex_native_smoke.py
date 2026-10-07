@@ -61,6 +61,7 @@ model_reasoning_effort = "low"
 model_reasoning_summary = "auto"
 cli_auth_credentials_store = "file"
 check_for_update_on_startup = false
+disable_paste_burst = true
 web_search = "disabled"
 sandbox_mode = "read-only"
 approval_policy = "on-request"
