@@ -160,6 +160,15 @@ def partition(items: list[dict], recent_turns: int) -> Partition:
         role = item.get("role")
         if not isinstance(kind, str) or not isinstance(role, (str, type(None))):
             raise UnsupportedHistory("invalid_item_type_or_role")
+        if kind == "additional_tools" and role in {"developer", "system"}:
+            # Native Codex sends its code-mode tool catalog as an input item,
+            # not only in the top-level tools array. It is a pinned capability
+            # definition, never an assistant turn or a source for Graph facts.
+            if not isinstance(item.get("tools"), list) or any(
+                not isinstance(tool, dict) for tool in item["tools"]
+            ):
+                raise UnsupportedHistory("invalid_additional_tools")
+            continue
         if kind == "message" and role in {"system", "developer", "user"}:
             if role == "user":
                 finish()

@@ -34,6 +34,7 @@ class ProxyConfig:
     upstream_base_url: str
     graph_base_url: str = "http://127.0.0.1:8848"
     upstream_api_key_env: str = "BCG_CODEX_UPSTREAM_API_KEY"
+    upstream_auth: str = "api_key"
     gateway_token_env: str = "BCG_CODEX_GATEWAY_TOKEN"
     graph_api_key_env: str | None = None
     host: str = "127.0.0.1"
@@ -54,6 +55,14 @@ class ProxyConfig:
     def __post_init__(self) -> None:
         object.__setattr__(self, "upstream_base_url", base_url(self.upstream_base_url))
         object.__setattr__(self, "graph_base_url", base_url(self.graph_base_url))
+        if self.upstream_auth not in {"api_key", "codex_chatgpt"}:
+            raise ValueError("upstream_auth must be api_key or codex_chatgpt")
+        if self.upstream_auth == "codex_chatgpt" and self.upstream_base_url != (
+            "https://chatgpt.com/backend-api/codex"
+        ):
+            raise ValueError(
+                "Codex login credentials may only reach the official Codex endpoint"
+            )
         if self.host not in {"127.0.0.1", "localhost"}:
             raise ValueError(
                 "The prototype binds only to loopback; public exposure is unsupported"

@@ -40,6 +40,24 @@ ROUTES = {
         "gpt-5.6-luna",
     ),
 }
+CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
+
+
+def seed_codex_auth(source: Path, home: Path) -> Path:
+    """Use an isolated, private copy; let Codex own token refresh.
+
+    Never symlink the live auth cache: a test must not overwrite the user's
+    original credentials. The caller deletes this copy during teardown.
+    """
+    data = json.loads(source.expanduser().read_text())
+    tokens = data.get("tokens") or {}
+    if data.get("auth_mode") != "chatgpt" or not all(
+        tokens.get(name) for name in ("access_token", "account_id")
+    ):
+        raise ValueError("The selected auth.json must contain a Codex ChatGPT login")
+    destination = home / "auth.json"
+    save(destination, data)
+    return destination
 
 
 def save(path: Path, data: object) -> None:
@@ -196,7 +214,19 @@ def run(args, env: dict[str, str]) -> int:
     for port in (args.graph_port, args.proxy_port):
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", port))
-    base, key_name, model = ROUTES[args.provider]
+    chatgpt = args.provider == "codex"
+    if args.auth_only and not chatgpt:
+        raise ValueError("--auth-only requires --provider codex")
+    if chatgpt:
+        base, key_name, model = (
+            CODEX_BASE_URL,
+            "OPENROUTER_OPENAI_API_KEY",
+            "gpt-6-luna",
+        )
+        graph_base, graph_model = "https://openrouter.ai/api/v1", "openai/gpt-6-luna"
+    else:
+        base, key_name, model = ROUTES[args.provider]
+        graph_base, graph_model = base, model
     rows = json.loads(args.dataset.read_text())
     row = next(row for row in rows if row["task_id"] == args.task_id)
     output = args.output.resolve()
@@ -211,7 +241,8 @@ def run(args, env: dict[str, str]) -> int:
     clean_home.mkdir()
     inherited = {**os.environ, **env}
     # Graph runs with only the selected existing key; no model substitution.
-    inherited["BCG_CODEX_GRAPH_KEY"] = env[key_name]
+    if not args.auth_only:
+        inherited["BCG_CODEX_GRAPH_KEY"] = env[key_name]
     inherited["BCG_ENV_FILE"] = str(isolated / "absent.env")
     inherited["BCG_HOME"] = str(isolated / "bcg-home")
     inherited["PYTHONPATH"] = str(ROOT)
@@ -221,8 +252,8 @@ def run(args, env: dict[str, str]) -> int:
     inherited["TOKENIZERS_PARALLELISM"] = "false"
     graph_config = {
         "graph-model": {
-            "model": model,
-            "base_url": base,
+            "model": graph_model,
+            "base_url": graph_base,
             "api_key_env": "BCG_CODEX_GRAPH_KEY",
             "reasoning_effort": "none",
             "max_tokens": 8192,
@@ -264,32 +295,41 @@ def run(args, env: dict[str, str]) -> int:
         "--output-dir",
         str(output / "graphs"),
     ]
-    graph_log = (output / "graph-server.log").open("w")
-    graph = subprocess.Popen(
-        graph_args,
-        cwd=ROOT,
-        env=inherited,
-        stdout=graph_log,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
+    graph_log = None
+    graph = None
     gateway = None
     gateway_thread = None
     codex = None
+    auth_copy = None
     try:
-        wait_ready(graph_url, graph)
-        os.environ["BCG_CODEX_UPSTREAM_API_KEY"] = env[key_name]
+        if chatgpt:
+            auth_copy = seed_codex_auth(args.codex_auth_file, home)
+        if not args.auth_only:
+            graph_log = (output / "graph-server.log").open("w")
+            graph = subprocess.Popen(
+                graph_args,
+                cwd=ROOT,
+                env=inherited,
+                stdout=graph_log,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            wait_ready(graph_url, graph)
+        if not chatgpt:
+            os.environ["BCG_CODEX_UPSTREAM_API_KEY"] = env[key_name]
         os.environ["BCG_CODEX_GATEWAY_TOKEN"] = secrets.token_urlsafe(32)
         settings = ProxyConfig(
             upstream_base_url=base,
+            upstream_auth="codex_chatgpt" if chatgpt else "api_key",
             graph_base_url=graph_url,
+            mode="default" if args.auth_only else "bcg",
             port=args.proxy_port,
             upstream_timeout=300,
             graph_timeout=300,
             audit_dir=str(output / "proxy"),
-            replay_reasoning_context=True,
+            replay_reasoning_context=not chatgpt,
             record_model_io=True,
-            max_session_requests=40,
+            max_session_requests=3 if args.auth_only else 40,
         )
         gateway = ProxyServer(settings)
         gateway_thread = threading.Thread(
@@ -327,10 +367,27 @@ def run(args, env: dict[str, str]) -> int:
                 "PYTHONPATH": str(ROOT),
             }
         )
+        provider_auth = (
+            "requires_openai_auth = true"
+            if chatgpt
+            else 'env_key = "BCG_CODEX_GATEWAY_TOKEN"'
+        )
+        extra_headers = {"X-BCG-Session-ID": "BCG_CODEX_SESSION_ID"}
+        if chatgpt:
+            extra_headers["X-BCG-Gateway-Token"] = "BCG_CODEX_GATEWAY_TOKEN"
+        header_toml = (
+            "{ "
+            + ", ".join(
+                f"{json.dumps(k)} = {json.dumps(v)}" for k, v in extra_headers.items()
+            )
+            + " }"
+        )
         config_text = f"""model = {json.dumps(model)}
 model_provider = "bcg_proxy"
 model_reasoning_effort = "low"
 model_reasoning_summary = "auto"
+model_supports_reasoning_summaries = true
+cli_auth_credentials_store = "file"
 web_search = "disabled"
 sandbox_mode = "read-only"
 approval_policy = "on-request"
@@ -346,12 +403,12 @@ skill_mcp_dependency_install = false
 name = "BCG isolated BrowseComp test"
 base_url = "http://127.0.0.1:{args.proxy_port}/v1"
 wire_api = "responses"
-env_key = "BCG_CODEX_GATEWAY_TOKEN"
+{provider_auth}
 supports_websockets = false
 request_max_retries = 0
 stream_max_retries = 0
 stream_idle_timeout_ms = 900000
-env_http_headers = {{ "X-BCG-Session-ID" = "BCG_CODEX_SESSION_ID" }}
+env_http_headers = {header_toml}
 
 [mcp_servers.search]
 command = {json.dumps(sys.executable)}
@@ -367,13 +424,18 @@ required = true
             row["input"]
             + "\n\nResearch this question using the available web_search tool. Verify the identifying clues against sources before giving a concise final answer with source URLs. Do not use local files, stored benchmark answers, or other agents."
         )
+        if args.auth_only:
+            prompt = "Return exactly BCG_READY. Do not call any tools."
         save(output / "question.txt", prompt)
         run_info = {
-            "task_id": args.task_id,
+            "task_id": "auth-probe" if args.auth_only else args.task_id,
+            "auth_only": args.auth_only,
             "model": model,
             "provider": args.provider,
             "agent_reasoning_effort": "low",
             "graph_reasoning_effort": "none",
+            "graph_model": graph_model,
+            "graph_provider": "openrouter" if chatgpt else args.provider,
             "recent_turns": 2,
             "graph_selection": "focused",
             "node_char_budget": 6600,
@@ -416,7 +478,7 @@ required = true
             **run_info,
             "finished_at": time.time(),
             "codex_exit_code": codex.returncode,
-            "reference_answer": row["ground_truth_answer"],
+            "reference_answer": None if args.auth_only else row["ground_truth_answer"],
         }
         save(output / "result.json", result)
         print(
@@ -443,20 +505,31 @@ required = true
             if gateway_thread:
                 gateway_thread.join(timeout=5)
             gateway.server_close()
-        if graph.poll() is None:
+        if graph and graph.poll() is None:
             os.killpg(graph.pid, signal.SIGTERM)
             try:
                 graph.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 os.killpg(graph.pid, signal.SIGKILL)
                 graph.wait()
-        graph_log.close()
+        if graph_log:
+            graph_log.close()
+        if auth_copy:
+            auth_copy.unlink(missing_ok=True)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--env-file", type=Path, default=Path.home() / ".bcg/.env")
-    parser.add_argument("--provider", choices=list(ROUTES), required=True)
+    parser.add_argument("--provider", choices=[*ROUTES, "codex"], required=True)
+    parser.add_argument(
+        "--auth-only",
+        action="store_true",
+        help="Codex login smoke test only; no Graph or benchmark solving",
+    )
+    parser.add_argument(
+        "--codex-auth-file", type=Path, default=Path.home() / ".codex/auth.json"
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument(
@@ -473,6 +546,8 @@ def main() -> int:
     args = parser.parse_args()
     env = read_env_file(args.env_file)
     if args.preflight_only:
+        if args.provider == "codex":
+            parser.error("Use --auth-only for the real Codex login preflight")
         return preflight(args.provider, env, args.output)
     return run(args, env)
 

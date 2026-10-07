@@ -48,8 +48,19 @@ def codex_config(
         ),
     ],
     port: Annotated[int, typer.Option(min=1, max=65535)] = 8860,
+    chatgpt: Annotated[
+        bool, typer.Option(help="Use Codex login and a separate local gateway header.")
+    ] = False,
 ) -> None:
     """Print a review-only TOML snippet to stdout; never modify ~/.codex."""
+    auth = (
+        "requires_openai_auth = true"
+        if chatgpt
+        else 'env_key = "BCG_CODEX_GATEWAY_TOKEN"'
+    )
+    headers = '"X-BCG-Session-ID" = "BCG_CODEX_SESSION_ID"'
+    if chatgpt:
+        headers += ', "X-BCG-Gateway-Token" = "BCG_CODEX_GATEWAY_TOKEN"'
     typer.echo(f"""# REVIEW ONLY. Do not replace your existing Codex configuration.
 # Use a fresh BCG_CODEX_SESSION_ID for every independent thread/process.
 # BCG_CODEX_GATEWAY_TOKEN authenticates to localhost, not to the model provider.
@@ -57,10 +68,10 @@ def codex_config(
 name = "BCG local context gateway (experimental)"
 base_url = "http://127.0.0.1:{port}/v1"
 wire_api = "responses"
-env_key = "BCG_CODEX_GATEWAY_TOKEN"
+{auth}
 supports_websockets = false
 stream_idle_timeout_ms = 900000
-env_http_headers = {{ "X-BCG-Session-ID" = "BCG_CODEX_SESSION_ID" }}
+env_http_headers = {{ {headers} }}
 
 [profiles.bcg_proxy]
 model_provider = "bcg_proxy"

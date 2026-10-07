@@ -162,8 +162,34 @@ def test_mcp_budget_blocks_without_http(monkeypatch, capsys):
         {"record_model_io": True, "audit_dir": None},
         {"max_session_requests": 0},
         {"max_session_requests": True},
+        {"upstream_auth": "codex_chatgpt"},
+        {"upstream_auth": "anything"},
     ],
 )
 def test_invalid_live_debug_settings_rejected(kwargs):
     with pytest.raises(ValueError):
         ProxyConfig(upstream_base_url="http://model.invalid/v1", **kwargs)
+
+
+def test_chatgpt_auth_copy_is_private_and_does_not_touch_source(tmp_path):
+    from scripts.codex_browsecomp_smoke import save, seed_codex_auth
+
+    source = tmp_path / "original/auth.json"
+    data = {
+        "auth_mode": "chatgpt",
+        "tokens": {
+            "access_token": "fake",
+            "account_id": "test",
+            "refresh_token": "refresh",
+        },
+    }
+    save(source, data)
+    home = tmp_path / "isolated"
+    home.mkdir(mode=0o700)
+    copied = seed_codex_auth(source, home)
+    assert not copied.is_symlink()
+    assert copied.stat().st_mode & 0o777 == 0o600
+    save(copied, {"rotated": "new-private-test-token"})
+    assert json.loads(source.read_text()) == data
+    copied.unlink()
+    assert source.is_file()

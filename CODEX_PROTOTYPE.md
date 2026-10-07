@@ -161,6 +161,32 @@ python -m bcg.integrations.codex_proxy codex-config --model YOUR_MODEL_ID
 
 ## BrowseComp 真实接入测试入口
 
+**Agent 是本机 Codex，而不是 `bcg agent`。** Codex 的原生循环负责模型调用、推理、工具执行和最终答案。Python 测试脚本只负责启动/关闭服务及传入一道 BrowseComp 问题，不调用旧 Agent 的 rollout 或 benchmark runner。BCG 作为外部上下文层，在 Codex 发出的 Responses 请求进入模型前完成“旧轮次入图 → 保留最近两轮 → system/instructions 注入 Graph”。普通 Codex 使用时保留它原有的工具和权限；单题流程测试专门限制为只读 Serper 搜索，避免读取本地标准答案。
+
+### Codex 登录 + 独立 OpenRouter 建图
+
+```bash
+PYTHONPATH=. "$PYTHON" -m scripts.codex_browsecomp_smoke \
+  --provider codex --auth-only \
+  --output results/codex-browsecomp-live/codex-auth-probe
+
+PYTHONPATH=. "$PYTHON" -m scripts.codex_browsecomp_smoke \
+  --provider codex \
+  --dataset /path/to/browse_comp/data.json \
+  --task-id browsecomp-0000 \
+  --output results/codex-browsecomp-live/codex-bcg-attempt-01
+```
+
+本测试路径固定使用：Agent = `gpt-6-luna` / `low`，Graph = OpenRouter `openai/gpt-6-luna` / `none`。Graph key 取自 `~/.bcg/.env` 的 `OPENROUTER_OPENAI_API_KEY`；Codex 的认证来自 `~/.codex/auth.json`（可用 `--codex-auth-file` 指定），不使用 OpenRouter key。`--auth-only` 只验证 Codex 登录，不启动 Graph，也不求解 BrowseComp，不能作为 BCG 端到端成功的证据。
+
+测试在私有、隔离的 `CODEX_HOME` 中临时放置 0600 权限的认证副本，由 Codex 自己读取及刷新，退出时删除副本；不修改原始 auth.json 或 config.toml。代理不会读取刷新 token，而是在 `upstream_auth: codex_chatgpt` 下转发 Codex 已提供的 bearer 与 account header，且只允许官方 `https://chatgpt.com/backend-api/codex` 目标、不跟随重定向。独立的 `X-BCG-Gateway-Token` 验证本机访问，不能作为上游登录凭据。所有 HTTP 认证 header 都不写入模型 I/O 或 audit。原生 `/models` 检查以及 `additional_tools` 工具目录也予以保留。
+
+代理示例配置：[`examples/codex-proxy-chatgpt.yaml`](examples/codex-proxy-chatgpt.yaml)。使用 `bcg codex-proxy codex-config --model gpt-6-luna --chatgpt` 可以打印供审查的 provider 配置片段，不自动安装到全局 Codex。
+
+2026-10-07 验证状态：真实 Codex CLI 通过本代理返回 `BCG_READY`，`gpt-6-luna / low`、`store: false`、完整 SSE 终态和 token usage 均有记录。OpenRouter key 认证已返回 200，但 Graph `openai/gpt-6-luna / none` 的真实生成请求被上游以 403（provider Terms Of Service）拒绝。因此 **BrowseComp + 真实 Graph 的完整流程尚未通过**，也不能声称已验证 Graph 的 `none` 生效；需先由用户/服务方解除限制，不绕过拒绝或擅自改模型。
+
+### 原有 API key 路径
+
 [`scripts/codex_browsecomp_smoke.py`](scripts/codex_browsecomp_smoke.py) 为人工授权之后的单题实测入口，不自动运行。它使用真实 `codex exec`、独立 `/tmp` 下的 HOME/CODEX_HOME/工作目录、独立 Graph Server 和本代理。只提供只读 Serper MCP 搜索工具，关闭 shell 与多 Agent 工具，问题答案不会进入模型 prompt。结束或出错会关闭它自己启动的服务，不动现有 tmux 服务。选用的 key 只在进程环境和认证 header 中流转，不写入配置。
 
 例如（会产生真实 API 费用）：

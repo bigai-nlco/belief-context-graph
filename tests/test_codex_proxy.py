@@ -213,6 +213,22 @@ def test_incomplete_parallel_batch_stays_intact_even_with_zero_recent_steps():
     assert meta["evicted_steps"] == 1
 
 
+def test_native_codex_tool_catalog_is_pinned_but_never_ingested():
+    body = request(4)
+    catalog = {
+        "type": "additional_tools",
+        "role": "developer",
+        "id": "at_catalog",
+        "tools": [{"type": "namespace", "name": "functions", "tools": []}],
+    }
+    body["input"].insert(0, catalog)
+    graph = FakeGraph()
+    out, metadata = ContextEngine(config(), graph).prepare(body, Session("native"))
+    assert metadata["fallback"] is None and metadata["evicted_steps"] == 2
+    assert out["input"][0] == catalog
+    assert "at_catalog" not in json.dumps(graph.writes)
+
+
 @pytest.mark.parametrize(
     "item",
     [
@@ -443,7 +459,14 @@ def test_stream_observer_split_crlf_multiline_and_ciphertext_not_logged():
 
 @contextmanager
 def mock_server(
-    monkeypatch, tmp_path, *, stream=False, fail_graph=False, upstream_status=200
+    monkeypatch,
+    tmp_path,
+    *,
+    stream=False,
+    fail_graph=False,
+    upstream_status=200,
+    codex_auth=False,
+    content_type=None,
 ):
     monkeypatch.setenv("BCG_CODEX_GATEWAY_TOKEN", "local-test-token")
     monkeypatch.setenv("BCG_CODEX_UPSTREAM_API_KEY", "upstream-test-secret")
@@ -466,7 +489,8 @@ def mock_server(
             upstream_status,
             content=wire if stream else json.dumps(response).encode(),
             headers={
-                "content-type": "text/event-stream" if stream else "application/json",
+                "content-type": content_type
+                or ("text/event-stream" if stream else "application/json"),
                 "x-request-id": "upstream-rid",
             },
         )
@@ -495,7 +519,10 @@ def mock_server(
         )
 
     settings = ProxyConfig(
-        upstream_base_url="https://upstream.invalid/v1",
+        upstream_base_url="https://chatgpt.com/backend-api/codex"
+        if codex_auth
+        else "https://upstream.invalid/v1",
+        upstream_auth="codex_chatgpt" if codex_auth else "api_key",
         graph_base_url="http://graph.invalid",
         port=0,
         audit_dir=str(tmp_path / "audit"),
@@ -528,6 +555,72 @@ HEADERS = {
 }
 
 
+def test_codex_login_forwarding_is_separate_and_does_not_log_auth(
+    monkeypatch, tmp_path
+):
+    with mock_server(monkeypatch, tmp_path, codex_auth=True, stream=True) as (
+        client,
+        upstream,
+        graph,
+        _,
+        wire,
+        server,
+    ):
+        headers = {
+            "Authorization": "Bearer private-codex-login",
+            "ChatGPT-Account-Id": "private-account",
+            "X-BCG-Gateway-Token": "local-test-token",
+            "X-BCG-Session-ID": "test-session",
+            "Originator": "codex_cli_rs",
+            "Cookie": "must-not-forward",
+        }
+        result = client.post(
+            "/v1/responses", headers=headers, json=request(stream=True)
+        )
+        assert result.status_code == 200 and result.content == wire
+        assert server.upstream_key is None
+        assert str(upstream[0].url) == "https://chatgpt.com/backend-api/codex/responses"
+        assert upstream[0].headers["Authorization"] == "Bearer private-codex-login"
+        assert upstream[0].headers["ChatGPT-Account-Id"] == "private-account"
+        assert upstream[0].headers["Originator"] == "codex_cli_rs"
+        assert "cookie" not in upstream[0].headers
+        assert "x-bcg-gateway-token" not in upstream[0].headers
+        assert "x-bcg-session-id" not in upstream[0].headers
+        assert all("private-codex-login" not in json.dumps(body) for body in graph)
+    audit = (tmp_path / "audit/requests.jsonl").read_text()
+    assert all(
+        secret not in audit
+        for secret in ["private-codex-login", "private-account", "local-test-token"]
+    )
+
+
+def test_codex_login_requires_local_token_and_account_before_any_call(
+    monkeypatch, tmp_path
+):
+    with mock_server(monkeypatch, tmp_path, codex_auth=True) as (
+        client,
+        upstream,
+        graph,
+        _,
+        _,
+        _,
+    ):
+        valid = {
+            "Authorization": "Bearer private-codex-login",
+            "ChatGPT-Account-Id": "private-account",
+            "X-BCG-Gateway-Token": "local-test-token",
+            "X-BCG-Session-ID": "test-session",
+        }
+        for missing in ("Authorization", "ChatGPT-Account-Id", "X-BCG-Gateway-Token"):
+            result = client.post(
+                "/v1/responses",
+                headers={k: v for k, v in valid.items() if k != missing},
+                json=request(),
+            )
+            assert result.status_code == 401
+        assert not upstream and not graph
+
+
 @pytest.mark.parametrize("stream", [False, True])
 def test_http_and_sse_roundtrip_with_only_mock_backends(monkeypatch, tmp_path, stream):
     with mock_server(monkeypatch, tmp_path, stream=stream) as (
@@ -555,6 +648,61 @@ def test_http_and_sse_roundtrip_with_only_mock_backends(monkeypatch, tmp_path, s
     audit = (tmp_path / "audit/requests.jsonl").read_text()
     assert "agent_usage" in audit and "graph_usage_cumulative" in audit
     assert "secret" not in audit and "OPAQUE" not in audit and "config.py" not in audit
+
+
+def test_native_codex_sse_labeled_json_still_records_usage(monkeypatch, tmp_path):
+    with mock_server(
+        monkeypatch, tmp_path, stream=True, content_type="application/json"
+    ) as (
+        client,
+        _,
+        _,
+        _,
+        wire,
+        _,
+    ):
+        result = client.post(
+            "/v1/responses", headers=HEADERS, json=request(stream=True)
+        )
+        assert result.content == wire
+    record = json.loads(
+        (tmp_path / "audit/requests.jsonl").read_text().splitlines()[-1]
+    )
+    assert record["agent_usage"] == {"input_tokens": 70, "output_tokens": 20}
+    assert record["stream_terminal"] == "response.completed"
+
+
+def test_native_codex_model_catalog_is_authenticated_and_uses_pinned_origin(
+    monkeypatch, tmp_path
+):
+    with mock_server(monkeypatch, tmp_path, codex_auth=True) as (
+        client,
+        upstream,
+        graph,
+        _,
+        _,
+        _,
+    ):
+        headers = {
+            "Authorization": "Bearer codex-token",
+            "ChatGPT-Account-Id": "account",
+            "X-BCG-Gateway-Token": "local-test-token",
+        }
+        assert client.get("/v1/models?client_version=0.160.1").status_code == 401
+        result = client.get("/v1/models?client_version=0.160.1", headers=headers)
+        assert result.status_code == 200
+        assert len(upstream) == 1 and not graph
+        assert (
+            str(upstream[0].url)
+            == "https://chatgpt.com/backend-api/codex/models?client_version=0.160.1"
+        )
+        assert (
+            client.get(
+                "/v1/models?url=https://other.invalid", headers=headers
+            ).status_code
+            == 400
+        )
+        assert len(upstream) == 1
 
 
 def test_http_graph_outage_is_safe_and_retries_do_not_duplicate_acked_graph(

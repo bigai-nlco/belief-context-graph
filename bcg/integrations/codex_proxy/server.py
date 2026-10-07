@@ -12,6 +12,7 @@ import uuid
 from contextlib import suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 
@@ -132,7 +133,11 @@ class ProxyServer(ThreadingHTTPServer):
     ):
         self.config = config
         self.gateway_token = config.secret(config.gateway_token_env)
-        self.upstream_key = config.secret(config.upstream_api_key_env)
+        self.upstream_key = (
+            config.secret(config.upstream_api_key_env)
+            if config.upstream_auth == "api_key"
+            else None
+        )
         graph_key = (
             config.secret(config.graph_api_key_env)
             if config.graph_api_key_env
@@ -194,6 +199,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 200,
                 {"status": "ok", "prototype": True, "mode": self.server.config.mode},
             )
+        elif self.server.config.upstream_auth == "codex_chatgpt" and urlsplit(
+            self.path
+        ).path in {"/models", "/v1/models"}:
+            self._codex_models()
         else:
             self._json(
                 404,
@@ -203,6 +212,28 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     }
                 },
             )
+
+    def _codex_models(self) -> None:
+        """Forward the native model-catalog check, without exposing auth."""
+        try:
+            headers = self._upstream_headers()
+            query = parse_qs(urlsplit(self.path).query)
+            if set(query) - {"client_version"} or any(
+                len(values) != 1 or len(values[0]) > 100 for values in query.values()
+            ):
+                raise RequestError("Unsupported model catalog query")
+            response = self.server.upstream.get(
+                self.server.config.upstream_base_url + "/models",
+                params={k: v[0] for k, v in query.items()},
+                headers={**headers, "Accept": "application/json"},
+                timeout=30,
+            )
+            self._json(response.status_code, response.json())
+        except RequestError as exc:
+            self._json(exc.status, {"error": {"message": str(exc)}})
+        except (httpx.HTTPError, ValueError, OSError):
+            with suppress(OSError):
+                self._json(502, {"error": {"message": "Model catalog request failed"}})
 
     def _request_body(self) -> dict:
         if self.headers.get("Transfer-Encoding"):
@@ -231,12 +262,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         sent_headers = False
         locked_session = None
+        observer = None
+        response_status = None
         started = time.monotonic()
         metadata: dict = {"request_id": uuid.uuid4().hex}
         try:
-            token = self.headers.get("Authorization", "")
-            if not hmac.compare_digest(token, f"Bearer {self.server.gateway_token}"):
-                raise RequestError("Invalid gateway bearer token", 401)
+            upstream_headers = self._upstream_headers()
             if self.path not in {"/v1/responses", "/responses"}:
                 raise RequestError(
                     "This prototype does not support remote compaction, Chat Completions, or other API routes",
@@ -275,7 +306,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self.server.config.upstream_base_url + "/responses",
                 json=outgoing,
                 headers={
-                    "Authorization": f"Bearer {self.server.upstream_key}",
+                    **upstream_headers,
                     "Content-Type": "application/json",
                     "Accept-Encoding": "identity",
                     "Accept": "text/event-stream"
@@ -284,8 +315,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 },
                 timeout=self.server.config.upstream_timeout,
             ) as response:
+                response_status = response.status_code
                 metadata["upstream_status"] = response.status_code
                 content_type = response.headers.get("content-type", "application/json")
+                metadata["upstream_content_type"] = content_type
+                is_sse = "text/event-stream" in content_type or (
+                    response.is_success and bool(outgoing.get("stream"))
+                )
                 self.send_response(response.status_code)
                 self.send_header("Content-Type", content_type)
                 self.send_header("Transfer-Encoding", "chunked")
@@ -296,19 +332,22 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     self.send_header("X-Request-ID", response.headers["x-request-id"])
                 self.end_headers()
                 sent_headers = True
-                observer = StreamUsage(
-                    self.server.config.max_request_bytes,
-                    capture_response=self.server.config.record_model_io,
+                observer = (
+                    StreamUsage(
+                        self.server.config.max_request_bytes,
+                        capture_response=self.server.config.record_model_io,
+                    )
+                    if is_sse
+                    else None
                 )
                 plain = bytearray()
                 oversized = False
                 for chunk in response.iter_bytes():
                     if not chunk:
                         continue
+                    # Observe first: Codex may close immediately on completed.
                     # HTTP framing changes, Responses event bytes do not.
-                    self.wfile.write(f"{len(chunk):X}\r\n".encode() + chunk + b"\r\n")
-                    self.wfile.flush()
-                    if "text/event-stream" in content_type:
+                    if observer is not None:
                         observer.feed(chunk)
                     elif not oversized:
                         if (
@@ -319,22 +358,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         else:
                             oversized = True
                             plain.clear()
+                    self.wfile.write(f"{len(chunk):X}\r\n".encode() + chunk + b"\r\n")
+                    self.wfile.flush()
                 self.wfile.write(b"0\r\n\r\n")
                 self.wfile.flush()
-                if "text/event-stream" in content_type:
-                    metadata["agent_usage"] = observer.usage
-                    metadata["stream_terminal"] = observer.terminal
-                    with suppress(OSError):
-                        self.server.model_io.write(
-                            metadata["request_id"],
-                            {
-                                "event": "response",
-                                "status": response.status_code,
-                                "response": observer.response,
-                                "terminal": observer.terminal,
-                            },
-                        )
-                elif not oversized:
+                if not is_sse and not oversized:
                     try:
                         result = json.loads(plain)
                         if isinstance(result, dict):
@@ -357,7 +385,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 {"error": {"message": str(exc), "type": "bcg_gateway_error"}},
             )
         except (httpx.HTTPError, OSError):
-            metadata["error"] = "upstream_or_client_connection_failed"
+            if observer is not None and observer.terminal == "response.completed":
+                metadata["client_closed_after_completion"] = True
+            else:
+                metadata["error"] = "upstream_or_client_connection_failed"
             if not sent_headers:
                 with suppress(OSError):
                     self._json(
@@ -371,6 +402,19 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     )
             self.close_connection = True
         finally:
+            if observer is not None:
+                metadata["agent_usage"] = observer.usage
+                metadata["stream_terminal"] = observer.terminal
+                with suppress(OSError):
+                    self.server.model_io.write(
+                        metadata["request_id"],
+                        {
+                            "event": "response",
+                            "status": response_status,
+                            "response": observer.response,
+                            "terminal": observer.terminal,
+                        },
+                    )
             if locked_session:
                 locked_session.lock.release()
             metadata["elapsed_seconds"] = time.monotonic() - started
@@ -378,3 +422,30 @@ class ProxyHandler(BaseHTTPRequestHandler):
             # response into another request (and another API charge).
             with suppress(OSError):
                 self.server.audit.write(metadata)
+
+    def _upstream_headers(self) -> dict[str, str]:
+        """Separate local gateway access from the provider's bearer token.
+
+        In ChatGPT mode Codex owns credential loading and refresh. Forward
+        only the documented authentication and Codex client headers, never
+        arbitrary inbound headers, cookies, or the local gateway credential.
+        Config validation pins this mode to the official HTTPS endpoint.
+        """
+        if self.server.config.upstream_auth == "api_key":
+            token = self.headers.get("Authorization", "")
+            if not hmac.compare_digest(token, f"Bearer {self.server.gateway_token}"):
+                raise RequestError("Invalid gateway bearer token", 401)
+            return {"Authorization": f"Bearer {self.server.upstream_key}"}
+
+        gateway = self.headers.get("X-BCG-Gateway-Token", "")
+        if not hmac.compare_digest(gateway, self.server.gateway_token):
+            raise RequestError("Invalid gateway token", 401)
+        bearer = self.headers.get("Authorization", "")
+        account = self.headers.get("ChatGPT-Account-Id", "")
+        if not bearer.startswith("Bearer ") or not bearer[7:].strip() or not account:
+            raise RequestError("Codex ChatGPT authentication headers are required", 401)
+        headers = {"Authorization": bearer, "ChatGPT-Account-Id": account}
+        for name in ("OpenAI-Beta", "Originator", "Version", "User-Agent"):
+            if value := self.headers.get(name):
+                headers[name] = value
+        return headers
