@@ -570,6 +570,65 @@ def test_native_compaction_is_opt_in_and_forwards_original_input(monkeypatch, tm
         assert server.sessions.get("test-session").requests == 1
 
 
+@pytest.mark.parametrize(
+    "auxiliary_metadata",
+    [
+        {"request_kind": "thread_title"},
+        {"request_kind": "turn", "thread_source": "thread_title"},
+    ],
+)
+def test_native_auxiliary_requests_are_isolated_and_never_built(
+    monkeypatch, tmp_path, auxiliary_metadata
+):
+    import hashlib
+
+    with mock_server(monkeypatch, tmp_path, codex_auth=True) as (
+        client,
+        upstream,
+        graph,
+        _,
+        _,
+        server,
+    ):
+        headers = {
+            "X-BCG-Session-ID": "test-session",
+            "X-BCG-Gateway-Token": "local-test-token",
+            "Authorization": "Bearer native-auth",
+            "ChatGPT-Account-Id": "account",
+        }
+        body = request()
+        body["client_metadata"] = {
+            "thread_id": "native-thread",
+            "x-codex-turn-metadata": json.dumps({"request_kind": "turn"}),
+        }
+        assert (
+            client.post("/v1/responses", json=body, headers=headers).status_code == 200
+        )
+        graph_calls = len(graph)
+        main_key = (
+            "native-"
+            + hashlib.sha256(
+                json.dumps(["test-session", "native-thread", "turn"]).encode()
+            ).hexdigest()
+        )
+        main = server.sessions.get(main_key)
+        auxiliary = {
+            "model": "gpt-6-luna",
+            "input": "Name this conversation",
+            "stream": False,
+            "client_metadata": {
+                "thread_id": "native-thread",
+                "x-codex-turn-metadata": json.dumps(auxiliary_metadata),
+            },
+        }
+        with main.lock:
+            response = client.post("/v1/responses", json=auxiliary, headers=headers)
+        assert response.status_code == 200
+        assert json.loads(upstream[-1].content) == auxiliary
+        assert len(graph) == graph_calls
+        assert main.requests == 1
+
+
 def test_codex_login_forwarding_is_separate_and_does_not_log_auth(
     monkeypatch, tmp_path
 ):

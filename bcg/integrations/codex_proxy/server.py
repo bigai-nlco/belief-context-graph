@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import os
@@ -266,11 +267,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
         request causes the existing parser to fall back to native context,
         rather than claiming it can safely trim hidden history.
         """
-        session = self.server.sessions.get(self.headers.get("X-BCG-Session-ID", ""))
+        body = self._request_body()
+        session_key, _kind = self._request_session(body, as_turn=True)
+        session = self.server.sessions.get(session_key)
         if not session.lock.acquire(blocking=False):
             raise RequestError("Session has an in-flight model request", 409)
         try:
-            body = self._request_body()
             limit = self.server.config.max_session_requests
             if limit is not None and session.requests >= limit:
                 raise RequestError("Configured session request budget exhausted", 429)
@@ -293,6 +295,45 @@ class ProxyHandler(BaseHTTPRequestHandler):
         finally:
             session.lock.release()
 
+    def _request_session(self, body: dict, *, as_turn: bool = False) -> tuple[str, str]:
+        """Separate native auxiliary requests and subthreads from the main loop.
+
+        Codex 0.160.1 supplies this metadata. Missing/unknown metadata is not
+        guessed from prompt wording. These are routing hints, NOT authority;
+        every request still needs the independent local gateway credential.
+        """
+        base = self.headers.get("X-BCG-Session-ID", "")
+        # Validate the explicit installation/session boundary even if native
+        # client metadata is present.
+        self.server.sessions.get(base)
+        client_meta = body.get("client_metadata")
+        if self.server.config.upstream_auth != "codex_chatgpt" or not isinstance(
+            client_meta, dict
+        ):
+            return base, ""
+        meta = client_meta.get("x-codex-turn-metadata", {})
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except ValueError:
+                meta = {}
+        if not isinstance(meta, dict):
+            meta = {}
+        kind = meta.get("request_kind", "")
+        kind = kind if isinstance(kind, str) and len(kind) <= 80 else ""
+        # TUI title generation labels its request as a normal "turn", but
+        # exposes an explicit auxiliary thread source (verified live).
+        if meta.get("thread_source") == "thread_title":
+            kind = "aux:thread_title"
+        thread = client_meta.get("thread_id") or meta.get("thread_id")
+        if not isinstance(thread, str) or not thread:
+            return base, kind
+        route_kind = "turn" if as_turn else kind or "turn"
+        key = hashlib.sha256(
+            json.dumps([base, thread, route_kind]).encode()
+        ).hexdigest()
+        return "native-" + key, kind
+
     def do_POST(self) -> None:
         sent_headers = False
         locked_session = None
@@ -314,21 +355,38 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     "This prototype does not support remote compaction, Chat Completions, or other API routes",
                     501,
                 )
-            session = self.server.sessions.get(self.headers.get("X-BCG-Session-ID", ""))
+            body = self._request_body()
+            session_key, native_kind = self._request_session(body)
+            metadata["native_request_kind"] = native_kind or None
+            session = self.server.sessions.get(session_key)
             if not session.lock.acquire(blocking=False):
                 raise RequestError(
                     "Concurrent requests for one session are unsupported; use a distinct session ID per Codex thread",
                     409,
                 )
             locked_session = session
-            body = self._request_body()
             limit = self.server.config.max_session_requests
             if limit is not None and session.requests >= limit:
                 raise RequestError("Configured session request budget exhausted", 429)
             session.requests += 1
             metadata["request_index"] = session.requests
             graph_started = time.monotonic()
-            outgoing, prepared = self.server.engine.prepare(body, session)
+            if native_kind and native_kind != "turn":
+                # Title, background summary, classification, etc. are not
+                # agent history. Do not build them into the user's graph.
+                outgoing = body
+                prepared = {
+                    "mode": "native_auxiliary",
+                    "evicted_steps": 0,
+                    "graph_turns_written": 0,
+                    "graph_chars": 0,
+                    "fallback": None,
+                    "session_hash": session.session_hash,
+                    "input_items_before": len(body.get("input", [])),
+                    "input_items_after": len(body.get("input", [])),
+                }
+            else:
+                outgoing, prepared = self.server.engine.prepare(body, session)
             metadata.update(prepared)
             metadata["context_prepare_seconds"] = time.monotonic() - graph_started
             with suppress(OSError):

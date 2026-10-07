@@ -1,6 +1,6 @@
 # Codex BCG 接入原型
 
-当前状态：代码与离线测试已实现，**尚未接入真实 Codex，也没有调用真实模型进行验证**。等人工检查之后，再做实际接入测试。Claude Code 的 Messages API 适配不在这一版中。
+当前状态：已完成真实 Codex 流程验证，并进一步实现了可在原生持续会话使用的三种可选接入方式：`assist`、`compact` 和 `gateway`。安装方法、Context 能力边界和切换方式见 [原生 Codex 接入说明](docs/codex-native-integration.md)。本文保留最初请求代理的实现说明；Claude Code 适配不在这一版中。
 
 ## 副本与修改范围
 
@@ -30,7 +30,7 @@ BCG 本地代理 ───────────────────► �
 默认 `mode: bcg`、`recent_turns: 2`：
 
 1. 保留原始 `instructions`，以及 input 中所有 system/developer 消息。
-2. 永久保留 input 中所有 user 消息，包括最初问题和后续补充。
+2. 原样保留当前 input 中所有 user 消息，包括最初问题和后续补充；无法恢复已被 Codex 自身 compaction 移除的原文。
 3. 保留最近两轮完整的 Assistant/Tool 交互，以及所有尚未完成的工具交互。
 4. 初始用户问题先入图；只有将要从模型请求中淘汰的完整交互才增量入图。后续 user 消息始终原文保留，到达建图历史边界时也按时间顺序入图。
 5. Graph Server 确认写入成功后，通过现有 `/context-selection` 的 `focused` 策略选图，节点字符预算默认 6600、搜索深度 4。随后才从当前模型请求中移除相应旧交互。
