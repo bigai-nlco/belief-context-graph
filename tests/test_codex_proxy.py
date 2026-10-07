@@ -575,6 +575,7 @@ def test_native_compaction_is_opt_in_and_forwards_original_input(monkeypatch, tm
     [
         {"request_kind": "thread_title"},
         {"request_kind": "turn", "thread_source": "thread_title"},
+        {"request_kind": "compaction"},
     ],
 )
 def test_native_auxiliary_requests_are_isolated_and_never_built(

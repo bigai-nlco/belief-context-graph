@@ -2,6 +2,8 @@
 
 This integration lives in the isolated `belief-context-graph-codex` checkout. It does not replace Codex with the benchmark agent, and it does not start a new Codex process for every model call or user message. Nothing is installed into your global Codex configuration automatically.
 
+See [live validation results](codex-native-validation.md) for the tested CLI version, real continuing sessions, exact request checks, and remaining limitations.
+
 ## Three selectable approaches
 
 | Approach | Start the agent | What changes in actual model context | Important limit |
@@ -115,7 +117,7 @@ The wrapper launches **one** native interactive Codex process and a loopback-onl
 
 Here a step means a complete assistant/tool-call batch plus paired results, not a user-visible conversation turn or two individual messages. The UI/local history stays native; the actual model request is trimmed. On graph failure or unsupported input, the full original input is forwarded instead of being lost. Native compaction is passed through unmodified; opaque compaction content cannot be safely dissected, so later requests containing it use the native-context fallback. Tool-call/response pairing and original retained reasoning items are preserved. Encrypted reasoning is never decrypted.
 
-This variant may synchronously wait for graph construction before forwarding a request. The original gateway's tool extraction does not yet unwrap every Code Mode `exec` into its nested tools; native Hooks are better at that. It is not a drop-in replacement for every Codex transport, auth provider, UI or remote environment. `--record-model-io` is optional and sensitive; by default only bounded metadata is logged.
+This variant may synchronously wait for graph construction before forwarding a request. Native thread IDs isolate concurrent threads; TUI title-generation and compaction requests bypass graph transformation. The original gateway's tool extraction does not yet unwrap every Code Mode `exec` into its nested tools; native Hooks are better at that. It is not a drop-in replacement for every Codex transport, auth provider, UI or remote environment. `--record-model-io` is optional and sensitive; by default only bounded metadata is logged.
 
 ## Inspect, pause and remove
 
