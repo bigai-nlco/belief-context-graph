@@ -224,7 +224,7 @@ def run(args, env: dict[str, str]) -> int:
             "OPENROUTER_OPENAI_API_KEY",
             "gpt-6-luna",
         )
-        graph_base, graph_model = "https://openrouter.ai/api/v1", "openai/gpt-6-luna"
+        graph_base, graph_model = "https://openrouter.ai/api/v1", "qwen/qwen3.8-flash"
     else:
         base, key_name, model = ROUTES[args.provider]
         graph_base, graph_model = base, model

@@ -129,7 +129,7 @@ python -m bcg.integrations.codex_proxy codex-config --model YOUR_MODEL_ID
 
 该命令**只输出文本**。片段使用独立 provider/profile，关闭该 provider 的 WebSocket 和请求压缩，不更改审批或沙箱。未来手动合并配置时，Codex 进程需要同一个本地 `BCG_CODEX_GATEWAY_TOKEN`，以及每个独立会话不同的 `BCG_CODEX_SESSION_ID`。恢复同一会话可使用同一 ID；切换任务、分支会话或并行 Agent 应使用不同 ID。
 
-第一轮真实验证应限定为一个新建的短 Codex 会话，不启用 subagents，确认工具完整配对、没有 fallback、Graph 写入内容正确，再扩大范围。当前安装版本、模型服务及其认证方式的真实兼容性仍待该阶段验证；本原型只支持 API key，不转发 ChatGPT OAuth 登录凭据。
+第一轮真实验证应限定为一个新建的短 Codex 会话，不启用 subagents，确认工具完整配对、没有 fallback、Graph 写入内容正确，再扩大范围。除 API key 路径外，原生 Codex 登录路径见下方“Codex 登录 + 独立 OpenRouter 建图”；认证测试通过不等于完整 BCG 流程已经通过。
 
 ## 失败处理和边界
 
@@ -177,7 +177,7 @@ PYTHONPATH=. "$PYTHON" -m scripts.codex_browsecomp_smoke \
   --output results/codex-browsecomp-live/codex-bcg-attempt-01
 ```
 
-本测试路径固定使用：Agent = `gpt-6-luna` / `low`，Graph = OpenRouter `openai/gpt-6-luna` / `none`。Graph key 取自 `~/.bcg/.env` 的 `OPENROUTER_OPENAI_API_KEY`；Codex 的认证来自 `~/.codex/auth.json`（可用 `--codex-auth-file` 指定），不使用 OpenRouter key。`--auth-only` 只验证 Codex 登录，不启动 Graph，也不求解 BrowseComp，不能作为 BCG 端到端成功的证据。
+本测试路径固定使用：Agent = `gpt-6-luna` / `low`，Graph = OpenRouter `qwen/qwen3.8-flash` / `none`。Graph key 取自 `~/.bcg/.env` 的 `OPENROUTER_OPENAI_API_KEY`；Codex 的认证来自 `~/.codex/auth.json`（可用 `--codex-auth-file` 指定），不使用 OpenRouter key。`--auth-only` 只验证 Codex 登录，不启动 Graph，也不求解 BrowseComp，不能作为 BCG 端到端成功的证据。
 
 完整测试结束后会生成 `verification.json`：同时检查 Codex 完成事件、原始输入/保留轮次未被改写、call/result 配对、实际搜索结果、Graph 写入记录、裁剪和 system/instructions 注入以及 SSE 终态。若 Codex 正常退出但这些条件不满足（例如 Graph 失败后保留全历史），脚本退出码为 4，不报告成功。此机械检查仍不能替代答案正确性、Graph 语义和真实记录来源的人工审查。
 
@@ -185,7 +185,7 @@ PYTHONPATH=. "$PYTHON" -m scripts.codex_browsecomp_smoke \
 
 代理示例配置：[`examples/codex-proxy-chatgpt.yaml`](examples/codex-proxy-chatgpt.yaml)。使用 `bcg codex-proxy codex-config --model gpt-6-luna --chatgpt` 可以打印供审查的 provider 配置片段，不自动安装到全局 Codex。
 
-2026-10-07 验证状态：真实 Codex CLI 通过本代理返回 `BCG_READY`，`gpt-6-luna / low`、`store: false`、完整 SSE 终态和 token usage 均有记录。OpenRouter key 认证已返回 200，但 Graph `openai/gpt-6-luna / none` 的真实生成请求被上游以 403（provider Terms Of Service）拒绝。因此 **BrowseComp + 真实 Graph 的完整流程尚未通过**，也不能声称已验证 Graph 的 `none` 生效；需先由用户/服务方解除限制，不绕过拒绝或擅自改模型。
+2026-10-07 模型变更：真实 Codex CLI 的 `gpt-6-luna / low` 登录测试已通过；此前 Graph `openai/gpt-6-luna / none` 请求返回 403。按用户明确要求，仅将建图模型切换为 `qwen/qwen3.8-flash`，保留 `reasoning_effort: none`、unified 建图、最近两轮、focused/6600 及其余设置。新模型的连通性与完整单题流程需要分别验证，不能把登录测试或最小 API 请求当作端到端成功。
 
 ### 原有 API key 路径
 
