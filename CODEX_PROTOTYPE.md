@@ -179,6 +179,8 @@ PYTHONPATH=. "$PYTHON" -m scripts.codex_browsecomp_smoke \
 
 本测试路径固定使用：Agent = `gpt-6-luna` / `low`，Graph = OpenRouter `openai/gpt-6-luna` / `none`。Graph key 取自 `~/.bcg/.env` 的 `OPENROUTER_OPENAI_API_KEY`；Codex 的认证来自 `~/.codex/auth.json`（可用 `--codex-auth-file` 指定），不使用 OpenRouter key。`--auth-only` 只验证 Codex 登录，不启动 Graph，也不求解 BrowseComp，不能作为 BCG 端到端成功的证据。
 
+完整测试结束后会生成 `verification.json`：同时检查 Codex 完成事件、原始输入/保留轮次未被改写、call/result 配对、实际搜索结果、Graph 写入记录、裁剪和 system/instructions 注入以及 SSE 终态。若 Codex 正常退出但这些条件不满足（例如 Graph 失败后保留全历史），脚本退出码为 4，不报告成功。此机械检查仍不能替代答案正确性、Graph 语义和真实记录来源的人工审查。
+
 测试在私有、隔离的 `CODEX_HOME` 中临时放置 0600 权限的认证副本，由 Codex 自己读取及刷新，退出时删除副本；不修改原始 auth.json 或 config.toml。代理不会读取刷新 token，而是在 `upstream_auth: codex_chatgpt` 下转发 Codex 已提供的 bearer 与 account header，且只允许官方 `https://chatgpt.com/backend-api/codex` 目标、不跟随重定向。独立的 `X-BCG-Gateway-Token` 验证本机访问，不能作为上游登录凭据。所有 HTTP 认证 header 都不写入模型 I/O 或 audit。原生 `/models` 检查以及 `additional_tools` 工具目录也予以保留。
 
 代理示例配置：[`examples/codex-proxy-chatgpt.yaml`](examples/codex-proxy-chatgpt.yaml)。使用 `bcg codex-proxy codex-config --model gpt-6-luna --chatgpt` 可以打印供审查的 provider 配置片段，不自动安装到全局 Codex。

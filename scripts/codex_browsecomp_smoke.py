@@ -26,6 +26,7 @@ import httpx
 from bcg.core.env import read_env_file
 from bcg.integrations.codex_proxy.config import ProxyConfig
 from bcg.integrations.codex_proxy.server import ProxyServer
+from bcg.integrations.codex_proxy.verification import verify_bcg_run
 
 ROOT = Path(__file__).resolve().parents[1]
 ROUTES = {
@@ -549,7 +550,13 @@ def main() -> int:
         if args.provider == "codex":
             parser.error("Use --auth-only for the real Codex login preflight")
         return preflight(args.provider, env, args.output)
-    return run(args, env)
+    code = run(args, env)
+    if args.auth_only:
+        return code
+    report = verify_bcg_run(args.output.resolve())
+    save(args.output / "verification.json", report)
+    print(json.dumps({"event": "verification", **report}), flush=True)
+    return code or (0 if report["passed"] else 4)
 
 
 if __name__ == "__main__":
