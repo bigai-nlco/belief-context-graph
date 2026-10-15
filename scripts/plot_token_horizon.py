@@ -375,7 +375,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--browsecomp-results", type=Path, required=True)
     parser.add_argument("--browsecomp-zh-results", type=Path, required=True)
-    parser.add_argument("--output", type=Path, default=Path("assert/token_cost.svg"))
+    parser.add_argument("--output", type=Path, default=Path("assets/token_cost.svg"))
     parser.add_argument("--horizon", type=int, default=22)
     return parser.parse_args()
 
