@@ -866,7 +866,11 @@ def main():
     )
     CFG["stream_dir"] = _current_stream_dir()
     CFG["start_sh"] = os.path.abspath(args.start_sh) if args.start_sh else ""
-    repo = os.path.dirname(os.path.dirname(CFG["start_sh"])) if CFG["start_sh"] else _REPO_ROOT
+    repo = (
+        os.path.dirname(os.path.dirname(CFG["start_sh"]))
+        if CFG["start_sh"]
+        else _REPO_ROOT
+    )
     CFG["data_file"] = (
         os.path.abspath(args.data_file)
         if args.data_file
