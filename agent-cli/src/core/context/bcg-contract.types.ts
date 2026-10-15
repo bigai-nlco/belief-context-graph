@@ -102,3 +102,22 @@ export interface BcgReleaseResponse {
 	problem_id: string;
 	released: boolean;
 }
+
+export interface BcgContextSelectionRequest {
+	problem_id: string;
+	query: string;
+	focus_query?: string;
+	question?: string;
+	strategy?: "connected" | "focused";
+	node_char_budget?: number;
+	max_depth?: number;
+}
+
+export interface BcgContextSelectionResponse {
+	problem_id: string;
+	strategy: "connected" | "focused";
+	retrieval: "all_fit" | "embedding" | "lexical" | "none";
+	node_ids: number[];
+	relation_ids: number[];
+	node_chars: number;
+}

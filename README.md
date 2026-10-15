@@ -1,4 +1,4 @@
-
+****
 <div align="center">
 
 # Belief Context Graph
@@ -23,6 +23,16 @@
   </a>
 </div>
 <div align="left"><sub><sub>Agent: gpt-5.6-luna with low-effort thinking · Graph/Summary: gpt-5.6-luna with thinking disabled · Harness: <a href="agent-cli/packages/agent-core/src/harness">repository harness</a></sub></sub></div>
+
+## News
+
+> [!IMPORTANT]
+> ### 🚀 Bring Belief Context Graph to Codex!
+>
+> **BCG for Codex is here!** Bring belief-aware memory to your coding workflow and take on long-horizon tasks.
+>
+> **[→ Get started with BCG for Codex](#use-bcg-with-codex)**
+>
 
 ## **Why Belief Context Graph**
 **Current agent memory systems fall short.** Conversation memory preserves history. Vector memory retrieves similar fragments. GraphRAG extracts entities and relations. Trace memory records tool calls. Temporal KGs track facts over time.
@@ -59,6 +69,7 @@ https://github.com/user-attachments/assets/fa10c247-7f6f-4567-9a1f-648c79b1df44
 ---
 
 <p align="center">
+  <strong><a href="#news">News</a></strong> &nbsp;·&nbsp;
   <strong><a href="#quick-start">Quick Start</a></strong> &nbsp;·&nbsp;
   <strong><a href="#architecture">Architecture</a></strong> &nbsp;·&nbsp;
   <strong><a href="#gains-of-bcg-for-agentic-tasks">Case Study</a></strong> &nbsp;·&nbsp;
@@ -89,10 +100,55 @@ uv run bcg
 
 The first run walks you through model credentials, context mode, and Graph Construction backend, and saves your choices under `~/.bcg`. See the [documentation](https://belief-context-graph.docs.buildwithfern.com/) for everything else.
 
-
 > 🔨 &ensp;`BCGRunner` — build the first belief context graph &ensp;→&ensp; [**Construct the first BCG**](https://belief-context-graph.docs.buildwithfern.com/quickstart) · [**Understand your graph**](https://belief-context-graph.docs.buildwithfern.com/first-graph)
 >
 > 🧠 &ensp;`BCGMemory` — query beliefs and assemble context  &ensp;→&ensp; [**Read Memory**](https://belief-context-graph.docs.buildwithfern.com/guides/python) · [**Memory Methods**](https://belief-context-graph.docs.buildwithfern.com/sdk/memory/observe-belief)
+
+### Use BCG with Codex
+
+Bring belief-backed memory to your existing Codex workflow. Install Codex separately and sign in with ChatGPT using `codex login`. BCG for Codex requires Python 3.11–3.13 and `uv`.
+
+#### 1. Install and initialize
+
+From this repository, install BCG, then initialize the project where you want to use it:
+
+```bash
+uv tool install --force --python 3.13 .
+
+cd /path/to/your/project
+bcg codex init \
+  --env-file ~/.bcg/.env \
+  --allow-graph-upload
+```
+
+Project settings and session records stay in `.bcg-codex/`. Initialization does not change your Codex configuration or sign-in, and running it again preserves your existing Graph settings and records.
+
+#### 2. Configure the Graph model
+
+The default Graph model is `openai/gpt-6-luna` through OpenRouter with `reasoning_effort=none`. Create or edit `~/.bcg/.env` and add your Graph API key:
+
+```dotenv
+OPENROUTER_OPENAI_API_KEY=your-graph-api-key
+```
+
+To use another model or provider, edit `model`, `base_url`, `api_key_env`, and `reasoning_effort` in `.bcg-codex/graph-model.json`. The key named by `api_key_env` must exist in your selected env file. Graph API usage is billed separately from your Codex subscription. A local embedding model may download on first use.
+
+#### 3. Start Codex with BCG
+
+```bash
+bcg codex
+```
+
+Use `bcg codex` whenever you want BCG enabled; plain `codex` does not enable it. Arguments after `--` are passed to Codex, so you can also specify your preferred model and reasoning settings. Exit Codex to end the session.
+
+To continue a previous conversation from the same project:
+
+```bash
+bcg codex resume                 # Choose a saved session
+```
+
+**Records and privacy.** Graph records are in `.bcg-codex/state/graphs/`, and request audits are in `.bcg-codex/state/gateway/requests.jsonl`. Add `--record-model-io` before the `--` separator to save full request/response logs. The `--allow-graph-upload` flag authorizes sending conversation and tool text to your Graph provider. Keep keys and private records out of version control. See the [Codex integration guide](docs/codex-native-integration.md) for diagnostics and limitations.
+
 ---
 
 ## Architecture
@@ -155,4 +211,4 @@ MIT — see the [LICENSE](LICENSE) file for details.
 ---
 
 ## Corresponding and Contributing
-We are very pleased to answer any questions about BCG: [lijiaqi@bigai.ai](mailto:lijiaqi@bigai.ai),  [zlzheng@bigai.ai](mailto:zlzheng@bigai.ai)  We appreciate your interest in contributing to our open-source initiative. 
+We are very pleased to answer any questions about BCG: [lijiaqi@bigai.ai](mailto:lijiaqi@bigai.ai),  [zlzheng@bigai.ai](mailto:zlzheng@bigai.ai)  We appreciate your interest in contributing to our open-source initiative.

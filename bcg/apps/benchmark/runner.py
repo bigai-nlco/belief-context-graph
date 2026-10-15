@@ -18,7 +18,11 @@ from pathlib import Path
 from threading import Event
 from typing import Any
 
-from bcg.apps.agent_runtime import _resolve_agent_command
+from bcg.apps.agent_runtime import (
+    _normalize_agent_api,
+    _normalize_openai_base_url,
+    _resolve_agent_command,
+)
 from bcg.apps.benchmark.models import BenchmarkTask, TokenUsage, is_api_quota_error
 from bcg.apps.benchmark.scoring import LLMJudge, score_task
 
@@ -55,6 +59,7 @@ class RunConfig:
     model: str
     base_url: str
     api_key: str = field(default="", repr=False)
+    agent_api: str = "chat"
     modes: tuple[str, ...] = ("default", "bcg")
     thinking: str = "off"
     workers: int = 4
@@ -67,6 +72,7 @@ class RunConfig:
     rag_top_k: int = 6
     rag_max_chars: int = 12_000
     graph_view: str = "full"
+    graph_selection: str = "connected"
     summary_model: str = ""
     summary_base_url: str = ""
     summary_api_key: str = field(default="", repr=False)
@@ -77,6 +83,7 @@ class RunConfig:
     allow_summary_fallback: bool = False
     allow_rag_fallback: bool = False
     allow_no_search: bool = False
+    record_model_io: bool = True
     overwrite: bool = False
     agent_command: tuple[str, ...] | None = None
 
@@ -99,6 +106,7 @@ def run_benchmarks(
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "model": config.model,
         "base_url": config.base_url,
+        "agent_api": _normalize_agent_api(config.agent_api),
         "modes": list(config.modes),
         "thinking": config.thinking,
         "workers": config.workers,
@@ -111,6 +119,7 @@ def run_benchmarks(
         "rag_top_k": config.rag_top_k,
         "rag_max_chars": config.rag_max_chars,
         "graph_view": config.graph_view,
+        "graph_selection": config.graph_selection,
         "summary_model": config.summary_model,
         "summary_base_url": config.summary_base_url,
         "summary_thinking": config.summary_thinking,
@@ -119,6 +128,7 @@ def run_benchmarks(
         "allow_graph_fallback": config.allow_graph_fallback,
         "allow_summary_fallback": config.allow_summary_fallback,
         "allow_rag_fallback": config.allow_rag_fallback,
+        "record_model_io": config.record_model_io,
         "benchmarks": {
             benchmark: len(tasks) for benchmark, tasks in tasks_by_benchmark.items()
         },
@@ -285,6 +295,8 @@ def _validate_run(
 ) -> None:
     if config.graph_view not in {"full", "compact"}:
         raise ValueError("graph_view must be 'full' or 'compact'.")
+    if config.graph_selection not in {"ranked", "connected", "focused"}:
+        raise ValueError("graph_selection must be 'ranked', 'connected', or 'focused'.")
     invalid_modes = set(config.modes) - {
         "default",
         "bcg",
@@ -328,7 +340,11 @@ def _write_agent_configuration(
     agent_dir = output_dir / ".agent-config" / mode
     agent_dir.mkdir(parents=True, exist_ok=True)
     summary_model = config.summary_model or config.model
-    summary_base_url = config.summary_base_url or config.base_url
+    summary_base_url = _normalize_openai_base_url(
+        config.summary_base_url or config.base_url
+    )
+    agent_base_url = _normalize_openai_base_url(config.base_url)
+    agent_api = _normalize_agent_api(config.agent_api)
     settings = {
         "defaultProvider": "benchmark",
         "defaultModel": config.model,
@@ -346,6 +362,7 @@ def _write_agent_configuration(
                 "finalizationTimeoutMs": config.graph_finalization_timeout_ms,
                 "includeRelations": True,
                 "graphView": config.graph_view,
+                "graphSelection": config.graph_selection,
             },
             "summary": {
                 "provider": "summary",
@@ -387,8 +404,8 @@ def _write_agent_configuration(
     models = {
         "providers": {
             "benchmark": {
-                "baseUrl": config.base_url,
-                "api": "openai-completions",
+                "baseUrl": agent_base_url,
+                "api": agent_api,
                 "apiKey": "$OPENAI_API_KEY",
                 "authHeader": True,
                 "models": [model_definition],
@@ -463,7 +480,8 @@ def _run_one(
         / "model-io"
         / f"{safe_key}.jsonl"
     )
-    model_io_trace_path.parent.mkdir(parents=True, exist_ok=True)
+    if config.record_model_io:
+        model_io_trace_path.parent.mkdir(parents=True, exist_ok=True)
     model_io_trace_path.unlink(missing_ok=True)
     if mode == "rag":
         rag_database_path.parent.mkdir(parents=True, exist_ok=True)
@@ -511,10 +529,13 @@ def _run_one(
                 "BCG_SUMMARY_TRACE_PATH": str(summary_context_trace_path),
                 "BCG_RAG_TRACE_PATH": str(rag_context_trace_path),
                 "BCG_RAG_DB_PATH": str(rag_database_path),
-                "BCG_MODEL_IO_TRACE_PATH": str(model_io_trace_path),
                 "SUMMARY_API_KEY": config.summary_api_key or config.api_key or "EMPTY",
             }
         )
+        if config.record_model_io:
+            environment["BCG_MODEL_IO_TRACE_PATH"] = str(model_io_trace_path)
+        else:
+            environment.pop("BCG_MODEL_IO_TRACE_PATH", None)
         started = time.monotonic()
         return_code, stdout, stderr, timed_out, cancelled = _execute(
             arguments,
@@ -659,7 +680,9 @@ def _run_one(
             str(rag_database_path) if rag_database_path.is_file() else None
         ),
         "model_io_trace": (
-            str(model_io_trace_path) if model_io_trace_path.is_file() else None
+            str(model_io_trace_path)
+            if config.record_model_io and model_io_trace_path.is_file()
+            else None
         ),
         "metadata": task.metadata,
     }
@@ -783,6 +806,9 @@ def parse_agent_events(stdout: str) -> dict[str, Any]:
                     graph_usage.output += _int(totals.get("output_tokens"))
                     graph_usage.reasoning += _int(totals.get("reasoning_tokens"))
                     graph_usage.total += _int(totals.get("total_tokens"))
+                costs = raw_graph_usage.get("cost")
+                if isinstance(costs, dict):
+                    graph_usage.total_cost += _float(costs.get("total"))
             continue
         if event.get("type") == "summary_usage":
             raw_summary_usage = event.get("usage")
@@ -885,6 +911,7 @@ def summarize_results(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
             for key in usage_keys
         }
         model_token_usage = _model_token_usage(values)
+        model_cost_usage = _model_cost_usage(values)
         cost_keys = (
             "input_cost",
             "output_cost",
@@ -954,6 +981,7 @@ def summarize_results(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
             ),
             "tokens": token_totals,
             "model_token_usage": model_token_usage,
+            "model_cost_usage": model_cost_usage,
             "cost": cost_totals,
             "search_calls_total": sum(
                 int(value.get("search_calls", 0)) for value in values
@@ -1009,6 +1037,7 @@ def summarize_results(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
     return {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "model_token_usage": _model_token_usage(all_values),
+        "model_cost_usage": _model_cost_usage(all_values),
         "benchmarks": summaries,
     }
 
@@ -1071,6 +1100,46 @@ def _model_token_usage(values: list[dict[str, Any]]) -> dict[str, dict[str, int]
     combined = {
         key: agent_model[key] + graph_model[key] + summary_model[key]
         for key in ("input_tokens", "reasoning_tokens", "output_tokens")
+    }
+    return {
+        "agent_model": agent_model,
+        "graph_model": graph_model,
+        "summary_model": summary_model,
+        "combined": combined,
+    }
+
+
+def _aggregate_model_cost(
+    values: list[dict[str, Any]],
+    *,
+    usage_key: str,
+) -> dict[str, float]:
+    keys = (
+        "input_cost",
+        "output_cost",
+        "cache_read_cost",
+        "cache_write_cost",
+        "total_cost",
+    )
+    return {
+        key.removesuffix("_cost"): sum(
+            _float(value.get(usage_key, {}).get(key))
+            for value in values
+            if isinstance(value.get(usage_key), dict)
+        )
+        for key in keys
+    }
+
+
+def _model_cost_usage(values: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
+    """Return model-reported costs separated by runtime responsibility."""
+
+    agent_model = _aggregate_model_cost(values, usage_key="usage")
+    graph_model = _aggregate_model_cost(values, usage_key="graph_usage")
+    summary_model = _aggregate_model_cost(values, usage_key="summary_usage")
+    combined = {
+        key: agent_model[key] + graph_model[key] + summary_model[key]
+        for key in ("input", "output", "cache_read", "cache_write", "total")
     }
     return {
         "agent_model": agent_model,

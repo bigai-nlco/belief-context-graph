@@ -17,13 +17,23 @@ import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { retryProviderRequest } from "../utils/provider-retry.ts";
 import { createGrammarToolInputProperties } from "./constrained-sampling.ts";
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
-import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.ts";
+import {
+	convertResponsesMessages,
+	convertResponsesTools,
+	processResponsesStream,
+	resolveResponsesReasoningContext,
+	type ResponsesReasoningContext,
+} from "./openai-responses-shared.ts";
 import { buildBaseOptions } from "./simple-options.ts";
 
 const DEFAULT_AZURE_API_VERSION = "v1";
 const AZURE_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode", "azure-openai-responses"]);
 // OpenAI Responses rejects max_output_tokens below 16.
 const OPENAI_RESPONSES_MIN_OUTPUT_TOKENS = 16;
+
+type ReasoningWithContext = NonNullable<ResponseCreateParamsStreaming["reasoning"]> & {
+	context: ResponsesReasoningContext;
+};
 
 function parseDeploymentNameMap(value: string | undefined): Map<string, string> {
 	const map = new Map<string, string>();
@@ -311,7 +321,8 @@ function buildParams(
 			params.reasoning = {
 				effort: effort as NonNullable<typeof params.reasoning>["effort"],
 				summary: options?.reasoningSummary || "auto",
-			};
+				context: resolveResponsesReasoningContext(context),
+			} as ReasoningWithContext;
 			params.include = ["reasoning.encrypted_content"];
 		} else if (model.thinkingLevelMap?.off !== null) {
 			params.reasoning = {

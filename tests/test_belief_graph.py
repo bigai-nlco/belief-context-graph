@@ -79,6 +79,7 @@ def test_graph_usage_tracks_reasoning_and_excludes_embeddings_from_llm_totals() 
         prompt_tokens=100,
         completion_tokens=30,
         total_tokens=130,
+        cost=0.0042,
         completion_tokens_details=SimpleNamespace(reasoning_tokens=12),
     )
     counts = _coerce_usage(usage)
@@ -89,6 +90,8 @@ def test_graph_usage_tracks_reasoning_and_excludes_embeddings_from_llm_totals() 
         completion_tokens=counts["completion_tokens"],
         reasoning_tokens=counts["reasoning_tokens"],
         total_tokens=counts["total_tokens"],
+        total_cost=counts["total_cost"],
+        response_id="gen-graph-1",
         label="extractor",
     )
     tracker.record(
@@ -106,6 +109,18 @@ def test_graph_usage_tracks_reasoning_and_excludes_embeddings_from_llm_totals() 
         "reasoning_tokens": 12,
         "total_tokens": 130,
     }
+    assert tracker.summary()["cost"] == {
+        "currency": "USD",
+        "total": 0.0042,
+        "provider_reported": 0.0042,
+        "estimated": 0.0,
+        "reported_calls": 1,
+        "estimated_calls": 0,
+        "unpriced_calls": 0,
+        "complete": True,
+        "source": "provider",
+    }
+    assert tracker.to_dict()["calls"][0]["response_id"] == "gen-graph-1"
 
 
 @pytest.mark.parametrize("manager_type", [HybridSessionManager, UnifiedSessionManager])
@@ -161,21 +176,27 @@ def test_hybrid_call_model_forwards_json_response_format() -> None:
     assert captured["response_format"] == {"type": "json_object"}
 
 
-def test_hybrid_non_thinking_controls_are_provider_safe() -> None:
-    assert thinking_request_options("gpt-5.6-luna", enabled=False) == (
+def test_hybrid_reasoning_controls_are_provider_safe() -> None:
+    assert thinking_request_options("gpt-5.6-luna", reasoning_effort="none") == (
         "none",
         None,
     )
-    assert thinking_request_options("Qwen3.5-4B", enabled=False) == (
+    assert thinking_request_options("Qwen3.5-4B", reasoning_effort="none") == (
         None,
         {"chat_template_kwargs": {"enable_thinking": False}},
     )
-    assert thinking_request_options("gpt-5.6-luna", enabled=True) == (
-        "medium",
+    assert thinking_request_options("Qwen3.5-4B", reasoning_effort="low") == (
+        None,
+        {"chat_template_kwargs": {"enable_thinking": True}},
+    )
+    assert thinking_request_options("gpt-5.6-luna", reasoning_effort="low") == (
+        "low",
         None,
     )
     assert temperature_request_value("gpt-5.6-luna", 0) is None
     assert temperature_request_value("Qwen3.5-4B", 0) == 0
+    with pytest.raises(ValueError, match="reasoning_effort"):
+        thinking_request_options("gpt-5.6-sol", reasoning_effort="off")
 
 
 @pytest.mark.parametrize(
@@ -183,10 +204,11 @@ def test_hybrid_non_thinking_controls_are_provider_safe() -> None:
     [
         ("gpt-5.6-luna", None, "none"),
         ("gpt-5.6-luna", "low", "low"),
-        ("gpt-5.5", None, "medium"),
+        ("gpt-5.5", None, "none"),
+        ("gpt-5.6-sol", None, "none"),
     ],
 )
-def test_unified_reasoning_effort_is_model_aware_and_configurable(
+def test_unified_reasoning_effort_is_model_independent_and_configurable(
     model: str,
     configured: str | None,
     expected: str,
@@ -373,7 +395,7 @@ def test_hybrid_pure_tool_call_bypasses_extractor_client() -> None:
     extractor.model = "unused-model"
     extractor.config = {
         "context_scope": "none",
-        "enable_thinking": False,
+        "reasoning_effort": "none",
         "include_turn_content": False,
         "require_excerpt": False,
         "dynamic_node_cap": False,
@@ -2409,7 +2431,7 @@ def test_hybrid_extractor_retries_overflow_without_historical_nodes(
             "request_timeout": 60,
             "retries": 3,
             "context_scope": "graph",
-            "enable_thinking": False,
+            "reasoning_effort": "none",
             "include_turn_content": False,
             "require_excerpt": False,
             "dynamic_node_cap": False,
@@ -2894,7 +2916,7 @@ def hybrid_belief_graph_config() -> dict[str, Any]:
             "request_timeout": 60,
             "retries": 1,
             "context_scope": "none",
-            "enable_thinking": False,
+            "reasoning_effort": "none",
             "include_turn_content": False,
             "require_excerpt": False,
             "dynamic_node_cap": False,
@@ -2928,7 +2950,7 @@ def hybrid_belief_graph_config() -> dict[str, Any]:
             "temperature": 0,
             "max_tokens": 4096,
             "retries": 1,
-            "enable_thinking": False,
+            "reasoning_effort": "none",
             "fail_on_error": True,
             "search_previous_turns": True,
         },

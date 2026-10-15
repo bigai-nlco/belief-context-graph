@@ -8,11 +8,18 @@ backend-specific initial-confidence policies remain in
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Callable, Iterable
 from typing import Any
 
 CONF_FLOOR = 0.001
 CONF_CEIL = 0.999
+
+_URL_RE = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
+_TOOL_ID_RE = re.compile(
+    r"\b(?:tool_call_id|tool_result_id|call_id)\s*[:=]\s*[^\s,;]+",
+    re.IGNORECASE,
+)
 
 
 def clamp_confidence(value: float) -> float:
@@ -53,13 +60,18 @@ def select_independent_evidence(
     *,
     contribution: Callable[[dict[str, Any]], float],
 ) -> tuple[list[int], list[dict[str, Any]]]:
-    """Select at most one confidence contribution per source observation.
+    """Select independently sourced confidence contributions.
 
     Sentence/excerpt splitting can create many evidence records from one Agent
     or tool turn. Those records are provenance fragments of one observation,
     not independent corroboration. Group records by ``(item_id, turn_id)`` and
-    retain the strongest representative. Records without a complete source
-    identity keep legacy one-record-per-observation behavior.
+    retain the strongest representative. Then collapse repeated observations
+    across turns when they point to the same URL set or repeat the same
+    normalized content. This prevents retries and duplicate searches from
+    inflating confidence merely because they happened in different turns.
+
+    Records without a complete source identity keep one-record-per-observation
+    behavior unless their content or URL identity proves that they are repeats.
     """
 
     selected: dict[
@@ -92,11 +104,54 @@ def select_independent_evidence(
         ):
             selected[key] = (evidence_id, record, score)
 
-    representatives = sorted(selected.values(), key=lambda value: value[0])
+    # Prefer the strongest record when two different turns repeat the same
+    # observation. Sorting by evidence id keeps the final output deterministic.
+    independent: list[tuple[int, dict[str, Any], float]] = []
+    seen_url_sets: set[tuple[str, ...]] = set()
+    seen_content: set[str] = set()
+    for candidate in sorted(selected.values(), key=lambda value: (-value[2], value[0])):
+        _, record, _ = candidate
+        urls = _canonical_evidence_urls(record)
+        content = _normalized_evidence_content(record)
+        if (urls and urls in seen_url_sets) or (content and content in seen_content):
+            continue
+        independent.append(candidate)
+        if urls:
+            seen_url_sets.add(urls)
+        if content:
+            seen_content.add(content)
+
+    representatives = sorted(independent, key=lambda value: value[0])
     return (
         [evidence_id for evidence_id, _, _ in representatives],
         [record for _, record, _ in representatives],
     )
+
+
+def _canonical_evidence_urls(record: dict[str, Any]) -> tuple[str, ...]:
+    """Return a stable URL identity for an evidence record."""
+    text = str(record.get("text") or record.get("content") or "")
+    urls = {
+        match.group(0).rstrip(".,;:!?)]}").lower().rstrip("/")
+        for match in _URL_RE.finditer(text)
+    }
+    for key in ("url", "link", "source_url"):
+        value = record.get(key)
+        if isinstance(value, str) and value.lower().startswith(("http://", "https://")):
+            urls.add(value.rstrip(".,;:!?)]}").lower().rstrip("/"))
+    return tuple(sorted(url for url in urls if url))
+
+
+def _normalized_evidence_content(record: dict[str, Any]) -> str:
+    """Normalize observation text while ignoring transport-specific identity."""
+    text = str(record.get("text") or record.get("content") or "")
+    for key in ("tool_call_id", "tool_result_id", "call_id"):
+        value = record.get(key)
+        if value:
+            text = text.replace(str(value), " ")
+    text = _TOOL_ID_RE.sub(" ", text)
+    text = _URL_RE.sub(" ", text)
+    return " ".join(text.casefold().split())
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,8 @@
 import type { AgentMessage } from "@bigai-nlco/bcg-agent-core";
 import { BcgClient, type BcgTurnPayload } from "./bcg-client.ts";
 import type { BcgSnapshot, BcgTurn } from "./bcg-contract.types.ts";
-import type { BcgGraphView } from "../settings-manager.ts";
+import type { BcgContextSelectionResponse } from "./bcg-contract.types.ts";
+import type { BcgGraphSelection, BcgGraphView } from "../settings-manager.ts";
 import { bashExecutionToText } from "../messages.ts";
 
 const GRAPH_PREFIX =
@@ -11,21 +12,33 @@ const GRAPH_PREFIX =
 
 const GRAPH_DIALOGUE_CONTEXT_GUIDE =
 	"<context_blocks_guide>\n" +
-	"The dialogue-encoded context below holds preliminary beliefs derived from earlier turns. " +
+	"The dialogue-encoded context below holds beliefs derived from earlier turns. " +
+	"A belief is a self-contained claim or reasoning unit, such as a fact, hypothesis, intermediate conclusion, or decision. " +
 	"Those earlier turns have been omitted from the raw conversation context and are represented by this belief context instead. " +
 	"The beliefs may contain errors or incomplete information. Use each belief's confidence to judge how trustworthy its content is, " +
 	"and do not treat any belief as verified evidence solely because it appears here. " +
+	"Relation direction is literal: `A depends_on B` means A requires B as a premise, evidence, input, constraint, or context; " +
+	"`A supplements B` means A adds compatible detail or evidence to B without refuting it; " +
+	"`A contradicts B` means A conflicts with, corrects, negates, or replaces B. " +
 	"Use this context to avoid repeating searches that were already performed, and do not repeatedly search for the same information.\n" +
 	"</context_blocks_guide>";
 
 const COMPACT_GRAPH_DIALOGUE_CONTEXT_GUIDE =
 	"<context_blocks_guide>\n" +
-	"Earlier raw turns are omitted below. All displayed beliefs and relations come from the graph. " +
-	"Confidence ranks factual beliefs only; search-action and no-result beliefs are history, not evidence. " +
-	"`A depends_on B` means A relies on B; `supplements` is compatible context; `contradicts` is a conflict. " +
-	"Trace the leading answer through its relations. Resolve an answer-changing conflict; otherwise search only for the exact missing or lowest-confidence pivotal fact. " +
-	"Reuse recorded searches, never repeat settled or irrelevant work, and prefer a query that distinguishes candidates. " +
-	"Answer once the strongest candidate has direct support and no decisive contradiction. Preserve the exact supported value; never add unsupported precision.\n" +
+	"Earlier raw turns are omitted; the Candidate evidence, Search history, and Relation paths below are Graph memory, not verified evidence. " +
+	"A belief is a self-contained fact, hypothesis, intermediate conclusion, or decision. " +
+	"Confidence estimates reliability, not answer relevance. Factual beliefs are candidate evidence; search-action beliefs only record prior work. " +
+	"A specific low-confidence belief that fills the requested value remains a candidate to verify; a generic high-confidence fact is not an answer unless it satisfies the question. " +
+	"Relations record reasoning or provenance, not truth by themselves. Direction is literal: `A depends_on B` means A requires B as a premise, evidence, input, constraint, or context; " +
+	"`A supplements B` adds compatible detail or evidence; `A contradicts B` conflicts with, corrects, negates, or replaces B. " +
+	"When a relation includes a note, the note explains why the Graph connected its endpoints; it is rationale for the link, not independent evidence. " +
+	"Treat every stated answer value as a candidate, not as sufficient reason to stop. First identify the pivotal independent constraints in the original user request. " +
+	"For each plausible candidate, follow outgoing relations to its premises and incoming relations to later validation, supplementation, or contradiction. " +
+	"Compare candidates by constraint coverage using direct, source-grounded evidence; missing edges or empty searches do not disprove a candidate. " +
+	"Do not converge until one candidate has support for the pivotal constraints and no decisive retained contradiction. " +
+	"Resolve only answer-changing gaps or conflicts. If coverage is incomplete or candidates remain tied, use one parallel tool-call batch of non-equivalent, discriminating queries for the missing constraints. " +
+	"Do not reopen a satisfied constraint or repeat an equivalent search. After new results arrive, re-check coverage and contradictions before answering. " +
+	"If the search budget is exhausted, choose the candidate with the strongest supported coverage and state only the exact supported value; add no unsupported precision.\n" +
 	"</context_blocks_guide>";
 
 const DIALOGUE_BOS = "<｜begin▁of▁sentence｜>";
@@ -33,6 +46,11 @@ const DIALOGUE_EOS = "<｜end▁of▁sentence｜>";
 const DIALOGUE_USER = "<｜User｜>";
 const DIALOGUE_ASSISTANT = "<｜Assistant｜>";
 const DIALOGUE_VALID_ROLES = new Set(["system", "user", "assistant"]);
+const RESPONSES_APIS = new Set([
+	"openai-responses",
+	"azure-openai-responses",
+	"openai-codex-responses",
+]);
 
 export const BCG_TURN_LIMIT_MARKER = "BCG_TURN_LIMIT_EXCEEDED";
 
@@ -61,6 +79,7 @@ export interface BcgContextManagerOptions {
 	finalizationTimeoutMs?: number;
 	includeRelations: boolean;
 	graphView?: BcgGraphView;
+	graphSelection?: BcgGraphSelection;
 	getSystemPrompt: () => string;
 	getInitialUserMessage?: () => AgentMessage | undefined;
 	fetch?: typeof globalThis.fetch;
@@ -76,6 +95,10 @@ export interface BcgGraphContextTrace {
 	nRelations: number;
 	chars: number;
 	text: string;
+	selectionStrategy?: "ranked" | "connected" | "focused";
+	selectionRetrieval?: string;
+	selectedNodeIds?: number[];
+	selectedRelationIds?: number[];
 }
 
 interface SerializedMessage {
@@ -108,7 +131,53 @@ function compactJson(value: unknown): string {
 	}
 }
 
-export function contextContentToText(content: unknown): string {
+function responseReasoningText(signature: unknown): string | undefined {
+	if (typeof signature !== "string" || !signature.trim()) return undefined;
+	try {
+		const item = JSON.parse(signature) as unknown;
+		if (!isRecord(item) || item.type !== "reasoning") return undefined;
+		// Some Responses providers (for example Gemini through OpenRouter) expose
+		// readable reasoning as reasoning_text. Use only the final persisted item
+		// so Graph Construction never consumes a partial streaming buffer.
+		const reasoningText = Array.isArray(item.content)
+			? item.content
+					.flatMap((part) =>
+						isRecord(part) &&
+						part.type === "reasoning_text" &&
+						typeof part.text === "string"
+							? [part.text.trim()]
+							: [],
+					)
+					.filter(Boolean)
+					.join("\n\n")
+			: "";
+		if (reasoningText) return reasoningText;
+
+		const summary =
+			typeof item.summary === "string"
+				? item.summary.trim()
+				: Array.isArray(item.summary)
+					? item.summary
+							.flatMap((part) =>
+								isRecord(part) && typeof part.text === "string" ? [part.text.trim()] : [],
+							)
+							.filter(Boolean)
+							.join("\n\n")
+					: "";
+		return summary;
+	} catch {
+		return undefined;
+	}
+}
+
+interface ContextContentToTextOptions {
+	assistantApi?: string;
+}
+
+export function contextContentToText(
+	content: unknown,
+	options: ContextContentToTextOptions = {},
+): string {
 	if (typeof content === "string") {
 		return content;
 	}
@@ -128,7 +197,15 @@ export function contextContentToText(content: unknown): string {
 				}
 				break;
 			case "thinking":
-				if (typeof block.thinking === "string" && block.thinking.trim()) {
+				if (options.assistantApi && RESPONSES_APIS.has(options.assistantApi)) {
+					// Prefer provider-exposed reasoning_text, then fall back to a
+					// readable summary. Opaque encrypted reasoning remains only in
+					// thinkingSignature for replay and is never sent to Graph as prose.
+					const reasoning = responseReasoningText(block.thinkingSignature);
+					if (reasoning) parts.push(`<thinking>\n${reasoning}\n</thinking>`);
+				} else if (typeof block.thinking === "string" && block.thinking.trim()) {
+					// Chat Completions and other legacy providers keep their existing
+					// visible-thinking behavior.
 					parts.push(`<thinking>\n${block.thinking.trim()}\n</thinking>`);
 				}
 				break;
@@ -171,8 +248,9 @@ export function contextToolResultsToText(messages: AgentMessage[]): string {
 export function contextMessageText(message: AgentMessage): string {
 	switch (message.role) {
 		case "user":
-		case "assistant":
 			return contextContentToText(message.content);
+		case "assistant":
+			return contextContentToText(message.content, { assistantApi: message.api });
 		case "toolResult": {
 			return contextToolResultsToText([message]);
 		}
@@ -326,9 +404,20 @@ interface GraphDialogueBeliefMessage {
 	confidence: number | null;
 }
 
+type CompactRelation = BcgSnapshot["relations"][number];
+
+interface CompactTrailLine {
+	text: string;
+	kind: "node" | "tree_relation" | "cross_relation" | "separator";
+	relationType?: CompactRelation["type"];
+}
+
 const COMPACT_GRAPH_CHAR_BUDGET = 8_000;
 const COMPACT_FACT_CHAR_BUDGET = 4_900;
 const COMPACT_SEARCH_CHAR_BUDGET = 1_700;
+const COMPACT_RELATION_PATH_LIMIT = 3;
+const COMPACT_RELATION_NOTE_LIMIT = 4;
+const COMPACT_RELATION_NOTE_CHAR_BUDGET = 360;
 
 function compactConfidence(belief: BcgSnapshot["beliefs"][number]): string {
 	return typeof belief.confidence === "number" ? ` (confidence ${belief.confidence.toFixed(2)})` : "";
@@ -340,11 +429,16 @@ function compactSourceTurn(belief: BcgSnapshot["beliefs"][number]): number {
 		: -1;
 }
 
+function isCompactEmptySearchResultBelief(belief: BcgSnapshot["beliefs"][number]): boolean {
+	return /^The (?:web_search|\S+ tool) (?:tool )?returned no results\.?$/i.test(
+		belief.belief ?? "",
+	);
+}
+
 function isCompactSearchHistoryBelief(belief: BcgSnapshot["beliefs"][number]): boolean {
 	return (
 		belief.extraction_method === "rule_tool_call" ||
-		typeof belief.query === "string" ||
-		/^The (?:web_search|\S+ tool) (?:tool )?returned no results\.?$/i.test(belief.belief ?? "")
+		typeof belief.query === "string"
 	);
 }
 
@@ -374,6 +468,193 @@ function addCompactBeliefsWithinBudget(
 	}
 }
 
+function compactBeliefLine(belief: BcgSnapshot["beliefs"][number]): string {
+	const confidence = isCompactSearchHistoryBelief(belief) ? "" : compactConfidence(belief);
+	return `- [B${belief.id}] ${belief.belief}${confidence}`;
+}
+
+function compactRelationLine(relation: CompactRelation): string {
+	return `- [B${relation.from_id}] ${relation.type} [B${relation.to_id}]`;
+}
+
+/**
+ * Arrange selected relations as short, endpoint-contiguous paths.
+ *
+ * Candidate belief order is intentionally handled separately so graph
+ * traversal cannot bury answer evidence. This traversal changes relation order
+ * only; no belief, relation, or endpoint is rewritten.
+ */
+function compactRelationPathLines(
+	retained: BcgSnapshot["beliefs"],
+	relations: CompactRelation[],
+): CompactTrailLine[] {
+	const byId = new Map(retained.map((belief) => [belief.id, belief]));
+	const orderedIds = [
+		...retained
+			.filter((belief) => !isCompactSearchHistoryBelief(belief))
+			.sort(
+				(left, right) =>
+					compactFactPriority(right) - compactFactPriority(left) ||
+					compactSourceTurn(right) - compactSourceTurn(left) ||
+					right.id - left.id,
+			)
+			.map((belief) => belief.id),
+		...retained
+			.filter(isCompactSearchHistoryBelief)
+			.sort(
+				(left, right) =>
+					compactSourceTurn(right) - compactSourceTurn(left) || right.id - left.id,
+			)
+			.map((belief) => belief.id),
+	];
+	const priority = new Map(orderedIds.map((nodeId, index) => [nodeId, index]));
+	const adjacency = new Map<
+		number,
+		Array<{ relation: CompactRelation; neighbor: number; incoming: boolean }>
+	>();
+	for (const relation of relations) {
+		if (!byId.has(relation.from_id) || !byId.has(relation.to_id)) continue;
+		const outgoing = adjacency.get(relation.from_id) ?? [];
+		outgoing.push({ relation, neighbor: relation.to_id, incoming: false });
+		adjacency.set(relation.from_id, outgoing);
+		const incoming = adjacency.get(relation.to_id) ?? [];
+		incoming.push({ relation, neighbor: relation.from_id, incoming: true });
+		adjacency.set(relation.to_id, incoming);
+	}
+
+	const seenRelations = new Set<number>();
+	const lines: CompactTrailLine[] = [];
+	let noteCount = 0;
+	let noteChars = 0;
+	const relationLine = (relation: CompactRelation): string => {
+		const base = compactRelationLine(relation);
+		const note = relation.note?.replace(/\s+/g, " ").trim() ?? "";
+		if (
+			!note ||
+			relation.weight === 0 ||
+			noteCount >= COMPACT_RELATION_NOTE_LIMIT ||
+			noteChars + note.length > COMPACT_RELATION_NOTE_CHAR_BUDGET
+		) {
+			return base;
+		}
+		noteCount += 1;
+		noteChars += note.length;
+		return `${base} — ${note}`;
+	};
+	const relationRole = (relation: CompactRelation): number => {
+		if (relation.type === "contradicts") return 0;
+		const source = byId.get(relation.from_id);
+		const target = byId.get(relation.to_id);
+		const hasSearchEndpoint =
+			(source ? isCompactSearchHistoryBelief(source) : false) ||
+			(target ? isCompactSearchHistoryBelief(target) : false);
+		if (!hasSearchEndpoint) return 1;
+		return relation.weight === 0 ? 3 : 2;
+	};
+	const edgePriority = (edge: {
+		relation: CompactRelation;
+		neighbor: number;
+		incoming: boolean;
+	}): [number, number, number, number] => [
+		relationRole(edge.relation),
+		edge.incoming ? 1 : 0,
+		priority.get(edge.neighbor) ?? Number.MAX_SAFE_INTEGER,
+		edge.relation.id,
+	];
+	const compareEdges = (
+		left: { relation: CompactRelation; neighbor: number; incoming: boolean },
+		right: { relation: CompactRelation; neighbor: number; incoming: boolean },
+	): number => {
+		const leftKey = edgePriority(left);
+		const rightKey = edgePriority(right);
+		for (let index = 0; index < leftKey.length; index += 1) {
+			if (leftKey[index] !== rightKey[index]) return leftKey[index] - rightKey[index];
+		}
+		return 0;
+	};
+
+	const visit = (
+		nodeId: number,
+		trail: { edges: number; nodes: Set<number> },
+	): void => {
+		if (!byId.has(nodeId) || trail.edges >= COMPACT_RELATION_PATH_LIMIT) return;
+		trail.nodes.add(nodeId);
+		const edges = [...(adjacency.get(nodeId) ?? [])].sort(compareEdges);
+		for (const edge of edges) {
+			if (trail.edges >= COMPACT_RELATION_PATH_LIMIT) break;
+			if (trail.nodes.has(edge.neighbor) || seenRelations.has(edge.relation.id)) continue;
+			seenRelations.add(edge.relation.id);
+			trail.edges += 1;
+			lines.push({
+				text: relationLine(edge.relation),
+				kind: "tree_relation",
+				relationType: edge.relation.type,
+			});
+			visit(edge.neighbor, trail);
+		}
+	};
+
+	for (const nodeId of orderedIds) {
+		const before = lines.length;
+		visit(nodeId, { edges: 0, nodes: new Set<number>() });
+		if (before > 0 && lines.length > before) {
+			lines.splice(before, 0, { text: "", kind: "separator" });
+		}
+	}
+
+	// Defensive: retain any selected relation that was not reached because of
+	// malformed duplicate IDs, but mark it as a lower-priority cross-link.
+	for (const relation of [...relations].sort(
+		(left, right) => relationRole(left) - relationRole(right) || left.id - right.id,
+	)) {
+		if (seenRelations.has(relation.id)) continue;
+		lines.push({
+			text: relationLine(relation),
+			kind: "tree_relation",
+			relationType: relation.type,
+		});
+	}
+	return lines;
+}
+
+function trimCompactTrailRelationsToBudget(
+	heading: string,
+	sectionHeading: string,
+	lines: CompactTrailLine[],
+): CompactTrailLine[] {
+	const result = [...lines];
+	const renderedChars = (): number =>
+		heading.length + 2 + sectionHeading.length + 1 + result.map((line) => line.text).join("\n").length;
+	const removableKinds: CompactTrailLine["kind"][] = ["cross_relation", "tree_relation"];
+	for (const kind of removableKinds) {
+		while (renderedChars() > COMPACT_GRAPH_CHAR_BUDGET) {
+			let removable = -1;
+			for (let index = result.length - 1; index >= 0; index -= 1) {
+				if (result[index].kind !== kind) continue;
+				// Preserve answer-changing conflicts until every other relation type
+				// of this class has been considered.
+				if (result[index].relationType === "contradicts") continue;
+				removable = index;
+				break;
+			}
+			if (removable < 0) break;
+			result.splice(removable, 1);
+		}
+	}
+	while (renderedChars() > COMPACT_GRAPH_CHAR_BUDGET) {
+		let removable = -1;
+		for (let index = result.length - 1; index >= 0; index -= 1) {
+			if (result[index].kind === "cross_relation" || result[index].kind === "tree_relation") {
+				removable = index;
+				break;
+			}
+		}
+		if (removable < 0) break;
+		result.splice(removable, 1);
+	}
+	return result;
+}
+
 /**
  * Render a bounded historical-dialogue memory view without mutating the graph.
  *
@@ -382,7 +663,13 @@ function addCompactBeliefsWithinBudget(
  * tool-result metadata, or emits relations under a new label. Every displayed
  * graph item is copied from an existing belief.
  */
-export function formatCompactBcgDialogueContext(snapshot: BcgSnapshot, includeRelations = true): string {
+export function formatCompactBcgDialogueContext(
+	snapshot: BcgSnapshot,
+	includeRelations = true,
+	selectedNodeIds?: ReadonlySet<number>,
+	selectedRelationIds?: ReadonlySet<number>,
+	relationTrailLayout = false,
+): string {
 	const beliefs = Array.isArray(snapshot.beliefs) ? snapshot.beliefs : [];
 	if (beliefs.length === 0) {
 		return "";
@@ -391,10 +678,69 @@ export function formatCompactBcgDialogueContext(snapshot: BcgSnapshot, includeRe
 	const retained = beliefs.filter((belief) => {
 		const sourceTurn = compactSourceTurn(belief);
 		// The initial system/user seed remains verbatim in every Agent request.
-		return sourceTurn < 0 || sourceTurn > 1;
+		// Empty search observations remain in the source graph for auditability,
+		// but add no useful evidence to the bounded Agent-facing view.
+		return (sourceTurn < 0 || sourceTurn > 1) &&
+			!isCompactEmptySearchResultBelief(belief) &&
+			(!selectedNodeIds || selectedNodeIds.has(belief.id));
 	});
 	if (retained.length === 0) {
 		return "";
+	}
+	if (relationTrailLayout && selectedNodeIds) {
+		const retainedIds = new Set(retained.map((belief) => belief.id));
+		const relations = includeRelations
+			? (snapshot.relations ?? [])
+					.filter(
+						(relation) =>
+							retainedIds.has(relation.from_id) && retainedIds.has(relation.to_id),
+					)
+					.filter((relation) => !selectedRelationIds || selectedRelationIds.has(relation.id))
+			: [];
+		const heading = "### Earlier investigation memory";
+		const facts = retained
+			.filter((belief) => !isCompactSearchHistoryBelief(belief))
+			.sort(
+				(left, right) =>
+					compactFactPriority(right) - compactFactPriority(left) ||
+					compactSourceTurn(right) - compactSourceTurn(left) ||
+					right.id - left.id,
+			);
+		const searches = retained
+			.filter(isCompactSearchHistoryBelief)
+			.sort(
+				(left, right) =>
+					compactSourceTurn(right) - compactSourceTurn(left) || right.id - left.id,
+			);
+		const candidateLines: CompactTrailLine[] = [];
+		if (facts.length > 0) {
+			candidateLines.push({ text: "#### Candidate evidence", kind: "separator" });
+			candidateLines.push(
+				...facts.map((belief) => ({ text: compactBeliefLine(belief), kind: "node" as const })),
+			);
+		}
+		if (searches.length > 0) {
+			if (candidateLines.length > 0) candidateLines.push({ text: "", kind: "separator" });
+			candidateLines.push({ text: "#### Search history", kind: "separator" });
+			candidateLines.push(
+				...searches.map((belief) => ({ text: compactBeliefLine(belief), kind: "node" as const })),
+			);
+		}
+		const relationLines = compactRelationPathLines(retained, relations);
+		if (relationLines.length > 0) {
+			candidateLines.push(
+				{ text: "", kind: "separator" },
+				{ text: "#### Relation paths", kind: "separator" },
+				...relationLines,
+			);
+		}
+		const trailLines = trimCompactTrailRelationsToBudget(
+			heading,
+			"",
+			candidateLines,
+		);
+		const payload = `${heading}\n\n${trailLines.map((line) => line.text).join("\n")}`;
+		return DIALOGUE_BOS + DIALOGUE_USER + payload + DIALOGUE_ASSISTANT + DIALOGUE_EOS;
 	}
 	const facts = retained
 		.filter((belief) => !isCompactSearchHistoryBelief(belief))
@@ -420,7 +766,7 @@ export function formatCompactBcgDialogueContext(snapshot: BcgSnapshot, includeRe
 			facts,
 			selected,
 			lines,
-			COMPACT_FACT_CHAR_BUDGET,
+			selectedNodeIds ? Number.MAX_SAFE_INTEGER : COMPACT_FACT_CHAR_BUDGET,
 			true,
 		);
 	}
@@ -430,7 +776,7 @@ export function formatCompactBcgDialogueContext(snapshot: BcgSnapshot, includeRe
 			searchHistory,
 			selected,
 			lines,
-			COMPACT_SEARCH_CHAR_BUDGET,
+			selectedNodeIds ? Number.MAX_SAFE_INTEGER : COMPACT_SEARCH_CHAR_BUDGET,
 			false,
 		);
 	}
@@ -441,6 +787,7 @@ export function formatCompactBcgDialogueContext(snapshot: BcgSnapshot, includeRe
 		const selectedIds = new Set(selected.keys());
 		const relationLines = (snapshot.relations ?? [])
 			.filter((relation) => selectedIds.has(relation.from_id) && selectedIds.has(relation.to_id))
+			.filter((relation) => !selectedRelationIds || selectedRelationIds.has(relation.id))
 			.sort((left, right) => left.id - right.id)
 			.map((relation) => `- [B${relation.from_id}] ${relation.type} [B${relation.to_id}]`);
 		if (relationLines.length > 0) {
@@ -547,6 +894,35 @@ export function formatBcgDialogueContext(snapshot: BcgSnapshot, includeRelations
 	return parts.join("");
 }
 
+function compactSelectionQuery(initialUser: AgentMessage, retained: AgentMessage[]): string {
+	const question = contextMessageText(initialUser);
+	const parts = [question];
+	for (const message of retained) {
+		const value = contextMessageText(message);
+		if (value && value !== question) parts.push(value);
+	}
+	const combined = parts.join("\n\n");
+	if (combined.length <= 12_000) return combined;
+	const remaining = Math.max(0, 12_000 - question.length - 2);
+	return `${question}\n\n${combined.slice(-remaining)}`;
+}
+
+function compactFocusSelectionQuery(initialUser: AgentMessage, retained: AgentMessage[]): string {
+	const question = contextMessageText(initialUser);
+	const parts = [question];
+	for (const message of retained) {
+		// Raw Tool Results are evidence candidates inside the Graph, not the
+		// retrieval intent. Echoing them here creates a last-result feedback loop.
+		if (message.role === "toolResult" || message.role === "bashExecution") continue;
+		const value = contextMessageText(message);
+		if (value && value !== question) parts.push(value);
+	}
+	const combined = parts.join("\n\n");
+	if (combined.length <= 6_000) return combined;
+	const remaining = Math.max(0, 6_000 - question.length - 2);
+	return `${question}\n\n${combined.slice(-remaining)}`;
+}
+
 export class BcgContextManager {
 	private readonly baseUrl: string;
 	private readonly problemId: string;
@@ -556,6 +932,7 @@ export class BcgContextManager {
 	private readonly finalizationTimeoutMs: number;
 	private readonly includeRelations: boolean;
 	private readonly graphView: BcgGraphView;
+	private readonly graphSelection: BcgGraphSelection;
 	private readonly getSystemPrompt: () => string;
 	private readonly getInitialUserMessage?: () => AgentMessage | undefined;
 	private readonly client: BcgClient;
@@ -567,6 +944,7 @@ export class BcgContextManager {
 	private submittedTurns = 0;
 	private warned = false;
 	private graphText = "";
+	private latestSnapshot: BcgSnapshot | undefined;
 	private reportableTokenUsage: Record<string, unknown> | undefined;
 	private requestReady = false;
 	private initialUserMessage: AgentMessage | undefined;
@@ -583,6 +961,7 @@ export class BcgContextManager {
 		);
 		this.includeRelations = options.includeRelations;
 		this.graphView = options.graphView ?? "full";
+		this.graphSelection = options.graphSelection ?? "connected";
 		this.getSystemPrompt = options.getSystemPrompt;
 		this.getInitialUserMessage = options.getInitialUserMessage;
 		this.client = new BcgClient({ baseUrl: options.baseUrl, problemId: options.problemId, timeoutMs: options.timeoutMs, fetch: options.fetch });
@@ -627,6 +1006,35 @@ export class BcgContextManager {
 			}
 			for (const group of unsent) {
 				for (const message of group.messages) this.sentMessages.add(message);
+			}
+
+			if (this.graphView === "compact" && this.graphSelection !== "ranked" && this.latestSnapshot) {
+				const query = compactSelectionQuery(initialUser, retained.flat());
+				const question = contextMessageText(initialUser);
+				const focusQuery = compactFocusSelectionQuery(initialUser, retained.flat());
+				try {
+					const selection = await this.client.selectContext(
+						query,
+						{
+							strategy: this.graphSelection,
+							focusQuery,
+							question,
+						},
+						signal,
+					);
+					this.graphText = formatCompactBcgDialogueContext(
+						this.latestSnapshot,
+						this.includeRelations,
+						new Set(selection.node_ids),
+						new Set(selection.relation_ids),
+						this.graphSelection === "focused",
+					);
+					this.emitGraphTrace(this.latestSnapshot, selection);
+				} catch (error) {
+					const detail = error instanceof Error ? error.message : String(error);
+					this.onWarning(`[BCG context selection] ${detail}; using ranked compact selection.`);
+					this.emitGraphTrace(this.latestSnapshot);
+				}
 			}
 
 			this.warned = false;
@@ -779,6 +1187,7 @@ export class BcgContextManager {
 	}
 
 	private updateSnapshot(snapshot: BcgSnapshot, recordTokenUsage = true): void {
+		this.latestSnapshot = snapshot;
 		if (recordTokenUsage && snapshot.token_usage) {
 			this.reportableTokenUsage = snapshot.token_usage;
 		}
@@ -786,6 +1195,15 @@ export class BcgContextManager {
 			this.graphView === "compact"
 				? formatCompactBcgDialogueContext(snapshot, this.includeRelations)
 				: formatBcgDialogueContext(snapshot, this.includeRelations);
+		if (this.graphView !== "compact" || this.graphSelection === "ranked") {
+			this.emitGraphTrace(snapshot);
+		}
+	}
+
+	private emitGraphTrace(
+		snapshot: BcgSnapshot,
+		selection?: BcgContextSelectionResponse,
+	): void {
 		this.onGraphContext?.({
 			view: this.graphView,
 			streamTurnIndex: snapshot.stream_turn_index,
@@ -794,6 +1212,16 @@ export class BcgContextManager {
 			nRelations: snapshot.relations?.length ?? 0,
 			chars: this.graphText.length,
 			text: this.graphText,
+			...(this.graphView === "compact"
+				? { selectionStrategy: selection?.strategy ?? "ranked" }
+				: {}),
+			...(selection
+				? {
+						selectionRetrieval: selection.retrieval,
+						selectedNodeIds: selection.node_ids,
+						selectedRelationIds: selection.relation_ids,
+					}
+				: {}),
 		});
 	}
 }

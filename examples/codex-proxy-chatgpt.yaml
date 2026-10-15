@@ -1,0 +1,14 @@
+# Codex is the actual agent; this gateway only manages the transmitted context.
+# OAuth bearer/account headers are forwarded only to this pinned official URL.
+upstream_base_url: https://chatgpt.com/backend-api/codex
+upstream_auth: codex_chatgpt
+gateway_token_env: BCG_CODEX_GATEWAY_TOKEN
+graph_base_url: http://127.0.0.1:8861
+host: 127.0.0.1
+port: 8860
+recent_turns: 2
+node_char_budget: 6600
+request_reasoning_summary: true
+replay_reasoning_context: false
+record_model_io: false
+audit_dir: var/codex-proxy

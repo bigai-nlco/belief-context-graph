@@ -10,6 +10,7 @@ from typing import Any
 from .llm import (
     call_model,
     make_client,
+    normalize_reasoning_effort,
     parse_json_response,
     resolve_config_api_key,
     temperature_request_value,
@@ -31,7 +32,7 @@ def normalize_edge_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
         "temperature",
         "max_tokens",
         "retries",
-        "enable_thinking",
+        "reasoning_effort",
         "fail_on_error",
         "search_previous_turns",
     )
@@ -61,7 +62,7 @@ def normalize_edge_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
         "temperature": float(raw["temperature"]),
         "max_tokens": max(16, int(raw["max_tokens"])),
         "retries": max(1, int(raw["retries"])),
-        "enable_thinking": bool(raw["enable_thinking"]),
+        "reasoning_effort": normalize_reasoning_effort(raw["reasoning_effort"]),
         "fail_on_error": bool(raw["fail_on_error"]),
         "search_previous_turns": bool(raw["search_previous_turns"]),
         "max_previous_windows": max(1, int(raw.get("max_previous_windows", 3))),
@@ -102,7 +103,7 @@ class QwenEdgeGenerator:
             }
         prompt = build_relation_prompt(nodes, current_node_ids)
         reasoning_effort, extra_body = thinking_request_options(
-            self.model, enabled=self.config["enable_thinking"]
+            self.model, reasoning_effort=self.config["reasoning_effort"]
         )
         raw = call_model(
             self._ensure_client(),

@@ -19,6 +19,8 @@ Data policy:
 
 The reference Agent can be evaluated head-to-head in **Default**, **Recent-Only**, **RAG**, **Summary**, and **BCG** modes against **BrowseComp** and **BrowseComp (ZH)**. All modes use the same Agent model, prompt, and scorer; only context management changes. Every bounded mode permanently retains the initial user input.
 
+Per-task Agent model request/response traces are recorded under `model-io/` by default. Pass `--no-record-model-io` for lower disk usage; trajectories, task results, and token summaries are still retained.
+
 ```bash
 bcg benchmark run browsecomp browsecomp_zh --modes default,recent-only,rag,summary,bcg \
     --thinking off \
@@ -31,6 +33,8 @@ bcg benchmark run browsecomp browsecomp_zh --modes default,recent-only,rag,summa
     --workers 8 \
     --output-dir results/browsecomp-comparison
 ```
+
+Omit `--agent-api responses` to retain the default Chat Completions path. Responses mode uses the API's readable reasoning summary as BCG Assistant thinking while preserving complete structured tool calls and encrypted reasoning replay state.
 
 RAG stores one SQLite database per task under `BENCHMARK/rag/rag-memory/` and writes retrieved-context snapshots under `BENCHMARK/rag/rag-contexts/`.
 

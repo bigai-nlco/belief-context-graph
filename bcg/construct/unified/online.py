@@ -372,6 +372,29 @@ class SessionManager:
         sess = self.get_session(problem_id, create=False)
         return None if sess is None else sess._snapshot(stage="query")
 
+    def select_context(
+        self,
+        problem_id: str,
+        query: str,
+        *,
+        strategy: str = "connected",
+        focus_query: str | None = None,
+        question: str | None = None,
+        node_char_budget: int = 6_600,
+        max_depth: int = 4,
+    ) -> dict[str, Any]:
+        sess = self.get_session(problem_id, create=False)
+        if sess is None:
+            raise KeyError(f"no active trajectory for problem_id {problem_id!r}")
+        return sess.select_context(
+            query,
+            strategy=strategy,
+            focus_query=focus_query,
+            question=question,
+            node_char_budget=node_char_budget,
+            max_depth=max_depth,
+        )
+
     def active_problem_ids(self) -> list[str]:
         return [pid for pid, s in self._sessions.items() if s.active]
 

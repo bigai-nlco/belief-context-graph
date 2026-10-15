@@ -59,6 +59,35 @@ def test_schema_rejects_type_and_range_errors(tmp_path: Path) -> None:
         load_settings(explicit=str(bad_runtime), home=Path("/nonexistent-home"))
 
 
+def test_graph_reasoning_uses_one_parameter_name(tmp_path: Path) -> None:
+    old_name = _write(
+        tmp_path,
+        "old-thinking.yaml",
+        "pipeline:\n  extractor:\n    enable_thinking: false\n",
+    )
+    with pytest.raises(Exception, match="enable_thinking"):
+        load_settings(explicit=str(old_name), home=Path("/nonexistent-home"))
+
+    current = _write(
+        tmp_path,
+        "reasoning.yaml",
+        (
+            "models:\n"
+            "  graph-model:\n"
+            "    reasoning_effort: low\n"
+            "pipeline:\n"
+            "  extractor:\n"
+            "    reasoning_effort: minimal\n"
+            "  edge_generation:\n"
+            "    reasoning_effort: none\n"
+        ),
+    )
+    settings, _ = load_settings(explicit=str(current), home=Path("/nonexistent-home"))
+    assert settings.models["graph-model"].reasoning_effort == "low"
+    assert settings.pipeline.extractor.reasoning_effort == "minimal"
+    assert settings.pipeline.edge_generation.reasoning_effort == "none"
+
+
 @pytest.mark.parametrize(
     ("legacy_name", "current_name"),
     [("api_based", "unified"), ("light", "hybrid")],
@@ -240,6 +269,9 @@ def test_example_config_parses_and_validates() -> None:
     example = Path(__file__).parents[1] / "bcg" / "config" / "config.example.yaml"
     settings, _ = load_settings(explicit=str(example), home=Path("/nonexistent-home"))
     assert settings.models["graph-model"].base_url == "https://api.openai.com/v1"
+    assert settings.models["graph-model"].reasoning_effort == "none"
+    assert settings.pipeline.extractor.reasoning_effort == "none"
+    assert settings.pipeline.edge_generation.reasoning_effort == "none"
     assert settings.pipeline.entities.method == "ml"
 
 

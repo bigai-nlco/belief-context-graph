@@ -42,6 +42,7 @@ from .llm import (
     current_usage_tracker,
     is_context_overflow_error,
     make_client,
+    normalize_reasoning_effort,
     parse_json_response,
     resolve_config_api_key,
     temperature_request_value,
@@ -70,7 +71,7 @@ def normalize_extractor_config(
         "request_timeout",
         "retries",
         "context_scope",
-        "enable_thinking",
+        "reasoning_effort",
         "include_turn_content",
         "require_excerpt",
         "dynamic_node_cap",
@@ -104,10 +105,9 @@ def normalize_extractor_config(
         # Read-only context handed to the model: historical graph NODES only
         # (no relations). "graph" = existing nodes, "none" = no context.
         "context_scope": str(raw["context_scope"]),
-        # Qwen3 is a thinking model. For structured JSON extraction, reasoning is
-        # unnecessary and, under a fixed max_tokens, can consume the whole budget
-        # so the JSON is truncated/absent (empty extraction). Off by default.
-        "enable_thinking": bool(raw["enable_thinking"]),
+        # One provider-independent setting controls Graph reasoning. The request
+        # adapter translates it to Qwen chat-template controls when necessary.
+        "reasoning_effort": normalize_reasoning_effort(raw["reasoning_effort"]),
         # Optional (off by default): also pass the full current turn as read-only
         # context to help resolve references that point outside the chunk.
         "include_turn_content": bool(raw["include_turn_content"]),
@@ -397,7 +397,8 @@ class QwenChunkExtractor:
 
         client = None
         reasoning_effort, extra_body = thinking_request_options(
-            self.model, enabled=self.config.get("enable_thinking", False)
+            self.model,
+            reasoning_effort=self.config.get("reasoning_effort", "none"),
         )
 
         turn_ctx = (

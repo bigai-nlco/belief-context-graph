@@ -262,6 +262,7 @@ will actually touch:
   "gpt-5.5": {
     "api_key_env": "OPENAI_API_KEY",
     "base_url": "https://litellm.mybigai.ac.cn/v1",
+    "reasoning_effort": "none",
     "max_tokens": 100000,
     "temperature": 1,
     "top_p": 0.95,
@@ -281,7 +282,7 @@ will actually touch:
       "api_key_env": "BELIEF_GRAPH_LOCAL_API_KEY",
       "model": "Qwen3.5-4B", "temperature": 0, "max_tokens": 4096,
       "max_concurrency": 16, "context_scope": "graph",
-      "enable_thinking": false, "dynamic_node_cap": true,
+      "reasoning_effort": "none", "dynamic_node_cap": true,
       "node_cap_unit": "char", "node_cap_ratio": 0.004
     },
     "stance": {
@@ -291,7 +292,7 @@ will actually touch:
     "edge_generation": {
       "provider": "openai", "base_url": "http://localhost:8001/v1",
       "api_key_env": "BELIEF_GRAPH_LOCAL_API_KEY", "model": "Qwen3.5-4B",
-      "enable_thinking": false, "search_previous_turns": true
+      "reasoning_effort": "none", "search_previous_turns": true
     },
     "runtime": { "evidence_mode": "chunk", "context_chars": 100000, "min_content_len": 0 },
     "incremental_merge": { "enabled": true, "threshold": 0.76, "keep_newest_text": false },

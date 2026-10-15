@@ -30,14 +30,15 @@ def _estimate_tokens(text: str) -> int:
     return max(1, round(len(text) / 4))
 
 
-def _coerce_usage(usage: Any) -> dict[str, int | None]:
-    """Pull prompt/completion/reasoning/total counts from an SDK usage object."""
+def _coerce_usage(usage: Any) -> dict[str, Any]:
+    """Pull token counts and provider-reported cost from an SDK usage object."""
     if usage is None:
         return {
             "prompt_tokens": None,
             "completion_tokens": None,
             "reasoning_tokens": None,
             "total_tokens": None,
+            "total_cost": None,
         }
 
     def _get(name: str) -> int | None:
@@ -49,6 +50,15 @@ def _coerce_usage(usage: Any) -> dict[str, int | None]:
     pt = _get("prompt_tokens")
     ct = _get("completion_tokens")
     tt = _get("total_tokens")
+    total_cost: float | None = None
+    raw_cost = getattr(usage, "cost", None)
+    if raw_cost is None and isinstance(usage, dict):
+        raw_cost = usage.get("cost")
+    try:
+        if raw_cost is not None:
+            total_cost = float(raw_cost)
+    except (TypeError, ValueError):
+        total_cost = None
     reasoning: int | None = None
 
     details = getattr(usage, "completion_tokens_details", None)
@@ -84,6 +94,12 @@ def _coerce_usage(usage: Any) -> dict[str, int | None]:
             pt = dump.get("prompt_tokens")
             ct = dump.get("completion_tokens")
             tt = dump.get("total_tokens")
+            if total_cost is None:
+                try:
+                    if dump.get("cost") is not None:
+                        total_cost = float(dump["cost"])
+                except (TypeError, ValueError):
+                    total_cost = None
             completion_details = dump.get("completion_tokens_details") or {}
             output_details = dump.get("output_tokens_details") or {}
             if reasoning is None and isinstance(completion_details, dict):
@@ -98,6 +114,7 @@ def _coerce_usage(usage: Any) -> dict[str, int | None]:
         "completion_tokens": ct,
         "reasoning_tokens": reasoning,
         "total_tokens": tt,
+        "total_cost": total_cost,
     }
 
 
@@ -137,6 +154,8 @@ class TokenUsageTracker:
         completion_tokens: int | None,
         total_tokens: int | None,
         reasoning_tokens: int | None = None,
+        total_cost: float | None = None,
+        response_id: str | None = None,
         label: str | None = None,
         estimated: bool = False,
     ) -> dict[str, Any]:
@@ -149,6 +168,8 @@ class TokenUsageTracker:
                 "output_tokens": completion_tokens,
                 "reasoning_tokens": reasoning_tokens,
                 "total_tokens": total_tokens,
+                "total_cost": total_cost,
+                "response_id": response_id,
                 "estimated": estimated,
             }
             self.records.append(rec)
@@ -197,8 +218,65 @@ class TokenUsageTracker:
             "total_tokens": _sum("total_tokens"),
         }
 
-    def by_label(self) -> dict[str, dict[str, int]]:
-        out: dict[str, dict[str, int]] = {}
+    def llm_cost(self, pricing: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Return Graph-model cost, preferring provider-reported charges.
+
+        OpenRouter includes the amount charged in ``usage.cost``. Other
+        OpenAI-compatible providers may omit it; when configured pricing is
+        available, only those missing calls are estimated from their tokens.
+        Embedding records are excluded because ``llm_totals`` likewise
+        represents the Graph chat model rather than the embedding backend.
+        """
+
+        records = [
+            record
+            for record in self.records
+            if not str(record.get("label") or "").startswith("embedding:")
+            and str(record.get("label") or "") != "embedding"
+        ]
+        reported_records = [
+            record for record in records if record.get("total_cost") is not None
+        ]
+        missing_records = [
+            record for record in records if record.get("total_cost") is None
+        ]
+        reported = sum(float(record["total_cost"]) for record in reported_records)
+
+        estimated = 0.0
+        estimated_calls = 0
+        if pricing:
+            input_rate = float(pricing.get("input_per_1k", 0.0))
+            output_rate = float(pricing.get("output_per_1k", 0.0))
+            for record in missing_records:
+                estimated += (
+                    int(record.get("input_tokens") or 0) / 1000.0 * input_rate
+                    + int(record.get("output_tokens") or 0) / 1000.0 * output_rate
+                )
+                estimated_calls += 1
+
+        unpriced_calls = len(missing_records) - estimated_calls
+        if reported_records and estimated_calls:
+            source = "mixed"
+        elif reported_records:
+            source = "provider"
+        elif estimated_calls:
+            source = "configured_pricing"
+        else:
+            source = "unavailable"
+        return {
+            "currency": (pricing or {}).get("currency", "USD"),
+            "total": round(reported + estimated, 12),
+            "provider_reported": round(reported, 12),
+            "estimated": round(estimated, 12),
+            "reported_calls": len(reported_records),
+            "estimated_calls": estimated_calls,
+            "unpriced_calls": unpriced_calls,
+            "complete": unpriced_calls == 0,
+            "source": source,
+        }
+
+    def by_label(self) -> dict[str, dict[str, int | float]]:
+        out: dict[str, dict[str, int | float]] = {}
         for r in self.records:
             lbl = r.get("label") or "unlabeled"
             agg = out.setdefault(
@@ -209,6 +287,8 @@ class TokenUsageTracker:
                     "output_tokens": 0,
                     "reasoning_tokens": 0,
                     "total_tokens": 0,
+                    "total_cost": 0.0,
+                    "cost_reported_calls": 0,
                 },
             )
             agg["n_calls"] += 1
@@ -216,6 +296,9 @@ class TokenUsageTracker:
             agg["output_tokens"] += int(r.get("output_tokens") or 0)
             agg["reasoning_tokens"] += int(r.get("reasoning_tokens") or 0)
             agg["total_tokens"] += int(r.get("total_tokens") or 0)
+            if r.get("total_cost") is not None:
+                agg["total_cost"] += float(r["total_cost"])
+                agg["cost_reported_calls"] += 1
         return out
 
     def estimate_cost(self, pricing: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -240,6 +323,7 @@ class TokenUsageTracker:
         d: dict[str, Any] = {
             "totals": self.totals(),
             "llm_totals": self.llm_totals(),
+            "cost": self.llm_cost(pricing),
             "by_label": self.by_label(),
         }
         cost = self.estimate_cost(pricing)
@@ -261,8 +345,8 @@ class TokenUsageTracker:
 
     def render_text(self, pricing: dict[str, Any] | None = None) -> str:
         t = self.totals()
-        bar = "=" * 74
-        sub = "-" * 74
+        bar = "=" * 88
+        sub = "-" * 88
         lines = [
             bar,
             " LLM token usage for this input",
@@ -272,11 +356,11 @@ class TokenUsageTracker:
             f"  output tokens   : {t['output_tokens']:,}",
             f"  total tokens    : {t['total_tokens']:,}",
         ]
-        cost = self.estimate_cost(pricing)
-        if cost:
+        cost = self.llm_cost(pricing)
+        if cost["source"] != "unavailable":
             lines.append(
-                f"  estimated cost  : {cost['total_cost']:.6f} {cost['currency']}"
-                f"  (in {cost['input_per_1k']}/1k, out {cost['output_per_1k']}/1k)"
+                f"  total cost      : {cost['total']:.8f} {cost['currency']}"
+                f"  ({cost['source']})"
             )
         lines += [sub, " by stage:"]
         for lbl, agg in sorted(
@@ -286,13 +370,14 @@ class TokenUsageTracker:
                 f"   {lbl:<34.34} calls={agg['n_calls']:>3}  "
                 f"in={agg['input_tokens']:>8,}  "
                 f"out={agg['output_tokens']:>7,}  "
-                f"total={agg['total_tokens']:>8,}"
+                f"total={agg['total_tokens']:>8,}  "
+                f"cost=${agg['total_cost']:.8f}"
             )
         lines += [
             sub,
             " per-call detail:",
             f"   {'#':>3}  {'label':<34} {'model':<16} "
-            f"{'in':>8} {'out':>7} {'total':>8}  est",
+            f"{'in':>8} {'out':>7} {'total':>8} {'cost':>12}  est",
         ]
         for r in self.records:
             est = "*" if r.get("estimated") else ""
@@ -301,7 +386,8 @@ class TokenUsageTracker:
                 f"{str(r.get('model') or ''):<16.16} "
                 f"{int(r.get('input_tokens') or 0):>8,} "
                 f"{int(r.get('output_tokens') or 0):>7,} "
-                f"{int(r.get('total_tokens') or 0):>8,}  {est}"
+                f"{int(r.get('total_tokens') or 0):>8,} "
+                f"{float(r.get('total_cost') or 0):>12.8f}  {est}"
             )
         if any(r.get("estimated") for r in self.records):
             lines += [sub, " * = tokens estimated (API returned no usage block)"]
@@ -474,7 +560,7 @@ def unbind_embedding_log_path(token: contextvars.Token) -> None:
 
 
 def _record_usage(resp: Any, *, model: str, prompt: str, label: str | None) -> None:
-    """Record token usage from a chat-completions response into USAGE."""
+    """Record token usage and provider cost from a chat-completions response."""
     counts = _coerce_usage(getattr(resp, "usage", None))
     if counts["prompt_tokens"] is not None or counts["completion_tokens"] is not None:
         USAGE.record(
@@ -483,6 +569,8 @@ def _record_usage(resp: Any, *, model: str, prompt: str, label: str | None) -> N
             completion_tokens=counts["completion_tokens"],
             total_tokens=counts["total_tokens"],
             reasoning_tokens=counts["reasoning_tokens"],
+            total_cost=counts["total_cost"],
+            response_id=str(getattr(resp, "id", "") or "") or None,
             label=label,
             estimated=False,
         )
@@ -499,6 +587,7 @@ def _record_usage(resp: Any, *, model: str, prompt: str, label: str | None) -> N
         prompt_tokens=pt,
         completion_tokens=ct,
         total_tokens=pt + ct,
+        response_id=str(getattr(resp, "id", "") or "") or None,
         label=label,
         estimated=True,
     )

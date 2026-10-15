@@ -108,6 +108,30 @@ def _benchmark(ctx: typer.Context) -> None:
 
 
 @app.command(
+    "codex-proxy",
+    help="Experimental, opt-in Codex Responses context gateway.",
+    context_settings=_FORWARD_CONTEXT,
+    add_help_option=False,
+)
+def _codex_proxy(ctx: typer.Context) -> None:
+    from bcg.integrations.codex_proxy.cli import main as proxy_main
+
+    proxy_main(list(ctx.args))
+
+
+@app.command(
+    "codex",
+    help="Use the BCG context gateway with native Codex.",
+    context_settings=_FORWARD_CONTEXT,
+    add_help_option=False,
+)
+def _codex(ctx: typer.Context) -> None:
+    from bcg.integrations.codex.cli import main as codex_main
+
+    codex_main(list(ctx.args))
+
+
+@app.command(
     "setup",
     help="Configure global Agent, model, context, and Graph settings.",
 )
@@ -236,9 +260,12 @@ def _viewer(
 def main(argv: list[str] | None = None) -> None:
     """Launch the Agent TUI or dispatch an explicit command family."""
 
-    _bootstrap_env()
     standalone = argv is None
     args = list(sys.argv[1:] if argv is None else argv)
+    # Project initialization only writes configuration. Model credentials are
+    # loaded later by the explicitly configured Codex integration runtime.
+    if args[:2] != ["codex", "init"]:
+        _bootstrap_env()
     app(args=args, prog_name="bcg", standalone_mode=standalone)
 
 

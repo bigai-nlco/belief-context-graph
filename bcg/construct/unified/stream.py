@@ -97,8 +97,8 @@ class StreamOptions:
     # looking for a current-to-prior relation. Assistant turns bundle these
     # windows into one request; other roles inspect them sequentially.
     max_previous_windows: int = 3
-    # None selects the model-aware default (GPT-5.6-Luna -> none; otherwise
-    # medium). A configured value is forwarded to every graph-model call.
+    # None selects the model-independent Graph default (none). A configured
+    # value is forwarded to every graph-model call.
     reasoning_effort: str | None = None
     # skip turns whose content is shorter than this (0 = never skip)
     min_content_len: int = 0

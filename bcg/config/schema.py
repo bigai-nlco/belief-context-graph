@@ -13,6 +13,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SCHEMA_VERSION = 1
+ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 
 
 class _ForbidExtra(BaseModel):
@@ -40,9 +41,7 @@ class ModelEntry(_ForbidExtra):
     base_url: str | None = None
     model: str | None = None
     max_tokens: int | None = Field(default=None, ge=1)
-    reasoning_effort: (
-        Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"] | None
-    ) = None
+    reasoning_effort: ReasoningEffort | None = None
     temperature: float | None = None
     top_p: float | None = None
     pricing: PricingSettings | None = None
@@ -68,7 +67,7 @@ class ExtractorSettings(_ForbidExtra):
     request_timeout: float | None = Field(default=None, ge=0)
     retries: int | None = Field(default=None, ge=0)
     context_scope: str | None = None
-    enable_thinking: bool | None = None
+    reasoning_effort: ReasoningEffort | None = None
     include_turn_content: bool | None = None
     require_excerpt: bool | None = None
     dynamic_node_cap: bool | None = None
@@ -106,7 +105,7 @@ class EdgeGenerationSettings(_ForbidExtra):
     temperature: float | None = None
     max_tokens: int | None = Field(default=None, ge=1)
     retries: int | None = Field(default=None, ge=0)
-    enable_thinking: bool | None = None
+    reasoning_effort: ReasoningEffort | None = None
     fail_on_error: bool | None = None
     search_previous_turns: bool | None = None
     max_previous_windows: int | None = Field(default=None, ge=0)

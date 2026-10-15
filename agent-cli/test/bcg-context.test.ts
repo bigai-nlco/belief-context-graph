@@ -73,9 +73,46 @@ function assistantToolCalls(timestamp: number): AssistantMessage {
 function assistantThinkingToolCalls(timestamp: number): AssistantMessage {
 	return {
 		...assistantToolCalls(timestamp),
+		api: "openai-completions",
 		content: [
 			{ type: "thinking", thinking: "Compare both searches before deciding." },
 			...assistantToolCalls(timestamp).content,
+		],
+	};
+}
+
+function responsesSummaryToolCall(
+	timestamp: number,
+	summary: string,
+	reasoningText?: string,
+	includeEncryptedContent = true,
+): AssistantMessage {
+	const reasoningItem = {
+		id: "rs_test",
+		type: "reasoning",
+		summary: summary ? [{ type: "summary_text", text: summary }] : [],
+		...(reasoningText
+			? { content: [{ type: "reasoning_text", text: reasoningText }] }
+			: {}),
+		...(includeEncryptedContent
+			? { encrypted_content: "opaque-encrypted-reasoning" }
+			: {}),
+	};
+	return {
+		...assistantToolCalls(timestamp),
+		api: "openai-responses",
+		content: [
+			{
+				type: "thinking",
+				thinking: "raw or streamed fallback that must not be graphed",
+				thinkingSignature: JSON.stringify(reasoningItem),
+			},
+			{
+				type: "toolCall",
+				id: "call-response|fc-response",
+				name: "web_search",
+				arguments: { query: "response api query", page: 2 },
+			},
 		],
 	};
 }
@@ -156,7 +193,11 @@ describe("BCG context management", () => {
 		expect(effectiveSystem).toContain("<｜Assistant｜>");
 		expect(effectiveSystem).not.toContain("<belief_graph");
 		expect(effectiveSystem).toContain("earlier turns have been omitted from the raw conversation context");
+		expect(effectiveSystem).toContain("A belief is a self-contained claim or reasoning unit");
 		expect(effectiveSystem).toContain("confidence to judge how trustworthy its content is");
+		expect(effectiveSystem).toContain("`A depends_on B` means A requires B");
+		expect(effectiveSystem).toContain("`A supplements B` means A adds compatible detail or evidence");
+		expect(effectiveSystem).toContain("`A contradicts B` means A conflicts with");
 		expect(effectiveSystem).toContain("avoid repeating searches that were already performed");
 		expect(effectiveSystem).toContain("graph version 2");
 		expect(effectiveSystem?.match(/base system/g)).toHaveLength(1);
@@ -180,6 +221,170 @@ describe("BCG context management", () => {
 		const transformed = await manager.transform([initial, assistant("old reasoning", 2), tool("old evidence", 3)]);
 
 		expect(transformed).toEqual([initial]);
+	});
+
+	it("defines beliefs and all three relation types in compact context guidance", async () => {
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 2,
+			maxTurns: 100,
+			timeoutMs: 1000,
+			includeRelations: true,
+			graphView: "compact",
+			graphSelection: "ranked",
+			getSystemPrompt: () => "base system",
+			fetch: createFetch([]),
+		});
+
+		await manager.transform([user("initial question", 1)]);
+		const effectiveSystem = manager.augmentSystemPrompt("base system");
+
+		expect(effectiveSystem).toContain(
+			"A belief is a self-contained fact, hypothesis, intermediate conclusion, or decision",
+		);
+		expect(effectiveSystem).toContain("`A depends_on B` means A requires B");
+		expect(effectiveSystem).toContain("`A supplements B` adds compatible detail or evidence");
+		expect(effectiveSystem).toContain("`A contradicts B` conflicts with");
+		expect(effectiveSystem).toContain("Confidence estimates reliability, not answer relevance");
+		expect(effectiveSystem).toContain("Relations record reasoning or provenance, not truth");
+		expect(effectiveSystem).toContain("rationale for the link, not independent evidence");
+		expect(effectiveSystem).toContain("follow outgoing relations to its premises");
+		expect(effectiveSystem).toContain(
+			"incoming relations to later validation, supplementation, or contradiction",
+		);
+		expect(effectiveSystem).toContain("generic high-confidence fact is not an answer");
+		expect(effectiveSystem).toContain(
+			"Treat every stated answer value as a candidate, not as sufficient reason to stop",
+		);
+		expect(effectiveSystem).toContain("Compare candidates by constraint coverage");
+		expect(effectiveSystem).toContain("Do not converge until one candidate has support");
+		expect(effectiveSystem).toContain("one parallel tool-call batch");
+		expect(effectiveSystem).toContain(
+			"Do not reopen a satisfied constraint or repeat an equivalent search",
+		);
+	});
+
+	it("uses the connected selector result to render compact graph context", async () => {
+		const requests: Array<{ url: string; body: unknown }> = [];
+		const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+			const url = String(input);
+			const body = JSON.parse(String(init?.body));
+			requests.push({ url, body });
+			if (url.endsWith("/context-selection")) {
+				return new Response(
+					JSON.stringify({
+						problem_id: "problem",
+						strategy: "connected",
+						retrieval: "embedding",
+						node_ids: [2],
+						relation_ids: [],
+						node_chars: 40,
+					}),
+					{ status: 200 },
+				);
+			}
+			return new Response(
+				JSON.stringify({
+					latest: {
+						problem: {
+							beliefs: [
+								{ id: 1, belief: "hidden distractor", source: { turn_id: 3 } },
+								{ id: 2, belief: "selected evidence", source: { turn_id: 3 } },
+							],
+							relations: [],
+						},
+					},
+				}),
+				{ status: 200 },
+			);
+		}) as typeof globalThis.fetch;
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 2,
+			maxTurns: 100,
+			timeoutMs: 1000,
+			includeRelations: true,
+			graphView: "compact",
+			graphSelection: "connected",
+			getSystemPrompt: () => "base system",
+			fetch: fetchMock,
+		});
+
+		await manager.transform([user("initial question", 1)]);
+		const effectiveSystem = manager.augmentSystemPrompt("base system");
+
+		expect(requests.map((request) => request.url)).toEqual([
+			"http://127.0.0.1:8848/turns",
+			"http://127.0.0.1:8848/context-selection",
+		]);
+		expect(requests[1].body).toMatchObject({ query: "initial question" });
+		expect(effectiveSystem).toContain("selected evidence");
+		expect(effectiveSystem).not.toContain("hidden distractor");
+	});
+
+	it("uses a Tool-Result-free focus query for focused compact selection", async () => {
+		const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+		const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+			const url = String(input);
+			const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+			requests.push({ url, body });
+			if (url.endsWith("/context-selection")) {
+				return new Response(
+					JSON.stringify({
+						problem_id: "problem",
+						strategy: "focused",
+						retrieval: "embedding",
+						node_ids: [2],
+						relation_ids: [],
+						node_chars: 40,
+					}),
+					{ status: 200 },
+				);
+			}
+			return new Response(
+				JSON.stringify({
+					latest: {
+						problem: {
+							beliefs: [
+								{ id: 1, belief: "hidden distractor", source: { turn_id: 3 } },
+								{ id: 2, belief: "selected evidence", source: { turn_id: 3 } },
+							],
+							relations: [],
+						},
+					},
+				}),
+				{ status: 200 },
+			);
+		}) as typeof globalThis.fetch;
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 2,
+			maxTurns: 100,
+			timeoutMs: 1000,
+			includeRelations: true,
+			graphView: "compact",
+			graphSelection: "focused",
+			getSystemPrompt: () => "base system",
+			fetch: fetchMock,
+		});
+
+		await manager.transform([
+			user("permanent question", 1),
+			assistant("compare the leading candidates", 2),
+			tool("raw result that must not become retrieval intent", 3),
+		]);
+
+		const selection = requests.find((request) => request.url.endsWith("/context-selection"));
+		expect(selection?.body.strategy).toBe("focused");
+		expect(selection?.body.question).toBe("permanent question");
+		expect(selection?.body.query).toContain("raw result that must not become retrieval intent");
+		expect(selection?.body.focus_query).toContain("compare the leading candidates");
+		expect(selection?.body.focus_query).not.toContain(
+			"raw result that must not become retrieval intent",
+		);
 	});
 
 	it("serializes tool calls with XML tags while preserving Agent tool names", async () => {
@@ -229,6 +434,122 @@ describe("BCG context management", () => {
 			"<thinking>\nCompare both searches before deciding.\n</thinking>",
 		);
 		expect(requests[1][0].content).toContain("<tool_call>");
+	});
+
+	it("uses the Responses reasoning summary for Graph thinking and preserves the full tool call", async () => {
+		const requests: Array<Record<string, unknown>[]> = [];
+		const initial = user("initial", 1);
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 0,
+			maxTurns: 100,
+			timeoutMs: 1000,
+			includeRelations: true,
+			getSystemPrompt: () => "system",
+			fetch: createFetch(requests),
+		});
+
+		await manager.transform([initial]);
+		await manager.transform([
+			initial,
+			responsesSummaryToolCall(2, "Compare the two candidate sources, then verify the date."),
+		]);
+
+		const content = String(requests[1][0].content);
+		expect(content).toContain(
+			"<thinking>\nCompare the two candidate sources, then verify the date.\n</thinking>",
+		);
+		expect(content).toContain(
+			'<tool_call>\n{"id": "call-response|fc-response", "name": "web_search", "arguments": {"query": "response api query", "page": 2}}\n</tool_call>',
+		);
+		expect(content).not.toContain("raw or streamed fallback");
+		expect(content).not.toContain("opaque-encrypted-reasoning");
+	});
+
+	it("uses Responses reasoning_text for Graph thinking when the summary is empty", async () => {
+		const requests: Array<Record<string, unknown>[]> = [];
+		const initial = user("initial", 1);
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 0,
+			maxTurns: 100,
+			timeoutMs: 1000,
+			includeRelations: true,
+			getSystemPrompt: () => "system",
+			fetch: createFetch(requests),
+		});
+
+		await manager.transform([initial]);
+		await manager.transform([
+			initial,
+			responsesSummaryToolCall(
+				2,
+				"",
+				"Compare the modular constraints before choosing the tool argument.",
+				false,
+			),
+		]);
+
+		const content = String(requests[1][0].content);
+		expect(content).toContain(
+			"<thinking>\nCompare the modular constraints before choosing the tool argument.\n</thinking>",
+		);
+		expect(content).toContain("<tool_call>");
+		expect(content).not.toContain("raw or streamed fallback");
+		expect(content).not.toContain("opaque-encrypted-reasoning");
+	});
+
+	it("prefers Responses reasoning_text when both it and a summary are present", async () => {
+		const requests: Array<Record<string, unknown>[]> = [];
+		const initial = user("initial", 1);
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 0,
+			maxTurns: 100,
+			timeoutMs: 1000,
+			includeRelations: true,
+			getSystemPrompt: () => "system",
+			fetch: createFetch(requests),
+		});
+
+		await manager.transform([initial]);
+		await manager.transform([
+			initial,
+			responsesSummaryToolCall(
+				2,
+				"Short summary that should not be selected.",
+				"Full provider-exposed reasoning text.",
+			),
+		]);
+
+		const content = String(requests[1][0].content);
+		expect(content).toContain("<thinking>\nFull provider-exposed reasoning text.\n</thinking>");
+		expect(content).not.toContain("Short summary that should not be selected.");
+	});
+
+	it("does not invent Responses thinking when summary and reasoning_text are missing", async () => {
+		const requests: Array<Record<string, unknown>[]> = [];
+		const initial = user("initial", 1);
+		const manager = new BcgContextManager({
+			baseUrl: "http://127.0.0.1:8848",
+			problemId: "problem",
+			recentTurns: 0,
+			maxTurns: 100,
+			timeoutMs: 1000,
+			includeRelations: true,
+			getSystemPrompt: () => "system",
+			fetch: createFetch(requests),
+		});
+
+		await manager.transform([initial]);
+		await manager.transform([initial, responsesSummaryToolCall(2, "")]);
+
+		const content = String(requests[1][0].content);
+		expect(content).not.toContain("<thinking>");
+		expect(content).toContain("<tool_call>");
 	});
 
 	it("groups parallel tool results into one ID-bearing graph turn", async () => {
@@ -587,6 +908,7 @@ describe("BCG context management", () => {
 
 		expect(encoded).toContain("<｜begin▁of▁sentence｜><｜User｜>");
 		expect(encoded).toContain("<｜Assistant｜>");
+		expect(encoded).not.toContain("<belief_context>");
 		expect(encoded).toContain(
 			'[B10] The assistant is using web_search to search for "first historical query".',
 		);
@@ -625,6 +947,140 @@ describe("BCG context management", () => {
 		expect(encoded).not.toContain("depends_on");
 	});
 
+	it("renders focused selections as evidence first and contiguous relation paths", () => {
+		const encoded = formatCompactBcgDialogueContext(
+			{
+				beliefs: [
+					{ id: 2, belief: "specific candidate", confidence: 0.61, source: { turn_id: 3 } },
+					{ id: 3, belief: "candidate premise", confidence: 0.82, source: { turn_id: 4 } },
+					{
+						id: 4,
+						belief: 'The assistant is using web_search to search for "candidate evidence".',
+						extraction_method: "rule_tool_call",
+						query: "candidate evidence",
+						source: { turn_id: 5 },
+					},
+					{ id: 6, belief: "later search evidence", confidence: 0.88, source: { turn_id: 6 } },
+				],
+				relations: [
+					{
+						id: 20,
+						from_id: 2,
+						to_id: 3,
+						type: "depends_on",
+						note: "The candidate requires this premise.",
+						weight: 0.5,
+					},
+					{
+						id: 21,
+						from_id: 4,
+						to_id: 2,
+						type: "depends_on",
+						note: "The tool result was produced by the preceding tool call.",
+						weight: 0,
+					},
+					{ id: 22, from_id: 6, to_id: 4, type: "depends_on" },
+				],
+			},
+			true,
+			new Set([2, 3, 4, 6]),
+			new Set([20, 21, 22]),
+			true,
+		);
+
+		expect(encoded).toContain("#### Candidate evidence");
+		expect(encoded).toContain("#### Search history");
+		expect(encoded).toContain("#### Relation paths");
+		expect(encoded).not.toContain("#### Factual beliefs");
+		expect(encoded).not.toContain("#### Search-history beliefs");
+		expect(encoded).not.toContain("#### Retained relations");
+		const evidence = encoded.indexOf("[B6] later search evidence");
+		const premise = encoded.indexOf("[B3] candidate premise");
+		const candidate = encoded.indexOf("[B2] specific candidate");
+		const search = encoded.indexOf('[B4] The assistant is using web_search');
+		const relationHeading = encoded.indexOf("#### Relation paths");
+		const evidenceEdge = encoded.indexOf("[B6] depends_on [B4]");
+		const incoming = encoded.indexOf("[B4] depends_on [B2]");
+		const premiseEdge = encoded.indexOf("[B2] depends_on [B3]");
+		expect(evidence).toBeLessThan(premise);
+		expect(premise).toBeLessThan(candidate);
+		expect(candidate).toBeLessThan(search);
+		expect(search).toBeLessThan(relationHeading);
+		expect(relationHeading).toBeLessThan(evidenceEdge);
+		expect(evidenceEdge).toBeLessThan(incoming);
+		expect(incoming).toBeLessThan(premiseEdge);
+		expect(encoded).toContain(
+			"[B2] depends_on [B3] — The candidate requires this premise.",
+		);
+		expect(encoded).not.toContain(
+			"[B4] depends_on [B2] — The tool result was produced",
+		);
+	});
+
+	it("keeps candidate ordering independent of a long relation chain", () => {
+		const beliefs = Array.from({ length: 8 }, (_, index) => ({
+			id: index + 1,
+			belief: `belief ${index + 1}`,
+			confidence: 0.8,
+			source: { turn_id: index + 2 },
+		}));
+		const relations = Array.from({ length: 6 }, (_, index) => ({
+			id: index + 1,
+			from_id: index + 1,
+			to_id: index + 2,
+			type: "depends_on" as const,
+		}));
+		const encoded = formatCompactBcgDialogueContext(
+			{ beliefs, relations },
+			true,
+			new Set([1, 8, 2, 3, 4, 5, 6, 7]),
+			new Set(relations.map((relation) => relation.id)),
+			true,
+		);
+		const nodeOrder = Array.from(encoded.matchAll(/^- \[B(\d+)\] belief/gm), (match) =>
+			Number(match[1]),
+		);
+
+		expect(nodeOrder).toEqual([8, 7, 6, 5, 4, 3, 2, 1]);
+		expect(new Set(nodeOrder)).toEqual(new Set([1, 2, 3, 4, 5, 6, 7, 8]));
+		expect(encoded.indexOf("[B1] belief 1")).toBeLessThan(encoded.indexOf("#### Relation paths"));
+	});
+
+	it("renders exclusion and factual validation before query provenance", () => {
+		const encoded = formatCompactBcgDialogueContext(
+			{
+				beliefs: [
+					{ id: 1, belief: "candidate answer", confidence: 0.95, source: { turn_id: 6 } },
+					{ id: 2, belief: "candidate premise", confidence: 0.82, source: { turn_id: 4 } },
+					{ id: 3, belief: "candidate exclusion", confidence: 0.86, source: { turn_id: 5 } },
+					{
+						id: 10,
+						belief: 'The assistant is using web_search to search for "candidate".',
+						extraction_method: "rule_tool_call",
+						query: "candidate",
+						source: { turn_id: 3 },
+					},
+				],
+				relations: [
+					{ id: 1, from_id: 1, to_id: 10, type: "depends_on", weight: 0 },
+					{ id: 2, from_id: 1, to_id: 2, type: "depends_on", weight: 0.5 },
+					{ id: 3, from_id: 3, to_id: 1, type: "contradicts", weight: 0.5 },
+				],
+			},
+			true,
+			new Set([1, 2, 3, 10]),
+			new Set([1, 2, 3]),
+			true,
+		);
+
+		const exclusion = encoded.indexOf("[B3] contradicts [B1]");
+		const validation = encoded.indexOf("[B1] depends_on [B2]");
+		const provenance = encoded.indexOf("[B1] depends_on [B10]");
+		expect(exclusion).toBeGreaterThan(-1);
+		expect(exclusion).toBeLessThan(validation);
+		expect(validation).toBeLessThan(provenance);
+	});
+
 	it("ranks factual confidence before recency and treats queries as history", () => {
 		const encoded = formatCompactBcgDialogueContext({
 			beliefs: [
@@ -649,6 +1105,32 @@ describe("BCG context management", () => {
 		);
 		expect(encoded).toContain('[B9] The assistant is using web_search to search for "already tried".');
 		expect(encoded).not.toContain("[B9] The assistant is using web_search to search for \"already tried\". (confidence");
+	});
+
+	it("omits empty search-result beliefs and relations connected to them from compact context", () => {
+		const encoded = formatCompactBcgDialogueContext({
+			beliefs: [
+				{
+					id: 20,
+					belief: 'The assistant is using web_search to search for "rare source".',
+					extraction_method: "rule_tool_call",
+					query: "rare source",
+					source: { turn_id: 4 },
+				},
+				{
+					id: 21,
+					belief: "The web_search tool returned no results.",
+					extraction_method: "rule_tool_result",
+					source: { turn_id: 5 },
+				},
+			],
+			relations: [{ id: 1, from_id: 21, to_id: 20, type: "depends_on" }],
+		});
+
+		expect(encoded).toContain('[B20] The assistant is using web_search to search for "rare source".');
+		expect(encoded).not.toContain("[B21]");
+		expect(encoded).not.toContain("Retained relations");
+		expect(encoded).not.toContain("depends_on");
 	});
 
 	it("keeps compact graph injection within its bounded rendering budget", () => {
@@ -698,6 +1180,7 @@ describe("BCG context management", () => {
 					finalizationTimeoutMs: 5678,
 					includeRelations: false,
 					graphView: "compact",
+					graphSelection: "ranked",
 				},
 			},
 		});
@@ -712,6 +1195,7 @@ describe("BCG context management", () => {
 				finalizationTimeoutMs: 5678,
 				includeRelations: false,
 				graphView: "compact",
+				graphSelection: "ranked",
 			},
 			summary: {
 				provider: "summary",

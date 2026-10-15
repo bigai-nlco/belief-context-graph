@@ -1,0 +1,166 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="840" viewBox="0 0 1400 840" role="img" aria-labelledby="title desc">
+  <title id="title">Belief Context Graph core architecture</title>
+  <desc id="desc">An Agent keeps the initial request and recent turns in raw context, streams evicted turns through the Graph service, and receives a compact belief snapshot in its system prompt. The HTTP service and Python SDK share one construction engine and incremental belief graph pipeline.</desc>
+
+  <defs>
+    <linearGradient id="agentFill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f3f5ff"/>
+      <stop offset="1" stop-color="#fbfcff"/>
+    </linearGradient>
+    <linearGradient id="graphFill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5755d9"/>
+      <stop offset="1" stop-color="#7775ea"/>
+    </linearGradient>
+    <linearGradient id="constructionFill" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f5f7ff"/>
+      <stop offset="0.5" stop-color="#faf9ff"/>
+      <stop offset="1" stop-color="#f4f9ff"/>
+    </linearGradient>
+    <linearGradient id="pipelineFill" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fafbfe"/>
+      <stop offset="1" stop-color="#f7f5ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="140%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6" result="blur"/>
+      <feOffset in="blur" dx="0" dy="4" result="offsetBlur"/>
+      <feFlood flood-color="#0f172a" flood-opacity="0.075" result="shadowColor"/>
+      <feComposite in="shadowColor" in2="offsetBlur" operator="in" result="shadow"/>
+      <feMerge>
+        <feMergeNode in="shadow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse" viewBox="0 0 9 9">
+      <path d="M0.5 0.7L8 4.5L0.5 8.3Z" fill="#64748b"/>
+    </marker>
+    <marker id="arrowPurple" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse" viewBox="0 0 9 9">
+      <path d="M0.5 0.7L8 4.5L0.5 8.3Z" fill="#5b5bd6"/>
+    </marker>
+    <style>
+      .font { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; }
+      .section { font-size: 16.5px; font-weight: 780; letter-spacing: 1.7px; fill: #5f6f86; }
+      .title { font-size: 25px; font-weight: 770; fill: #111827; }
+      .body { font-size: 18px; font-weight: 510; fill: #445268; }
+      .small { font-size: 15.5px; font-weight: 520; fill: #68768a; }
+      .chip { font-size: 14px; font-weight: 700; fill: #4338ca; }
+      .stageTitle { font-size: 17.5px; font-weight: 760; fill: #1e293b; }
+      .stageBody { font-size: 14.5px; font-weight: 520; fill: #64748b; }
+      .arrow { fill: none; stroke: #64748b; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .arrowPurple { fill: none; stroke: #5b5bd6; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowPurple); }
+      .feedback { fill: none; stroke: #5b5bd6; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 7 7; marker-end: url(#arrowPurple); }
+    </style>
+  </defs>
+
+  <rect width="1400" height="840" fill="#fbfcfe"/>
+
+  <g class="font">
+    <!-- Agent runtime -->
+    <rect x="40" y="30" width="1320" height="185" rx="24" fill="url(#agentFill)" stroke="#d8e0ef" stroke-width="1.2"/>
+    <text x="66" y="60" class="section">AGENT RUNTIME</text>
+
+    <g filter="url(#shadow)">
+      <rect x="60" y="76" width="330" height="114" rx="17" fill="#ffffff" stroke="#c7d1df"/>
+      <rect x="450" y="68" width="500" height="130" rx="19" fill="#ffffff" stroke="#9eaef8" stroke-width="1.6"/>
+      <rect x="1010" y="76" width="330" height="114" rx="17" fill="#ffffff" stroke="#c7d1df"/>
+    </g>
+
+    <circle cx="93" cy="106" r="17" fill="#e0e7ff"/>
+    <path d="M86 106h14M93 99v14" stroke="#4f46e5" stroke-width="2.4" stroke-linecap="round"/>
+    <text x="122" y="114" class="title" style="font-size:24px">Any Agent</text>
+    <text x="86" y="141" class="body">Reference CLI included</text>
+    <text x="86" y="169" class="small">User input · sessions · tools</text>
+
+    <rect x="475" y="82" width="9" height="102" rx="4.5" fill="#5b5bd6"/>
+    <text x="509" y="108" class="title">BCG Context Manager</text>
+    <text x="509" y="137" class="body">Initial user input remains visible</text>
+    <text x="509" y="162" class="body">Recent completed turns remain raw</text>
+    <text x="509" y="187" class="body">Evicted turns → belief memory</text>
+    <rect x="840" y="84" width="80" height="24" rx="11.5" fill="#ede9fe"/>
+    <text x="880" y="101" text-anchor="middle" class="chip">BCG mode</text>
+
+    <circle cx="1044" cy="106" r="17" fill="#e0f2fe"/>
+    <path d="M1036 106h16M1044 98v16M1038 100l12 12M1050 100l-12 12" stroke="#0284c7" stroke-width="1.7" stroke-linecap="round" opacity="0.85"/>
+    <text x="1073" y="114" class="title">Model + Tools</text>
+    <text x="1036" y="141" class="body">OpenAI-compatible inference</text>
+    <text x="1036" y="169" class="small">Search · shell · files · extensions</text>
+
+    <path d="M398 133H438" class="arrow"/>
+    <path d="M958 133H998" class="arrowPurple"/>
+
+    <!-- Integration -->
+    <text x="66" y="251" class="section">INTEGRATION PATHS</text>
+    <g filter="url(#shadow)">
+      <rect x="145" y="270" width="470" height="125" rx="19" fill="#ffffff" stroke="#9eaef8" stroke-width="1.6"/>
+      <rect x="785" y="270" width="470" height="125" rx="19" fill="#ffffff" stroke="#c7d1df"/>
+      <rect x="525" y="420" width="350" height="68" rx="18" fill="url(#graphFill)"/>
+    </g>
+
+    <text x="175" y="307" class="title" style="font-size:24px">Graph Construction HTTP Service</text>
+    <text x="175" y="337" class="body">Ordered streaming session per problem_id</text>
+    <text x="175" y="365" class="small">/turns · /graph · /finalize · /release</text>
+
+    <text x="815" y="307" class="title" style="font-size:24px">Python SDK</text>
+    <text x="815" y="337" class="body">BCGRunner — session orchestration</text>
+    <text x="815" y="365" class="body">BCGMemory — observe, search, context</text>
+
+    <text x="700" y="450" text-anchor="middle" font-size="20" font-weight="780" fill="#ffffff">Construction Registry</text>
+    <text x="700" y="472" text-anchor="middle" font-size="15" font-weight="560" fill="#e0e7ff">shared contracts · config · persistence</text>
+
+    <path d="M540 206V232Q540 244 526 244H394Q380 244 380 260" class="arrowPurple"/>
+    <path d="M860 206V232Q860 244 874 244H1006Q1020 244 1020 260" class="arrowPurple"/>
+    <rect x="420" y="220" width="216" height="21" rx="10" fill="#ffffff" stroke="#c4b5fd"/>
+    <text x="528" y="235" text-anchor="middle" font-size="14.5" font-weight="650" fill="#4f46e5">evicted completed turns</text>
+    <path d="M380 403V444Q380 454 398 454H516" class="arrow"/>
+    <path d="M1020 403V444Q1020 454 1002 454H884" class="arrow"/>
+
+    <!-- Construction engine -->
+    <g filter="url(#shadow)">
+      <rect x="170" y="510" width="1060" height="155" rx="20" fill="url(#constructionFill)" stroke="#a9b4ef" stroke-width="1.4"/>
+    </g>
+    <rect x="626" y="532" width="148" height="28" rx="13.5" fill="#e8e7ff"/>
+    <text x="700" y="551" text-anchor="middle" font-size="14.5" font-weight="800" fill="#4f46e5">GRAPH ENGINE</text>
+    <text x="700" y="583" text-anchor="middle" font-size="22" font-weight="770" fill="#1e293b">Configurable Graph LLM</text>
+    <text x="700" y="612" text-anchor="middle" class="body" style="font-size:16.5px">Extract beliefs, decisions, entities, stances, evidence, and typed relations</text>
+    <text x="700" y="637" text-anchor="middle" class="small">Bounded history · merge verification · confidence propagation · persistent artifacts</text>
+    <path d="M700 496V500" class="arrow"/>
+
+    <!-- Incremental pipeline -->
+    <rect x="40" y="690" width="1320" height="110" rx="22" fill="url(#pipelineFill)" stroke="#d4d0f1" stroke-width="1.2"/>
+    <text x="66" y="716" class="section">INCREMENTAL BELIEF GRAPH PIPELINE</text>
+    <g>
+      <rect x="78" y="730" width="174" height="56" rx="13" fill="#ffffff" stroke="#d5dce7"/>
+      <rect x="292" y="730" width="174" height="56" rx="13" fill="#ffffff" stroke="#d5dce7"/>
+      <rect x="506" y="730" width="174" height="56" rx="13" fill="#ffffff" stroke="#d5dce7"/>
+      <rect x="720" y="730" width="174" height="56" rx="13" fill="#ffffff" stroke="#d5dce7"/>
+      <rect x="934" y="730" width="174" height="56" rx="13" fill="#ffffff" stroke="#d5dce7"/>
+      <rect x="1148" y="730" width="174" height="56" rx="13" fill="#f0edff" stroke="#bcb5fa"/>
+
+      <text x="165" y="753" text-anchor="middle" class="stageTitle">1 · Split / chunk</text>
+      <text x="165" y="775" text-anchor="middle" class="stageBody">role-tagged turn</text>
+      <text x="379" y="753" text-anchor="middle" class="stageTitle">2 · Extract</text>
+      <text x="379" y="775" text-anchor="middle" class="stageBody">beliefs + evidence</text>
+      <text x="593" y="753" text-anchor="middle" class="stageTitle">3 · Merge</text>
+      <text x="593" y="775" text-anchor="middle" class="stageBody">canonical nodes</text>
+      <text x="807" y="753" text-anchor="middle" class="stageTitle">4 · Link</text>
+      <text x="807" y="775" text-anchor="middle" class="stageBody">typed relations</text>
+      <text x="1021" y="753" text-anchor="middle" class="stageTitle">5 · Confidence</text>
+      <text x="1021" y="775" text-anchor="middle" class="stageBody">deterministic posterior</text>
+      <text x="1235" y="753" text-anchor="middle" class="stageTitle" fill="#4338ca">6 · Snapshot</text>
+      <text x="1235" y="775" text-anchor="middle" class="stageBody" fill="#5b5bd6">graph + artifacts</text>
+
+      <path d="M259 758H283" class="arrow"/>
+      <path d="M473 758H497" class="arrow"/>
+      <path d="M687 758H711" class="arrow"/>
+      <path d="M901 758H925" class="arrow"/>
+      <path d="M1115 758H1139" class="arrowPurple"/>
+    </g>
+    <path d="M700 665V680" class="arrow"/>
+
+    <!-- Graph feedback -->
+    <path d="M1330 758H1372V46H835V58" class="feedback"/>
+    <rect x="1088" y="220" width="268" height="42" rx="11" fill="#ffffff" stroke="#c4b5fd"/>
+    <text x="1222" y="238" text-anchor="middle" font-size="14.5" font-weight="760" fill="#4f46e5">GRAPH SNAPSHOT</text>
+    <text x="1222" y="256" text-anchor="middle" font-size="15" font-weight="520" fill="#64748b">beliefs · relations · confidence</text>
+    <path d="M1364 241H1372" fill="none" stroke="#5b5bd6" stroke-width="1.8" stroke-dasharray="7 7"/>
+  </g>
+</svg>
