@@ -9,7 +9,7 @@ See [gateway validation](codex-native-validation.md) for the actual continuing-s
 Requirements: Python 3.11–3.13, `uv`, a native Codex installation, and a ChatGPT login. Linux with Codex CLI 0.162.1 is the most recently verified environment; other operating systems are not yet verified. From this checkout:
 
 ```sh
-uv tool install --python 3.13 .
+uv tool install --force --python 3.13 .
 codex login
 
 cd /path/to/your/project

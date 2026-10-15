@@ -113,7 +113,7 @@ Bring belief-backed memory to your existing Codex workflow. Install Codex separa
 From this repository, install BCG, then initialize the project where you want to use it:
 
 ```bash
-uv tool install --python 3.13 .
+uv tool install --force --python 3.13 .
 
 cd /path/to/your/project
 bcg codex init \

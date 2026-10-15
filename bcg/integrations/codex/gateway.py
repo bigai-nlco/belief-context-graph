@@ -20,12 +20,18 @@ class SdkGraph:
     def __init__(self, config: Config):
         self.config = config
         self.manager = None
+        self._manager_lock = threading.Lock()
 
     def _get(self):
         if self.manager is None:
-            from .runtime import create_graph_manager
+            # Independent Codex threads share this adapter. Publish one fully
+            # initialized manager so all writes and selections use its sessions.
+            # A failed initialization leaves None and releases the lock for retry.
+            with self._manager_lock:
+                if self.manager is None:
+                    from .runtime import create_graph_manager
 
-            self.manager = create_graph_manager(self.config)
+                    self.manager = create_graph_manager(self.config)
         return self.manager
 
     def push(self, problem_id: str, turns: list[dict]) -> dict:
