@@ -89,6 +89,42 @@ uv run bcg
 
 The first run walks you through model credentials, context mode, and Graph Construction backend, and saves your choices under `~/.bcg`. See the [documentation](https://belief-context-graph.docs.buildwithfern.com/) for everything else.
 
+### Use BCG with Codex (experimental gateway)
+
+Keep using the native Codex terminal interface while BCG manages outgoing model context. This integration is separate from the reference Agent above and does not require its Node.js dependencies or a separate Graph server. Currently verified on Linux with Codex CLI 0.162.1; Python 3.11–3.13 and `uv` are required. Install Codex separately and sign in with ChatGPT using `codex login`.
+
+Install BCG from this checkout, then initialize the project where you want to use Codex:
+
+```bash
+uv tool install --python 3.13 .
+
+cd /path/to/your/project
+bcg codex init --mode gateway \
+  --env-file ~/.bcg/.env \
+  --allow-graph-upload
+```
+
+Gateway is the only Codex integration in this checkout; `--mode gateway` can be omitted. Initialization creates only private `.bcg-codex/` configuration. It does not install hooks/MCP, modify project or global Codex configuration, read Codex credentials, contact model providers, or download models. Reinitialization preserves existing Graph model settings and session records. Remove any older hook-based BCG installation using that version's installer before switching to this gateway-only version.
+
+Edit `.bcg-codex/graph-model.json` to choose the Graph model, `base_url`, `api_key_env`, and supported `reasoning_effort`. The generated defaults use `qwen/qwen3.8-flash` through OpenRouter with `reasoning_effort=none`. Add the matching key to the selected private env file, which initialization does not create or modify:
+
+```dotenv
+OPENROUTER_OPENAI_API_KEY=your-graph-api-key
+```
+
+For another provider, change `base_url`, `model`, and `api_key_env` together. Graph API usage is billed separately from your Codex subscription. Local CPU embeddings may download on first use; `init --embedding-model /path/to/local/model` selects existing weights for a new configuration.
+
+Start one continuing native Codex session, using a model available to your account:
+
+```bash
+bcg codex run --mode gateway -- --no-daemon \
+  -m gpt-6-luna -c 'model_reasoning_effort="low"'
+```
+
+The local gateway retains original user/system/developer input and the latest two completed Assistant/tool steps, writes evicted steps into a belief graph, and appends selected Graph memory to Responses `instructions`. Codex's visible history stays unchanged. Graph failures or unsupported/opaque history fall back to the original request; native compaction can limit exact history control. Exit Codex to stop the gateway. Plain `codex` does not start it.
+
+Request audits are in `.bcg-codex/state/gateway/requests.jsonl`; Graph records are in `.bcg-codex/state/graphs/`. Add `--record-model-io` before the `--` separator to record exact incoming/forwarded requests and responses. Logs can contain private code and conversation data. The upload consent flag permits captured conversation/tool text to be sent to your Graph provider; review that provider's data policy and never commit keys or private records. See [Codex integration and diagnostics](docs/codex-native-integration.md#experimental-request-gateway) for details.
+
 
 > 🔨 &ensp;`BCGRunner` — build the first belief context graph &ensp;→&ensp; [**Construct the first BCG**](https://belief-context-graph.docs.buildwithfern.com/quickstart) · [**Understand your graph**](https://belief-context-graph.docs.buildwithfern.com/first-graph)
 >

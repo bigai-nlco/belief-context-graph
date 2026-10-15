@@ -10,6 +10,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..tool_observations import observation_body
+
 CALL_TYPES = {"function_call", "custom_tool_call"}
 RESULT_TYPES = {"function_call_output", "custom_tool_call_output"}
 TEXT_TYPES = {"input_text", "output_text", "text", "refusal"}
@@ -119,7 +121,11 @@ class Step:
                     {
                         "tool_call_id": item["call_id"],
                         "name": self.calls[item["call_id"]]["name"],
-                        "content": plain_text(item["output"]),
+                        "content": observation_body(
+                            plain_text(item["output"]),
+                            self.calls[item["call_id"]]["name"],
+                            is_error=bool(item.get("is_error", False)),
+                        ),
                         "is_error": bool(item.get("is_error", False)),
                     },
                 )

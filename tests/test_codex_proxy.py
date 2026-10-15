@@ -28,7 +28,7 @@ from bcg.integrations.codex_proxy.graph import (
     HttpGraphBackend,
     render_graph,
 )
-from bcg.integrations.codex_proxy.protocol import partition, reasoning_text
+from bcg.integrations.codex_proxy.protocol import partition, reasoning_text, xml_json
 from bcg.integrations.codex_proxy.server import ProxyServer, StreamUsage
 
 
@@ -285,6 +285,33 @@ def test_selection_failure_does_not_lose_history_or_repeat_acknowledged_writes()
     assert len(graph.writes) == 1
 
 
+def test_empty_selection_is_auditable_without_losing_history(monkeypatch):
+    graph = FakeGraph()
+    monkeypatch.setattr(
+        graph, "select", lambda *args: {"node_ids": [], "relation_ids": []}
+    )
+    body = request()
+    out, meta = ContextEngine(config(), graph).prepare(body, Session("test"))
+    assert out["input"] == body["input"]
+    assert out["instructions"] == body["instructions"]
+    assert meta["fallback"] == "graph_selection_failed"
+    assert meta["fallback_detail"] == "empty_selection"
+    assert meta["node_char_budget"] == 6600
+    assert meta["evicted_steps"] == 0
+
+
+def test_graph_error_metadata_never_contains_provider_message(monkeypatch):
+    graph = FakeGraph()
+
+    def fail(*args):
+        raise GraphError("provider error containing secret token and private prompt")
+
+    monkeypatch.setattr(graph, "select", fail)
+    _, meta = ContextEngine(config(), graph).prepare(request(), Session("test"))
+    assert meta["fallback_detail"] == "graph_error"
+    assert "secret token" not in json.dumps(meta)
+
+
 def test_request_retries_deduplicate_graph_ingestion_and_progress_appends_only_new_steps():
     graph = FakeGraph()
     engine = ContextEngine(config(), graph)
@@ -339,8 +366,111 @@ def test_custom_calls_preserve_raw_items_and_graph_serialization_handles_delimit
     from bcg.construct._shared.tool_results import extract_tool_results
 
     result = extract_tool_results(graph.writes[0][1][2]["content"])[0]
-    assert result.body == items[-1]["output"]
+    assert result.results[0].snippet == items[-1]["output"]
+    assert result.results[0].title == "Observation from read_file"
+    assert result.results[0].url is None
     assert "raw patch" in graph.writes[0][1][1]["content"]
+
+
+@pytest.mark.parametrize("custom", [False, True])
+def test_generic_tool_output_uses_bounded_semantic_path_and_original_wire(
+    custom, monkeypatch
+):
+    from bcg.construct.unified import extract
+
+    body = request(0)
+    batch = step(0, custom=custom)
+    long_result = (
+        "Search tool web_lookup is available. " + "Tool documentation. " * 1500
+    )
+    batch[-1]["output"] = long_result
+    body["input"].extend(batch + step(1) + step(2))
+    original = copy.deepcopy(body)
+    plan = partition(body["input"], 2)
+    content = plan.graph_turns[2]["content"]
+    calls = []
+
+    def model_call(client, model, prompt, **kwargs):
+        calls.append(prompt)
+        # The snippet is bounded, and is not also repeated in an unbounded title.
+        assert len(prompt) < 4000
+        assert "Search tool web_lookup is available" in prompt
+        return json.dumps(
+            {
+                "items": [
+                    {
+                        "item_index": 0,
+                        "beliefs": [
+                            {
+                                "belief": "The web_lookup search tool is available.",
+                                "stance": "recalled",
+                                "entities": ["web_lookup"],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(extract.llm, "call_model", model_call)
+    result = extract.extract_compact_tool_result_nodes_batch(
+        None,
+        "mock",
+        items=[{"content": content, "query": "Find a search tool"}],
+        mode="excerpt",
+        max_results=6,
+        max_snippet_chars=1800,
+        max_facts=4,
+    )[0]
+    assert len(calls) == 1
+    node = result["nodes"][0]
+    assert node["extraction_method"] == "compact_llm_tool_result"
+    assert node["tool_call_id"] == "call_0_0"
+    assert node["tool_name"] == "read_file"
+    assert body == original
+    assert plan.retained[-6:] == step(1) + step(2)
+    # Exhausted/failed semantic extraction must also stay bounded.
+    fallback = extract.extract_rule_tool_result_nodes(
+        role="tool",
+        content=content,
+        mode="excerpt",
+        max_results=6,
+        max_snippet_chars=1800,
+    )
+    assert len(fallback["nodes"][0]["belief"]) < 2100
+
+
+def test_ranked_search_error_and_empty_results_keep_their_graph_format():
+    from bcg.construct._shared.tool_results import extract_tool_results
+
+    for output, error in [
+        ("[1] Archive\nURL: https://example.org/\nSnippet: Receipt exists.", False),
+        ("Permission denied", True),
+        ("", False),
+    ]:
+        batch = step(0)
+        batch[-1].update(output=output, is_error=error)
+        plan = partition([{"role": "user", "content": "test"}, *batch], 0)
+        parsed = extract_tool_results(plan.graph_turns[-1]["content"])[0]
+        assert parsed.body == output
+        assert parsed.is_error == error
+
+
+def test_url_less_observation_title_does_not_absorb_its_snippet():
+    from bcg.construct._shared.tool_results import extract_tool_results
+
+    content = xml_json(
+        "tool_result",
+        {
+            "name": "exec",
+            "tool_call_id": "real-call",
+            "content": "[1] Local observation\nSnippet: " + "Long output. " * 1000,
+        },
+    )
+    result = extract_tool_results(content)[0].results[0]
+    assert result.title == "Local observation"
+    assert result.url is None
+    assert len(result.snippet) > 10000
 
 
 def test_final_answer_phase_and_all_original_assistant_fields_preserved():
@@ -747,6 +877,60 @@ def test_native_codex_sse_labeled_json_still_records_usage(monkeypatch, tmp_path
     assert record["stream_terminal"] == "response.completed"
 
 
+@pytest.mark.parametrize(
+    "terminal", ["response.completed", "response.incomplete", "response.failed"]
+)
+def test_next_turn_can_start_after_terminal_event_before_http_eof(
+    monkeypatch, tmp_path, terminal
+):
+    release_tail = threading.Event()
+    frame = (
+        b"data: "
+        + json.dumps(
+            {
+                "type": terminal,
+                "response": {"usage": {"input_tokens": 7, "output_tokens": 2}},
+            }
+        ).encode()
+        + b"\n\n"
+    )
+
+    class DelayedEof(httpx.SyncByteStream):
+        def __iter__(self):
+            yield frame
+            assert release_tail.wait(5), "test did not release the upstream HTTP tail"
+
+    with mock_server(monkeypatch, tmp_path) as (client, upstream, _, _, _, server):
+
+        def respond(req):
+            upstream.append(req)
+            if len(upstream) == 1:
+                return httpx.Response(
+                    200,
+                    headers={"content-type": "text/event-stream"},
+                    stream=DelayedEof(),
+                )
+            return httpx.Response(200, json={"output": [], "usage": {}})
+
+        server.upstream.close()
+        server.upstream = httpx.Client(transport=httpx.MockTransport(respond))
+        try:
+            with client.stream(
+                "POST", "/responses", headers=HEADERS, json=request(stream=True)
+            ) as first:
+                chunks = first.iter_bytes()
+                assert next(chunks) == frame
+                assert not server.sessions.get("test-session").lock.locked()
+                # The old implementation returned 409 until release_tail was set.
+                second = client.post("/responses", headers=HEADERS, json=request(4))
+                assert second.status_code == 200
+                release_tail.set()
+                assert b"".join(chunks) == b""
+        finally:
+            release_tail.set()
+        assert len(upstream) == 2
+
+
 def test_native_codex_model_catalog_is_authenticated_and_uses_pinned_origin(
     monkeypatch, tmp_path
 ):
@@ -843,6 +1027,15 @@ def test_http_auth_session_transport_and_concurrency_guards(monkeypatch, tmp_pat
                 == 409
             )
         assert upstream == [] and graph == []
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "audit/requests.jsonl").read_text().splitlines()
+    ]
+    conflict = next(
+        row for row in records if "Concurrent requests" in row.get("error", "")
+    )
+    assert conflict["session_hash"] == session.session_hash
+    assert conflict["started_at"] <= conflict["timestamp"]
 
 
 def test_config_and_generated_codex_toml_are_offline_and_opt_in(tmp_path):

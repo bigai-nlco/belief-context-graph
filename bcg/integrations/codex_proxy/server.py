@@ -340,7 +340,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
         observer = None
         response_status = None
         started = time.monotonic()
-        metadata: dict = {"request_id": uuid.uuid4().hex}
+        metadata: dict = {
+            "request_id": uuid.uuid4().hex,
+            "started_at": time.time(),
+            "model_io_enabled": self.server.config.record_model_io,
+        }
         try:
             upstream_headers = self._upstream_headers()
             if (
@@ -359,6 +363,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
             session_key, native_kind = self._request_session(body)
             metadata["native_request_kind"] = native_kind or None
             session = self.server.sessions.get(session_key)
+            # Attribute rejected/overlapping requests too, not just successful
+            # transformations. Never put the original native session ID here.
+            metadata["session_hash"] = session.session_hash
             if not session.lock.acquire(blocking=False):
                 raise RequestError(
                     "Concurrent requests for one session are unsupported; use a distinct session ID per Codex thread",
@@ -457,8 +464,19 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         else:
                             oversized = True
                             plain.clear()
+                    if observer is not None and observer.terminal and locked_session:
+                        # Codex can issue its next request as soon as it sees
+                        # the terminal SSE event, before upstream HTTP EOF.
+                        # All graph/session mutations are already complete.
+                        # Unlock BEFORE forwarding that event, not in cleanup.
+                        locked_session.lock.release()
+                        locked_session = None
                     self.wfile.write(f"{len(chunk):X}\r\n".encode() + chunk + b"\r\n")
                     self.wfile.flush()
+                if locked_session:
+                    # Non-streaming clients finish upon the final HTTP chunk.
+                    locked_session.lock.release()
+                    locked_session = None
                 self.wfile.write(b"0\r\n\r\n")
                 self.wfile.flush()
                 if not is_sse and not oversized:

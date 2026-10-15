@@ -1,6 +1,6 @@
-"""Manually driven, one-process native TUI smoke test; no benchmark answer input.
+"""Manually driven, one-process gateway TUI smoke test; no benchmark answer input.
 
-Run in a PTY. The tester sends multiple prompts (and /compact in compact mode)
+Run in a PTY. The tester sends multiple prompts and one native /compact
 to the SAME process. Global config/auth are fingerprinted and never modified.
 Only the isolated auth copy is supplied to native Codex and removed at exit.
 """
@@ -30,9 +30,16 @@ def fingerprint(path: Path) -> str | None:
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--mode", choices=["assist", "compact", "gateway"], required=True)
+    p.add_argument("--mode", choices=["gateway"], default="gateway")
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--question-file", type=Path)
+    p.add_argument("--env-file", type=Path, default=Path.home() / ".bcg/.env")
+    p.add_argument(
+        "--embedding-model", default="sentence-transformers/all-MiniLM-L6-v2"
+    )
+    p.add_argument("--graph-model", help="Override only the Graph model")
+    p.add_argument("--graph-base-url", help="OpenAI-compatible Graph API base URL")
+    p.add_argument("--graph-api-key-env", help="Environment variable name, not a key")
     args = p.parse_args()
     os.umask(0o077)
     output = args.output.resolve()
@@ -44,15 +51,29 @@ def main() -> None:
     auth = home / ".codex/auth.json"
     originals = [auth, home / ".codex/config.toml", home / ".codex/hooks.json"]
     before = {str(path): fingerprint(path) for path in originals}
-    install(
+    env_file = args.env_file.expanduser().resolve()
+    config = install(
         workspace,
-        mode="compact" if args.mode == "compact" else "assist",
-        env_file=home / ".bcg/.env",
-        embedding_model="/home/yofuria/PLM/all-MiniLM-L6-v2",
+        mode="gateway",
+        env_file=env_file,
+        embedding_model=args.embedding_model,
         allow_upload=True,
     )
-    env_values = read_env_file(home / ".bcg/.env")
-    with tempfile.TemporaryDirectory(prefix="bcg-native-smoke-") as temp:
+    env_values = read_env_file(env_file)
+    graph_path = Path(config.graph_config)
+    graph_config = json.loads(graph_path.read_text())
+    graph_settings = graph_config["graph-model"]
+    for key, value in (
+        ("model", args.graph_model),
+        ("base_url", args.graph_base_url),
+        ("api_key_env", args.graph_api_key_env),
+    ):
+        if value is not None:
+            graph_settings[key] = value
+    if not env_values.get(graph_settings["api_key_env"]):
+        raise SystemExit(f"Missing {graph_settings['api_key_env']} in --env-file")
+    private_write(graph_path, graph_config)
+    with tempfile.TemporaryDirectory(prefix="bcg-gateway-smoke-") as temp:
         temp = Path(temp)
         isolated_home, codex_home = temp / "home", temp / "codex"
         isolated_home.mkdir()
@@ -109,13 +130,10 @@ tool_timeout_sec = 60
             ),
             BCG_SEARCH_MAX_CALLS="12",
             TOKENIZERS_PARALLELISM="false",
-            HF_HUB_OFFLINE="1",
-            TRANSFORMERS_OFFLINE="1",
         )
         codex_args = [
             "--no-daemon",
             "--no-alt-screen",
-            "--dangerously-bypass-hook-trust",
             "--cd",
             str(workspace),
         ]
@@ -123,38 +141,38 @@ tool_timeout_sec = 60
             question = args.question_file.read_text()
             private_write(output / "question.txt", question)
             codex_args.append(question)
-        command = ["codex", *codex_args]
-        if args.mode == "gateway":
-            command = [
-                sys.executable,
-                "-m",
-                "bcg.integrations.codex.cli",
-                "run",
-                "--config",
-                str(workspace / ".bcg-codex/config.json"),
-                "--record-model-io",
-                "--",
-                *codex_args,
-            ]
+        command = [
+            sys.executable,
+            "-m",
+            "bcg.integrations.codex.cli",
+            "run",
+            "--config",
+            str(workspace / ".bcg-codex/config.json"),
+            "--record-model-io",
+            "--",
+            *codex_args,
+        ]
         private_write(
             output / "run.json",
             {
                 "mode": args.mode,
                 "agent_model": "gpt-6-luna",
                 "agent_effort": "low",
-                "graph_model": "qwen/qwen3.8-flash",
-                "graph_effort": "none",
+                "graph_model": graph_settings["model"],
+                "graph_effort": graph_settings["reasoning_effort"],
+                "graph_base_url": graph_settings["base_url"],
+                "graph_api_key_env": graph_settings["api_key_env"],
+                "env_file": str(env_file),
                 "workspace": str(workspace),
                 "codex_home": str(codex_home),
                 "started": time.time(),
                 "auth_file_is_private_copy": True,
-                "hook_trust_bypass": "Reviewed test hooks only; tool sandbox/approvals remain active",
             },
         )
         print(f"Native smoke workspace: {workspace}", flush=True)
         code = subprocess.call(command, env=env, cwd=workspace)
-        # Preserve only non-secret native history needed to inspect hook and
-        # compaction delivery. Never copy auth, settings DB or credential files.
+        # Preserve only native history needed to inspect context and compaction.
+        # Never copy auth, settings DB or credential files.
         import shutil
 
         for name in ("sessions", "archived_sessions"):

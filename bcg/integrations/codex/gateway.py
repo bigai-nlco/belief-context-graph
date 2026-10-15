@@ -23,9 +23,9 @@ class SdkGraph:
 
     def _get(self):
         if self.manager is None:
-            from .worker import Runtime
+            from .runtime import create_graph_manager
 
-            self.manager = Runtime(self.config).manager
+            self.manager = create_graph_manager(self.config)
         return self.manager
 
     def push(self, problem_id: str, turns: list[dict]) -> dict:
@@ -67,6 +67,19 @@ def run(
 ) -> int:
     if not config.enabled:
         raise ValueError("Enable BCG before running the gateway")
+    # An enabled=false override alone creates an invalid MCP entry when the
+    # gateway is used without a legacy memory MCP installation.
+    has_memory_mcp = (
+        subprocess.run(
+            [codex, "mcp", "get", "bcg_memory", "--json"],
+            cwd=config.project,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+            check=False,
+        ).returncode
+        == 0
+    )
     state = Path(config.state_dir)
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     # Ephemeral config and random local token: no global config/auth writes.
@@ -109,9 +122,9 @@ def run(
         f"model_providers.bcg_gateway={provider}",
         "-c",
         "features.enable_request_compression=false",
-        "-c",
-        "mcp_servers.bcg_memory.enabled=false",
     ]
+    if has_memory_mcp:
+        command.extend(["-c", "mcp_servers.bcg_memory.enabled=false"])
     print(
         "BCG gateway: one native Codex session; request-side two-step window. Experimental; native compaction may limit retained history.",
         file=sys.stderr,

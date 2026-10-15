@@ -31,38 +31,32 @@ class Config:
     state_dir: str
     graph_config: str
     env_file: str
-    mode: str = "assist"
-    max_event_chars: int = 12000
-    context_chars: int = 4400
-    max_events_per_session: int = 500
+    mode: str = "gateway"
     enabled: bool = True
 
     def __post_init__(self) -> None:
-        if self.mode not in {"assist", "compact"}:
-            raise ValueError("native mode must be assist or compact")
+        if self.mode != "gateway":
+            raise ValueError("only gateway mode is available")
         for name in ("project", "state_dir", "graph_config", "env_file"):
             if not Path(getattr(self, name)).is_absolute():
                 raise ValueError(f"{name} must be an absolute path")
-        for name in ("max_event_chars", "context_chars", "max_events_per_session"):
-            if type(getattr(self, name)) is not int or getattr(self, name) <= 0:
-                raise ValueError(f"{name} must be a positive integer")
-        if not 1000 <= self.context_chars <= 12000:
-            raise ValueError("context_chars must be between 1000 and 12000")
         if type(self.enabled) is not bool:
             raise ValueError("enabled must be a boolean")
 
     @classmethod
     def load(cls, path: str | Path) -> Config:
         value = json.loads(Path(path).expanduser().read_text())
+        # Previous gateway configs included unused hook-only settings. Accept
+        # those files without retaining the removed event-capture machinery.
+        if isinstance(value, dict):
+            for key in ("max_event_chars", "context_chars", "max_events_per_session"):
+                value.pop(key, None)
         if not isinstance(value, dict) or value.keys() - {f.name for f in fields(cls)}:
             raise ValueError("invalid native Codex config")
         return cls(**value)
 
     def save(self, path: Path) -> None:
         private_write(path, asdict(self))
-
-    def contains(self, cwd: str) -> bool:
-        return Path(cwd).resolve().is_relative_to(Path(self.project).resolve())
 
 
 def default_graph_config(embedding_model: str) -> dict:

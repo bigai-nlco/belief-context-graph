@@ -1,1 +1,1 @@
-"""Opt-in native Codex lifecycle memory. No model or authentication replacement."""
+"""Opt-in native Codex context gateway. No model or authentication replacement."""

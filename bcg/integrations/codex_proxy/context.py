@@ -125,7 +125,7 @@ class ContextEngine:
         self.graph = graph
 
     def prepare(self, body: dict, session: Session) -> tuple[dict, dict]:
-        """Caller holds session.lock until upstream streaming finishes.
+        """Caller holds session.lock until the upstream response is complete.
 
         Only graph acknowledgement advances the ledger. Unknown write outcomes
         require a fresh graph ID on the next request (no duplicate ingestion).
@@ -153,6 +153,8 @@ class ContextEngine:
             "selected_node_ids": [],
             "selected_relation_ids": [],
             "fallback": None,
+            "fallback_detail": None,
+            "node_char_budget": self.config.node_char_budget,
         }
         if self.config.mode == "default":
             return outgoing, metadata
@@ -177,9 +179,10 @@ class ContextEngine:
         if pending:
             try:
                 snapshot = self.graph.push(session.problem_id, pending)
-            except GraphError:
+            except GraphError as exc:
                 session.tainted = True
                 metadata["fallback"] = "graph_write_failed"
+                metadata["fallback_detail"] = exc.audit_code
                 return outgoing, metadata
             session.snapshot = snapshot
             session.acknowledged = desired
@@ -199,8 +202,9 @@ class ContextEngine:
             )
             if not node_ids:
                 raise GraphError("empty_selection")
-        except GraphError:
+        except GraphError as exc:
             metadata["fallback"] = "graph_selection_failed"
+            metadata["fallback_detail"] = exc.audit_code
             return outgoing, metadata
         # System/developer items and every user input remain verbatim. The
         # Responses instructions field is the native system/developer channel.

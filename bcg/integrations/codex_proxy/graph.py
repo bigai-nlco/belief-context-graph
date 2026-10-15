@@ -11,6 +11,29 @@ import httpx
 class GraphError(RuntimeError):
     """Graph acknowledgement or selection failed. Never evict on this error."""
 
+    @property
+    def audit_code(self) -> str:
+        # Only code-owned identifiers may enter metadata logs. Provider error
+        # bodies/messages can contain prompts, URLs, or credentials.
+        safe_codes = {
+            "native_graph_write_failed",
+            "native_graph_selection_failed",
+            "invalid_graph_response",
+            "graph_request_failed",
+            "unacknowledged_graph_write",
+            "wrong_selection_session",
+            "invalid_selection",
+            "invalid_selection_ids",
+            "invalid_snapshot",
+            "selected_node_missing",
+            "selected_node_has_no_text",
+            "selected_relation_missing",
+            "selected_relation_has_missing_endpoint",
+            "invalid_relation_type",
+            "empty_selection",
+        }
+        return str(self) if str(self) in safe_codes else "graph_error"
+
 
 class GraphBackend(Protocol):
     def push(self, problem_id: str, turns: list[dict]) -> dict: ...

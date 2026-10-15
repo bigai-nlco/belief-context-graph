@@ -62,7 +62,11 @@ def _parse_body(
         end = starts[position + 1].start() if position + 1 < len(starts) else len(body)
         block = body[start.end() : end].strip()
         url_match = re.search(r"(?m)^URL:\s*(\S.*)$", block)
-        title_end = url_match.start() if url_match is not None else len(block)
+        # Local observations have a snippet but no URL. Do not accidentally
+        # put the entire snippet in the (unbounded) title as well: that would
+        # bypass max_snippet_chars in both semantic and rule extraction.
+        first_field = re.search(r"(?m)^(?:URL|Snippet|Source type):[ \t]*", block)
+        title_end = first_field.start() if first_field is not None else len(block)
         title = " ".join(block[:title_end].split()).strip()
         try:
             rank = int(start.group(1))
