@@ -132,7 +132,6 @@ tool_timeout_sec = 60
             TOKENIZERS_PARALLELISM="false",
         )
         codex_args = [
-            "--no-daemon",
             "--no-alt-screen",
             "--cd",
             str(workspace),
@@ -145,7 +144,6 @@ tool_timeout_sec = 60
             sys.executable,
             "-m",
             "bcg.integrations.codex.cli",
-            "run",
             "--config",
             str(workspace / ".bcg-codex/config.json"),
             "--record-model-io",

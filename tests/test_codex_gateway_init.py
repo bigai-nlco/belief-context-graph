@@ -61,7 +61,10 @@ def test_gateway_init_only_creates_private_files(tmp_path, monkeypatch):
     assert "never-copy-this-secret" not in str(files_under(root))
     graph = json.loads((root / "graph-model.json").read_text())
     assert graph["embedding"]["model"] == "local-embedding"
+    assert graph["graph-model"]["model"] == "openai/gpt-6-luna"
+    assert graph["graph-model"]["base_url"] == "https://openrouter.ai/api/v1"
     assert graph["graph-model"]["api_key_env"] == "OPENROUTER_OPENAI_API_KEY"
+    assert graph["graph-model"]["reasoning_effort"] == "none"
     assert (root / ".gitignore").read_text().endswith("*\n!.gitignore\n")
     assert root.stat().st_mode & 0o777 == 0o700
     for path in root.iterdir():
@@ -197,15 +200,20 @@ def test_gateway_rejects_symlinked_private_paths(tmp_path, name):
     assert not list(target.iterdir())
 
 
-def test_gateway_cli_init_status_and_run(tmp_path, capsys, monkeypatch):
+@pytest.mark.parametrize("codex_arguments", [[], ["-m", "gpt-6-luna"]])
+@pytest.mark.parametrize("record_io", [False, True])
+def test_gateway_cli_init_status_and_run(
+    tmp_path, capsys, monkeypatch, codex_arguments, record_io
+):
     from bcg.integrations.codex import gateway
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("HOME", str(tmp_path))
-    main(["init", "--mode", "gateway", "--allow-graph-upload"])
+    main(["init", "--allow-graph-upload"])
     output = capsys.readouterr().out
     assert "No hooks/MCP installed" in output
-    assert "--no-daemon" in output
+    assert "From the project root, start: bcg codex\n" in output
+    assert "--no-daemon" not in output
     assert "review BCG hooks" not in output
     cfg = Config.load(tmp_path / ".bcg-codex/config.json")
     assert cfg.env_file == str(tmp_path / ".bcg/.env")
@@ -220,26 +228,22 @@ def test_gateway_cli_init_status_and_run(tmp_path, capsys, monkeypatch):
     main(["enable"])
     assert Config.load(tmp_path / ".bcg-codex/config.json").enabled
 
+    expected_record_io = record_io
+
     def launch(config, arguments, *, record_io):
         assert config == cfg
-        assert arguments == ["--no-daemon", "-m", "gpt-6-luna"]
-        assert record_io
+        assert arguments == codex_arguments
+        assert record_io is expected_record_io
         return 0
 
     monkeypatch.setattr(gateway, "run", launch)
     with pytest.raises(SystemExit) as exc:
-        main(
-            [
-                "run",
-                "--mode",
-                "gateway",
-                "--record-model-io",
-                "--",
-                "--no-daemon",
-                "-m",
-                "gpt-6-luna",
-            ]
-        )
+        arguments = ["run"]
+        if record_io:
+            arguments.append("--record-model-io")
+        if codex_arguments:
+            arguments.extend(["--", *codex_arguments])
+        main(arguments)
     assert exc.value.code == 0
 
 

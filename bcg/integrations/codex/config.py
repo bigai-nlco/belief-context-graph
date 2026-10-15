@@ -62,7 +62,7 @@ class Config:
 def default_graph_config(embedding_model: str) -> dict:
     return {
         "graph-model": {
-            "model": "qwen/qwen3.8-flash",
+            "model": "openai/gpt-6-luna",
             "base_url": "https://openrouter.ai/api/v1",
             "api_key_env": "OPENROUTER_OPENAI_API_KEY",
             "reasoning_effort": "none",

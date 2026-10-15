@@ -22,8 +22,29 @@ def config(tmp_path):
 
 
 @pytest.mark.parametrize("has_memory_mcp", [False, True])
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        [],
+        ["--help"],
+        ["-m", "test-model", "-c", 'model_reasoning_effort="low"'],
+        ["--no-daemon", "-m", "test-model"],
+        ["resume"],
+        ["resume", "--last"],
+        ["resume", "session-id"],
+    ],
+    ids=[
+        "plain",
+        "help",
+        "model-options",
+        "explicit-no-daemon",
+        "resume-picker",
+        "resume-last",
+        "resume-id",
+    ],
+)
 def test_gateway_disables_only_an_installed_memory_mcp(
-    config, monkeypatch, has_memory_mcp
+    config, monkeypatch, has_memory_mcp, arguments
 ):
     from bcg.integrations.codex import gateway
 
@@ -50,6 +71,12 @@ def test_gateway_disables_only_an_installed_memory_mcp(
         return SimpleNamespace(returncode=0 if has_memory_mcp else 1)
 
     def launch(command, **kwargs):
+        expected_arguments = list(arguments)
+        if "--no-daemon" not in expected_arguments:
+            expected_arguments.insert(0, "--no-daemon")
+        assert command[: 1 + len(expected_arguments)] == ["codex", *expected_arguments]
+        assert command.count("--no-daemon") == 1
+        assert 'model_provider="bcg_gateway"' in command
         assert ("mcp_servers.bcg_memory.enabled=false" in command) == has_memory_mcp
         assert kwargs["env"]["BCG_NATIVE_HOOKS_DISABLED"] == "1"
         assert kwargs["cwd"] == config.project
@@ -60,7 +87,9 @@ def test_gateway_disables_only_an_installed_memory_mcp(
     monkeypatch.setattr(gateway, "ProxyServer", FakeServer)
     monkeypatch.setattr(gateway.subprocess, "run", probe)
     monkeypatch.setattr(gateway.subprocess, "call", launch)
-    assert gateway.run(config, ["--help"]) == 0
+    original_arguments = list(arguments)
+    assert gateway.run(config, arguments) == 0
+    assert arguments == original_arguments
 
 
 def test_gateway_sdk_is_lazy_and_preserves_batching(config, monkeypatch):

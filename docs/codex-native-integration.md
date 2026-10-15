@@ -44,7 +44,7 @@ Graph Construction uses a separate key and is billed independently. The generate
 ```json
 {
   "graph-model": {
-    "model": "qwen/qwen3.8-flash",
+    "model": "openai/gpt-6-luna",
     "base_url": "https://openrouter.ai/api/v1",
     "api_key_env": "OPENROUTER_OPENAI_API_KEY",
     "reasoning_effort": "none",
@@ -67,13 +67,27 @@ The gateway loads the unified Graph SDK lazily in-process. Its runtime keeps the
 
 ## Experimental request gateway
 
-From the initialized project root, start Codex with a model available to your account:
+From the initialized project root, start Codex with BCG:
 
 ```sh
-bcg codex run -- --no-daemon -m gpt-6-luna -c 'model_reasoning_effort="low"'
+bcg codex
 ```
 
-The explicit form `bcg codex run --mode gateway -- …` remains valid. Pass Codex options after `--`. `--no-daemon` ensures an existing shared Codex daemon does not reuse older provider settings instead of this invocation's temporary gateway configuration.
+BCG automatically adds `--no-daemon` so an existing shared Codex daemon cannot reuse older provider settings instead of this invocation's configuration. You do not need to pass it yourself. Optional Codex arguments go after `--`, for example:
+
+```sh
+bcg codex -- -m gpt-6-luna -c 'model_reasoning_effort="low"'
+```
+
+To resume a conversation with BCG still enabled:
+
+```sh
+bcg codex resume                 # Open the session picker
+bcg codex resume --last          # Continue the latest session in this directory
+bcg codex resume SESSION_ID      # Continue a specific session
+```
+
+Add `--all` to include sessions from other directories. Resume restores the native Codex conversation, but BCG currently creates a new Graph from the history replayed in subsequent requests, not from the previous Graph state. This can add Graph API costs; history already removed by native compaction cannot be reconstructed from the replay alone. The older `bcg codex run` and `bcg codex run -- resume ...` forms remain compatible.
 
 The local gateway listens on loopback only and exits when Codex exits. It uses an ephemeral token and command-line provider overrides, not persistent Codex configuration changes. Plain `codex` does not start BCG. Any legacy BCG memory MCP registration is disabled for this invocation only to prevent duplicate Graph building; no new MCP server is registered.
 
@@ -113,8 +127,7 @@ Request audits include `input_items_before`, `input_items_after`, `evicted_steps
 Full model I/O is opt-in:
 
 ```sh
-bcg codex run --record-model-io -- --no-daemon \
-  -m gpt-6-luna -c 'model_reasoning_effort="low"'
+bcg codex --record-model-io
 ```
 
 Each I/O file contains `incoming`, `forwarded`, and `context`, followed by the response. Logging is capped at 100 MiB per directory; `model_io_enabled` does not guarantee every request was recorded after the cap. Earlier unrecorded requests cannot be recovered. Logs may contain private code, user text, and encrypted reasoning.
@@ -131,7 +144,7 @@ bcg codex uninstall
 
 Disable blocks future gateway launches. Exit Codex to stop an already-running gateway. Uninstall disables the gateway and removes its installation manifest, while preserving configuration and memories. It does not touch any `.codex` files. Delete private records separately only if you intend to erase them.
 
-Run from the initialized project root, or pass `--config /project/.bcg-codex/config.json` for run/status/enable/disable and `--project /project` for init/uninstall.
+Run from the initialized project root, or pass `--config /project/.bcg-codex/config.json` when launching/resuming or using status/enable/disable, and `--project /project` for init/uninstall. BCG's `--config` selects its project configuration; use native Codex's `-c key=value` for Codex setting overrides.
 
 ## Official interface
 

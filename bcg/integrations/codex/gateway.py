@@ -113,9 +113,14 @@ def run(
         f'base_url="http://127.0.0.1:{port}/v1", supports_websockets=false, '
         'env_http_headers={"X-BCG-Gateway-Token"="BCG_CODEX_GATEWAY_TOKEN", "X-BCG-Session-ID"="BCG_CODEX_SESSION_ID"}}'
     )
+    # Each launch must use this process's temporary provider configuration,
+    # rather than reuse a Codex daemon carrying settings from an earlier run.
+    codex_arguments = list(arguments)
+    if "--no-daemon" not in codex_arguments:
+        codex_arguments.insert(0, "--no-daemon")
     command = [
         codex,
-        *arguments,
+        *codex_arguments,
         "-c",
         'model_provider="bcg_gateway"',
         "-c",

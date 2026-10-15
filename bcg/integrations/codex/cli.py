@@ -14,9 +14,20 @@ from .config import Config, private_write
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(
         prog="bcg codex",
-        description="Native Codex with the BCG context gateway.",
+        usage="%(prog)s [COMMAND] [OPTIONS] [-- CODEX_ARGS...]",
+        description="Run native Codex with BCG memory. Omit COMMAND to start a new session.",
+        epilog=(
+            "Examples:\n"
+            "  bcg codex                        Start a new session\n"
+            "  bcg codex resume                 Pick a saved session\n"
+            "  bcg codex resume --last          Resume the latest session\n"
+            "  bcg codex resume SESSION_ID      Resume a specific session\n"
+            "  bcg codex --record-model-io      Record full model requests/responses"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        allow_abbrev=False,
     )
-    sub = p.add_subparsers(dest="command", required=True)
+    sub = p.add_subparsers(dest="command", required=True, prog="bcg codex")
     init = sub.add_parser("init", help="Initialize project-local gateway configuration")
     init.add_argument("--project", type=Path, default=Path.cwd())
     init.add_argument("--mode", choices=["gateway"], default="gateway")
@@ -34,20 +45,44 @@ def main(argv: list[str] | None = None) -> None:
         parser.add_argument(
             "--config", type=Path, default=Path.cwd() / ".bcg-codex/config.json"
         )
-    run = sub.add_parser(
-        "run", help="Launch one native Codex TUI through the context gateway"
-    )
-    run.add_argument(
-        "--config", type=Path, default=Path.cwd() / ".bcg-codex/config.json"
-    )
-    run.add_argument("--mode", choices=["gateway"], default="gateway")
-    run.add_argument(
-        "--record-model-io",
-        action="store_true",
-        help="Sensitive opt-in request/response logs; private local directory",
-    )
-    run.add_argument("codex_args", nargs=argparse.REMAINDER)
-    args = p.parse_args(argv)
+    for name, help_text in (
+        ("run", "Start a new session (optional; the same as bare `bcg codex`)"),
+        ("resume", "Resume a saved Codex session with BCG enabled"),
+    ):
+        launch = sub.add_parser(
+            name,
+            help=help_text,
+            usage=(
+                "%(prog)s [OPTIONS] [SESSION_ID] [--last] [--all] [-- CODEX_ARGS...]"
+                if name == "resume"
+                else "%(prog)s [OPTIONS] [-- CODEX_ARGS...]"
+            ),
+            epilog=(
+                "Without SESSION_ID, open the session picker. Use --last for the "
+                "latest session or --all to include other directories. "
+                "Additional Codex options are forwarded unchanged."
+                if name == "resume"
+                else "Additional Codex options are forwarded unchanged."
+            ),
+            allow_abbrev=False,
+        )
+        launch.add_argument(
+            "--config", type=Path, default=Path.cwd() / ".bcg-codex/config.json"
+        )
+        launch.add_argument("--mode", choices=["gateway"], default="gateway")
+        launch.add_argument(
+            "--record-model-io",
+            action="store_true",
+            help="Sensitive opt-in request/response logs; private local directory",
+        )
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    if not raw_args or (
+        raw_args[0].startswith("-") and raw_args[0] not in {"-h", "--help"}
+    ):
+        raw_args.insert(0, "run")
+    args, codex_args = p.parse_known_args(raw_args)
+    if args.command not in {"run", "resume"} and codex_args:
+        p.error("unrecognized arguments: " + " ".join(codex_args))
     os.umask(0o077)
     try:
         if args.command == "init":
@@ -67,7 +102,7 @@ def main(argv: list[str] | None = None) -> None:
                 f"Graph credentials file: {config.env_file} (not modified)\n"
                 f"Private data: {config.state_dir}\n"
                 "Review graph-model.json and configure its api_key_env in the env file.\n"
-                "From the project root, start: bcg codex run -- --no-daemon\n"
+                "From the project root, start: bcg codex\n"
                 "Keep private configuration and session records out of version control."
             )
             return
@@ -81,12 +116,14 @@ def main(argv: list[str] | None = None) -> None:
             )
             return
         config = Config.load(args.config)
-        if args.command == "run":
+        if args.command in {"run", "resume"}:
             from .gateway import run
 
-            arguments = args.codex_args
+            arguments = codex_args
             if arguments[:1] == ["--"]:
                 arguments = arguments[1:]
+            if args.command == "resume":
+                arguments = ["resume", *arguments]
             raise SystemExit(run(config, arguments, record_io=args.record_model_io))
         if args.command in {"disable", "enable"}:
             raw = json.loads(args.config.read_text())
