@@ -10,6 +10,7 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
+from bcg.apps.benchmark import drb2, drbench
 from bcg.apps.benchmark.models import BenchmarkTask
 
 BENCHMARKS = (
@@ -18,7 +19,20 @@ BENCHMARKS = (
     "gaia",
     "hotpotqa",
     "mmlu_pro",
+    "deepresearch_bench_ii",
+    "drbench",
 )
+
+REPORT_BENCHMARKS = frozenset({"deepresearch_bench_ii", "drbench"})
+
+BENCHMARK_ALIASES = {
+    "drb2": "deepresearch_bench_ii",
+    "drb_ii": "deepresearch_bench_ii",
+    "deepresearch_bench_2": "deepresearch_bench_ii",
+    "deepresearchbench_ii": "deepresearch_bench_ii",
+    "deepresearch_benchii": "deepresearch_bench_ii",
+    "dr_bench": "drbench",
+}
 
 _DIRECTORY_CANDIDATES = {
     "browsecomp": ("browsecomp", "browse_comp", "BrowseComp"),
@@ -55,11 +69,29 @@ def load_benchmark(
     split: str | None = None,
     gaia_level: int | None = None,
     gaia_text_only: bool = False,
+    drb2_language: str | None = None,
+    drb2_theme: str | None = None,
+    drbench_subset: str = "val",
+    drbench_difficulty: str | None = None,
 ) -> list[BenchmarkTask]:
     """Load one benchmark and normalize it to :class:`BenchmarkTask` objects."""
 
     canonical = canonical_name(name)
     root = Path(data_root).expanduser().resolve()
+    try:
+        if canonical == "deepresearch_bench_ii":
+            return drb2.load_tasks(
+                root, data_file=data_file, language=drb2_language, theme=drb2_theme
+            )
+        if canonical == "drbench":
+            return drbench.load_tasks(
+                root,
+                data_file=data_file,
+                subset=drbench_subset,
+                difficulty=drbench_difficulty,
+            )
+    except (drb2.DRB2DataError, drbench.DRBenchDataError) as exc:
+        raise BenchmarkDataError(str(exc)) from exc
     if canonical == "gaia":
         return _load_gaia(
             root,
@@ -88,7 +120,8 @@ def load_benchmark(
 
 
 def canonical_name(name: str) -> str:
-    canonical = name.strip().lower().replace("-", "_")
+    canonical = name.strip().lower().replace("-", "_").replace(" ", "_")
+    canonical = BENCHMARK_ALIASES.get(canonical, canonical)
     if canonical not in BENCHMARKS:
         supported = ", ".join(BENCHMARKS)
         raise BenchmarkDataError(
@@ -490,6 +523,8 @@ def _without(row: dict[str, Any], excluded: set[str]) -> dict[str, Any]:
 
 __all__ = [
     "BENCHMARKS",
+    "BENCHMARK_ALIASES",
+    "REPORT_BENCHMARKS",
     "BenchmarkDataError",
     "load_benchmark",
     "canonical_name",

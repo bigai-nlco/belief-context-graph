@@ -32,6 +32,7 @@ import {
 	createLsTool,
 	createReadOnlyTools,
 	createReadTool,
+	createWebFetchTool,
 	createWebSearchTool,
 	createWriteTool,
 	isSerperSearchConfigured,
@@ -135,6 +136,7 @@ export {
 	createFindTool,
 	createLsTool,
 	createWebSearchTool,
+	createWebFetchTool,
 };
 
 // Helper Functions

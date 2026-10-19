@@ -26,6 +26,11 @@ dependencies = [
 benchmarks = [
     "pandas>=2.2",
     "pyarrow>=18",
+    # DRBench local-file mode renders enterprise files to text.
+    "pymupdf>=1.26",
+    "python-docx>=1.1",
+    "python-pptx>=1.0",
+    "openpyxl>=3.1",
 ]
 
 [project.scripts]

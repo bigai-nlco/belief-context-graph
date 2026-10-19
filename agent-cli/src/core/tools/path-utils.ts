@@ -1,5 +1,6 @@
-import { accessSync, constants } from "node:fs";
+import { accessSync, constants, realpathSync } from "node:fs";
 import { access } from "node:fs/promises";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { normalizePath, resolvePath } from "../../utils/paths.ts";
 
 const NARROW_NO_BREAK_SPACE = "\u202F";
@@ -46,7 +47,41 @@ export function expandPath(filePath: string): string {
  * Handles ~ expansion and absolute paths.
  */
 export function resolveToCwd(filePath: string, cwd: string): string {
-	return resolvePath(filePath, cwd, { normalizeUnicodeSpaces: true, stripAtPrefix: true });
+	const resolved = resolvePath(filePath, cwd, { normalizeUnicodeSpaces: true, stripAtPrefix: true });
+	assertInsideToolRoot(resolved, filePath);
+	return resolved;
+}
+
+/** Realpath of the nearest existing ancestor, re-joined with the missing tail. */
+function realpathAllowingMissing(path: string): string {
+	let current = resolve(path);
+	const missing: string[] = [];
+	for (;;) {
+		try {
+			const real = realpathSync(current);
+			return missing.length ? resolve(real, ...missing.reverse()) : real;
+		} catch {
+			const parent = dirname(current);
+			if (parent === current) return resolve(path);
+			missing.push(current.slice(parent.length).replace(/^[\\/]+/, ""));
+			current = parent;
+		}
+	}
+}
+
+/**
+ * Benchmark sandbox: when BCG_TOOL_ROOT is set, file tools may only touch
+ * paths inside it (symlinks resolved). Benchmark runs set it to the task
+ * workspace so dataset answer files elsewhere on disk cannot be read.
+ */
+export function assertInsideToolRoot(resolved: string, requested: string = resolved): void {
+	const root = process.env.BCG_TOOL_ROOT?.trim();
+	if (!root) return;
+	const realRoot = realpathAllowingMissing(root);
+	const realTarget = realpathAllowingMissing(resolved);
+	const rel = relative(realRoot, realTarget);
+	if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) return;
+	throw new Error(`Access denied: ${requested} is outside the task workspace.`);
 }
 
 export function resolveReadPath(filePath: string, cwd: string): string {

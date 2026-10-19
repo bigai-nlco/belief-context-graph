@@ -25,9 +25,21 @@ _API_QUOTA_MARKERS = (
 )
 
 
+TASK_KIND_QA = "qa"
+TASK_KIND_REPORT = "report"
+
+
 @dataclass(frozen=True)
 class BenchmarkTask:
-    """One normalized benchmark example."""
+    """One normalized benchmark example.
+
+    ``kind`` distinguishes short-answer tasks (``qa``, scored against
+    ``answers``) from long-form research tasks (``report``), whose final Agent
+    message is the report itself. Report tasks keep their grading material in
+    ``reference`` (rubrics, gold insights, file labels). ``reference`` is never
+    rendered into prompts or Agent workspaces, and it is not copied into
+    per-task result files.
+    """
 
     benchmark: str
     task_id: str
@@ -35,6 +47,19 @@ class BenchmarkTask:
     answers: tuple[str, ...]
     metadata: dict[str, Any] = field(default_factory=dict)
     attachment: Path | None = None
+    kind: str = TASK_KIND_QA
+    reference: dict[str, Any] = field(default_factory=dict, repr=False)
+    aliases: tuple[str, ...] = ()
+
+    @property
+    def is_report(self) -> bool:
+        return self.kind == TASK_KIND_REPORT
+
+    def matches_id(self, value: str) -> bool:
+        folded = value.strip().casefold()
+        return folded == self.task_id.casefold() or any(
+            folded == alias.casefold() for alias in self.aliases
+        )
 
 
 @dataclass(frozen=True)
@@ -105,6 +130,8 @@ def _number(value: Any) -> float:
 
 
 __all__ = [
+    "TASK_KIND_QA",
+    "TASK_KIND_REPORT",
     "BenchmarkTask",
     "ScoreResult",
     "TokenUsage",

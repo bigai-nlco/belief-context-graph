@@ -18,7 +18,7 @@ FOCUSED_SEARCH_LIMIT = 4
 FOCUSED_RELATION_LIMIT = 24
 RELATION_WEIGHTS = {"depends_on": 1.0, "supplements": 0.82, "contradicts": 0.92}
 _EMPTY_SEARCH = re.compile(
-    r"^The (?:web_search|\S+ tool) (?:tool )?returned no results\.?$", re.I
+    r"^The (?:web_search|web_fetch|\S+ tool) (?:tool )?returned no results\.?$", re.I
 )
 
 
@@ -85,6 +85,7 @@ def _question_constraints(snapshot: dict[str, Any], question: str) -> list[str]:
         # Execution and response-format instructions are not evidence constraints.
         if (
             "web_search" in folded
+            or "web_fetch" in folded
             or "final answer" in folded
             or folded.startswith("external evidence ")
             or folded.startswith("the response must ")

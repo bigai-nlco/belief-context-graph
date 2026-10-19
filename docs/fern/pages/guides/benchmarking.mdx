@@ -125,3 +125,25 @@ Timeout, max-token, Agent error, and judge failure attempts count as incorrect i
 <Info>
 See every option with `bcg benchmark run --help`.
 </Info>
+
+## Deep-research report benchmarks
+
+Two report-writing benchmarks run through the same command. Their final Agent message is a full Markdown report rather than a `FINAL ANSWER` line, so they report deterministic report metrics instead of accuracy. LLM-as-judge scoring (DeepResearch Bench II rubrics, DRBench `insights_recall`) has a pluggable interface but is not run yet; saved reports can be judged later without re-running the Agent.
+
+| Benchmark | Name / alias | Retrieval | Metrics today |
+| --- | --- | --- | --- |
+| [DeepResearch Bench II](https://github.com/imlrz/DeepResearch-Bench-II) | `deepresearch_bench_ii` / `drb2` | Open web: `web_search` + `web_fetch`; each task's expert source article is blocked | Report length, cited URLs, blocked-source citation audit |
+| [DRBench](https://github.com/ServiceNow/drbench) | `drbench` | Local enterprise files only (`read`, `grep`, `find`, `ls`); web off by default | File read recall, citation recall/precision, distractor citation rate |
+
+Prepare the data once (downloads only what is missing, then verifies it and pre-renders DRBench files to text):
+
+```bash
+uv sync --extra benchmarks
+bcg benchmark prepare deepresearch_bench_ii drbench
+bcg benchmark list drbench --drbench-subset minival
+bcg benchmark run drb2 drbench --task-ids "drb2:1,2;drbench:DR0001" --dry-run
+```
+
+`web_fetch` uses the Serper-compatible `/scrape` endpoint next to `SERPER_ENDPOINT` (override with `BCG_FETCH_ENDPOINT`) and falls back to a direct fetch. DRBench tasks run in a workspace that contains only text renderings of the task's files; answer files never enter it, and `BCG_TOOL_ROOT` confines file tools to it. Install `ripgrep` and `fd` so the Agent's `grep` and `find` tools work offline.
+
+Report runs add `reports/<task>.md` under each `<benchmark>/<mode>/` directory, and DeepResearch Bench II reports are also exported as `export/deepresearch_bench_ii/report/<mode>/idx-<n>.md`, the official evaluator's input layout.

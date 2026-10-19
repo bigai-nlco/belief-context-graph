@@ -231,6 +231,8 @@ belief_graphs/
 /graphs
 prediction/
 tmp/
+bcg_test.zip
+deep-research-benchmarks.patch
 
 # Benchmark datasets may be gated, obfuscated, or redistribution-restricted.
 datasets/

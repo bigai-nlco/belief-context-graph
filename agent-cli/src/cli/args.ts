@@ -368,6 +368,15 @@ ${chalk.bold("Environment Variables:")}
   SERPER_COUNTRY                   - Serper Google country code (default: us)
   SERPER_LANGUAGE                  - Serper Google language code (default: en)
   SERPER_MAX_CALLS                 - Hard web_search calls per Agent session (default: 20)
+  BCG_FETCH_ENDPOINT               - Serper-compatible scrape endpoint for web_fetch
+                                     (default: SERPER_ENDPOINT with /search -> /scrape)
+  BCG_FETCH_API_KEY                - Scrape API key for web_fetch (default: SERPER_API_KEY)
+  WEB_FETCH_MAX_CALLS              - Hard web_fetch calls per Agent session (default: 30)
+  WEB_FETCH_MAX_CHARS              - Characters returned per web_fetch call (default: 20000)
+  WEB_FETCH_DIRECT                 - Set to 0 to disable direct fetching when scraping fails
+  BCG_WEB_BLOCKLIST                - JSON file of sources web_search/web_fetch must not return
+  BCG_WEB_CACHE_DIR                - Directory caching web_search/web_fetch responses
+  BCG_TOOL_ROOT                    - Confine file tools (read/grep/find/ls/write/edit) to this directory
   QWEN_TOKEN_PLAN_API_KEY          - Qwen Token Plan API key (international region)
   QWEN_TOKEN_PLAN_CN_API_KEY       - Qwen Token Plan API key (China region)
   XIAOMI_API_KEY                   - Xiaomi MiMo API key (api.xiaomimimo.com billing)

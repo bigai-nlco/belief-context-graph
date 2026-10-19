@@ -2,6 +2,7 @@ import type { AgentTool } from "@bigai-nlco/bcg-agent-core";
 import { type Static, Type } from "typebox";
 import type { ToolDefinition } from "../extensions/types.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
+import { isBlockedTitle, isBlockedUrl, loadWebBlocklist, readWebCache, webCacheKey, writeWebCache } from "./web-policy.ts";
 
 const DEFAULT_ENDPOINT = "https://google.serper.dev/search";
 const DEFAULT_COUNTRY = "us";
@@ -66,6 +67,10 @@ export interface WebSearchToolDetails {
 		exhausted: boolean;
 		blocked: boolean;
 	};
+	/** Results removed by the task's source policy (BCG_WEB_BLOCKLIST). */
+	policy?: { filtered: number };
+	/** Whether the response came from BCG_WEB_CACHE_DIR. */
+	cached?: boolean;
 }
 
 export interface WebSearchToolOptions {
@@ -92,6 +97,7 @@ export interface WebSearchToolOptions {
 }
 
 interface ResolvedWebSearchOptions {
+	env: NodeJS.ProcessEnv;
 	endpoint: string;
 	country: string;
 	language: string;
@@ -123,6 +129,7 @@ function resolveOptions(options?: WebSearchToolOptions): ResolvedWebSearchOption
 	const configuredMaxOutputChars = Number(env.SERPER_MAX_OUTPUT_CHARS);
 	const configuredMaxCalls = Number(env.SERPER_MAX_CALLS);
 	return {
+		env,
 		endpoint: nonEmptyString(options?.endpoint) ?? nonEmptyString(env.SERPER_ENDPOINT) ?? DEFAULT_ENDPOINT,
 		country: nonEmptyString(options?.country) ?? nonEmptyString(env.SERPER_COUNTRY) ?? DEFAULT_COUNTRY,
 		language: nonEmptyString(options?.language) ?? nonEmptyString(env.SERPER_LANGUAGE) ?? DEFAULT_LANGUAGE,
@@ -328,34 +335,40 @@ export function createWebSearchToolDefinition(
 			}
 
 			const topK = positiveInteger(top_k, DEFAULT_TOP_K, resolved.maxResults);
-			const timeoutSignal = AbortSignal.timeout(resolved.timeoutMs);
-			const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
-			let response: Response;
-			try {
-				response = await resolved.fetch(resolved.endpoint, {
-					method: "POST",
-					headers: {
-						"X-API-KEY": apiKey,
-						"Content-Type": "application/json",
-						Accept: "application/json",
-					},
-					body: JSON.stringify({
-						q: normalizedQuery,
-						num: topK,
-						gl: resolved.country,
-						hl: resolved.language,
-					}),
-					signal: requestSignal,
-				});
-			} catch (error: unknown) {
-				const message = error instanceof Error ? error.message : String(error);
-				throw new Error(`Serper search request failed: ${redactSecret(message, apiKey)}`, { cause: error });
-			}
+			const requestBody = {
+				q: normalizedQuery,
+				num: topK,
+				gl: resolved.country,
+				hl: resolved.language,
+			};
+			const cacheKey = webCacheKey("search", { endpoint: resolved.endpoint, ...requestBody });
+			let responseText = readWebCache<string>("search", cacheKey, resolved.env);
+			const cached = responseText !== undefined;
+			if (responseText === undefined) {
+				const timeoutSignal = AbortSignal.timeout(resolved.timeoutMs);
+				const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+				let response: Response;
+				try {
+					response = await resolved.fetch(resolved.endpoint, {
+						method: "POST",
+						headers: {
+							"X-API-KEY": apiKey,
+							"Content-Type": "application/json",
+							Accept: "application/json",
+						},
+						body: JSON.stringify(requestBody),
+						signal: requestSignal,
+					});
+				} catch (error: unknown) {
+					const message = error instanceof Error ? error.message : String(error);
+					throw new Error(`Serper search request failed: ${redactSecret(message, apiKey)}`, { cause: error });
+				}
 
-			const responseText = await response.text();
-			if (!response.ok) {
-				const detail = redactSecret(responseText.trim().slice(0, 500), apiKey);
-				throw new Error(`Serper search failed (HTTP ${response.status})${detail ? `: ${detail}` : ""}`);
+				responseText = await response.text();
+				if (!response.ok) {
+					const detail = redactSecret(responseText.trim().slice(0, 500), apiKey);
+					throw new Error(`Serper search failed (HTTP ${response.status})${detail ? `: ${detail}` : ""}`);
+				}
 			}
 
 			let parsed: unknown;
@@ -366,13 +379,23 @@ export function createWebSearchToolDefinition(
 			}
 			if (!isRecord(parsed)) throw new Error("Serper search returned an unexpected response.");
 
-			const evidences = parseEvidences(parsed, topK);
+			const parsedEvidences = parseEvidences(parsed, topK);
 			const apiMessage = nonEmptyString(parsed.message);
-			if (apiMessage && evidences.length === 0) {
+			if (apiMessage && parsedEvidences.length === 0) {
 				throw new Error(`Serper search failed: ${redactSecret(apiMessage, apiKey)}`);
 			}
+			if (!cached) writeWebCache("search", cacheKey, responseText, resolved.env);
+
+			const blocklist = loadWebBlocklist(resolved.env);
+			const evidences = parsedEvidences
+				.filter((evidence) => !isBlockedUrl(evidence.url, blocklist) && !isBlockedTitle(evidence.title, blocklist))
+				.map((evidence, index) => ({ ...evidence, rank: index + 1 }));
+			const filtered = parsedEvidences.length - evidences.length;
 
 			const formatted = formatOutput(evidences, resolved.maxOutputChars);
+			if (filtered > 0) {
+				formatted.text += `\n\n[${filtered} result(s) hidden: the source is not available for this task.]`;
+			}
 			return {
 				content: [{ type: "text", text: formatted.text }],
 				details: {
@@ -393,6 +416,8 @@ export function createWebSearchToolDefinition(
 						exhausted: callNumber >= resolved.maxCalls,
 						blocked: false,
 					},
+					...(blocklist ? { policy: { filtered } } : {}),
+					...(cached ? { cached: true } : {}),
 				},
 			};
 		},
