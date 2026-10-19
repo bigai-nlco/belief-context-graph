@@ -1,5 +1,26 @@
 # Changelog
 
+## 测试子集
+```bash
+# drb2 subset: drb2:2,5,30,49,103,121
+bcg benchmark run drb2 \
+  --task-ids "drb2:2,5,30,49,103,121" \
+  --modes bcg \
+  --thinking low  \
+  --web-cache results/web-cache \
+  --workers 1 \
+  --output-dir results/drb2
+
+# drbench subset: drbench:DR0001,DR0004,DR0023,DR0024,DR0060,DR0097
+bcg benchmark run drbench \
+  --task-ids "drbench:DR0001" \
+  --modes bcg \
+  --thinking low  \
+  --workers 1 \
+  --output-dir results/drbench
+
+```
+
 ## [Unreleased] 构图目录收集到运行目录（`<output-dir>/graphs/`）
 
 ### 背景
