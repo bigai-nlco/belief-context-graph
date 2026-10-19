@@ -16,6 +16,7 @@ from rich.table import Table
 
 from bcg.apps.agent_runtime import AgentLaunchError, _normalize_agent_api
 from bcg.apps.benchmark import drb2, drbench
+from bcg.apps.benchmark.graphs import collect_run_graphs
 from bcg.apps.benchmark.loaders import (
     BENCHMARKS,
     REPORT_BENCHMARKS,
@@ -246,6 +247,23 @@ def run(
         typer.Option(
             "--drbench-web/--no-drbench-web",
             help="DRBench: also expose web_search/web_fetch (default: off).",
+        ),
+    ] = None,
+    collect_graphs: Annotated[
+        bool,
+        typer.Option(
+            "--collect-graphs/--no-collect-graphs",
+            help=(
+                "Move each bcg-mode task's Graph directory from the Graph store into "
+                "<output-dir>/graphs/<benchmark>/<mode>/<task>/."
+            ),
+        ),
+    ] = True,
+    graph_store: Annotated[
+        Path | None,
+        typer.Option(
+            "--graph-store",
+            help="Where the Graph server writes sessions (default: ~/.bcg/graphs).",
         ),
     ] = None,
     dry_run: Annotated[
@@ -552,6 +570,8 @@ def run(
         agent_command=tuple(shlex.split(agent_command)) if agent_command else None,
         profiles=profiles,
         web_cache_dir=web_cache,
+        collect_graphs=collect_graphs,
+        graph_store_dir=graph_store,
         dataset_manifests={
             name: manifest
             for name in canonical
@@ -859,6 +879,9 @@ def _print_summary(summary: dict[str, object], output_dir: Path) -> None:
         console.print(report_table)
     console.print(token_table)
     console.print(f"Artifacts: [bold]{output_dir}[/bold]")
+    graphs_dir = Path(output_dir) / "graphs"
+    if graphs_dir.is_dir():
+        console.print(f"Graphs:    [bold]{graphs_dir}[/bold]")
 
 
 @app.command("list")
@@ -930,6 +953,52 @@ def list_tasks(
             console.print(table)
     except BenchmarkDataError as exc:
         raise typer.BadParameter(str(exc)) from exc
+
+
+@app.command("collect-graphs")
+def collect_graphs_command(
+    run_dir: Annotated[
+        Path,
+        typer.Argument(help="A benchmark --output-dir, e.g. results/drb2."),
+    ],
+    graph_store: Annotated[
+        Path | None,
+        typer.Option(
+            "--graph-store", help="Graph server store (default: ~/.bcg/graphs)."
+        ),
+    ] = None,
+    copy: Annotated[
+        bool,
+        typer.Option(
+            "--copy", help="Copy instead of move, leaving the store untouched."
+        ),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(help="Re-collect tasks that already have a graphs/ directory."),
+    ] = False,
+) -> None:
+    """Backfill <run>/graphs/ for bcg-mode results produced before collection existed."""
+
+    if not run_dir.is_dir():
+        raise typer.BadParameter(f"Not a directory: {run_dir}")
+    outcomes = collect_run_graphs(
+        run_dir, graph_store=graph_store, copy=copy, force=force
+    )
+    if not outcomes:
+        console.print(f"No bcg-mode task results under {run_dir}.")
+        return
+    table = Table(title=f"Graphs collected into {run_dir.resolve() / 'graphs'}")
+    table.add_column("Task")
+    table.add_column("Status")
+    table.add_column("Graph directory / note")
+    for outcome in outcomes:
+        table.add_row(
+            str(outcome.get("task")),
+            str(outcome.get("status")),
+            str(outcome.get("graph_dir") or outcome.get("note") or ""),
+        )
+    console.print(table)
 
 
 @app.command("prepare")

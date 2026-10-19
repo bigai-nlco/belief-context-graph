@@ -24,6 +24,7 @@ from bcg.apps.agent_runtime import (
     _resolve_agent_command,
 )
 from bcg.apps.benchmark import drb2, drbench
+from bcg.apps.benchmark.graphs import collect_task_graph
 from bcg.apps.benchmark.models import BenchmarkTask, TokenUsage, is_api_quota_error
 from bcg.apps.benchmark.profiles import (
     ENTERPRISE_REPORT_SYSTEM_PROMPT,
@@ -106,6 +107,11 @@ class RunConfig:
     # Optional shared cache for web_search/web_fetch responses.
     web_cache_dir: Path | None = None
     dataset_manifests: dict[str, Any] = field(default_factory=dict)
+    # Move each BCG task's Graph directory from the Graph server's store
+    # (default ~/.bcg/graphs) into <output_dir>/graphs/<benchmark>/<mode>/<task>/.
+    collect_graphs: bool = True
+    graph_store_dir: Path | None = None
+    graph_release_timeout: float = 60.0
 
 
 def profile_for(config: RunConfig, benchmark: str) -> BenchmarkProfile:
@@ -736,6 +742,33 @@ def _run_one(
             if scorer_errors:
                 report_metrics["scorer_errors"] = scorer_errors
 
+    graph_collection: dict[str, Any] = {"status": None, "graph_dir": None, "note": None}
+    if mode == "bcg" and config.collect_graphs and not cancelled:
+        graph_collection = collect_task_graph(
+            trajectory_text=stdout,
+            output_dir=config.output_dir,
+            benchmark=task.benchmark,
+            mode=mode,
+            task_id=task.task_id,
+            task_dir_name=_safe_name(task.task_id),
+            graph_store=config.graph_store_dir,
+            graph_url=config.graph_url,
+            release_timeout=config.graph_release_timeout,
+            links={
+                "task_result": _result_path(config.output_dir, task, mode),
+                "model_io": model_io_trace_path
+                if model_io_trace_path.is_file()
+                else None,
+                "trajectory": trajectory_path,
+                "graph_contexts": (
+                    graph_context_trace_path
+                    if graph_context_trace_path.is_file()
+                    else None
+                ),
+                "report": report_path,
+            },
+        )
+
     search_calls_attempted = parsed["tool_calls"].get("web_search", 0)
     search_calls_blocked = parsed["blocked_tool_calls"].get("web_search", 0)
     search_calls = max(0, search_calls_attempted - search_calls_blocked)
@@ -814,6 +847,9 @@ def _run_one(
         "rag_context_trace": (
             str(rag_context_trace_path) if rag_context_trace_path.is_file() else None
         ),
+        "graph_dir": graph_collection.get("graph_dir"),
+        "graph_collection": graph_collection.get("status"),
+        "graph_collection_note": graph_collection.get("note"),
         "rag_database": (
             str(rag_database_path) if rag_database_path.is_file() else None
         ),

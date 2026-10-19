@@ -233,6 +233,8 @@ prediction/
 tmp/
 bcg_test.zip
 deep-research-benchmarks.patch
+graph-collection.patch
+bcg_viewer/
 
 # Benchmark datasets may be gated, obfuscated, or redistribution-restricted.
 datasets/

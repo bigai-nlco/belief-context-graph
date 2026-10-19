@@ -1,5 +1,63 @@
 # Changelog
 
+## [Unreleased] 构图目录收集到运行目录（`<output-dir>/graphs/`）
+
+### 背景
+
+Graph 服务是常驻的共享进程，所有会话都写到 `~/.bcg/graphs/<Agent 会话ID>_<随机uuid>/`。目录名看不出属于哪个数据集、模式或题目，也不在 benchmark 结果旁边，后续可视化时很难定位。
+
+### 变化
+
+- **`bcg benchmark run` 自动收集。** bcg 模式的每道题结束后，runner 从 Agent 轨迹第一行的会话头中读取会话 ID，找到唯一对应的 `<会话ID>_*` 目录。等 Graph 服务 release 该会话之后（即它从 `/health` 的 `all` 列表中消失，最多等待 60 秒），再把目录**移动**到：
+
+  ```text
+  <output-dir>/graphs/<benchmark>/<mode>/<task_id>/
+  ```
+
+  同时写入 `benchmark_link.json`，记录对应的 `task_result`、`model_io`、`trajectory`、`graph_contexts`、`report` 文件（相对路径，整个运行目录移动后仍然有效），以及会话 ID、原始目录名和收集方式。
+  单题结果 JSON 新增 `graph_dir`、`graph_collection`、`graph_collection_note` 三个字段。
+  如果超时后服务端仍持有该会话，则改为复制，原目录保留（状态为 `copied_active`）。
+- **新命令 `bcg benchmark collect-graphs RUN_DIR`。** 为改动之前跑出的结果补收图目录。
+- **不需要修改 Agent 和 Graph 服务，也不需要重启正在运行的 Graph 服务。** 目录的定位只依赖 Agent 原本就会输出的会话头。
+
+### 参数
+
+| 命令 / 参数 | 示例 | 说明 |
+|---|---|---|
+| `run --collect-graphs/--no-collect-graphs` | `--no-collect-graphs` | 是否收集（默认开启）。只对 bcg 模式生效。 |
+| `run --graph-store PATH` | `--graph-store /data/bcg-graphs` | Graph 服务的写入目录。默认是 `~/.bcg/graphs`（`BCG_HOME` 会改变它）；只有自行启动的服务用了别的 `--output-dir` 时才需要指定。 |
+| `collect-graphs RUN_DIR` | `collect-graphs results/drb2` | 遍历 `RUN_DIR/*/*/tasks/*.json` 中的 bcg 模式结果，按轨迹会话 ID 找到图目录并移动过来。 |
+| `collect-graphs --copy` | `--copy` | 复制而不是移动，`~/.bcg/graphs` 保持不变。 |
+| `collect-graphs --force` | `--force` | 已经收集过的题目也重新收集。 |
+| `collect-graphs --graph-store PATH` | | 同上。 |
+
+收集状态：`moved`（已移动）、`copied`（已复制）、`copied_active`（服务端仍持有会话，已复制）、`already_collected`（已收集过，跳过）、`not_found`（存储中没有对应目录）、`no_session_id`（轨迹中没有会话头）、`no_trajectory`（找不到轨迹文件）、`error`（文件操作失败）。
+
+### 使用示例
+
+```bash
+# 新运行：自动收集
+uv run bcg benchmark run drb2 --task-ids 2 --modes bcg --output-dir results/drb2
+#   ...
+#   Artifacts: results/drb2
+#   Graphs:    results/drb2/graphs
+
+# 已有运行：补收
+uv run bcg benchmark collect-graphs results/drb2
+uv run bcg benchmark collect-graphs results/drb2 --copy    # 保留 ~/.bcg/graphs 中的原目录
+
+# 可视化（bcg_viewer 新增 --run-dir）
+python3 ../bcg_viewer/serve_viewer.py --run-dir results/drb2 --port 8123
+```
+
+### 代码变更
+
+- 新增 `bcg/apps/benchmark/graphs.py` 和 `tests/test_benchmark_graphs.py`。
+- 修改 `bcg/apps/benchmark/runner.py`（`RunConfig` 新增 `collect_graphs`、`graph_store_dir`、`graph_release_timeout`；`_run_one` 在任务结束后执行收集）。
+- 修改 `bcg/apps/benchmark/cli.py`（新增上述参数和 `collect-graphs` 命令；运行结束时打印 `Graphs:` 路径）。
+
+---
+
 ## [Unreleased] 新增 DeepResearch Bench II 与 DRBench 报告型 benchmark
 
 ### 概览
@@ -125,33 +183,14 @@ TXT
 bcg benchmark run drb2 drbench --task-ids @smoke.txt --output-dir results/smoke-file
 ```
 
-#### 5）前期测试
-```bash
-# drb2 subset
-bcg benchmark run drb2 \
-  --task-ids "drb2:2,5,30,49,103,121" \
-  --modes bcg \
-  --web-cache results/web-cache \
-  --workers 6 \
-  --output-dir results/drb2
-
-# drbench subset
-bcg benchmark run drbench \
-  --task-ids "drbench:DR0001,DR0004,DR0023,DR0024,DR0060,DR0097" \
-  --modes bcg \
-  --workers 6 \
-  --output-dir results/drbench
-
-```
-
-#### 6）扩大规模
+#### 5）扩大规模
 
 ```bash
 bcg benchmark run drbench --drbench-subset minival --modes default,bcg --workers 4
 bcg benchmark run drb2 --drb2-language en --max-problems 10 --seed 7 --web-cache results/web-cache
 ```
 
-#### 7）开发者测试
+#### 6）开发者测试
 
 ```bash
 uv run pytest -q tests/test_report_benchmarks.py tests/test_benchmark_adapters.py
