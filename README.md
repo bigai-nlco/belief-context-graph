@@ -1,440 +1,255 @@
-<div align="center">
-  <picture>
-    <img src="./assets/apodex_logo.jpeg" width="30%" alt="Apodex">
-  </picture>
-</div>
-<hr>
-<br>
+# BCG Deep Research Agent
 
-<div align="center">
-  <a href="https://www.apodex.ai"><img alt="Online Service" src="https://img.shields.io/badge/🤖%20Online_Service-Apodex_1.1-1783ff"/></a>
-  <a href="https://www.apodex.com/"><img alt="Homepage" src="https://img.shields.io/badge/Homepage-Apodex_AI-white"/></a>
-  <a href="https://platform.apodex.ai"><img alt="Try Apodex API" src="https://img.shields.io/badge/Try_Apodex_1.1-API_Platform-1783ff"/></a>
-  <br>
-  <a href="https://huggingface.co/collections/apodex"><img alt="Hugging Face" src="https://img.shields.io/badge/🤗%20Hugging_Face-Apodex_AI-ffc107"/></a>
-  <a href="https://discord.gg/TDJA59TCng"><img alt="Discord" src="https://img.shields.io/badge/Discord-Apodex_AI-5865F2"/></a>
-  <a href="https://x.com/Apodex_AI"><img alt="X" src="https://img.shields.io/badge/X-@Apodex__AI-000000?logo=x&logoColor=white"/></a>
-  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-Apache_2.0-blue"/></a>
-</div>
-<br>
-<p align="center">
-  <a href="https://trendshift.io/repositories/182526?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-182526" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/182526/daily?language=Python" alt="ApodexAI%2FFrontierAgent | Trendshift" width="250" height="55"/></a>
-</p>
-<p align="center">
-  <b><a href="https://www.apodex.com/blog/apodex-1.1-scaling-agentic-intelligence-for-complex-work">Tech Blog</a></b> ·
-  <b><a href="https://arxiv.org/abs/2608.23283">Tech Report</a></b>
-</p>
+A Deep Research Agent with Belief Context Graph (BCG) memory. This branch provides a single-agent ReAct workflow and a multi-agent research team. Both preserve user inputs and recent complete steps, move older steps into a belief graph, and inject selected beliefs and relations into the system context.
 
-# FrontierAgent
+This guide is for the `feat/bcg-deep-research-agent` branch. The executable is still named **`frontier-agent`**. The **BCG Graph server runs separately**; starting the Agent does not start the server or configure its model.
 
-FrontierAgent is an open-source agent runtime, terminal product, and evaluation
-suite for long-horizon research and file-based work. The `frontier-agent` TUI
-ships two native workflows:
+## 1. Install the Agent
 
-- **ReAct** — one stateful agent researches, reads files, writes deliverables,
-  runs commands, and iterates in a task-scoped sandbox.
-- **Agent Team** — a coordinator maintains a task board, delegates independent
-  work to parallel sub-agents, collects their reports, and synthesizes the result.
-
-The same workflow engine powers the benchmark runner used to evaluate Apodex
-models. The framework, tools, workflows, and evaluation layer remain separate,
-so each can be reused independently.
-
-In this checkout, **ReAct and Agent Team use BCG memory directly**: user inputs
-stay in context, the two most recent complete steps remain verbatim, and earlier
-steps become a selected belief graph in the system context. Agent Team gives
-each dispatched job an independent graph, with explicit delegation/report links
-and bounded cross-graph evidence lookup. See [ReAct BCG](workflows/stateful_react_agent/README.md#bcg-memory)
-and [Agent Team BCG](workflows/agent_team/README.md#bcg-multi-agent-memory).
-
-> [!IMPORTANT]
-> ### 🚀 Try FrontierAgent on the Apodex API — free for the next two weeks!
->
-> **No model hosting required.** Get an API key, connect to the OpenAI-compatible
-> Apodex-1.1 endpoint, and start running FrontierAgent in minutes.
->
-> **[→ Start building for free at platform.apodex.ai](https://platform.apodex.ai/)**
->
-> ⏳ This is a limited-time offer—come try it and let us know what you build!
-
-New here? Use the **[documentation index](docs/README.md)** to find the right
-installation, SGLang, workflow, evaluation, or developer guide.
-
-<p align="center">
-  <img src="./assets/apodex1.1_bench.png" alt="Apodex-1.1 benchmark results across professional work, finance, scientific research, and general reasoning tasks" width="900"/>
-</p>
-
-## Highlights
-
-- **Native Agent Team workflow.** The coordinator decomposes the request,
-  dispatches bounded parallel assignments, receives structured reports, and can
-  use an optional fast reporter for final evidence review.
-- **Task Board.** Agent Team's `add_task` and `update_task` events appear live in
-  the TUI sidebar with pending, active, completed, blocked, and cancelled state.
-- **Sandboxed file work.** Shell and file tools share one task-scoped filesystem:
-  `/inputs` is read-only, `/workspace` is working state, and `/outputs` contains
-  persistent deliverables. Authorization and sandbox failures are fail-closed.
-- **Asynchronous intervention.** Type while an agent is running to queue a new
-  instruction. It is injected at the next safe turn boundary without discarding
-  the active run. In Agent Team mode it steers the coordinator; already-running
-  sub-agents are allowed to finish.
-- **Transparent deliverables.** On macOS/Docker, `/outputs` maps to
-  `.apodex/runs/<session-id>/outputs` on the host. The same run directory also
-  contains its checkpoint, trace, engine log, and trajectories.
-- **Approval, trace, and recovery.** Mutating operations show a diff and require
-  approval unless `--yes` is enabled. Sessions are checkpointed, every action is
-  traced locally, `/revert` restores session changes, and `--resume` continues a
-  saved run.
-- **Evaluation included.** The subprocess runner supports research and
-  file-grounded benchmarks, deterministic artifact collection, concurrency,
-  progress inspection, and rerunning individual failures.
-
-<p align="center">
-  <img src="./assets/agent_team.png" alt="Conceptual Agent Team workflow: a main agent assigns work to expert sub-agents, collects asynchronous reports, requests verification when needed, and synthesizes the final report" width="900"/>
-</p>
-
-<p align="center"><em>Conceptual Agent Team workflow, from task delegation and asynchronous report collection to verification and final synthesis.</em></p>
-
-## How it fits together
-
-```mermaid
-flowchart LR
-    U["User / benchmark task"] --> TUI["TUI or subprocess runner"]
-    TUI --> R["Stateful ReAct"]
-    TUI --> C["Agent Team coordinator"]
-    C --> B["Task board"]
-    B --> S1["Sub-agent 1"]
-    B --> S2["Sub-agent 2"]
-    B --> SN["Sub-agent N"]
-    R --> FS["Task sandbox"]
-    S1 --> FS
-    S2 --> FS
-    SN --> FS
-    FS --> I["/inputs (read-only)"]
-    FS --> W["/workspace (working files)"]
-    FS --> O["/outputs (deliverables)"]
-    S1 --> C
-    S2 --> C
-    SN --> C
-    C --> A["Final answer / report"]
-    R --> A
-```
-
-The repository boundaries are intentional:
-
-```text
-frontier_agent/  generic loop, scheduling, registries, AgentBus, observers
-plugins/tools/   web, shell, file, sandbox, and team tool implementations
-workflows/       ReAct and Agent Team pipelines, profiles, prompts, observers
-apodex/          terminal CLI/TUI, approvals, sessions, traces, and Docker path
-benchmarks/      public harness plus bundled FrontierSearchBench/FrontierChallenge
-```
-
-More detail: [framework architecture](docs/framework.md),
-[Agent Team](workflows/agent_team/README.md), and
-[Stateful ReAct](workflows/stateful_react_agent/README.md). See
-[run artifacts and timestamps](docs/run-artifacts.md) for the on-disk layout.
-
-## Quick start
-
-Requirements: Git, Python 3.12, [uv](https://docs.astral.sh/uv/), and an
-OpenAI-compatible model endpoint. Docker is optional.
+Requirements: Git, Python 3.12, and `uv`. You also need a tool-capable model endpoint, a compatible BCG Graph server, and search credentials for web research. The native terminal workflow does not require Node.js, Docker, or a local Agent model.
 
 ```bash
-git clone https://github.com/ApodexAI/FrontierAgent.git
-cd FrontierAgent
+git clone --branch feat/bcg-deep-research-agent --single-branch \
+  https://github.com/bigai-nlco/belief-context-graph.git \
+  bcg-deep-research-agent
+cd bcg-deep-research-agent
 
-uv sync --python 3.12 --extra dev
+uv sync --python 3.12 --extra document-readers
 cp .env.example .env
+chmod 600 .env
 ```
 
-Add your endpoint to `.env`:
+If you already have this checkout and a configured `.env`, keep that file instead of copying over it.
+
+## 2. Configure the Agent and search tools
+
+Edit `.env` in the **Agent checkout**:
 
 ```dotenv
-OPENAI_API_KEY=your-key
-OPENAI_BASE_URL=https://your-openai-compatible-endpoint/v1
-OPENAI_MODEL=your-model-name
+# Agent model: used by ReAct, or by the coordinator and specialists in Agent Team.
+OPENAI_API_KEY=your-agent-api-key
+OPENAI_BASE_URL=https://your-agent-endpoint.example/v1
+OPENAI_MODEL=your-agent-model-id
 
-# ReAct's external BCG construction service (configure its graph model separately)
-BCG_GRAPH_URL=http://127.0.0.1:8850
-
-# Optional web research tools
+# Web search.
 WEB_SEARCH_PROVIDER=serper
-SERPER_API_KEY=
+SERPER_API_KEY=your-serper-api-key
 SERPER_BASE_URL=https://google.serper.dev
+
+# Optional Jina Reader credentials for fetching web pages.
 JINA_API_KEY=
+JINA_BASE_URL=https://r.jina.ai
+
+# Connection to the separately running BCG Graph server.
+BCG_GRAPH_URL=http://127.0.0.1:8850
+BCG_RECENT_TURNS=2
+BCG_GRAPH_CHARS=6600
+BCG_TEAM_CROSS_GRAPH_CHARS=2000
+BCG_GRAPH_TIMEOUT=120
+BCG_GRAPH_API_KEY=
 ```
 
-Support any Serper.dev-compatible endpoint (like litescrape.com, serpbase.dev,
-and others) by setting `SERPER_BASE_URL` and a provider-issued `SERPER_API_KEY`.
+Use an API base URL, not a full `/chat/completions` URL. The model ID must match the model exposed by that endpoint. For a Serper-compatible search service, change both `SERPER_BASE_URL` and `SERPER_API_KEY`.
 
-Set `WEB_SEARCH_PROVIDER=parallel` to use the free, keyless
-[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp) for
-`web_search`. Serper remains the default, so existing keys and missing-key
-errors keep their current behavior. Parallel MCP does not support the tool's
-custom region, language, or time filters, or counts above 10 per query; choose
-Serper when those are needed.
-`web_fetch` continues to use its existing fetch provider.
+The Agent and Graph model can use different providers, models, and keys. **`BCG_GRAPH_API_KEY` is only an optional bearer token for a protected Graph HTTP endpoint**, not the Graph model's key. Leave it empty for the standard local server. This Agent does not automatically load model credentials from `~/.bcg/.env`.
 
-Start the TUI:
+Run the Agent commands below from this checkout so its `.env` is loaded before switching to `--cwd`. Exported environment variables take precedence over `.env`; an old exported key, model, or URL can therefore override your edits. See [`.env.example`](.env.example) for optional page-summary and document-reading endpoints.
+
+### Model-specific settings
+
+The terminal uses these workflow profiles:
+
+| Workflow | Profile |
+|---|---|
+| Single Agent | [`workflows/stateful_react_agent/profiles/tui.yaml`](workflows/stateful_react_agent/profiles/tui.yaml) |
+| Agent Team | [`workflows/agent_team/profiles/tui.yaml`](workflows/agent_team/profiles/tui.yaml) |
+
+The bundled profiles include Qwen-style `top_k` and `chat_template_kwargs` parameters in `llm.extra_body`, and use `agent.thinking_format: tag`. When using another model/provider, adjust these profiles to the endpoint's supported sampling and reasoning format. Remove unsupported fields rather than assuming every OpenAI-compatible endpoint accepts them. Model reasoning is configured in the profile; changing `.env` does not automatically select a reasoning effort.
+
+## 3. Start the BCG Graph server
+
+If you already have a compatible server, reuse it and set `BCG_GRAPH_URL` above to its address. The integration requires `POST /turns`, `GET /graph`, and `POST /context-selection` with the `focused` strategy, plus snapshots containing `n_turns_ingested`.
+
+Otherwise, install the Graph service from the BCG repository's **`main` branch in a separate directory**. Do not switch this Agent checkout to `main`: the two branches contain different applications.
+
+In another terminal, from the parent directory of your Agent checkout:
 
 ```bash
-# Stateful single-agent workflow
-uv run frontier-agent --mode react --cwd /path/to/project
-
-# Coordinator plus parallel sub-agents
-uv run frontier-agent --mode agent_team --cwd /path/to/project
+git clone --branch main --single-branch \
+  https://github.com/bigai-nlco/belief-context-graph.git \
+  bcg-graph-server
+cd bcg-graph-server
+uv sync --python 3.12
 ```
 
-`uv sync` above installs the lightweight terminal runtime. Scientific and
-document packages are intentionally optional in native mode; the agent installs
-only what a task actually needs into `<project>/.apodex/runtime/native`. The
-`apodex` command is retained as a compatibility alias.
+Create a `.env` in the **Graph server checkout** with the Graph model's key:
 
-### Install once, launch from any project
+```dotenv
+GRAPH_API_KEY=your-graph-model-api-key
+```
 
-To run `frontier-agent` like any other command-line tool, install it from this
-repository with `uv` and keep the endpoint in one user file:
+Create `bcg.yaml` in that same directory. Replace the model and endpoint placeholders with your Graph model's settings:
+
+```yaml
+schema_version: 1
+backend: unified
+model_key: graph-model
+embedding_key: embedding
+
+models:
+  graph-model:
+    model: your-graph-model-id
+    base_url: https://your-graph-endpoint.example/v1
+    api_key_env: GRAPH_API_KEY
+    reasoning_effort: none
+    max_tokens: 8192
+  embedding:
+    provider: local
+    model: sentence-transformers/all-MiniLM-L6-v2
+    device: cpu
+```
+
+This example uses the `unified` backend with a hosted Graph model and local CPU embeddings. No local vLLM server is needed for this configuration. The embedding weights may download on first use; use a local model path if the server is offline. Adjust the Graph model's reasoning and output-token settings to what its endpoint supports. The full configuration reference is in the Graph checkout's `bcg/config/config.example.yaml`.
+
+Start the server and leave this terminal running:
 
 ```bash
-uv tool install --python 3.12 git+https://github.com/ApodexAI/FrontierAgent.git
-
-# Put OPENAI_API_KEY, OPENAI_BASE_URL and OPENAI_MODEL into
-# ${XDG_CONFIG_HOME:-$HOME/.config}/apodex/env and chmod 600 it.
-
-cd /path/to/project
-frontier-agent
+chmod 600 .env
+uv run --env-file .env bcg construct server unified \
+  --config bcg.yaml \
+  --host 127.0.0.1 \
+  --port 8850 \
+  --output-dir ./graphs
 ```
 
-Exported variables and a project `.env` still take precedence over the user
-file. On macOS with Docker running, the container image has to be built once
-from a clone. [Install once and launch from any project](docs/install/global-install.md)
-covers the PATH setup, the precedence rules, the Docker step, and updating.
-
-Prefer a script that does all of the above? `./scripts/run-macos.sh` and
-`./scripts/run-linux.sh` set up a hosted-endpoint install, and
-`./scripts/run-linux-gpu.sh --install-system-deps --setup-only` prepares a native,
-isolated SGLang environment on a Linux NVIDIA GPU. The step-by-step equivalent is
-the [endpoint quickstart](docs/install/tui-endpoint-quickstart.md)
-([中文教程](docs/install/tui-endpoint-quickstart.zh-CN.md)), which requires neither
-model self-hosting nor Docker.
-
-Local SGLang serving is pinned to reviewed NVIDIA driver / CUDA / SGLang tracks,
-and a mismatch surfaces late as opaque CUDA or Triton kernel errors during model
-load. Confirm your `nvidia-smi` driver against the
-[GPU compatibility matrix](docs/install/gpu-compatibility.md) before choosing an
-image tag or native pin. The GPU helper selects a reviewed userspace track from
-the host driver, but never installs or replaces the driver itself.
-
-### Deployment model
-
-The operating system, FrontierAgent runtime, and model runtime are independent
-choices. “NVIDIA” describes the local model service, not how the agent itself
-runs. Unsure which applies to your machine or GPU provider? Start with the
-**[installation chooser](docs/install/README.md)**.
-
-| Environment | FrontierAgent runtime | Model endpoint | Start here |
-|---|---|---|---|
-| macOS | native or Docker Desktop | hosted or another OpenAI-compatible endpoint | [macOS](docs/install/macos.md) |
-| Linux host/VM | native (default), bubblewrap, or Docker | hosted, native SGLang, or Docker SGLang | [Linux](docs/install/linux.md) |
-| managed Linux GPU container | native inside the provider container | custom GPU image or native SGLang | [GPU platforms](docs/install/gpu-platforms.md) |
-| Windows | WSL2, treated as Linux | hosted or a WSL2-reachable endpoint | [Linux/WSL2](docs/install/linux.md#windows-and-wsl2) |
-
-Chinese-speaking macOS users can use the
-[macOS 中文安装与一键启动指南](docs/install/macos.zh-CN.md).
-
-## Containers and local models
-
-Pre-built `linux/amd64` and `linux/arm64` images are published to the GitHub
-Container Registry, so no local Python environment is needed. That package is
-private, so `docker login ghcr.io` (with an account authorized for it) is
-required — otherwise build the checkout:
+From another terminal, check that it is reachable:
 
 ```bash
-cp .env.example .env
-docker compose -f compose.yaml -f compose.dev.yaml build
-docker compose -f compose.yaml -f compose.dev.yaml run --rm agent
+curl --fail --silent --show-error http://127.0.0.1:8850/health
 ```
 
-- [Run FrontierAgent in Docker](docs/install/docker.md) — Compose, image
-  pinning, direct `docker run`, and EC2/ECS deployment.
-- [Docker SGLang on a Linux NVIDIA host](docs/install/linux-nvidia.md) — two
-  containers on one network; SGLang owns the GPU.
-- [Native SGLang without nested Docker](docs/install/linux-nvidia-native.md) —
-  for managed GPU environments that forbid a nested daemon.
-- [SGLang configuration reference](config/sglang/README.md) — every `.env.sglang`
-  variable, token-budget invariants, and tuning order. Production 35B templates
-  for RTX 4090, RTX 5090, and two-GPU hosts live under `config/sglang/`.
+The response should contain `"status": "ok"`. This checks service reachability, not whether the Graph model's credentials or first embedding download will succeed. If the server is on another machine, use its reachable address in `BCG_GRAPH_URL`. Only send conversation and tool contents to a server you trust.
 
-## Using the TUI
+## 4. Launch the research Agent
 
-Run without a task for an interactive session, or pass one and stay in the
-session for follow-ups:
+Return to the **Agent checkout** and create a working directory:
 
 ```bash
-uv run frontier-agent --mode agent_team --cwd /repo \
-  "Research the alternatives, verify the evidence, and write a report"
-
-# One-shot, line mode, or resume a saved session
-uv run frontier-agent --mode react --cwd /repo -p "explain src/main.py"
-uv run frontier-agent --mode agent_team --no-tui "compare these implementations"
-uv run frontier-agent --resume
-
-# Attach read-only documents before the TUI starts (repeatable)
-uv run frontier-agent --mode react --cwd /repo \
-  --input ~/Downloads/claim.pdf --input ~/Desktop/photo.jpg
+mkdir -p research-workspace
 ```
 
-The sidebar carries the plan/task board, live tool activity, deliverables, and a
-session-scoped diff. While a workflow is busy, typing a follow-up queues it for
-the next safe turn boundary rather than interrupting the run.
-
-For the four sidebar tabs, previews, approvals, attachments, clipboard support,
-keys, and Agent Team live steering, see the
-[TUI user guide](docs/tui-user-guide.md)
-([中文使用教程](docs/tui-user-guide.zh-CN.md)). The full slash-command, option,
-and theming reference is [`apodex/README.md`](apodex/README.md).
-
-## Workflow modes
-
-| Mode | Best for | Execution model |
-|---|---|---|
-| `react` | focused research, repository analysis, document/file work | one stateful agent using the `tui` workflow profile |
-| `agent_team` | broad questions that benefit from decomposition and parallel investigation | coordinator, persistent task board, bounded parallel sub-agents, report collection, synthesis |
-
-Agent Team parallelism is additional to benchmark concurrency. When evaluating,
-start with `--concurrency 1`; total simultaneous model calls can approach runner
-concurrency multiplied by the team spawn limit.
-
-Set `SWARM_NO_WEB=1` to disable Agent Team web tools or `REACT_NO_WEB=1` for
-closed-book ReAct tasks.
-
-## Filesystem and security model
-
-| Path | Policy | Purpose |
-|---|---|---|
-| `/inputs` | read-only | supplied documents and benchmark inputs |
-| `/workspace` | read-write | source checkout, extracted data, scratch work |
-| `/outputs` | controlled read-write | final persistent deliverables |
-
-File and shell tools share this one task sandbox and path policy. Interactive
-sessions add an approval gate on writes, deletion, package installation, and
-risky shell commands; some operations stay denied even with `--yes`; and file
-mutations are journaled so `/revert` can undo them.
-
-Details: [sandboxing and path policy](docs/framework.md#sandboxing),
-[approval and trace behavior](apodex/README.md#safety), and
-[the security policy](SECURITY.md).
-
-## Development
+### Single Agent
 
 ```bash
-uv sync --frozen --extra sandbox --extra document-readers --extra eval --extra dev
-uv run pytest -q
-uv run ruff check .
+uv run frontier-agent --native --mode react --cwd ./research-workspace
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development environment,
-pre-flight checks, session debugging, and submission process. Building the
-container image is covered in
-[Run FrontierAgent in Docker](docs/install/docker.md#build-from-the-current-checkout).
+Enter a research question in the terminal interface. One Agent searches, reads sources, checks evidence, and produces the answer or report.
 
-## Benchmark evaluation
+### Agent Team
 
-The evaluation harness runs each benchmark question in an isolated subprocess,
-supports resumable multi-run experiments, and dispatches benchmark-specific
-deterministic or model-based judges. A minimal smoke run, once the datasets are
-downloaded per [the evaluation guide](docs/eval.md#datasets), is:
+```bash
+uv run frontier-agent --native --mode agent_team --cwd ./research-workspace
+```
+
+A coordinator breaks the question into assignments, dispatches specialists, collects their findings, and synthesizes the final report. The coordinator and each dispatched job have independent graphs, connected through delegation and report references. They do not share one global graph.
+
+You can also pass the initial task directly:
+
+```bash
+uv run frontier-agent --native --mode agent_team --cwd ./research-workspace \
+  "Compare current approaches to long-term Agent memory. Check primary sources, discuss trade-offs, and write a report with citations."
+```
+
+Both workflows already use BCG. There is no extra `--bcg` switch. Agent Team can make several model calls concurrently and usually needs a larger budget than a single Agent.
+
+`--native` runs tools under your current operating-system account with the terminal's approval checks; it is not an OS-level sandbox. Keep the default approval prompts. For stronger isolation, see [sandboxing](docs/framework.md#sandboxing); an isolated runtime must also be able to reach the Graph server.
+
+### One-shot runs, files, and session recovery
+
+```bash
+# Run one task, print the answer, and exit.
+uv run frontier-agent --native --mode react --cwd ./research-workspace \
+  -p "Research a topic of your choice and summarize the evidence with citations."
+
+# Use line mode instead of the full-screen interface.
+uv run frontier-agent --native --mode react --cwd ./research-workspace --no-tui
+
+# List saved sessions in this workspace.
+uv run frontier-agent --native --cwd ./research-workspace --resume
+
+# Resume a specific session; replace SESSION_ID with an actual ID.
+uv run frontier-agent --native --cwd ./research-workspace --resume SESSION_ID
+```
+
+Use `--input /absolute/path/to/document.pdf` to attach a read-only document, and repeat `--input` for additional files. In the interface, `/config` shows redacted model configuration, `/log` shows the trace location, and `/exit` closes the session. `--max-turns` bounds the main Agent's turns; Agent Team specialist budgets are configured separately in its profile.
+
+## BCG settings and records
+
+| Setting | Default | Meaning |
+|---|---:|---|
+| `BCG_RECENT_TURNS` | `2` | Complete recent assistant/tool steps kept verbatim, in addition to user inputs. Parallel tool results remain in the same step. |
+| `BCG_GRAPH_CHARS` | `6600` | Maximum rendered Graph content in system memory, excluding fixed guidance and original system instructions. |
+| `BCG_TEAM_CROSS_GRAPH_CHARS` | `2000` | Part of the Team's total Graph budget reserved for linked remote beliefs, not an additional budget. |
+| `BCG_GRAPH_TIMEOUT` | `120` | Timeout in seconds for Graph HTTP requests. |
+
+Older steps leave the model context only after the Graph server acknowledges them. If Graph writing or selection fails, the Agent preserves the original context and records a fallback. Seeing an answer alone does not prove Graph memory was used; inspect the BCG request records when checking an integration.
+
+Interactive runs save records under the workspace selected by `--cwd`:
+
+```text
+research-workspace/.apodex/runs/<session-id>/
+  engine.log
+  outputs/                       generated deliverables
+  bcg/                           single-agent memory records
+    state.json
+    requests.jsonl
+  bcg_team/                      multi-agent memory records
+    index.json
+    g_<id>/state.json
+    g_<id>/requests.jsonl
+```
+
+Only the active workflow's memory directory is created. The run also retains session checkpoints and full trajectories. `requests.jsonl` records selected beliefs/relations, injected memory, retained transcript indices, Graph usage, and fallback reasons. Full trajectories are not the same as the projected requests sent to the model.
+
+Server-side construction records are separate: with the command above, they are saved under `bcg-graph-server/graphs/<problem_id>/`. Use the problem ID in the Agent's memory state to find the corresponding Graph. Conversation, tool results, and local files can contain private information; do not publish these records or `.env` files.
+
+## Run Deep Research benchmarks
+
+The report runner supports **DeepResearch Bench II** (`drb2`) and the local-file **DRBench L1 variant** (`drbench`) with the same BCG workflows. Run these commands from the Agent checkout after configuring and starting the Graph server:
 
 ```bash
 uv sync --extra eval --extra sandbox --extra document-readers
-uv run python -m benchmarks.public.runner.run_subprocess \
-  --benchmark browsecomp --pipeline stateful-react-agent --profile default \
-  --limit 1 --concurrency 1 --out ./results/smoke
+uv run python -m benchmarks.public.runner.run_reports prepare drb2 drbench
+
+# Inspect a two-task configuration without calling models.
+uv run python -m benchmarks.public.runner.run_reports run drb2 \
+  --pipeline agent_team --language zh --limit 2 --seed 42 \
+  --workers 1 --out results/drb2-bcg-team-smoke --dry-run
 ```
 
-The [evaluation guide](docs/eval.md) is the canonical operator reference for
-credentials, judge preflight, datasets, file benchmarks, execution, and result
-inspection. The [benchmark registry](benchmarks/README.md) lists dataset keys,
-default pipelines, scoring implementations, and extension points.
-FrontierSearchBench has its own external scorer and an isolation requirement, so
-it is documented separately in
-[FrontierSearchBench evaluation](docs/eval-frontier-search.md).
+Remove `--dry-run` to run it. Use `--pipeline stateful-react-agent` for a single Agent. `--workers` controls concurrent questions, not specialist count; start with `1`. Local benchmark execution requires a usable sandbox such as Linux bubblewrap, separately from the native TUI setup above. See the [report benchmark guide](benchmarks/public/reports/README.md) for data preparation, DRBench commands, tool restrictions, result paths, and resuming.
 
-## Supported benchmarks
+These adapters save full reports, diagnostic metrics, and separate Agent/Graph token usage. Official rubric/insight judging is not implemented here: `official_score` remains `null`, so diagnostic metrics must not be reported as benchmark accuracy.
 
-BrowseComp, BrowseComp-ZH, xbench-DeepResearch, Humanity's Last Exam (text-only),
-SuperChem, FrontierScience-Research, FrontierScience-Olympiad, DeepSearchQA,
-WideSearch, FrontierSearchBench, OfficeQA, GDPval, APEX, and OneMillion-Bench.
+## Troubleshooting
 
-GDPval uses deterministic deliverable validation in this open-source harness;
-the agentic pairwise grader is intentionally excluded. The
-[benchmark registry](benchmarks/README.md#supported-benchmarks) is authoritative
-for each dataset key, its default pipeline, and its scoring implementation.
+| Symptom | Check |
+|---|---|
+| `frontier-agent` is not found | Run `uv sync` and use `uv run frontier-agent` from the Agent checkout. Installing the separate `bcg` package does not install this Agent. |
+| Model authentication or model-not-found error | Check the Agent checkout's `OPENAI_*` settings, the exact model ID, and any exported variables overriding `.env`. |
+| Unsupported model parameter | Update the active workflow profile's `llm` settings; Qwen-style parameters are not accepted by every provider. |
+| Graph connection failure or full-context fallback | Check `BCG_GRAPH_URL`, `/health`, Graph server logs, model credentials, and support for `focused` context selection. |
+| Search fails | Check `SERPER_API_KEY`, `SERPER_BASE_URL`, and `WEB_SEARCH_PROVIDER` in the Agent environment. |
+| A private page cannot be fetched | Check the configured fetch provider and its credentials; research tools do not bypass website authentication. |
+| TUI does not open | Run in a normal interactive terminal, or use `--no-tui` for line mode. |
+| Benchmark sandbox initialization fails | Install/configure a supported sandbox and check host user-namespace support. Do not treat native TUI mode as benchmark sandbox isolation. |
 
-## Apodex-1.1 performance
+## Further reading and attribution
 
-The chart above compares the two FrontierAgent workflows with the Apodex-1.0
-baseline and selected external systems. The Apodex results are summarized here:
+- [Single-agent BCG memory](workflows/stateful_react_agent/README.md#bcg-memory)
+- [Agent Team graph ownership and cross-graph links](workflows/agent_team/README.md#bcg-multi-agent-memory)
+- [Deep Research report benchmarks](benchmarks/public/reports/README.md)
+- [Terminal user guide](docs/tui-user-guide.md)
 
-| Configuration | APEX-Agents | GDPval | FrontierFinance | FrontierScience-Research | BioMysteryBench | HLE |
-|---|---:|---:|---:|---:|---:|---:|
-| Apodex-1.1 Agent Team | 38.5 | 78.8 | 54.3 | 63.3 | 35.3 | 56.1 |
-| Apodex-1.1 ReAct | 34.4 | 69.5 | 48.7 | 55.0 | 23.5 | 53.2 |
-| Apodex-1.0 | 16.5 | 59.3 | 40.3 | 28.3 | 17.6 | 49.0 |
-
-Earlier Apodex-1.0 checkpoints remain available in the
-[Hugging Face collection](https://huggingface.co/collections/apodex/apodex-1),
-with model cards and serving guidance.
-
-## Citation
-
-Cite the current release:
-
-```bibtex
-@article{apodex11,
-  title         = {Apodex-1.1: Scaling Agentic Intelligence for Complex Work},
-  author        = {Apodex Team},
-  year          = {2026},
-  eprint        = {2608.23283},
-  archivePrefix = {arXiv},
-  primaryClass  = {cs.AI},
-  url           = {https://arxiv.org/abs/2608.23283}
-}
-```
-
-```bibtex
-@misc{frontierchallenge,
-  title        = {FrontierChallenge: Evaluating Scientific Workflow Completion},
-  author       = {Su, Liangcai and Feng, Zhaopeng and Chen, Zhuo and Zhang, Zhen
-                  and Lin, Xiang and Li, Ruilin and Zhang, Handuo and Wang, Ning
-                  and Wen, Kailong and Guo, Yueqi and Xing, Feng and Guo, Yiling
-                  and Qian, Chenxiong and Du, Simon Shaolei and Bing, Lidong
-                  and Wang, Xinyu},
-  year         = {2026}
-}
-```
-
-For work that refers specifically to the previous generation:
-
-```bibtex
-@techreport{apodex10,
-  title  = {Apodex-1.0: A Verification-Centric Agent Team for Discoverative Intelligence},
-  author = {Apodex Team},
-  year   = {2026}
-}
-```
-
-## License
-
-Apache 2.0 — see [LICENSE](./LICENSE).
-
-## Star History
-
-<a href="https://github.com/ApodexAI/FrontierAgent/stargazers">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/ApodexAI/FrontierAgent/star-history/assets/star-history/star-history-dark.svg" />
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/ApodexAI/FrontierAgent/star-history/assets/star-history/star-history-light.svg" />
-    <img alt="Star History Chart" src="https://raw.githubusercontent.com/ApodexAI/FrontierAgent/star-history/assets/star-history/star-history-light.svg" />
-  </picture>
-</a>
+This branch adapts the [FrontierAgent](https://github.com/ApodexAI/FrontierAgent) runtime for BCG-backed research. Its retained runtime code is licensed under [Apache 2.0](LICENSE). Migrated report benchmark adapters retain their [upstream license](benchmarks/public/reports/UPSTREAM_LICENSE); the separate BCG Graph service retains its own license.
