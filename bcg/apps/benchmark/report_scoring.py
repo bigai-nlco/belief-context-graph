@@ -1,11 +1,9 @@
 """Pluggable scorers for report-type benchmark tasks.
 
 A :class:`ReportScorer` turns ``(task, report, tool trace)`` into a flat dict
-of metrics. Deterministic scorers run inline after every report task. LLM
-judges implement the same interface with ``requires_llm = True``; they are
-registered in :data:`LLM_JUDGES` but deliberately not run yet. Because each
-result file records the saved report and trajectory paths, judges can be
-added later and applied to finished runs without re-running the Agent.
+of metrics. Deterministic scorers run inline after every report task. The
+official LLM judges (:data:`LLM_JUDGES`) score the saved reports afterwards
+with ``bcg benchmark judge``, so they never require re-running the Agent.
 
 Metric keys are flat so ``summarize_results`` can average them; list-valued
 diagnostics (``files_cited`` and so on) are kept but not averaged.
@@ -103,43 +101,16 @@ class DRBenchDeterministicRecall:
         )
 
 
-class LLMReportJudge:
-    """Base for the next round's LLM judges; not run in this round.
-
-    Implementations should read their judge configuration at construction,
-    return flat metrics, and raise on transport failure so the runner can mark
-    the task ``score_error`` (fail closed), like :class:`scoring.LLMJudge`.
-    """
-
-    name = "llm_report_judge"
-    requires_llm = True
-
-    def score(
-        self, task: BenchmarkTask, report: str, context: ReportScoringContext
-    ) -> dict[str, Any]:
-        raise NotImplementedError(f"{self.name} is not implemented yet.")
-
-
-class DRB2RubricJudge(LLMReportJudge):
-    """Official three-way rubric judge (GPT-5.5, 50 rubric items per batch)."""
-
-    name = "drb2_rubric_judge"
-
-
-class DRBenchInsightsRecallJudge(LLMReportJudge):
-    """Official DRBench insights_recall / distractor_recall LLM judge."""
-
-    name = "drbench_insights_recall"
-
-
 DETERMINISTIC_SCORERS: dict[str, tuple[ReportScorer, ...]] = {
     drb2.NAME: (ReportStatistics(), DRB2BlockedCitationAudit()),
     drbench.NAME: (ReportStatistics(), DRBenchDeterministicRecall()),
 }
 
-LLM_JUDGES: dict[str, tuple[type[LLMReportJudge], ...]] = {
-    drb2.NAME: (DRB2RubricJudge,),
-    drbench.NAME: (DRBenchInsightsRecallJudge,),
+# Official LLM judges live in bcg.apps.benchmark.judges and run separately
+# (`bcg benchmark judge` or `run --judge`) on the saved reports.
+LLM_JUDGES: dict[str, str] = {
+    drb2.NAME: "bcg.apps.benchmark.judges.drb2",
+    drbench.NAME: "bcg.apps.benchmark.judges.drbench",
 }
 
 
@@ -172,10 +143,7 @@ __all__ = [
     "DETERMINISTIC_SCORERS",
     "LLM_JUDGES",
     "DRB2BlockedCitationAudit",
-    "DRB2RubricJudge",
     "DRBenchDeterministicRecall",
-    "DRBenchInsightsRecallJudge",
-    "LLMReportJudge",
     "ReportScorer",
     "ReportScoringContext",
     "ReportStatistics",

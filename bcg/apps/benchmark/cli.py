@@ -17,6 +17,14 @@ from rich.table import Table
 from bcg.apps.agent_runtime import AgentLaunchError, _normalize_agent_api
 from bcg.apps.benchmark import drb2, drbench
 from bcg.apps.benchmark.graphs import collect_run_graphs
+from bcg.apps.benchmark.judging import (
+    JUDGED_BENCHMARKS,
+    JudgeConfigError,
+    build_specs,
+    estimate,
+    plan,
+    run_judges,
+)
 from bcg.apps.benchmark.loaders import (
     BENCHMARKS,
     REPORT_BENCHMARKS,
@@ -377,9 +385,37 @@ def run(
         ),
     ] = False,
     judge_model: Annotated[
-        str | None,
-        typer.Option(help="BrowseComp judge model; defaults to the Agent model."),
+        list[str] | None,
+        typer.Option(
+            "--judge-model",
+            help=(
+                "Judge model, repeatable: MODEL for every judged benchmark or BENCH=MODEL. "
+                "BrowseComp defaults to the Agent model; with --judge, DeepResearch Bench II "
+                "defaults to gpt-5.5-luna and DRBench to gpt-4o-mini (official)."
+            ),
+        ),
     ] = None,
+    judge_reports: Annotated[
+        bool,
+        typer.Option(
+            "--judge/--no-judge",
+            help=(
+                "After the run, score DeepResearch Bench II / DRBench reports with the official "
+                "LLM judges (same as `bcg benchmark judge`)."
+            ),
+        ),
+    ] = False,
+    judge_param: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--judge-param",
+            help="Override an official judge parameter, BENCH.KEY=VALUE (marks results as deviating).",
+        ),
+    ] = None,
+    judge_workers: Annotated[
+        int,
+        typer.Option(min=1, help="Concurrent report judgements with --judge."),
+    ] = 4,
     judge_base_url: Annotated[
         str | None,
         typer.Option(help="Judge API base URL; defaults to the Agent base URL."),
@@ -463,7 +499,15 @@ def run(
             },
             bench_overrides=bench_overrides,
         )
-    except (BenchmarkDataError, SelectionError, ProfileError) as exc:
+        if judge_reports:
+            build_specs(
+                canonical,
+                model_values=judge_model,
+                param_values=judge_param,
+                metrics=None,
+                canonicalize=canonical_name,
+            )
+    except (BenchmarkDataError, SelectionError, ProfileError, JudgeConfigError) as exc:
         raise typer.BadParameter(str(exc)) from exc
 
     for warning in _search_binary_warnings(profiles):
@@ -528,7 +572,7 @@ def run(
     if uses_judge:
         judge = LLMJudge(
             JudgeConfig(
-                model=(judge_model or resolved_model).strip(),
+                model=(_browsecomp_judge_model(judge_model) or resolved_model).strip(),
                 base_url=(judge_base_url or resolved_base_url).strip(),
                 api_key=os.environ.get(judge_api_key_env, ""),
                 timeout=judge_timeout,
@@ -589,6 +633,25 @@ def run(
         console.print(f"[red]bcg benchmark: {exc}[/red]", highlight=False)
         raise typer.Exit(1) from exc
     _print_summary(summary, destination.resolve())
+    judged = [name for name in canonical if name in JUDGED_BENCHMARKS]
+    if judge_reports and judged:
+        _judge_after_run(
+            destination,
+            judged,
+            modes=list(config.modes),
+            selected={
+                name: {task.task_id for task in tasks_by_benchmark[name]}
+                for name in judged
+            },
+            data_root=data_root,
+            data_files=file_overrides,
+            model_values=judge_model,
+            param_values=judge_param,
+            base_url=judge_base_url or resolved_base_url,
+            api_key=os.environ.get(judge_api_key_env, ""),
+            timeout=max(judge_timeout, 600.0),
+            workers=judge_workers,
+        )
 
 
 def _load_one(
@@ -955,6 +1018,345 @@ def list_tasks(
         raise typer.BadParameter(str(exc)) from exc
 
 
+def _browsecomp_judge_model(values: list[str] | None) -> str | None:
+    unscoped = None
+    for raw in values or []:
+        head, sep, tail = raw.partition("=")
+        if not sep:
+            unscoped = raw.strip() or unscoped
+        elif canonical_name(head.strip()) in {"browsecomp", "browsecomp_zh"}:
+            return tail.strip()
+    return unscoped
+
+
+def _judge_endpoint_factory(base_url: str, api_key: str, timeout: float):
+    from bcg.apps.agent_runtime import _normalize_openai_base_url
+    from bcg.apps.benchmark.judges.client import JudgeEndpoint
+
+    normalized = _normalize_openai_base_url(base_url)
+    return lambda model: JudgeEndpoint(
+        model=model, base_url=normalized, api_key=api_key, timeout=timeout
+    )
+
+
+def _task_filter(task_ids: str | None):
+    if not task_ids:
+        return None
+    selection = parse_task_ids(task_ids, canonicalize=canonical_name)
+
+    def keep(benchmark: str, ids: list[str]) -> list[str]:
+        wanted = selection.ids_for(benchmark)
+        if wanted is None:
+            return ids
+        pseudo = [BenchmarkTask(benchmark, value, "", ()) for value in ids]
+        chosen, _missing = select_tasks(pseudo, wanted)
+        return [task.task_id for task in chosen]
+
+    return keep
+
+
+def _judge_after_run(
+    run_dir: Path,
+    benchmarks: list[str],
+    *,
+    modes: list[str],
+    selected: dict[str, set[str]],
+    data_root: Path,
+    data_files: dict[str, Path],
+    model_values: list[str] | None,
+    param_values: list[str] | None,
+    base_url: str,
+    api_key: str,
+    timeout: float,
+    workers: int,
+) -> None:
+    specs = build_specs(
+        benchmarks,
+        model_values=model_values,
+        param_values=param_values,
+        metrics=None,
+        canonicalize=canonical_name,
+    )
+    console.rule("Official LLM judges")
+    result = run_judges(
+        run_dir,
+        specs,
+        _judge_endpoint_factory(base_url, api_key, timeout),
+        data_root=data_root,
+        modes=modes,
+        task_filter=lambda benchmark, ids: [
+            i for i in ids if i in selected.get(benchmark, set())
+        ],
+        workers=workers,
+        data_files=data_files,
+        progress=lambda message: console.print(message, highlight=False, markup=False),
+    )
+    _print_judge_summary(result, specs, run_dir)
+
+
+@app.command("judge")
+def judge_command(
+    run_dir: Annotated[
+        Path,
+        typer.Argument(help="A benchmark --output-dir, e.g. results/drb2."),
+    ],
+    benchmarks: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--benchmark", "-b", help="Judge only these benchmarks (repeatable)."
+        ),
+    ] = None,
+    modes: Annotated[
+        str | None,
+        typer.Option(help="Comma-separated modes to judge (default: all in the run)."),
+    ] = None,
+    task_ids: Annotated[
+        str | None,
+        typer.Option(
+            help="Same syntax as `run --task-ids`, e.g. `drb2:1,2;drbench:DR0001-DR0003`."
+        ),
+    ] = None,
+    judge_model: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--judge-model",
+            help=(
+                "MODEL for every benchmark or BENCH=MODEL (repeatable). Defaults: "
+                "deepresearch_bench_ii=gpt-5.5-luna, drbench=gpt-4o-mini."
+            ),
+        ),
+    ] = None,
+    judge_base_url: Annotated[
+        str | None,
+        typer.Option(
+            help="Judge API base URL (default: OPENAI_BASE_URL, as the Agent)."
+        ),
+    ] = None,
+    judge_api_key_env: Annotated[
+        str,
+        typer.Option(help="Environment variable holding the judge API key."),
+    ] = "OPENAI_API_KEY",
+    judge_timeout: Annotated[
+        float,
+        typer.Option(min=1, help="Seconds per judge request (official DRB2: 600)."),
+    ] = 600.0,
+    judge_param: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--judge-param",
+            help=(
+                "Override an official parameter, BENCH.KEY=VALUE (repeatable; marks the judge as "
+                "deviating). DRB2 keys: reasoning_effort, max_completion_tokens, temperature, "
+                "chunk_size, max_retries, max_paper_chars. DRBench keys: "
+                "{extraction,scoring,quality}.{temperature,max_tokens,max_completion_tokens,"
+                "reasoning_effort}."
+            ),
+        ),
+    ] = None,
+    metrics: Annotated[
+        str | None,
+        typer.Option(
+            help="DRBench metrics (default: insights_recall,distractor_recall,report_quality)."
+        ),
+    ] = None,
+    judge_workers: Annotated[
+        int,
+        typer.Option(min=1, help="Reports judged concurrently."),
+    ] = 4,
+    overwrite: Annotated[
+        bool,
+        typer.Option(
+            help="Re-judge reports that already have a judgement from this judge."
+        ),
+    ] = False,
+    retry_failed: Annotated[
+        bool,
+        typer.Option(
+            help="Re-judge only judgements with an error or failed judge calls."
+        ),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option(help="Show what would be judged and a rough call/token estimate."),
+    ] = False,
+    data_root: Annotated[
+        Path,
+        typer.Option("--data-root", help="Root containing benchmark directories."),
+    ] = Path("datasets"),
+    data_file: Annotated[
+        list[str] | None,
+        typer.Option("--data-file", help="Override a dataset file as BENCHMARK=PATH."),
+    ] = None,
+) -> None:
+    """Score saved DeepResearch Bench II / DRBench reports with the official LLM judges."""
+
+    import json
+
+    from bcg.apps.setup import apply_user_configuration, is_configured
+    from bcg.apps.setup import load_user_configuration as load_setup_configuration
+
+    setup_config = load_setup_configuration()
+    if is_configured(setup_config):
+        apply_user_configuration(setup_config)
+    if not run_dir.is_dir():
+        raise typer.BadParameter(f"Not a directory: {run_dir}")
+    try:
+        present = [name for name in JUDGED_BENCHMARKS if (run_dir / name).is_dir()]
+        names = (
+            [canonical_name(value) for value in benchmarks] if benchmarks else present
+        )
+        names = [name for name in names if name in JUDGED_BENCHMARKS]
+        if not names:
+            raise JudgeConfigError(
+                f"No judged benchmark results under {run_dir} "
+                f"(looked for: {', '.join(JUDGED_BENCHMARKS)})."
+            )
+        specs = build_specs(
+            names,
+            model_values=judge_model,
+            param_values=judge_param,
+            metrics=[m.strip() for m in metrics.split(",") if m.strip()]
+            if metrics
+            else None,
+            canonicalize=canonical_name,
+        )
+        mode_list = (
+            [m.strip() for m in modes.split(",") if m.strip()] if modes else None
+        )
+        data_files = _parse_data_files(data_file or [])
+        todo, outcome, _refs = plan(
+            run_dir,
+            specs,
+            data_root=data_root,
+            modes=mode_list,
+            task_filter=_task_filter(task_ids),
+            overwrite=overwrite,
+            retry_failed=retry_failed,
+            data_files=data_files,
+        )
+    except (JudgeConfigError, SelectionError, BenchmarkDataError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    for name, spec in specs.items():
+        marker = (
+            " [yellow](deviates from official)[/yellow]"
+            if spec.deviates_from_official
+            else ""
+        )
+        console.print(
+            f"{name}: judge [bold]{spec.model}[/bold] · id {spec.judge_id()}{marker}\n"
+            f"  request params {json.dumps(spec.request_params(), ensure_ascii=False)}"
+            + (
+                f"\n  metrics {', '.join(spec.metrics)}" if name == drbench.NAME else ""
+            ),
+            highlight=False,
+        )
+    console.print(
+        f"{len(todo)} report(s) to judge, {outcome.reused} already judged, "
+        f"{outcome.no_report} without a report, {outcome.missing_reference} without reference data.",
+        highlight=False,
+    )
+    if dry_run:
+        table = Table(
+            title="Estimate (rough; input tokens only, excludes reasoning/output)"
+        )
+        for column in ("Benchmark", "Reports", "Calls", "Input tokens"):
+            table.add_column(
+                column, justify="left" if column == "Benchmark" else "right"
+            )
+        for name, values in estimate(todo, specs).items():
+            table.add_row(
+                name,
+                str(values["tasks"]),
+                f"{values['calls']:,}",
+                f"{values['input_tokens']:,}",
+            )
+        console.print(table)
+        return
+    base_url = (judge_base_url or os.environ.get("OPENAI_BASE_URL") or "").strip()
+    if not base_url:
+        raise typer.BadParameter(
+            "--judge-base-url is required (or set OPENAI_BASE_URL)."
+        )
+    result = run_judges(
+        run_dir,
+        specs,
+        _judge_endpoint_factory(
+            base_url, os.environ.get(judge_api_key_env, ""), judge_timeout
+        ),
+        data_root=data_root,
+        modes=mode_list,
+        task_filter=_task_filter(task_ids),
+        workers=judge_workers,
+        overwrite=overwrite,
+        retry_failed=retry_failed,
+        data_files=data_files,
+        progress=lambda message: console.print(message, highlight=False, markup=False),
+    )
+    _print_judge_summary(result, specs, run_dir)
+
+
+def _print_judge_summary(result, specs, run_dir: Path) -> None:
+    summary = result.summary.get("benchmarks", {})
+    columns = {
+        "deepresearch_bench_ii": [
+            ("Total", "total"),
+            ("InfoRecall", "inforecall"),
+            ("Analysis", "analysis"),
+            ("Present.", "presentation"),
+            ("Blocked", "blocked_rate"),
+        ],
+        "drbench": [
+            ("Insights", "insights_recall"),
+            ("Ins.(ent)", "insights_recall_enterprise"),
+            ("Distr.↓", "distractor_recall"),
+            ("Quality", "report_quality"),
+        ],
+    }
+    for name, spec in specs.items():
+        judge_id = spec.judge_id()
+        table = Table(title=f"{name} · judge {spec.model} ({judge_id})")
+        table.add_column("Mode")
+        table.add_column("OK/Tasks", justify="right")
+        table.add_column("Fail", justify="right")
+        for header, _key in columns[name]:
+            table.add_column(header, justify="right")
+        rows = 0
+        for mode, by_judge in (summary.get(name) or {}).items():
+            values = by_judge.get(judge_id)
+            if not values:
+                continue
+            scores = values.get("scores", {})
+            table.add_row(
+                mode,
+                f"{values['ok']}/{values['tasks']}",
+                str(values["errors"] + values["judge_failures"]),
+                *[
+                    "—" if scores.get(key) is None else f"{scores[key]:.1%}"
+                    for _header, key in columns[name]
+                ],
+            )
+            rows += 1
+        if rows:
+            console.print(table)
+    if result.errors:
+        console.print(
+            f"[red]{len(result.errors)} judgement(s) crashed; see messages above.[/red]"
+        )
+    failing = sum(
+        values.get(spec.judge_id(), {}).get("errors", 0)
+        + values.get(spec.judge_id(), {}).get("judge_failures", 0)
+        for name, spec in specs.items()
+        for values in (summary.get(name) or {}).values()
+    )
+    if failing:
+        console.print(
+            "[yellow]Some judgements failed or contain failed judge calls (scored as the "
+            "official code does). Re-run with --retry-failed to retry only those.[/yellow]"
+        )
+    console.print(f"Judge summary: [bold]{Path(run_dir) / 'judge_summary.json'}[/bold]")
+
+
 @app.command("collect-graphs")
 def collect_graphs_command(
     run_dir: Annotated[
@@ -1080,7 +1482,9 @@ def _report_table(summary: dict[str, object]) -> Table | None:
     benchmark_summaries = summary.get("benchmarks", {})
     if not isinstance(benchmark_summaries, dict):
         return None
-    table = Table(title="Report metrics (deterministic; LLM judges not run)")
+    table = Table(
+        title="Report metrics (deterministic; official LLM judges: `bcg benchmark judge`)"
+    )
     # Short headers keep the table readable at 80 columns; see CHANGELOG.
     for column in (
         "Bench",

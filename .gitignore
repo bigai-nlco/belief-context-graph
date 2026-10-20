@@ -235,6 +235,7 @@ bcg_test.zip
 deep-research-benchmarks.patch
 graph-collection.patch
 bcg_viewer/
+llm-judges.patch
 
 # Benchmark datasets may be gated, obfuscated, or redistribution-restricted.
 datasets/

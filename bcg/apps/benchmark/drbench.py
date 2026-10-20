@@ -212,7 +212,9 @@ def load_task(
         question=question,
         answers=(),
         kind=TASK_KIND_REPORT,
-        reference={"files": files, "qa": qa},
+        # task_config is the raw task.json the official metrics read (the
+        # report_quality prompt embeds its persona verbatim). Judges only.
+        reference={"files": files, "qa": qa, "task_config": task_config},
         metadata={
             "difficulty": str(info.get("difficulty") or ""),
             "industry": str(info.get("industry") or ""),

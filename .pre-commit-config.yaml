@@ -9,8 +9,11 @@ repos:
       - id: check-yaml
       - id: debug-statements
       - id: detect-private-key
+      # Official judge prompts are vendored byte for byte (sha256-pinned).
       - id: end-of-file-fixer
+        exclude: ^bcg/apps/benchmark/judges/prompts/.*\.txt$
       - id: trailing-whitespace
+        exclude: ^bcg/apps/benchmark/judges/prompts/.*\.txt$
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.15

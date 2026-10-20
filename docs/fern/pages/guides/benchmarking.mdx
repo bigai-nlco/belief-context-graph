@@ -128,7 +128,7 @@ See every option with `bcg benchmark run --help`.
 
 ## Deep-research report benchmarks
 
-Two report-writing benchmarks run through the same command. Their final Agent message is a full Markdown report rather than a `FINAL ANSWER` line, so they report deterministic report metrics instead of accuracy. LLM-as-judge scoring (DeepResearch Bench II rubrics, DRBench `insights_recall`) has a pluggable interface but is not run yet; saved reports can be judged later without re-running the Agent.
+Two report-writing benchmarks run through the same command. Their final Agent message is a full Markdown report rather than a `FINAL ANSWER` line, so runs report deterministic report metrics instead of accuracy, and `bcg benchmark judge RUN_DIR` (or `run --judge`) scores the saved reports with LLM judges aligned with the official evaluators: DeepResearch Bench II rubric scoring (default judge `gpt-5.5-luna`) and DRBench `insights_recall`, `distractor_recall`, and `report_quality` (default judge `gpt-4o-mini`). Prompts are copied verbatim from upstream and pinned by hash; every judgement records the judge model, the request parameters actually used, and any deviation from the official code.
 
 | Benchmark | Name / alias | Retrieval | Metrics today |
 | --- | --- | --- | --- |

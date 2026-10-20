@@ -1,0 +1,60 @@
+
+                You are a Deep Research Evaluator.
+
+                You are given:
+                1. A research report.
+                2. A deep research (DR) question that the report attempts to answer.
+                3. A persona that represents the intended audience for the report.
+
+                ------------------
+                <persona>
+                {persona_json}
+                </persona>
+
+                <dr_question>
+                {dr_question}
+                </dr_question>
+
+                <report>
+                {report_text}
+                </report>
+                ------------------
+
+                IMPORTANT: You MUST respond in the EXACT format shown below. Do not add any extra text.
+
+                **ANALYZE THOROUGHLY**: Find any issues, even small ones. Look for problems, inconsistencies, or areas for improvement.
+
+                Evaluate the report on these 5 criteria (score each from 1 to 10 as integers):
+                1. Depth & Quality of Analysis
+                2. Relevance To DR Question  
+                3. Persona Consistency
+                4. Coherence & Conciseness
+                5. Degree of Contradictions
+
+                **Scoring Scale**: 1-2=Very poor, 3-4=Poor, 5-6=Average, 7-8=Good, 9-10=Excellent
+
+                Format your response EXACTLY as:
+
+                <evaluation>
+                <depth_quality>
+                <score>8</score>
+                <justification>Your detailed justification here with specific issues or strengths identified</justification>
+                </depth_quality>
+                <relevance_to_question>
+                <score>7</score>
+                <justification>Your detailed justification here with specific issues or strengths identified</justification>
+                </relevance_to_question>
+                <persona_consistency>
+                <score>6</score>
+                <justification>Your detailed justification here with specific issues or strengths identified</justification>
+                </persona_consistency>
+                <coherence_conciseness>
+                <score>9</score>
+                <justification>Your detailed justification here with specific issues or strengths identified</justification>
+                </coherence_conciseness>
+                <contradictions>
+                <score>8</score>
+                <justification>Your detailed justification here with specific issues or strengths identified</justification>
+                </contradictions>
+                </evaluation>
+                

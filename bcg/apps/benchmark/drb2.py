@@ -129,6 +129,13 @@ def _task_from_row(row: Any, *, source: Path, line_number: int) -> BenchmarkTask
         kind=TASK_KIND_REPORT,
         aliases=aliases,
         reference={
+            # Exactly what the official evaluator reads from `content`
+            # (missing task -> "", blocked passed through unmodified).
+            "official_content": {
+                "task": content.get("task", ""),
+                "rubric": content.get("rubric", {}),
+                "blocked": content.get("blocked", {}),
+            },
             "task": str(content.get("task") or prompt),
             "rubric": rubric,
             "blocked": {

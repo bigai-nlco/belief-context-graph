@@ -1,0 +1,80 @@
+
+        You are a Deep Research Evaluator.
+
+        You are given:
+        1. A research report.
+        2. A deep research (DR) question that the report attempts to answer.
+        3. A persona that represents the intended audience for the report.
+
+        ------------------
+        <persona>
+        {persona_json}
+        </persona>
+
+        <dr_question>
+        {dr_question}
+        </dr_question>
+
+        <report>
+        {report_text}
+        </report>
+        ------------------
+
+        ## Instructions:
+
+        **ANALYZE THOROUGHLY**: Examine the report in detail and identify any issues, even small ones. Look for subtle problems, minor inconsistencies, areas that could be improved, or any shortcomings that might affect the quality.
+
+        Evaluate the report according to the five criteria listed below. For **each criterion**, provide:
+
+        - A **score between 1 and 10** (must be an integer) using the scale defined below.
+        - A **detailed justification** (2–3 sentences) in **simple plain English** explaining why you gave that score, including any specific issues or strengths you identified.
+
+        ### Scoring Scale (1-10, integers only):
+        - **1-2** = Very poor, major deficiencies, completely inadequate
+        - **3-4** = Poor, significant problems, below expectations
+        - **5-6** = Average, meets basic requirements but has notable issues
+        - **7-8** = Good, meets expectations with minor issues
+        - **9-10** = Excellent, exceeds expectations with minimal or no issues
+
+        ### Criteria:
+        1. **Depth & Quality of Analysis**: Evaluate the extent to which the report delves into the details of the question, explores multiple factors, and provides a comprehensive understanding. Consider the complexity and sophistication of the analysis methods used in the report. Also, assess whether the report provides a nuanced understanding of the question, explores underlying details, or reveals unexpected findings.
+
+        2. **Relevance To DR Question**: Assess how directly the report addresses the stated question. Evaluate how well the report aligns with the question and whether the report provides actionable recommendations or strategies that directly address the question.
+
+        3. **Persona Consistency**: Consider how well the report aligns with the persona's values, goals, and characteristics. Evaluate whether the tone, language, and approach used in the report align with the persona's stated experience and expertise. Also, assess whether the report is engaging and relatable to the persona.
+
+        4. **Coherence & Conciseness**: Evaluate how coherent and cohesive the report is. Assess whether the report presents information in a logical flow, makes clear connections between points, and avoids unnecessary jargon or complexity.
+
+        5. **Degree of Contradictions**: Assess whether the report contains internal inconsistencies, logical contradictions, or conflicting statements across different insights.
+
+        ------------------
+
+        ## Output format:
+
+        <evaluation>
+        <depth_quality>
+            <score>1–10 (integer only, based on the scoring scale above)</score>
+            <justification>Give a detailed 2–3 sentence justification for your score in simple plain English, including specific issues or strengths.</justification>
+        </depth_quality>
+
+        <relevance_to_question>
+            <score>1–10 (integer only, based on the scoring scale above)</score>
+            <justification>Give a detailed 2–3 sentence justification for your score in simple plain English, including specific issues or strengths.</justification>
+        </relevance_to_question>
+
+        <persona_consistency>
+            <score>1–10 (integer only, based on the scoring scale above)</score>
+            <justification>Give a detailed 2–3 sentence justification for your score in simple plain English, including specific issues or strengths.</justification>
+        </persona_consistency>
+
+        <coherence_conciseness>
+            <score>1–10 (integer only, based on the scoring scale above)</score>
+            <justification>Give a detailed 2–3 sentence justification for your score in simple plain English, including specific issues or strengths.</justification>
+        </coherence_conciseness>
+
+        <contradictions>
+            <score>1–10 (integer only, based on the scoring scale above)</score>
+            <justification>Give a detailed 2–3 sentence justification for your score in simple plain English, including specific issues or strengths.</justification>
+        </contradictions>
+        </evaluation>
+        

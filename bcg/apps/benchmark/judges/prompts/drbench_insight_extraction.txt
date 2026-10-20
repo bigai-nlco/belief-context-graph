@@ -1,0 +1,58 @@
+
+    Please break down the following report text into insight claims. Each insight claim should be:
+    1. A single insight, that might include multiple statements and claims
+    2. Independent and self-contained
+    3. Each claim can have more than one sentence, but should be focused on a single insight
+    4. Support each insight with citations from the report text following these specific rules:
+       - Usually at the end of the report there is a list of citations with numbers
+       - In the report text, citations are referenced with numbers in square brackets like [1], [2], [^1], etc.
+       - When providing citations, write the actual name of the cited documents (file names or URLs), NOT the reference numbers
+       - Do NOT find citations based on your general knowledge - only use citations that are explicitly presented in the report
+       - For each insight you extract, look for citation markers in that specific text section and find the corresponding citation names from the reference list
+       - If no citations are found for a specific insight, leave citations empty
+    5. Citations should be in one of these formats (various formats will be automatically normalized):
+       - Valid URLs: "https://www.example.com/article", "https://techcrunch.com/2023/report.html"
+       - File names: "quarterly_report.pdf", "market_analysis.docx", "shared/file.pdf"
+       - MatterMost chats: "MatterMost-Channel-Team-User" or natural descriptions like "Mattermost Message - Enterprise Chat (User: john.doe, Team: Compliance, Channel: General)"
+       - Email messages: "RoundCube-from@email-to@emails-Subject" or the full reference line like "**Re: Budget Review** - Email from jane.doe@company.com on 15 Jan 2024"
+       - IMPORTANT: for email citations always include the sender address and date so the email can be identified
+       - NOTE: Various citation formats are supported and will be automatically normalized during evaluation
+    6. Do not include general summaries, opinions, or claims that lack citation, just the sentences that are facts.
+    7. Each claim should be a concise but complete sentence.
+
+    ## Report text:
+    <START OF REPORT>
+    {report_text}
+    <END OF REPORT>
+
+    ## Output format:
+    Please return the insight claims as a JSON array. For example:
+    [
+        {{
+            "claim": "The company's revenue increased by 15% in Q3 2023",
+            "citations": ["https://techfundingnews.com/salesforce-acquires-convergence-how-it-competes-with-openai-anthropic-and-googles-duet-ai/"]
+        }},
+        {{
+            "claim": "The new product launch contributed to the growth",
+            "citations": ["product_launch.pdf", "quarterly_report.pdf"]
+        }},
+        {{
+            "claim": "Compliance team discussed FSMA requirements",
+            "citations": ["MatterMost-fsma_compliance-compliance_team-john.doe"]
+        }},
+        {{
+            "claim": "Budget review meeting was scheduled for next quarter",
+            "citations": ["**Q2 Budget Review and Planning** - Email from jason.kim@leesmarket.com on 10 Mar 2024"]
+        }},
+        {{
+            "claim": "This claim has no supporting citations",
+            "citations": []
+        }}
+    ]
+
+    Return only valid JSON, no additional text.
+
+    ### Just use the report between <START OF REPORT> and <END OF REPORT> tags to generate insights.
+    ### If no insights found, return an empty JSON array: []
+    ### Do not use the example outputs as report content.
+    

@@ -1,0 +1,56 @@
+
+You will receive an article, a task, and a list of grading rubric items. Your job is to assess whether the article satisfies each rubric item, and provide a THREE-WAY score for EACH rubric item.
+
+Scoring rule per rubric item (strict):
+- Score = 1: The article clearly satisfies the rubric item AND the specific supporting sentence(s) do NOT cite any reference listed in "blocked" (match by title/urls). For numerical data, exact values must be explicitly listed and match the rubric.
+- Score = 0: The article does NOT mention this rubric item at all.
+- Score = -1: The article mentions this rubric item, BUT the supporting sentence(s) cite a blocked reference.
+
+For EACH rubric item, you MUST provide:
+1. "score": 1, 0, or -1
+2. "reason": A brief explanation
+3. "evidence": The specific supporting sentence(s) from the article (empty string if score is 0)
+
+The input format is:
+<input_format>
+{{
+    "task": "...",
+    "rubric_items": ["rubric item 1", "rubric item 2", ...],
+    "blocked": {{
+        "title": "...",
+        "authors": ["...", "..."],
+        "urls": ["...", "..."]
+    }}
+}}
+</input_format>
+
+Your output MUST strictly follow this JSON format (no extra keys, and the rubric item text MUST match the input EXACTLY):
+<output_format>
+{{
+    "results": [
+        {{
+            "rubric_item": "rubric item 1",
+            "score": 1 or 0 or -1,
+            "reason": "brief explanation",
+            "evidence": "supporting sentence(s) from the article"
+        }},
+        {{
+            "rubric_item": "rubric item 2",
+            "score": 1 or 0 or -1,
+            "reason": "brief explanation",
+            "evidence": "supporting sentence(s) from the article"
+        }},
+        ...
+    ]
+}}
+</output_format>
+
+CRITICAL: You MUST return results for ALL rubric items in the input, and the "rubric_item" text MUST match the input text EXACTLY (character-level match).
+
+<passage>
+{paper}
+</passage>
+<task_and_rubric>
+{rubric}
+</task_and_rubric>
+Now, please begin your generation

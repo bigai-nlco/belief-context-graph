@@ -1,0 +1,28 @@
+Your goal is to check if one of the Predicted Insights extracted from a report is a Golden Insight. You must be STRICT and pay attention to every small detail.
+
+Instructions:
+* Evaluate if the Predicted Insights contain sufficient information to derive a Golden Insight.
+* Select the insight that most closely matches the Golden Insight. Select one and only one insight.
+* Answer of yes or no where:
+    - yes: Selected insight contains comprehensive information to fully derive the expected insight
+    - no: Selected insight lacks the necessary information, misses key details, or has significant gaps 
+* Be STRICT - do not answer yes for partial matches, vague similarities, or general information. However, no exact wording is required and paraphrasing is acceptable. 
+* IMPORTANT: Only consider details given in the Golden Insight when answering yes or no. Don't expect anything more than what is given in the Golden Insight.
+* Focus on factual accuracy, completeness, and specificity.
+
+Predicted Insights:
+{claims_text}
+
+Golden Insight:
+{gold_insight}
+
+Return a valid json dictionary with the following structure:
+{{
+    "answer": "the answer yes or no as described above",
+    "confidence": "how confident you are that your answer is correct", 
+    "justification": "a detailed justification explaining exactly what information given in the golden insight is present or missing in the selected insight",
+    "selected_insight": "the claim text of the selected insight that most closely matches the golden insight, but not the number of the selected insight",
+    "golden_insight": {gold_insight}
+}}
+
+Ensure only a json dictionary is returned, and return nothing else.

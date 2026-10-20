@@ -1,0 +1,41 @@
+{
+  "license": "Apache-2.0 (both upstream repositories)",
+  "synced_at": "2026-10-19T06:35:44+00:00",
+  "repositories": {
+    "DeepResearch-Bench-II": {
+      "url": "https://github.com/imlrz/DeepResearch-Bench-II",
+      "commit": "b38f360603db9531b102aef8c166cedb8509b6f6"
+    },
+    "drbench": {
+      "url": "https://github.com/ServiceNow/drbench",
+      "commit": "0d699ecf6aa96b1de378595b432e9b16a82f0ed9"
+    }
+  },
+  "prompts": {
+    "drb2_rubric": {
+      "repository": "DeepResearch-Bench-II",
+      "path": "run_evaluation.py",
+      "sha256": "2b40577e219d87294e49f9e4ce8e1038556e56d120b871bd1bfd3c327c609a50"
+    },
+    "drbench_insight_extraction": {
+      "repository": "drbench",
+      "path": "drbench/agents/utils.py",
+      "sha256": "8acc267e6708a648ee95d7c5960bb015131cb7737ab3b66b485243f12e10b121"
+    },
+    "drbench_insight_scoring": {
+      "repository": "drbench",
+      "path": "drbench/prompts/eval_metrics/insight_scoring.txt",
+      "sha256": "532cb1960275d7eb0f471c1b8c28f40787893d5a1aea359495290041f7f05569"
+    },
+    "drbench_report_quality": {
+      "repository": "drbench",
+      "path": "drbench/metrics/report_quality.py",
+      "sha256": "ee29aef4536a38654172a827257492f100d99702be38cf08dded9ee2d2ce548c"
+    },
+    "drbench_report_quality_retry": {
+      "repository": "drbench",
+      "path": "drbench/metrics/report_quality.py",
+      "sha256": "2f5b3816f7aaa5ed8b3c686c08086469e608c69d0bb7d2209af8877c1ac6f875"
+    }
+  }
+}
