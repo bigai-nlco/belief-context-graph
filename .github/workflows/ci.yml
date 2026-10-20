@@ -1,0 +1,118 @@
+name: CI
+on:
+  push:
+    branches: [main, "release/*"]
+  pull_request:
+    branches: [main, "release/*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.12"
+      - name: Install local sandbox runtime
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          # Ubuntu 24.04 (the runner image) restricts unprivileged user
+          # namespaces through AppArmor, which is what bwrap needs for its uid
+          # map ("bwrap: setting up uid map: Permission denied"). Without this
+          # the whole bwrap backend is unavailable and every real-jail test
+          # skips, so the sandbox isolation CI claims to cover is not covered.
+          # ``|| true``: the knob does not exist on every kernel, and the
+          # probe below reports the real state either way.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+          # Record what the sandbox's own probe makes of this host, so a future
+          # failure is diagnosable from the log without a code change.
+          bwrap --unshare-user --ro-bind / / -- true \
+            && echo "bwrap: usable" \
+            || echo "bwrap: UNUSABLE (the jail tests will fail, not skip)"
+      - name: Install framework dependencies
+        run: uv sync --locked --extra dev --extra sandbox --extra document-readers --extra hf-space
+      - name: Ruff lint
+        run: uv run ruff check frontier_agent/ apodex/ benchmarks/ workflows/ plugins/ deploy/ tools/ scripts/
+      - name: Validate local NVIDIA deployment files
+        env:
+          APODEX_DOCKER_SUBNET: 172.29.250.0/24
+        run: |
+          bash -n docker/run.sh docker/run-sglang.sh docker/sglang-doctor.sh docker/entrypoint.sh docker/gpu-entrypoint.sh
+          python -m py_compile docker/sglang_entrypoint.py docker/smoke_sglang.py scripts/run-sglang-native.py
+          docker compose --env-file .env.sglang.example \
+            -f compose.yaml -f compose.sglang.yaml config --quiet
+          docker compose --env-file config/sglang/35b-5090.env.example \
+            -f compose.yaml -f compose.sglang.yaml -f compose.network.yaml \
+            -f compose.dev.yaml config --quiet
+      - name: Framework import smoke (eval layer blocked)
+        run: uv run python tools/import_smoke.py --stage 1
+      - name: Install eval dependencies
+        run: uv sync --locked --extra dev --extra sandbox --extra document-readers --extra hf-space --extra eval
+      - name: Eval import smoke and symbol closure
+        run: |
+          uv run python tools/import_smoke.py --stage 2
+          uv run python tools/check_symbols.py
+          uv run python tools/check_lazy_exports.py
+      # Runs here rather than beside the ruff step because benchmarks/ imports
+      # harbor and datasets, which only exist once the eval extras are in.
+      # Config (including which trees are enforced) is pyrightconfig.json, which
+      # VS Code's Pylance reads too — so a contributor's editor shows exactly
+      # what this step enforces.
+      - name: Pyright type check
+        run: uv run pyright
+      - name: FrontierChallenge release gates
+        run: |
+          uv run pytest -q \
+            -c benchmarks/frontierchallenge/pyproject.toml \
+            benchmarks/frontierchallenge/tests
+          # check_public_leaks.py --allow-empty passes a framework-only snapshot,
+          # so the "payload stays on Hugging Face" rule needs its own assertion.
+          found=$(git ls-files 'benchmarks/frontierchallenge/tasks/**' | head -20)
+          if [ -n "$found" ]; then
+            echo "::error::task payload belongs on Hugging Face, not in Git:"
+            echo "$found"
+            exit 1
+          fi
+          echo "no tracked task payload"
+          uv run python - <<'PY'
+          import json
+          registry = json.load(open("benchmarks/frontierchallenge/registry.json"))
+          assert registry["n_tasks"] == len(registry["tasks"]) == 97, (
+              f'registry drifted: n_tasks={registry["n_tasks"]}, '
+              f'tasks={len(registry["tasks"])}, expected 97'
+          )
+          ids = {row["id"] for row in registry["tasks"]}
+          assert len(ids) == 97, f"registry has {97 - len(ids)} duplicate task id(s)"
+          print("public registry: 97 unique task commitments")
+          PY
+          uv run python benchmarks/frontierchallenge/scripts/check_public_leaks.py \
+            benchmarks/frontierchallenge --allow-empty
+          uv run python benchmarks/frontierchallenge/scripts/check_restricted_software.py \
+            benchmarks/frontierchallenge
+          for script in \
+            benchmarks/frontierchallenge/scripts/*.sh \
+            benchmarks/frontierchallenge/shared_images/*.sh; do
+            bash -n "$script"
+          done
+      - name: Unit and exec-bundle tests
+        env:
+          SANDBOX_BACKEND: bwrap
+          # This job installs bubblewrap, so a sandbox-isolation test that
+          # SKIPS here is a silent loss of coverage, not an inapplicable case.
+          # The flag turns such a skip into a failure that names why the jail
+          # was unusable (Ubuntu 24.04, for instance, restricts unprivileged
+          # user namespaces through AppArmor).
+          FRONTIER_AGENT_REQUIRE_BWRAP: "1"
+        # ``-rs``: without it a skip is invisible in the log — only the count
+        # changes, and the count is identical whether the jail test ran or was
+        # skipped, so the log could not answer "did this actually run".
+        run: uv run pytest -q -rs
