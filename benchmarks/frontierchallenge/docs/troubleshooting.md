@@ -1,0 +1,109 @@
+# Troubleshooting
+
+## Editable install cannot resolve Harbor
+
+The pinned Harbor 0.20.0 requires Python 3.12 or newer on the evaluator host.
+Use a Python 3.12+ virtual environment as shown in [Quickstart](quickstart.md),
+then rerun `python -m pip install -e .`. Do not downgrade Harbor to work around
+an older system Python. The Python versions inside the frozen scientific task
+images are separate and do not need to change.
+
+## Setup cannot find the datasets
+
+While either HF repository is private or gated, pass an authorized token only
+to the controller step:
+
+```bash
+HF_TOKEN=hf_... ./scripts/setup.sh --track open
+```
+
+Do not place the HF token in `.env`, which is used to configure model and judge
+credentials. For offline use, pass local solve and reference directories as
+shown in [Hugging Face layout](huggingface-release.md#download-and-verify).
+
+## Docker is installed but runs do not start
+
+Both the daemon and Compose v2 must work:
+
+```bash
+docker ps
+docker compose version
+docker buildx version
+```
+
+`run_eval.sh` checks the daemon and Compose before launching Harbor and has no
+host-runtime fallback.
+
+## An ORCA task is refused before evaluation
+
+The full track requires the evaluator-local image
+`frontierchallenge/orca-user-local:6.0.1`. FrontierChallenge does not download
+or distribute it. After obtaining and installing ORCA officially, run:
+
+```bash
+./scripts/build_orca_runtime.sh --orca-root /path/to/orca-6.0.1
+./scripts/setup.sh --track full
+```
+
+The build helper runs a real ORCA calculation, and the runner checks the local
+image again before any selected ORCA task starts.
+
+An open task may still mention ORCA because it reads supplied output files.
+That does not require the licensed runtime: preflight follows the task's
+registry-backed execution environment, not instruction text. For example,
+`task_098_orca_claisen_thermochemistry` belongs to the open track.
+
+## Every task fails during agent setup
+
+Check that `.env` contains the key required by the selected agent and that the
+key is valid from the evaluator host. Harbor agent adapters may install their
+CLI per trial; lower `--n-concurrent-agents` if concurrent installs time out.
+
+## The judge fails
+
+Seventy-seven tasks call an OpenAI-compatible judge endpoint. Check the endpoint,
+model name, key, and quota. The endpoint must accept `model`, `messages`, and
+`response_format: {"type": "json_object"}`.
+
+`run_eval.sh` announces any judge-model override. Use `--no-judge-override` for
+the frozen task declarations, or disclose the substituted judge with results.
+
+## A zero may be infrastructure rather than model performance
+
+Inspect `verifier/reward.json`:
+
+| State | Interpretation |
+|---|---|
+| `evaluation_complete = 1` | verifier completed; keep the score |
+| incomplete and no required deliverable | agent produced no gradable output |
+| incomplete despite non-empty deliverables | inspect verifier logs for an infrastructure failure |
+
+The aggregate summarizer reports incomplete and missing-artifact counts instead
+of silently treating every zero as the same failure mode.
+
+## An old job is refused after upgrading
+
+The runner refuses populated jobs without a matching scoring/log policy marker
+or with a changed task selection. Start a fresh `--job-name` (or `--jobs-dir`).
+Do not manufacture a marker for old results: their raw rewards may use the old
+per-task pass rule. Old results remain untouched and may be summarized separately.
+
+## Loaded image identity differs on Docker's containerd store
+
+Update the runtime and reinstall its dependencies (`python -m pip install -e .`).
+Older setup code compares Docker's OCI manifest ID directly with the release's
+config digest, which can reject a valid image on Docker 29/containerd. Current
+setup verifies the manifest-to-config digest link inside the verified archive.
+Archive size/SHA-256 and platform checks remain mandatory; no daemon restart,
+storage-driver change, registry pull, or HF payload update is needed.
+
+## Inspect a trial
+
+```bash
+find results/harbor/<job>/<trial> -maxdepth 3 -type f | sort
+cat results/harbor/<job>/<trial>/verifier/reward.json
+```
+
+The trajectory records agent actions; verifier logs record grading failures.
+Never publish decrypted evaluator staging or reference contents when sharing a
+trajectory.

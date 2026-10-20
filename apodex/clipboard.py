@@ -1,0 +1,334 @@
+"""macOS clipboard capture and the Docker host bridge.
+
+Terminal paste protocols carry text only.  On macOS the outer launcher reads
+NSPasteboard on behalf of the containerized TUI, then feeds the existing
+session attachment manager.  The HTTP bridge accepts no commands or output
+paths and is protected by a per-process bearer token.
+"""
+
+from __future__ import annotations
+
+import filecmp
+import json
+import os
+import secrets
+import subprocess
+import sys
+import tempfile
+import threading
+import urllib.error
+import urllib.request
+from dataclasses import asdict, dataclass
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+from urllib.parse import unquote, urlparse
+
+from apodex.attachments import AttachmentManager
+
+_BROKER_URL_ENV = "APODEX_CLIPBOARD_BROKER_URL"
+_BROKER_TOKEN_ENV = "APODEX_CLIPBOARD_BROKER_TOKEN"
+_MAX_REQUEST_BYTES = 256_000
+
+
+class ClipboardError(RuntimeError):
+    """A user-facing clipboard or bridge failure."""
+
+
+@dataclass(frozen=True)
+class ClipboardPaste:
+    kind: str
+    attachments: tuple[str, ...] = ()
+    text: str = ""
+    message: str = ""
+
+
+_JXA_READ_PASTEBOARD = r"""
+ObjC.import('AppKit');
+ObjC.import('Foundation');
+
+function unwrap(value) {
+    if (!value) return '';
+    return ObjC.unwrap(value);
+}
+
+function run(argv) {
+    const pb = $.NSPasteboard.generalPasteboard;
+    const items = pb.pasteboardItems;
+    const paths = [];
+    if (items) {
+        for (let i = 0; i < items.count; i++) {
+            const raw = items.objectAtIndex(i).stringForType('public.file-url');
+            if (!raw) continue;
+            const url = $.NSURL.URLWithString(raw);
+            if (url && url.isFileURL) paths.push(unwrap(url.path));
+        }
+    }
+    if (paths.length) return JSON.stringify({kind: 'paths', paths: paths});
+
+    const imageTypes = [
+        ['public.png', 'png'],
+        ['public.jpeg', 'jpg'],
+        ['public.tiff', 'tiff']
+    ];
+    for (const pair of imageTypes) {
+        const data = pb.dataForType(pair[0]);
+        if (!data || data.length === 0) continue;
+        const name = 'clipboard-' + Date.now() + '.' + pair[1];
+        const path = $(argv[0]).stringByAppendingPathComponent(name);
+        const written = $.NSFileManager.defaultManager
+            .createFileAtPathContentsAttributes(path, data, $.NSDictionary.dictionary);
+        if (!written) {
+            return JSON.stringify({kind: 'error', message: 'could not save clipboard image'});
+        }
+        return JSON.stringify({kind: 'image', path: unwrap(path)});
+    }
+
+    let text = unwrap(pb.stringForType('public.utf8-plain-text'));
+    if (!text) text = unwrap(pb.stringForType('public.plain-text'));
+    return JSON.stringify(text ? {kind: 'text', text: text} : {kind: 'empty'});
+}
+"""
+
+
+def _read_macos_pasteboard(temp_dir: str) -> dict[str, Any]:
+    if sys.platform != "darwin":
+        raise ClipboardError("clipboard attachments are currently supported on macOS only")
+    try:
+        result = subprocess.run(
+            [
+                "/usr/bin/osascript", "-l", "JavaScript",
+                "-e", _JXA_READ_PASTEBOARD, temp_dir,
+            ],
+            capture_output=True, text=True, timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ClipboardError(f"could not read the macOS clipboard: {exc}") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "osascript failed").strip()
+        raise ClipboardError(f"could not read the macOS clipboard: {detail}")
+    try:
+        payload = json.loads(result.stdout.strip())
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise ClipboardError("macOS clipboard returned an invalid response") from exc
+    if not isinstance(payload, dict):
+        raise ClipboardError("macOS clipboard returned an invalid response")
+    return payload
+
+
+def _looks_like_file_urls(text: str) -> bool:
+    """Report whether every non-blank line is a ``file://`` URL, without touching disk.
+
+    Used where the text is untrusted and must not be resolved: a purely textual
+    check leaks nothing about which host paths exist.
+    """
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return bool(lines) and all(line.startswith("file://") for line in lines)
+
+
+def _path_text(text: str) -> list[str] | None:
+    """Return local paths represented by explicit ``file://`` URLs.
+
+    Plain absolute-path text is deliberately not promoted to an attachment:
+    copied webpage or chat content must not be able to make the client stage a
+    readable host file merely because its text happens to name one.
+
+    Only ever called on input the local user produced — a real pasteboard read,
+    or a paste into a TUI running natively on the host. Text arriving over the
+    broker is container-controlled and must not reach this function; see
+    ``_broker_text_paste``.
+    """
+    raw = text.strip()
+    if not raw:
+        return None
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    if not lines or not all(line.startswith("file://") for line in lines):
+        return None
+    candidates: list[str] = []
+    for line in lines:
+        parsed = urlparse(line)
+        if parsed.scheme != "file" or parsed.netloc not in {"", "localhost"}:
+            return None
+        candidates.append(unquote(parsed.path))
+    resolved: list[str] = []
+    for candidate in candidates:
+        path = Path(candidate).expanduser()
+        if not path.is_absolute() or not path.exists():
+            return None
+        resolved.append(str(path.resolve()))
+    return resolved
+
+
+def capture_macos_clipboard(
+    manager: AttachmentManager, *, pasted_text: str | None = None,
+) -> ClipboardPaste:
+    """Capture Finder files, an image, a path string, or ordinary text.
+
+    ``pasted_text`` is trusted here: the only callers are the local user's own
+    paste, either natively or via the broker's pasteboard read. The broker's
+    request path deliberately does not route request text through this function.
+    """
+    if pasted_text is not None:
+        paths = _path_text(pasted_text)
+        if paths is None:
+            return ClipboardPaste("text", text=pasted_text)
+        added = manager.attach_many(paths)
+        return ClipboardPaste("attachments", tuple(item.relative_path for item in added))
+
+    with tempfile.TemporaryDirectory(prefix="apodex-clipboard-") as temp_dir:
+        payload = _read_macos_pasteboard(temp_dir)
+        kind = str(payload.get("kind") or "")
+        if kind == "paths":
+            raw_paths = payload.get("paths")
+            if not isinstance(raw_paths, list) or not all(isinstance(p, str) for p in raw_paths):
+                raise ClipboardError("macOS clipboard returned invalid file paths")
+            added = manager.attach_many(raw_paths)
+            return ClipboardPaste("attachments", tuple(item.relative_path for item in added))
+        if kind == "image":
+            raw_path = str(payload.get("path") or "")
+            image = Path(raw_path).resolve()
+            temp_root = Path(temp_dir).resolve()
+            if temp_root not in image.parents or not image.is_file():
+                raise ClipboardError("macOS clipboard returned an invalid image")
+            for item in manager.list():
+                name = Path(item.relative_path).name
+                staged = manager.staging_dir / item.relative_path
+                try:
+                    if name.startswith("clipboard-") and filecmp.cmp(
+                        image, staged, shallow=False,
+                    ):
+                        return ClipboardPaste("attachments", (item.relative_path,))
+                except OSError:
+                    continue
+            added = manager.attach(str(image))
+            return ClipboardPaste("attachments", tuple(item.relative_path for item in added))
+        if kind == "text":
+            text = str(payload.get("text") or "")
+            paths = _path_text(text)
+            if paths is not None:
+                added = manager.attach_many(paths)
+                return ClipboardPaste("attachments", tuple(item.relative_path for item in added))
+            return ClipboardPaste("text", text=text)
+        if kind == "empty":
+            return ClipboardPaste("empty", message="clipboard is empty or unsupported")
+        raise ClipboardError(str(payload.get("message") or "unsupported clipboard content"))
+
+
+def _broker_text_paste(pasted_text: str) -> ClipboardPaste:
+    """Wrap container-supplied paste text, explaining a gesture the bridge drops.
+
+    Dragging a file into the terminal pastes ``file://`` URLs, which the native
+    TUI stages as an attachment. Over the bridge the same text is indistinguishable
+    from a request forged by container code, so it stays text — but the user gets
+    told why, plus the Finder-copy route that does work through the bridge.
+    """
+    message = (
+        "dropped file paths cannot be attached through the container clipboard "
+        "bridge; copy the file in Finder (Cmd-C) and paste again to attach it"
+        if _looks_like_file_urls(pasted_text)
+        else ""
+    )
+    return ClipboardPaste("text", text=pasted_text, message=message)
+
+
+class ClipboardBroker:
+    """Loopback-only host service used by the macOS Docker TUI."""
+
+    def __init__(self, manager: AttachmentManager) -> None:
+        self.manager = manager
+        self.token = secrets.token_urlsafe(32)
+        broker = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                if self.path != "/paste" or self.headers.get("Authorization") != f"Bearer {broker.token}":
+                    self.send_error(403)
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                except ValueError:
+                    self.send_error(400)
+                    return
+                if length < 0 or length > _MAX_REQUEST_BYTES:
+                    self.send_error(413)
+                    return
+                try:
+                    request = json.loads(self.rfile.read(length) or b"{}")
+                    pasted_text = request.get("text") if isinstance(request, dict) else None
+                    if pasted_text is not None and not isinstance(pasted_text, str):
+                        raise ClipboardError("invalid pasted text")
+                    # The bearer token is available to the container so it can
+                    # call this bridge. Never treat request data as a host path:
+                    # doing so would let container code copy arbitrary readable
+                    # host files into its attachment mount. Only a real macOS
+                    # pasteboard read may produce host file attachments.
+                    response = (
+                        _broker_text_paste(pasted_text)
+                        if pasted_text is not None
+                        else capture_macos_clipboard(broker.manager)
+                    )
+                    body = json.dumps(asdict(response)).encode()
+                    self.send_response(200)
+                except Exception as exc:  # keep the broker alive after one bad paste
+                    body = json.dumps({"error": str(exc)}).encode()
+                    self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, format: str, *args: Any) -> None:
+                # Silences the default stderr access log. Parameter names match
+                # BaseHTTPRequestHandler.log_message exactly — renaming them
+                # breaks the override for keyword callers.
+                return
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(
+            target=self.server.serve_forever, name="apodex-clipboard", daemon=True,
+        )
+
+    @property
+    def port(self) -> int:
+        return int(self.server.server_address[1])
+
+    def start(self) -> None:
+        self.thread.start()
+
+    def close(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=2)
+
+
+def paste_from_clipboard(
+    manager: AttachmentManager, *, pasted_text: str | None = None,
+) -> ClipboardPaste:
+    """Use the Docker host broker when configured, else read macOS directly."""
+    url = os.environ.get(_BROKER_URL_ENV, "").strip()
+    token = os.environ.get(_BROKER_TOKEN_ENV, "").strip()
+    if not url:
+        return capture_macos_clipboard(manager, pasted_text=pasted_text)
+    body = json.dumps({} if pasted_text is None else {"text": pasted_text}).encode()
+    request = urllib.request.Request(
+        url.rstrip("/") + "/paste", data=body, method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read())
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+        raise ClipboardError(f"clipboard broker is unavailable: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ClipboardError("clipboard broker returned an invalid response")
+    if payload.get("error"):
+        raise ClipboardError(str(payload["error"]))
+    return ClipboardPaste(
+        kind=str(payload.get("kind") or "empty"),
+        attachments=tuple(str(item) for item in payload.get("attachments") or ()),
+        text=str(payload.get("text") or ""),
+        message=str(payload.get("message") or ""),
+    )
