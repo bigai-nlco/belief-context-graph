@@ -843,3 +843,251 @@ agent:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+# ---------------------------------------------------------------------------
+# DRB2 rubric judge (official protocol port)
+# ---------------------------------------------------------------------------
+
+_SCRIPTED_SCORES = {"a": 1, "b": -1, "c": 1, "d": 0}
+
+
+def _rubric_items(prompt: str) -> list[str]:
+    block = prompt.split("<task_and_rubric>\n", 1)[1].split("\n</task_and_rubric>", 1)[0]
+    return json.loads(block)["rubric_items"]
+
+
+class ScriptedJudge:
+    """Pretty-printed replies, as the official prompt's output format shows."""
+
+    def __init__(self, config=None, *, failures=(), probe_error=None):
+        self.prompts: list[str] = []
+        self.failures = list(failures)
+        self.probe_error = probe_error
+        self.probes = 0
+
+    async def probe(self):
+        self.probes += 1
+        if self.probe_error:
+            raise self.probe_error
+
+    async def complete(self, prompt):
+        self.prompts.append(prompt)
+        usage = {"promptTokenCount": 10, "candidatesTokenCount": 2, "totalTokenCount": 12,
+                 "thoughtsTokenCount": 1}
+        if self.failures:
+            failure = self.failures.pop(0)
+            if isinstance(failure, Exception):
+                raise failure
+            return failure, usage
+        results = [
+            {"rubric_item": item, "score": _SCRIPTED_SCORES[item], "reason": "r", "evidence": "e"}
+            for item in _rubric_items(prompt)
+        ]
+        return "```json\n" + json.dumps({"results": results}, indent=4) + "\n```", usage
+
+
+def test_drb2_judge_follows_official_batching_retries_and_aggregation():
+    from benchmarks.public.reports import drb2_judge
+
+    content = {
+        "task": "T",
+        "rubric": {"info_recall": ["a", "b"], "analysis": ["c"], "presentation": ["d"]},
+        "blocked": {"title": BLOCKED_TITLE, "urls": [BLOCKED_URL]},
+    }
+    client = ScriptedJudge(
+        failures=[
+            "not json",
+            '```json\n{"results": []}\n```',
+            # Upstream's key clean-up mangles compact one-line objects; kept as is.
+            '{"results": [{"rubric_item": "a", "score": 1, "reason": "r", "evidence": "e"}]}',
+            ConnectionError("down"),
+        ]
+    )
+    sleeps = []
+
+    async def sleep(seconds):
+        sleeps.append(seconds)
+
+    config = drb2_judge.JudgeConfig(chunk_size=3, max_paper_chars=10, max_retries=10)
+    result = asyncio.run(
+        drb2_judge.judge_report(content, "0123456789TRUNCATED", client, config, sleep=sleep)
+    )
+    # 4 failed attempts, then 2 batches ([a, b, c], [d]).
+    assert len(client.prompts) == 6 and sleeps == [8.0]
+    assert all("TRUNCATED" not in prompt and "0123456789" in prompt for prompt in client.prompts)
+    assert BLOCKED_URL in client.prompts[0] and '"rubric_items": [\n    "d"\n  ]' in client.prompts[-1]
+    assert result["scores"]["info_recall"]["b"]["score"] == -1
+    assert result["usage_summary"]["total_tokens"] == 24
+    assert drb2_judge.compute_dimension_averages(result) == {
+        "inforecall": 0.5, "analysis": 1.0, "presentation": 0.0, "total": 0.5, "blocked_rate": 0.25,
+    }
+    exhausted = drb2_judge.JudgeConfig(max_retries=2)
+    failed = asyncio.run(
+        drb2_judge.judge_report(content, "r", ScriptedJudge(failures=["x", "y"]), exhausted, sleep=sleep)
+    )
+    assert failed == {"error": "batch 1 failed after 2 retries"}
+
+
+def test_drb2_judge_config_records_the_model_actually_used(monkeypatch):
+    from benchmarks.public.reports import drb2_judge
+
+    for name in ("JUDGE_MODEL", "DRB2_JUDGE_REASONING_EFFORT"):
+        monkeypatch.delenv(name, raising=False)
+    default = drb2_judge.JudgeConfig.from_env().public()
+    assert default["model"] == "gpt-5.5-luna" and not default["model_overridden"]
+    assert default["reasoning_effort"] == "medium" and default["upstream_model"] == "gpt-5.5"
+    monkeypatch.setenv("JUDGE_MODEL", "other-judge")
+    monkeypatch.setenv("DRB2_JUDGE_REASONING_EFFORT", "high")
+    monkeypatch.setenv("JUDGE_BASE_URL", "https://judge.example/v1/chat/completions")
+    config = drb2_judge.JudgeConfig.from_env()
+    assert config.public()["model"] == "other-judge" and config.public()["model_overridden"]
+    assert config.reasoning_effort == "high" and config.base_url == "https://judge.example/v1"
+    assert "api_key" not in config.public()
+
+
+def _finished_drb2_run(datasets, tmp_path):
+    parsed = run_reports.parser().parse_args(
+        ["run", "drb2", "--data-root", str(datasets), "--pipeline", "stateful-react-agent",
+         "--out", str(tmp_path / "out")]
+    )
+    tasks = run_reports.load_tasks(parsed)
+    output = tmp_path / "out"
+    config = run_reports.build_config(parsed, tasks)
+    config["fingerprint"] = run_reports._digest(config)
+    run_reports.write_json(output / "run.json", config)
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def run(self, instruction, **kwargs):
+            return {"final_answer": "# Report\nBody\n## References\nhttps://example.org/a"}
+
+    asyncio.run(run_reports.execute_task(tasks[0], config, output / "trials/1", session_factory=Session))
+    run_reports.write_json(
+        output / "trials/2/result.json",
+        {"task_id": "2", "benchmark": drb2.NAME, "status": "agent_error", "duration_seconds": 1,
+         "official_score": None, "scoring_status": "official_pending"},
+    )
+    return output
+
+
+def _judge_args(datasets, output, *extra):
+    return run_reports.parser().parse_args(
+        ["judge", "--out", str(output), "--data-root", str(datasets), *extra]
+    )
+
+
+def test_judge_grades_a_finished_run_offline(datasets, tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("JUDGE_MODEL", raising=False)
+    output = _finished_drb2_run(datasets, tmp_path)
+    clients = []
+
+    def factory(config):
+        clients.append(ScriptedJudge(config))
+        return clients[-1]
+
+    asyncio.run(run_reports.judge_run(_judge_args(datasets, output, "--dry-run"), client_factory=factory))
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["to_judge"] == ["1"] and plan["not_judged"] == {"2": "agent status agent_error"}
+    assert not clients and not (output / "judge").exists()
+
+    summary = asyncio.run(run_reports.judge_run(_judge_args(datasets, output), client_factory=factory))
+    assert clients[0].probes == 1 and len(clients[0].prompts) == 1
+    record = json.loads((output / "trials/1/result.json").read_text())
+    assert record["status"] == "completed" and record["scoring_status"] == "official_protocol_scored"
+    assert record["official_score"] == 0.5 and record["rubric_scores"]["blocked_rate"] == 0.25
+    assert record["judge"]["model"] == "gpt-5.5-luna" and record["judge"]["upstream_model"] == "gpt-5.5"
+    detail = json.loads((output / "trials/1/judge/drb2_rubric.json").read_text())
+    assert detail["result"]["scores"]["analysis"]["c"] == {"score": 1, "reason": "r", "evidence": "e"}
+    assert "api_key" not in json.dumps(detail)
+    failed = json.loads((output / "trials/2/result.json").read_text())
+    assert failed["scoring_status"] == "not_judged" and failed["official_score"] is None
+    exported = [json.loads(line) for line in (output / "judge/drb2_result.jsonl").read_text().splitlines()]
+    assert exported == [{"model": "bcg-stateful-react-agent", "idx": 1, "result": detail["result"]}]
+    rubric = summary["rubric"]
+    assert rubric["complete"] and rubric["judge_models"] == ["gpt-5.5-luna"]
+    assert rubric["valid_only"]["total"] == 0.5 and rubric["valid_only"]["tasks"] == 1
+    assert rubric["zero_filled"]["total"] == 0.25 and rubric["zero_filled"]["tasks"] == 2
+    assert summary["official_score"] == 0.5
+    assert summary["scoring_status"] == "official_protocol_scored"
+    assert json.loads((output / "summary.json").read_text())["rubric"] == rubric
+
+    asyncio.run(run_reports.judge_run(_judge_args(datasets, output), client_factory=factory))
+    assert len(clients) == 1  # Nothing left to grade: no client, no probe.
+    asyncio.run(run_reports.judge_run(_judge_args(datasets, output, "--force"), client_factory=factory))
+    assert len(clients) == 2 and len(clients[1].prompts) == 1
+
+
+def test_judge_fails_closed_and_retries_errors(datasets, tmp_path, monkeypatch):
+    output = _finished_drb2_run(datasets, tmp_path)
+    with pytest.raises(RuntimeError, match="not usable"):
+        asyncio.run(
+            run_reports.judge_run(
+                _judge_args(datasets, output),
+                client_factory=lambda config: ScriptedJudge(probe_error=ValueError("404 model")),
+            )
+        )
+    assert json.loads((output / "trials/1/result.json").read_text())["scoring_status"] == "official_pending"
+
+    monkeypatch.setattr(
+        run_reports.drb2_judge.JudgeConfig, "from_env",
+        classmethod(lambda cls: cls(max_retries=1)),
+    )
+    summary = asyncio.run(
+        run_reports.judge_run(
+            _judge_args(datasets, output), client_factory=lambda config: ScriptedJudge(failures=["x"])
+        )
+    )
+    record = json.loads((output / "trials/1/result.json").read_text())
+    assert record["scoring_status"] == "judge_error" and record["official_score"] is None
+    assert summary["official_score"] is None and not summary["rubric"]["complete"]
+    summary = asyncio.run(
+        run_reports.judge_run(_judge_args(datasets, output), client_factory=ScriptedJudge)
+    )
+    assert summary["rubric"]["complete"] and summary["official_score"] == 0.5
+
+
+def test_judge_refuses_changed_data_and_other_benchmarks(datasets, tmp_path):
+    output = _finished_drb2_run(datasets, tmp_path)
+    source = datasets / drb2.NAME / drb2.TASKS_FILENAME
+    rows = [json.loads(line) for line in source.read_text().splitlines()]
+    rows[0]["content"]["rubric"]["analysis"].append("new item")
+    changed = _jsonl(tmp_path / "changed" / drb2.NAME / drb2.TASKS_FILENAME, rows)
+    with pytest.raises(ValueError, match="dataset_sha256"):
+        asyncio.run(
+            run_reports.judge_run(
+                run_reports.parser().parse_args(
+                    ["judge", "--out", str(output), "--data-file", str(changed)]
+                ),
+                client_factory=ScriptedJudge,
+            )
+        )
+    config = json.loads((output / "run.json").read_text())
+    run_reports.write_json(output / "run.json", {**config, "benchmark": drbench.NAME})
+    with pytest.raises(ValueError, match="only for DeepResearch Bench II"):
+        asyncio.run(run_reports.judge_run(_judge_args(datasets, output), client_factory=ScriptedJudge))
+
+
+def test_rubric_summary_leaderboard_views_drop_upstream_exclusions():
+    def scored(total):
+        return {
+            "scoring_status": "official_protocol_scored",
+            "judge": {"model": "m"},
+            "rubric_scores": {"inforecall": total, "analysis": total, "presentation": total,
+                              "total": total, "blocked_rate": 0.0},
+        }
+
+    summary = run_reports.rubric_summary(
+        {"5": scored(0.6), "112": scored(0.0), "7": {"scoring_status": "not_judged"}},
+        ["5", "112", "7", "9"],
+    )
+    assert summary["valid_only"]["total"] == pytest.approx(0.3)
+    assert summary["valid_only_leaderboard"] == {**summary["valid_only_leaderboard"], "tasks": 1, "total": 0.6}
+    assert summary["zero_filled_leaderboard"]["total"] == pytest.approx(0.3)
+    assert summary["counts"]["awaiting_run"] == 1 and not summary["complete"]
+    assert run_reports.rubric_summary({"5": {"scoring_status": "official_pending"}}, ["5"]) is None

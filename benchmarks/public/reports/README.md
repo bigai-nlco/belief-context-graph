@@ -12,14 +12,16 @@ The old Agent runner and unrelated changes from that branch were not imported.
 
 | Benchmark | Data | Retrieval | What is measured here |
 |---|---|---|---|
-| DeepResearch Bench II (`deepresearch_bench_ii`, short name `drb2`) | `tasks_and_rubrics.jsonl`, language/theme filters | Web search and full-page fetch, with task-specific source restrictions | Report length/citations and blocked-source citation audit |
+| DeepResearch Bench II (`deepresearch_bench_ii`, short name `drb2`) | `tasks_and_rubrics.jsonl`, language/theme filters | Web search and full-page fetch, with task-specific source restrictions | Report length/citations and blocked-source citation audit; official-protocol rubric scores via `judge` |
 | DRBench (`drbench`) | Original `subsets/` and `tasks/`, or full upstream clone | Task-scoped read-only text renderings of enterprise files, email and chat; web disabled | File read/surfaced recall, citation recall/precision and distractor citation rate |
 
-**Scoring boundary:** the source branch does not implement official LLM rubric
-judging or insight-recall judging yet. These runs save `official_score: null` and
-`scoring_status: official_pending`. Diagnostic metrics are **not accuracy**, and
-file citation recall is **not** official insight recall. DRBench is the branch's
-local-file **L1 variant**, not its full Docker/enterprise-service environment.
+**Scoring boundary:** `run` saves `official_score: null` and
+`scoring_status: official_pending`. For DRB2, the separate `judge` command then
+applies the official rubric protocol to the saved reports
+([below](#drb2-rubric-judging)). DRBench insight-recall judging is not implemented
+yet. Diagnostic metrics are **not accuracy**, and file citation recall is **not**
+official insight recall. DRBench is the branch's local-file **L1 variant**, not
+its full Docker/enterprise-service environment.
 
 ## Prepare
 
@@ -122,6 +124,62 @@ explicitly configured isolated deployment).
   LLM. This prevents known blocked matches but cannot guarantee detection of all
   unknown mirrors or paraphrases; the final citation audit is still retained.
 
+## DRB2 rubric judging
+
+`judge` grades a finished DRB2 run's saved reports with the official evaluator's
+protocol, ported in [`drb2_judge.py`](drb2_judge.py) from
+[DeepResearch-Bench-II](https://github.com/imlrz/DeepResearch-Bench-II) at commit
+`7c7a9a8` (Apache-2.0). The prompt, JSON parsing, exact rubric-item validation,
+50-item batches, 10 attempts per batch, 150,000-character report truncation and
+the score aggregation are verbatim. It never starts the Agent, so a judge model
+can be changed or retried without rerunning research.
+
+```bash
+# Plan and settings only; no model call.
+uv run python -m benchmarks.public.runner.run_reports judge \
+  --out results/drb2-bcg-react-smoke --dry-run
+uv run python -m benchmarks.public.runner.run_reports judge \
+  --out results/drb2-bcg-react-smoke
+```
+
+The judge uses `JUDGE_API_KEY` / `JUDGE_BASE_URL` (falling back to `OPENAI_*`) and
+`JUDGE_MODEL`, default `gpt-5.5-luna`; the upstream evaluator pins `gpt-5.5`.
+`DRB2_JUDGE_REASONING_EFFORT` defaults to upstream's `medium` and is never lowered
+on retries. The model actually used is written to every graded result. A 16-token
+probe with the grading model and parameters runs first; an unusable judge stops the
+command before any report is graded.
+
+Pass the same `--data-root`/`--data-file` as the run: the rubrics are read from the
+raw `tasks_and_rubrics.jsonl` rows, as upstream does, and their digest must match
+the run's `dataset_sha256`. Only reports of tasks with agent status `completed` are
+graded; other tasks are marked `not_judged`. Rerunning `judge` grades remaining
+and `judge_error` tasks and skips scored ones; `--force` regrades everything and
+`--task-ids` limits the selection. `--workers` (default 10) is concurrent reports.
+
+Per task, `result.json` gains `rubric_scores` (`inforecall`, `analysis`,
+`presentation`, `total`, `blocked_rate`), `official_score` (= `total`),
+`scoring_status: official_protocol_scored` and the judge settings; the full
+per-item scores, reasons, evidence and token usage are in
+`trials/<id>/judge/drb2_rubric.json`. `summary.json` gains a `rubric` block with
+four views of the official mean over tasks: `valid_only` (graded reports only, as
+the leaderboard averages), `zero_filled` (tasks without a usable report count as
+0), and `_leaderboard` variants of both that drop tasks 112 and 114, which upstream
+currently excludes. The summary's `official_score` is `valid_only_leaderboard.total`;
+`scoring_status` is `official_protocol_partial` until every selected task is
+either graded or `not_judged`. These are scores computed **with the official
+protocol by this repository**; leaderboard scores are recomputed by the
+benchmark's maintainers.
+
+`judge/drb2_result.jsonl` uses upstream's `run_evaluation.py` output format, so
+upstream's `aggregate_scores.py --input <out>/judge/drb2_result.jsonl` reproduces
+the per-task numbers. The `export/` reports can also be graded by the upstream
+evaluator directly, for a cross-check against this port.
+
+Note an upstream property kept as is: its JSON clean-up only parses replies whose
+object keys start on separate lines (the pretty-printed format its prompt shows).
+A compact single-line reply fails validation and is retried within the attempt
+budget.
+
 ## Results, Graph records and resuming
 
 ```text
@@ -136,6 +194,9 @@ explicitly configured isolated deployment).
     agent.log                    worker stdout/stderr
     sandbox/worktree/            DRBench text renderings + FILES.md
     agent/                       native Agent trajectories and BCG records
+    judge/drb2_rubric.json       DRB2 only, after `judge`: per-item scores and usage
+  judge/drb2_result.jsonl        DRB2 only: upstream-format judge output
+  judge/judge.log                DRB2 only: per-batch judge log
   export/deepresearch_bench_ii/report/bcg-<pipeline>/idx-<n>.md
 ```
 

@@ -1,7 +1,8 @@
 """Run DRB2 / DRBench through FrontierAgent's BCG ReAct or Agent Team.
 
 One process per task isolates runtime registries, task workspaces and Graphs.
-This runner collects reports and deterministic diagnostics, NOT official scores.
+`run` collects reports and deterministic diagnostics. `judge` applies the
+official DRB2 rubric protocol to a finished run's saved reports afterwards.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import random
 import re
@@ -18,10 +20,11 @@ import sys
 import time
 from collections import Counter
 from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from benchmarks.public.reports import drb2, drbench
+from benchmarks.public.reports import drb2, drb2_judge, drbench
 from benchmarks.public.reports.models import BenchmarkTask
 from benchmarks.public.reports.prepare import prepare
 from benchmarks.public.reports.report_scoring import ReportScoringContext, score_report_task
@@ -271,10 +274,12 @@ def _worker(output: Path, task_id: str) -> None:
 
 def summarize(output: Path, task_ids: list[str]) -> dict[str, Any]:
     results = []
+    by_id: dict[str, dict[str, Any]] = {}
     for task_id in task_ids:
         path = output / "trials" / task_id / "result.json"
         if path.is_file():
             results.append(json.loads(path.read_text()))
+            by_id[task_id] = results[-1]
     metrics = {}
     for key in {k for result in results for k in result.get("metrics", {})}:
         values = [
@@ -306,7 +311,269 @@ def summarize(output: Path, task_ids: list[str]) -> dict[str, Any]:
         else None,
         "note": "Deterministic diagnostics are not accuracy or official rubric/insight recall scores.",
     }
+    if rubric := rubric_summary(by_id, task_ids):
+        summary["rubric"] = rubric
+        if rubric["counts"]["scored"]:
+            summary["official_score"] = rubric["valid_only_leaderboard"]["total"]
+            summary["scoring_status"] = (
+                "official_protocol_scored" if rubric["complete"] else "official_protocol_partial"
+            )
     write_json(output / "summary.json", summary)
+    return summary
+
+
+_RUBRIC_SCORED = "official_protocol_scored"
+_RUBRIC_ERROR = "judge_error"
+_RUBRIC_NOT_JUDGED = "not_judged"
+_JUDGE_RECORD = Path("judge") / "drb2_rubric.json"
+
+
+def rubric_summary(by_id: dict[str, dict[str, Any]], task_ids: list[str]) -> dict[str, Any] | None:
+    """Official aggregation (per-task fractions, then the mean over tasks) in four views.
+
+    ``valid_only`` averages judged reports, as the official leaderboard does;
+    ``zero_filled`` also counts tasks without a usable report as 0. The
+    ``_leaderboard`` variants drop the tasks upstream currently excludes.
+    """
+    judged = {
+        task_id: record
+        for task_id, record in by_id.items()
+        if record.get("scoring_status") == _RUBRIC_SCORED and isinstance(record.get("rubric_scores"), dict)
+    }
+    statuses = Counter(record.get("scoring_status") for record in by_id.values())
+    if not judged and not statuses[_RUBRIC_ERROR] and not statuses[_RUBRIC_NOT_JUDGED]:
+        return None
+
+    def excluded(task_id: str) -> bool:
+        return task_id.isdigit() and int(task_id) in drb2_judge.LEADERBOARD_EXCLUDED_IDX
+
+    def view(*, zero_filled: bool, leaderboard: bool) -> dict[str, Any]:
+        rows = []
+        for task_id in task_ids:
+            if leaderboard and excluded(task_id):
+                continue
+            if task_id in judged:
+                rows.append(judged[task_id]["rubric_scores"])
+            elif zero_filled and by_id.get(task_id, {}).get("scoring_status") == _RUBRIC_NOT_JUDGED:
+                rows.append(dict.fromkeys(drb2_judge.SCORE_KEYS, 0.0))
+        return {
+            "tasks": len(rows),
+            **{key: drb2_judge.mean_or_none([row.get(key) for row in rows]) for key in drb2_judge.SCORE_KEYS},
+        }
+
+    counts = {
+        "selected": len(task_ids),
+        "scored": len(judged),
+        "judge_errors": statuses[_RUBRIC_ERROR],
+        "not_judged_no_valid_report": statuses[_RUBRIC_NOT_JUDGED],
+        "awaiting_judge": sum(
+            record.get("scoring_status") not in {_RUBRIC_SCORED, _RUBRIC_ERROR, _RUBRIC_NOT_JUDGED}
+            for record in by_id.values()
+        ),
+        "awaiting_run": len(task_ids) - len(by_id),
+    }
+    models = sorted({str((record.get("judge") or {}).get("model")) for record in judged.values()})
+    result = {
+        "protocol": f"{drb2_judge.UPSTREAM_REPOSITORY}@{drb2_judge.UPSTREAM_COMMIT}",
+        "judge_models": models,
+        "counts": counts,
+        "complete": not counts["judge_errors"] and not counts["awaiting_judge"] and not counts["awaiting_run"],
+        "valid_only": view(zero_filled=False, leaderboard=False),
+        "valid_only_leaderboard": view(zero_filled=False, leaderboard=True),
+        "zero_filled": view(zero_filled=True, leaderboard=False),
+        "zero_filled_leaderboard": view(zero_filled=True, leaderboard=True),
+        "leaderboard_excluded_idx": sorted(drb2_judge.LEADERBOARD_EXCLUDED_IDX),
+        "note": "official_score is valid_only_leaderboard.total, computed with the official "
+        "protocol by this repository; official leaderboard scores are recomputed by its maintainers.",
+    }
+    if len(models) > 1:
+        result["warning"] = "Reports were graded by different judge models; use judge --force to regrade."
+    return result
+
+
+def _judge_source(args: argparse.Namespace) -> Path:
+    if args.data_file is not None:
+        source = args.data_file.expanduser().resolve()
+        return source / drb2.TASKS_FILENAME if source.is_dir() else source
+    return drb2.find_tasks_file(args.data_root)
+
+
+def _update_result(trial: Path, **fields: Any) -> None:
+    path = trial / "result.json"
+    record = json.loads(path.read_text())
+    record.update(fields)
+    write_json(path, record)
+
+
+async def judge_run(
+    args: argparse.Namespace, *, client_factory: Any = None
+) -> dict[str, Any] | None:
+    """Grade a finished DRB2 run's saved reports; never reruns or touches the Agent."""
+    output = args.out.resolve()
+    if not (output / "run.json").is_file():
+        raise ValueError(f"{output} has no run.json; pass the --out of a `run`.")
+    config = json.loads((output / "run.json").read_text())
+    if config.get("benchmark") != drb2.NAME:
+        raise ValueError("LLM judging is implemented only for DeepResearch Bench II (drb2).")
+    source = _judge_source(args)
+    tasks = {task.task_id: task for task in drb2.load_tasks(source.parent, data_file=source)}
+    task_ids = list(config["task_ids"])
+    if missing := [task_id for task_id in task_ids if task_id not in tasks]:
+        raise ValueError(f"{source} lacks tasks used by this run: {missing}")
+    # Same digest as build_config: the rubrics graded now are the ones the run used.
+    if _digest([[asdict(tasks[task_id]) for task_id in task_ids], {}]) != config.get("dataset_sha256"):
+        raise ValueError(
+            f"{source} differs from the data this run used (dataset_sha256 mismatch). "
+            "Pass the run's --data-root/--data-file."
+        )
+    contents = drb2_judge.load_official_contents(source)
+    selected = task_ids
+    if args.task_ids:
+        selection = parse_task_ids(args.task_ids, canonicalize=canonicalize)
+        if unexpected := set(selection.scoped) - {drb2.NAME}:
+            raise ValueError(f"Task IDs were scoped to a different benchmark: {sorted(unexpected)}")
+        chosen, missing = select_tasks([tasks[task_id] for task_id in task_ids], selection.ids_for(drb2.NAME))
+        if missing:
+            raise ValueError(f"Task IDs are not part of this run: {missing}")
+        selected = [task.task_id for task in chosen]
+
+    judge_config = drb2_judge.JudgeConfig.from_env()
+    to_judge: list[str] = []
+    not_judged: dict[str, str] = {}
+    already: list[str] = []
+    awaiting_run: list[str] = []
+    for task_id in selected:
+        trial = output / "trials" / task_id
+        if not (trial / "result.json").is_file():
+            awaiting_run.append(task_id)
+            continue
+        record = json.loads((trial / "result.json").read_text())
+        report = trial / "report.md"
+        if record.get("status") != "completed":
+            not_judged[task_id] = f"agent status {record.get('status')}"
+        elif not report.is_file() or not report.read_text(encoding="utf-8", errors="ignore").strip():
+            not_judged[task_id] = "empty report"
+        elif record.get("scoring_status") == _RUBRIC_SCORED and not args.force:
+            already.append(task_id)
+        else:
+            to_judge.append(task_id)
+    plan = {
+        "out": str(output),
+        "data": str(source),
+        "judge": judge_config.public(),
+        "to_judge": to_judge,
+        "already_scored": already,
+        "not_judged": not_judged,
+        "awaiting_run": awaiting_run,
+    }
+    if args.dry_run:
+        print(json.dumps(plan, ensure_ascii=False, indent=2))
+        return None
+
+    log_path = output / "judge" / "judge.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(log_path, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    judge_logger = logging.getLogger(drb2_judge.__name__)
+    judge_logger.addHandler(handler)
+    judge_logger.setLevel(logging.INFO)
+    try:
+        for task_id, reason in not_judged.items():
+            _update_result(
+                output / "trials" / task_id,
+                official_score=None,
+                scoring_status=_RUBRIC_NOT_JUDGED,
+                rubric_scores=None,
+                judge={"reason": reason},
+            )
+        if to_judge:
+            client = (client_factory or drb2_judge.OpenAIChatClient)(judge_config)
+            try:
+                await client.probe()
+            except Exception as exc:
+                raise RuntimeError(
+                    f"judge model {judge_config.model!r} is not usable: "
+                    f"{type(exc).__name__}: {str(exc)[:300]}"
+                ) from exc
+            print(
+                f"Judging {len(to_judge)} report(s) with {judge_config.model} "
+                f"(reasoning_effort={judge_config.reasoning_effort}); log: {log_path}",
+                flush=True,
+            )
+            semaphore = asyncio.Semaphore(args.workers)
+            done = 0
+
+            async def grade(task_id: str) -> None:
+                nonlocal done
+                async with semaphore:
+                    trial = output / "trials" / task_id
+                    report = (trial / "report.md").read_text(encoding="utf-8", errors="ignore")
+                    started = time.monotonic()
+                    try:
+                        result = await drb2_judge.judge_report(
+                            contents.get(int(task_id)), report, client, judge_config, label=f"idx={task_id}"
+                        )
+                    except Exception as exc:  # A transport bug must not lose other tasks.
+                        result = {"error": f"{type(exc).__name__}: {exc}"}
+                    error = result.get("error")
+                    scores = None if error else drb2_judge.compute_dimension_averages(result)
+                    write_json(
+                        trial / _JUDGE_RECORD,
+                        {
+                            "benchmark": drb2.NAME,
+                            "task_id": task_id,
+                            "idx": int(task_id),
+                            "status": "judge_error" if error else "scored",
+                            "error": error,
+                            "scores": scores,
+                            "judge": judge_config.public(),
+                            "duration_seconds": round(time.monotonic() - started, 3),
+                            "judged_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                            "result": result,
+                        },
+                    )
+                    public = judge_config.public()
+                    _update_result(
+                        trial,
+                        official_score=None if error else scores["total"],
+                        scoring_status=_RUBRIC_ERROR if error else _RUBRIC_SCORED,
+                        rubric_scores=scores,
+                        judge={
+                            key: public[key]
+                            for key in (
+                                "model",
+                                "model_overridden",
+                                "upstream_model",
+                                "reasoning_effort",
+                                "upstream_commit",
+                            )
+                        }
+                        | {"record": str(_JUDGE_RECORD), "error": error},
+                    )
+                    done += 1
+                    outcome = f"error: {error}" if error else f"total={scores['total']}"
+                    print(f"[{done}/{len(to_judge)}] idx={task_id} {outcome}", flush=True)
+
+            await asyncio.gather(*(grade(task_id) for task_id in to_judge))
+    finally:
+        judge_logger.removeHandler(handler)
+        handler.close()
+
+    # Upstream run_evaluation.py output format, for aggregate_scores.py cross-checks.
+    lines = []
+    for task_id in task_ids:
+        path = output / "trials" / task_id / _JUDGE_RECORD
+        if path.is_file() and (record := json.loads(path.read_text()))["status"] == "scored":
+            lines.append(
+                json.dumps(
+                    {"model": f"bcg-{config['pipeline']}", "idx": record["idx"], "result": record["result"]},
+                    ensure_ascii=False,
+                )
+            )
+    export = output / "judge" / "drb2_result.jsonl"
+    export.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
+    summary = summarize(output, task_ids)
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
     return summary
 
 
@@ -546,6 +813,21 @@ def parser() -> argparse.ArgumentParser:
             child.add_argument("--fetch-chars", type=int, default=20_000)
             child.add_argument("--out", type=Path, required=True)
             child.add_argument("--dry-run", action="store_true")
+    grader = commands.add_parser(
+        "judge",
+        help="Grade a finished DRB2 run with the official rubric protocol; no Agent calls.",
+    )
+    grader.add_argument("--out", type=Path, required=True, help="The --out of a finished run.")
+    grader.add_argument("--data-root", type=Path, default=default_root)
+    grader.add_argument("--data-file", type=Path, help="DRB2 JSONL file used by the run.")
+    grader.add_argument("--task-ids", help="Grade only these tasks of the run.")
+    grader.add_argument("--workers", type=int, default=10, help="Concurrent reports.")
+    grader.add_argument(
+        "--force", action="store_true", help="Regrade reports that are already scored."
+    )
+    grader.add_argument(
+        "--dry-run", action="store_true", help="Show the plan and judge settings; call no model."
+    )
     worker = commands.add_parser("_worker", help=argparse.SUPPRESS)
     worker.add_argument("--out", type=Path, required=True)
     worker.add_argument("--task-id", required=True)
@@ -561,6 +843,12 @@ def main() -> None:
     try:
         if args.command == "_worker":
             _worker(args.out.resolve(), args.task_id)
+            return
+        if args.command == "judge":
+            if args.workers <= 0:
+                raise ValueError("--workers must be positive.")
+            logging.basicConfig(level=logging.WARNING, format="%(message)s")
+            asyncio.run(judge_run(args))
             return
         if args.command == "prepare":
             if args.source and len(args.benchmarks) != 1:
