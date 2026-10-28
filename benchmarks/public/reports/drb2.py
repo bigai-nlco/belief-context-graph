@@ -8,8 +8,8 @@ blocked reference, so the Agent must not be able to retrieve that article.
 
 This module loads tasks, builds the per-task retrieval blocklist that the
 Agent's ``web_search``/``web_fetch`` tools enforce, and audits finished
-reports for blocked citations. Rubric judging (LLM-as-judge) is a pluggable
-scorer that is intentionally not run yet.
+reports for blocked citations. Rubric judging (LLM-as-judge) lives in
+:mod:`benchmarks.public.reports.drb2_judge` and runs offline on finished runs.
 """
 
 from __future__ import annotations
