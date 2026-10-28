@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,7 +18,7 @@ from tools.case_study_studio.tests.test_control import build_fixture, write
 
 
 @pytest.fixture
-def control(tmp_path: Path) -> Control:
+def control(tmp_path: Path) -> Iterator[Control]:
     with patch("tools.case_study_studio.review_queue.ReviewConfig.from_env", return_value=ReviewConfig(api_key="fake-key")):
         yield build_fixture(tmp_path)
 

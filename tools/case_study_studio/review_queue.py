@@ -96,6 +96,7 @@ class AIReviews:
                 cursor = db.execute("INSERT INTO ai_reviews(run_id,benchmark,task_id,requested_by,status,created_at) "
                                     "VALUES (?,?,?,?,'queued',?)", (run_id, benchmark, task_id, user["id"], now()))
                 job_id = cursor.lastrowid
+                assert job_id is not None
         return self.public(self.row(job_id))
 
     def tick(self) -> None:

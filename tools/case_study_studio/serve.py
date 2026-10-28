@@ -12,7 +12,7 @@ import time
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import TYPE_CHECKING, BinaryIO, ClassVar
+from typing import TYPE_CHECKING, BinaryIO, cast
 from urllib.parse import unquote, urlsplit
 
 if TYPE_CHECKING:
@@ -28,8 +28,13 @@ ASSETS = {"index.html", "styles.css", "app.mjs", "model.mjs", "browser_crypto.mj
           "evidence-loader.mjs", "evidence-worker.mjs", "evidence-cache.mjs"}
 
 
+class StudioHTTPServer(ThreadingHTTPServer):
+    control: Control | None = None
+    identity_requests: dict[tuple[str, int], int]
+
+
 class Handler(SimpleHTTPRequestHandler):
-    extensions_map: ClassVar[dict[str, str]] = {
+    extensions_map: dict[str, str] = {  # noqa: RUF012 -- matches the base handler's instance attribute type
         **SimpleHTTPRequestHandler.extensions_map,
         ".mjs": "text/javascript; charset=utf-8",
         ".svg": "image/svg+xml",
@@ -108,7 +113,7 @@ class Handler(SimpleHTTPRequestHandler):
                     counts = getattr(self.server, "identity_requests", {})
                     counts = {k: v for k, v in counts.items() if k[1] >= key[1]}
                     counts[key] = counts.get(key, 0) + 1
-                    self.server.identity_requests = counts
+                    cast(StudioHTTPServer, self.server).identity_requests = counts
                     if counts[key] > 15:
                         raise APIError(429, "尝试过于频繁，请一分钟后再试")
                 body = self._body()
@@ -201,7 +206,7 @@ def main() -> None:
     args = parser.parse_args()
     root = Path(__file__).resolve().parent
     handler = partial(Handler, directory=str(root))
-    with ThreadingHTTPServer((args.host, args.port), handler) as server:
+    with StudioHTTPServer((args.host, args.port), handler) as server:
         sys.path.insert(0, str(root.parents[1]))
         if args.shared:
             from tools.case_study_studio.control import Control
@@ -218,7 +223,7 @@ def main() -> None:
         except KeyboardInterrupt:
             pass
         finally:
-            if getattr(server, "control", None):
+            if server.control is not None:
                 server.control.closed.set()
 
 

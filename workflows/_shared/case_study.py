@@ -256,10 +256,11 @@ def export_batch(directory: Path, *, task_ids: list[str] | None = None) -> list[
     # Otherwise directory imports could pick up an older unpartitioned bundle.
     if outputs:
         for old in root.glob("case-studies*.json.gz"):
-            if old not in outputs and re.fullmatch(r"case-studies(?:-\d{3,})?\.json\.gz", old.name):
-                if not old.is_symlink():
-                    read_bundle(old)  # do not delete unrelated files with this name
-                    old.unlink()
+            if (old not in outputs
+                    and re.fullmatch(r"case-studies(?:-\d{3,})?\.json\.gz", old.name)
+                    and not old.is_symlink()):
+                read_bundle(old)  # do not delete unrelated files with this name
+                old.unlink()
     return outputs
 
 

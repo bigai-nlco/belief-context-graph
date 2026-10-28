@@ -226,7 +226,7 @@ The shared dashboard starts and displays DeepResearch Bench II only (`drb2`, tas
 
 Open **http://127.0.0.1:8876** on the host, or `http://<server-LAN-IP>:8876` on the trusted LAN. Sign in with a nickname to start or stop tests, view results, and annotate; no administrator code is required. Existing experiments are cataloged automatically. Each new launch gets an independent `results/studio/RUN-<number>/` directory. Profiles and API keys are server-side only. See the [Case Study Studio guide](tools/case_study_studio/README.md) for prerequisites, identity recovery, and storage details. Do not expose this plain-HTTP service to the public Internet.
 
-The original browser-local mode remains available without `--shared`, or through **打开原有本地草稿 / 导入旧标注**. Local drafts are retained. No model, Graph server, or API key is needed for viewing and annotating existing evidence. Export JSON workspaces, Markdown case studies, or CSV summaries as before.
+The original browser-local mode remains available by starting the server without `--shared`. Local drafts are retained; the shared dashboard has no local-draft import entry. No model, Graph server, or API key is needed for viewing and manually annotating existing evidence. Export JSON workspaces, Markdown case studies, or CSV summaries as before. AI annotation is a separate, explicitly started model call; see the [AI Review guide](tools/ai_review/README.md).
 
 BCG workflows now automatically write `case-study.json.gz` in the task/session artifact directory. The report and subprocess benchmark runners also write `case-studies.json.gz` at the batch output root when the run finishes. Import one batch bundle or several task bundles together; each Case retains its own evidence and annotations. No manual extraction is needed. Graph updates received by the Agent are saved locally alongside injection records, so a remote Graph server does not require a second manual download. Reimporting identical evidence preserves existing annotations.
 
@@ -250,7 +250,7 @@ Remove `--dry-run` to run it. Use `--pipeline stateful-react-agent` for a single
 
 DRB2 defaults to 20 search queries and 30 URL fetches per task, shared across agents. Use `--search-calls 0 --fetch-calls 0` to disable both count limits, or pass positive values to set larger budgets. Each query or URL in a batched tool call counts separately. This does not disable turn, timeout, source-access, or response-size limits.
 
-These adapters save full reports, diagnostic metrics, and separate Agent/Graph token usage. Official rubric/insight judging is not implemented here: `official_score` remains `null`, so diagnostic metrics must not be reported as benchmark accuracy.
+These adapters save full reports, diagnostic metrics, and separate Agent/Graph token usage. Research runs leave `official_score` as `null`. For DeepResearch Bench II, grade the saved reports separately using `uv run python -m benchmarks.public.runner.run_reports judge --out <run-output>` with the same dataset arguments as the run. This applies the official rubric protocol without rerunning the Agent; see the [grading configuration and score interpretation](benchmarks/public/reports/README.md#drb2-rubric-judging). DRBench insight judging is not implemented. Diagnostic metrics and AI behavior annotations are not official benchmark scores.
 
 ## Troubleshooting
 

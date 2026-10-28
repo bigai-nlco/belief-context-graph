@@ -109,7 +109,7 @@ class Control:
     def label(run_id: int) -> str:
         return f"RUN-{run_id:04d}"
 
-    def register(self, name: str) -> dict:
+    def register(self, name: object) -> dict:
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 40 or any(ord(c) < 32 for c in name):
             raise APIError(400, "昵称需要 1–40 个字符")
         token = secrets.token_urlsafe(32)
@@ -416,6 +416,7 @@ class Control:
             cursor = db.execute("INSERT INTO runs(title,owner,created_at,config,managed,status) VALUES (?,?,?,?,1,'queued')",
                                 (title.strip(), user["id"], now(), json.dumps(config)))
             run_id = cursor.lastrowid
+            assert run_id is not None
             db.execute("UPDATE runs SET source=? WHERE id=?", (f"studio/{self.label(run_id)}", run_id))
         return self.detail(run_id, user)
 
@@ -462,4 +463,3 @@ class Control:
                     "--state", str(self.state), "--run-id", str(row["id"])], cwd=self.root,
                     stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
             db.execute("UPDATE runs SET status='starting',pid=?,started_at=? WHERE id=?", (proc.pid, now(), row["id"]))
-

@@ -92,14 +92,15 @@ def validate_summary(value: Summary, candidates: list[dict], packet: dict) -> No
 
 def validated_call(client: LiteLLMReviewer, stage: str, packet: dict, *, candidates: list[dict] | None = None) -> dict:
     prompt = messages("summary" if candidates is not None else "findings", packet)
-    schema = Summary if candidates is not None else Findings
     for attempt in range(2):
         raw = client.complete(prompt, stage + (".repair" if attempt else ""))
         try:
-            value = schema.model_validate_json(raw)
+            value: Findings | Summary
             if candidates is None:
+                value = Findings.model_validate_json(raw)
                 validate_findings(value, packet)
             else:
+                value = Summary.model_validate_json(raw)
                 validate_summary(value, candidates, packet)
             return value.model_dump()
         except (ValidationError, ValueError) as exc:

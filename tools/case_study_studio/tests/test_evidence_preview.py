@@ -3,23 +3,25 @@ import gzip
 import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+from tools.case_study_studio.control import Control
 from tools.case_study_studio.evidence_preview import preview_bundle
 from tools.case_study_studio.tests.test_control import build_fixture
 from workflows._shared.case_study import read_bundle
 
 
 @pytest.fixture
-def frozen(tmp_path):
+def frozen(tmp_path: Path) -> tuple[Control, Path, str]:
     control = build_fixture(tmp_path)
     path, digest = control.evidence(1, "drb2", "2")
     return control, path, digest
 
 
-def test_preview_keeps_complete_cited_files_and_never_mutates_original(frozen):
+def test_preview_keeps_complete_cited_files_and_never_mutates_original(frozen: tuple[Control, Path, str]) -> None:
     control, path, digest = frozen
     original = path.read_bytes()
     preview, sha = control.evidence_preview(1, "drb2", "2")
@@ -42,12 +44,14 @@ def test_preview_keeps_complete_cited_files_and_never_mutates_original(frozen):
         if file["path"] in kept:
             assert kept[file["path"]] == file
     # Reopening and concurrent readers never reread/decompress the full bundle.
-    with patch("tools.case_study_studio.evidence_preview.read_bundle", side_effect=AssertionError("cold load")):
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            assert list(pool.map(lambda _: preview_bundle(path, digest), range(8))) == [preview] * 8
+    with (
+        patch("tools.case_study_studio.evidence_preview.read_bundle", side_effect=AssertionError("cold load")),
+        ThreadPoolExecutor(max_workers=4) as pool,
+    ):
+        assert list(pool.map(lambda _: preview_bundle(path, digest), range(8))) == [preview] * 8
 
 
-def test_preview_parallel_first_reads_publish_one_valid_file(frozen):
+def test_preview_parallel_first_reads_publish_one_valid_file(frozen: tuple[Control, Path, str]) -> None:
     _, path, digest = frozen
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(lambda _: preview_bundle(path, digest), range(4)))
@@ -57,7 +61,7 @@ def test_preview_parallel_first_reads_publish_one_valid_file(frozen):
 
 
 @pytest.mark.parametrize("mutation", ["full_hash", "source_hash", "source_size", "unsafe_path", "duplicate", "missing_metadata"])
-def test_bad_preview_is_never_published(frozen, mutation):
+def test_bad_preview_is_never_published(frozen: tuple[Control, Path, str], mutation: str) -> None:
     _, path, digest = frozen
     if mutation == "full_hash":
         digest = "0" * 64
@@ -83,7 +87,7 @@ def test_bad_preview_is_never_published(frozen, mutation):
     assert not list(path.parent.glob(".preview-*"))
 
 
-def test_new_frozen_revision_has_a_different_cache(frozen):
+def test_new_frozen_revision_has_a_different_cache(frozen: tuple[Control, Path, str]) -> None:
     _, path, digest = frozen
     first = preview_bundle(path, digest)
     bundle = read_bundle(path)

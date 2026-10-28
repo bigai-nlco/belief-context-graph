@@ -6,11 +6,12 @@ worktree files and other experiments are never recursively copied.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import hashlib
 import json
-from pathlib import Path
 import re
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
 SECRET_KEY = re.compile(r"(api[_-]?key|authorization|access[_-]?token|password|secret)", re.I)
 SNAPSHOT_FIELDS = ("generated_at", "problem_id", "stream_turn_index", "n_turns_ingested",
@@ -20,7 +21,7 @@ NODE_FIELDS = ("id", "node_type", "belief", "decision", "content", "confidence",
                "tool_call_id", "query", "extraction_method")
 
 
-def snapshot_view(snapshot):
+def snapshot_view(snapshot: dict[str, Any]) -> dict[str, Any]:
     """Keep each recorded graph, omitting repeated heavyweight audit collections.
 
     Node content, confidence and relations are copied from THAT snapshot. Never
@@ -33,7 +34,7 @@ def snapshot_view(snapshot):
     return view
 
 
-def sanitize(value, secrets: list[str], home: str):
+def sanitize(value: Any, secrets: list[str], home: str) -> Any:
     if isinstance(value, dict):
         return {k: "[REDACTED]" if SECRET_KEY.search(k) else sanitize(v, secrets, home)
                 for k, v in value.items()}
@@ -46,7 +47,7 @@ def sanitize(value, secrets: list[str], home: str):
     return value
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run", type=Path)
     parser.add_argument("--output", type=Path, default=Path(__file__).with_name("demo-case.json"))
@@ -116,7 +117,7 @@ def main():
             "finishedAt": result["finished_at"], "graphModel": "gpt-6-luna",
             "provider": "LiteLLM", "agentEffort": "low", "graphEffort": "none",
             "recentTurns": 2, "graphChars": 6600, "searchCalls": search_calls,
-            "generatedAt": datetime.now(timezone.utc).isoformat(),
+            "generatedAt": datetime.now(UTC).isoformat(),
             "sourcePolicy": "Actual run outputs; credentials and local home paths redacted. Snapshot timeline keeps all recorded node contents, confidence and relations, omitting repeated audit collections; state.json preserves complete final graph and evidence. Graph LLM usage includes final flush and excludes local embedding tokens. No benchmark score or annotations added.",
         },
         "files": files,

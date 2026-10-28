@@ -49,7 +49,7 @@ def illustration() -> dict:
         "再次搜索项目 X 的规划投运时间和审批条件。",
     ]
     report = "# 项目 X 核查报告\n\n项目 X 尚未正式运营。2030 年为规划目标，实际投运仍需通过安全评估并获得许可。\n\n依据：项目官网 https://example.org/project-x 。"
-    records = [{"t": "start", "user_message": question}]
+    records: list[dict] = [{"t": "start", "user_message": question}]
     injections = []
     for call, action in enumerate(actions, 1):
         tool = "web_fetch" if call == 1 else "web_search"

@@ -2,10 +2,10 @@
 
 A :class:`ReportScorer` turns ``(task, report, tool trace)`` into a flat dict
 of metrics. Deterministic scorers run inline after every report task. LLM
-judges implement the same interface with ``requires_llm = True``; they are
-registered in :data:`LLM_JUDGES` but deliberately not run yet. Because each
-result file records the saved report and trajectory paths, judges can be
-added later and applied to finished runs without re-running the Agent.
+judges implement the same interface with ``requires_llm = True`` and are
+registered in :data:`LLM_JUDGES`; they never run inline. DRB2's rubric judge is
+applied to finished runs by ``run_reports judge`` (see :mod:`drb2_judge`),
+without re-running the Agent. DRBench's insight judge is not implemented yet.
 
 Metric keys are flat so ``summarize_results`` can average them; list-valued
 diagnostics (``files_cited`` and so on) are kept but not averaged.
@@ -102,7 +102,7 @@ class DRBenchDeterministicRecall:
 
 
 class LLMReportJudge:
-    """Base for the next round's LLM judges; not run in this round.
+    """Base for LLM judges; never part of the inline deterministic scorers.
 
     Implementations should read their judge configuration at construction,
     return flat metrics, and raise on transport failure so the runner can mark
@@ -119,9 +119,43 @@ class LLMReportJudge:
 
 
 class DRB2RubricJudge(LLMReportJudge):
-    """Official three-way rubric judge (GPT-5.5, 50 rubric items per batch)."""
+    """Official three-way rubric judge (see :mod:`drb2_judge`).
+
+    For callers holding only a loaded task: the rubric comes from the task's
+    normalised reference. ``run_reports judge`` instead reads the raw dataset
+    rows, exactly as the official evaluator does, and is the supported path.
+    Synchronous; do not call from inside a running event loop.
+    """
 
     name = "drb2_rubric_judge"
+
+    def __init__(self, config: Any = None, client: Any = None) -> None:
+        from benchmarks.public.reports import drb2_judge
+
+        self.config = config or drb2_judge.JudgeConfig.from_env()
+        self.client = client
+
+    def score(
+        self, task: BenchmarkTask, report: str, context: ReportScoringContext
+    ) -> dict[str, Any]:
+        import asyncio
+
+        from benchmarks.public.reports import drb2_judge
+
+        client = self.client or drb2_judge.OpenAIChatClient(self.config)
+        result = asyncio.run(
+            drb2_judge.judge_report(
+                drb2_judge.content_from_task(task), report, client, self.config,
+                label=f"idx={task.task_id}",
+            )
+        )
+        if "error" in result:
+            raise RuntimeError(f"{self.name}: {result['error']}")
+        scores = drb2_judge.compute_dimension_averages(result)
+        return {
+            **{f"rubric_{key}": value for key, value in scores.items()},
+            "rubric_judge_model": self.config.model,
+        }
 
 
 class DRBenchInsightsRecallJudge(LLMReportJudge):

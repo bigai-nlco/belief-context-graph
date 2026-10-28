@@ -7,7 +7,6 @@ import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -15,7 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from tools.case_study_studio.control import DEFAULT_IDS, ROOT, APIError, Control, safe_child
-from tools.case_study_studio.serve import Handler
+from tools.case_study_studio.serve import Handler, StudioHTTPServer
 from workflows._shared.case_study import export_case
 
 
@@ -278,7 +277,7 @@ def test_path_boundary_and_unfinished_evidence(control: Control, tmp_path: Path)
 
 
 def test_http_permissions_and_static_boundary(control: Control) -> None:
-    server = ThreadingHTTPServer(("127.0.0.1", 0), partial(Handler, directory=str(ROOT / "tools/case_study_studio")))
+    server = StudioHTTPServer(("127.0.0.1", 0), partial(Handler, directory=str(ROOT / "tools/case_study_studio")))
     server.control = control
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
