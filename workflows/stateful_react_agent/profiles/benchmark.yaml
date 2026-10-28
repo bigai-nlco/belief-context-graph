@@ -14,10 +14,10 @@ llm:
   top_p: 0.95
   extra_body:
     top_k: 20
-  max_tokens: 32768
+  max_tokens: 4096 
 
 agent:
-  main_max_turns: 200
+  main_max_turns: 100
   tool_timeout_s: 900
   llm_timeout_s: 600
   reasoning_only_timeout_s: 120
@@ -29,8 +29,8 @@ agent:
     recent_turns: ${BCG_RECENT_TURNS:-2}
     graph_chars: ${BCG_GRAPH_CHARS:-6600}
     timeout: ${BCG_GRAPH_TIMEOUT:-120}
-  max_len: ${OPENAI_CONTEXT_WINDOW:-262144}
-  max_input_tokens: ${OPENAI_MAX_INPUT_TOKENS:-229376}
+  max_len: ${OPENAI_CONTEXT_WINDOW:-49152}
+  max_input_tokens: ${OPENAI_MAX_INPUT_TOKENS:-40000}
   agent_tools: [web_search, web_fetch, bash, download_file, grep_search, glob_search, recover_result]
   web_search_impl: original
   web_fetch_impl: original

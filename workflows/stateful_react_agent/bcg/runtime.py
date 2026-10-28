@@ -373,30 +373,37 @@ class BCGMemory:
                     graph, node_ids, relation_ids = render_graph(
                         self.snapshot, selection, self.settings.graph_chars
                     )
+                    # What the selector offered vs what survived the client-side
+                    # hard cap. render_graph drops whole nodes from the tail of
+                    # the selector's order, so a large gap means the budget —
+                    # not the selector — decided what the model sees.
+                    offered = list(dict.fromkeys(selection.get("node_ids") or []))
+                    offered_edges = list(dict.fromkeys(selection.get("relation_ids") or []))
+                    dropped = [i for i in offered if i not in set(node_ids)]
+                    block = self.context_guide + "\n\n" + graph
                     result = list(plan.retained)
-                    # Dedicated system block directly after the original system
-                    # prefix. Neither the prefix nor retained provider items are
-                    # rewritten; the block never enters durable conversation.
-                    index = 0
-                    while index < len(result) and result[index].get("role") in {
-                        "system",
-                        "developer",
-                    }:
-                        index += 1
-                    memory_message = system_msg(self.context_guide + "\n\n" + graph)
-                    memory_message["transient"] = True
-                    result.insert(index, memory_message)
-                    event.update(
-                        {
-                            "messages_after": len(result),
-                            "retained_indices": plan.retained_indices,
-                            "evicted_steps": plan.evicted_steps,
-                            "graph_chars": len(graph),
-                            "selected_node_ids": node_ids,
-                            "selected_relation_ids": relation_ids,
-                            "system_memory": memory_message.get("content"),
-                        }
-                    )
+                    if result and result[0].get("role") in {"system", "developer"}:
+                        head = dict(result[0])                   
+                        head["content"] = str(head.get("content", "")) + "\n\n" + block
+                        head["transient"] = True
+                        result[0] = head
+                    else:
+                        head = system_msg(block)
+                        head["transient"] = True
+                        result.insert(0, head)
+                    event.update({
+                        "messages_after": len(result),
+                        "retained_indices": plan.retained_indices,
+                        "evicted_steps": plan.evicted_steps,
+                        "graph_chars": len(graph),
+                        "selected_node_ids": node_ids,
+                        "selected_relation_ids": relation_ids,
+                        "selector_node_ids": offered,
+                        "trim_dropped_nodes": len(dropped),
+                        "trim_dropped_node_ids": dropped,
+                        "trim_dropped_relations": len(offered_edges) - len(relation_ids),
+                        "system_memory": block,                
+                    })
             except (GraphError, UnsupportedHistory) as exc:
                 event["fallback"] = str(exc)
                 if isinstance(exc, GraphError) and str(exc) != "graph_retry_cooldown":
