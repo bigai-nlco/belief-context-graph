@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>BCG · 运行与标注</title><link rel="icon" href="./icon.svg">
+  <link rel="stylesheet" href="./styles.css"><link rel="stylesheet" href="./runs.css">
+  <script type="module" src="./runs.mjs"></script>
+</head>
+<body class="runs-page">
+  <header class="runs-header"><a class="runs-brand" href="./"><img src="./icon.svg" width="32" height="32" alt=""><strong>BCG</strong><span class="runs-brand-label">RUNS &amp; ANNOTATIONS</span></a><div class="runs-actions"><span id="connection" role="status">正在连接…</span><a class="button" href="./review-pipeline.html">AI Review 方法</a><button class="button" id="identity-button">标注身份</button><button class="button primary" id="launch-button">＋ 启动测试</button></div></header>
+  <div class="runs-layout"><aside class="runs-sidebar"><div class="runs-sidebar-title"><h2>测试运行</h2><button id="refresh-button" class="button ghost refresh-button" type="button" data-state="idle" aria-busy="false">
+    <svg class="refresh-symbol refresh-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.5 6.2L3 16M3 21v-5h5"/></svg>
+    <svg class="refresh-symbol refresh-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>
+    <svg class="refresh-symbol refresh-error" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/></svg>
+    <span class="refresh-label" aria-live="polite" aria-atomic="true">刷新</span>
+  </button></div><p>按启动编号查看结果</p><nav id="run-list" aria-label="测试运行列表"></nav></aside><main class="runs-main" id="run-content"><p class="boot">正在读取运行记录…</p></main></div>
+  <div id="run-notice" class="run-notice" role="status" hidden></div>
+  <dialog id="identity-dialog" class="studio-dialog identity-dialog" aria-labelledby="identity-title">
+    <div class="dialog-header">
+      <h2 id="identity-title">标注身份</h2>
+      <button type="button" class="icon-button" data-close="identity-dialog" aria-label="关闭"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+    </div>
+    <form id="identity-form">
+      <p>每个人的标注独立保存到服务器。换浏览器后可用个人身份码恢复。</p>
+      <label class="field"><span>首次使用：填写昵称</span><input name="name" maxlength="40" autocomplete="nickname" placeholder="你的名字或团队内昵称" autofocus></label>
+      <label class="field"><span>已有身份：填写个人身份码</span><input name="token" type="password" autocomplete="off" placeholder="已有身份时无需再填写昵称"></label>
+      <p id="identity-error" class="form-error" role="alert"></p>
+      <button class="button primary full" type="submit">进入工作区</button>
+    </form>
+    <section id="identity-current" hidden>
+      <div class="identity-profile">
+        <span class="identity-avatar" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20v-1a7 7 0 0 1 14 0v1"/></svg></span>
+        <div class="identity-profile-details"><span>当前标注者</span><strong id="identity-name"></strong></div>
+      </div>
+      <div class="identity-recovery">
+        <div class="identity-recovery-heading"><h3>个人身份码</h3><button class="button subtle" id="show-token" type="button" aria-expanded="false" aria-controls="identity-token-panel">查看身份码</button></div>
+        <p>换浏览器后可用身份码恢复标注身份。请自己保管。</p>
+        <div id="identity-token-panel" hidden><input id="identity-token" class="identity-token" readonly autocomplete="off" spellcheck="false" aria-label="个人身份码"></div>
+      </div>
+      <div class="identity-footer"><button class="button" id="logout-button" type="button">切换标注者</button></div>
+    </section>
+  </dialog>
+  <dialog id="launch-dialog" class="studio-dialog launch-dialog">
+    <form id="launch-form">
+      <div class="dialog-header"><h2>启动测试</h2><button type="button" class="icon-button" data-close="launch-dialog" aria-label="关闭"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <div class="launch-grid launch-name-fields">
+        <label class="field"><span>测试名称</span><input name="title" required maxlength="100" autocomplete="off"></label>
+        <label class="field"><span>Agent 模型</span><select name="profile" id="launch-profile"></select></label>
+      </div>
+      <div class="graph-setting">单 Agent BCG · 最近 2 轮 · Graph 6,600 字符<br>建图：gpt-6-luna / none · LiteLLM</div>
+      <label class="field"><span>DeepResearch Bench II task ID</span><input name="drb2" required placeholder="任务编号，以逗号分隔，例如 2,5,30"></label>
+      <div class="launch-grid">
+        <label class="field"><span>任务并发</span><input name="workers" type="number" required min="1" max="2" value="2"></label>
+        <label class="field"><span>单题时间上限（秒）</span><input name="timeout" type="number" required min="60" max="14400" value="3600"></label>
+        <label class="field"><span>单题最大轮数</span><input name="max_turns" type="number" required min="1" max="300" value="200"></label>
+        <label class="field"><span>搜索次数上限（0 不限制）</span><input name="search_calls" type="number" required min="0" max="2000" value="0"></label>
+        <label class="field"><span>网页抓取上限（0 不限制）</span><input name="fetch_calls" type="number" required min="0" max="2000" value="0"></label>
+      </div>
+      <p class="muted">最多 <span id="launch-max-tasks">—</span> 题。批次按编号排队，关闭网页不影响运行。启动会消耗已配置的 API 额度。</p>
+      <p id="launch-error" class="form-error" role="alert"></p>
+      <button class="button primary" type="submit">确认启动测试</button>
+    </form>
+  </dialog>
+  <dialog id="cancel-dialog" class="studio-dialog"><form id="cancel-form"><div class="dialog-header"><h2>停止这次测试</h2><button type="button" class="icon-button" data-close="cancel-dialog" aria-label="关闭">×</button></div><p>保留已有结果和轨迹。只停止本次任务与专用建图服务，不关闭共用的 vLLM。</p><p id="cancel-error" class="form-error" role="alert"></p><button class="button primary" type="submit">确认停止</button></form></dialog>
+</body></html>

@@ -1,0 +1,3 @@
+.copy-hover{outline:2px solid #9f343c!important;outline-offset:3px;background-color:#f7eff0!important}
+.copy-picking #app,.copy-picking #help-dialog{cursor:crosshair}
+.copy-picking :is(button,a,input,textarea,select,summary){cursor:crosshair!important}

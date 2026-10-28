@@ -1,0 +1,32 @@
+llm:
+  model: Qwen3.5-9B
+  protocol: chat_completions
+  api_key: EMPTY
+  base_url: http://127.0.0.1:8001/v1
+  temperature: 1.0
+  top_p: 0.95
+  max_tokens: 8192
+  extra_body:
+    top_k: 20
+    chat_template_kwargs:
+      enable_thinking: true
+agent:
+  main_max_turns: 200
+  tool_timeout_s: 900
+  llm_timeout_s: 600
+  reasoning_only_timeout_s: 120
+  reasoning_only_max_tokens: 8192
+  logical_call_timeout_s: 900
+  thinking_format: reasoning_content
+  thinking_in_history: true
+  max_len: 49152
+  max_input_tokens: 40960
+  reporter: false
+  agent_tools: [web_search, web_fetch, bash, download_file, grep_search, glob_search, recover_result]
+  web_search_impl: original
+  web_fetch_impl: original
+  bcg:
+    url: http://127.0.0.1:8852
+    recent_turns: 2
+    graph_chars: 6600
+    timeout: 180

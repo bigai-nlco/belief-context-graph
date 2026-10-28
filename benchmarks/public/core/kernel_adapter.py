@@ -7,6 +7,7 @@ etc.) inside a scoped registry snapshot, then tears it down on exit.
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import logging
 import os
@@ -160,6 +161,37 @@ class BenchmarkSession:
         ):
             pass
         state = await self.scheduler.get_state(task.id)
+        if not (meta or {}).get("_case_study_defer_export") and pipeline_id in {
+            "stateful-react-agent", "agent_team", "agent_team_report",
+            "agent-team", "agent-team-report",
+        }:
+            from workflows._shared.case_study import try_export_case
+
+            md = meta or {}
+            run_root = os.environ.get("APODEX_RUN_DIR", "").strip()
+            if md.get("_trial_dir"):
+                record_dir = Path(md["_trial_dir"])
+            elif md.get("_bcg_terminal_session") and run_root:
+                record_dir = Path(run_root)
+            elif run_root:
+                record_dir = Path(run_root) / "trajectories" / task_id
+            else:
+                record_dir = Path("logs") / (
+                    "stateful_react" if pipeline_id == "stateful-react-agent" else "swarm"
+                ) / task_id
+            final = state or {}
+            await asyncio.to_thread(
+                try_export_case, record_dir,
+                metadata={
+                    "task_id": str(md.get("question_id") or md.get("session_id") or task_id),
+                    "benchmark": str(md.get("benchmark") or ""),
+                    "mode": "bcg", "pipeline": pipeline_id,
+                    "question": instruction,
+                    "final_response": str(final.get("final_answer") or final.get("final_content") or ""),
+                    "stopped_by": str(final.get("stopped_by") or ""),
+                    "status": str(final.get("answer_status") or "completed"),
+                },
+            )
         return state or {}
 
     async def _bootstrap(self) -> None:

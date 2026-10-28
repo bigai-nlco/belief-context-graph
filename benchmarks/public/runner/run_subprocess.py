@@ -334,6 +334,12 @@ async def run_eval(
             q.id, out_dir, args.benchmark, sem, mirror,
             external_scoring=external_scoring,
         )
+        from workflows._shared.case_study import try_export_case
+
+        await asyncio.to_thread(
+            try_export_case, out_dir / "trials" / q.id,
+            metadata={"task_id": q.id, "benchmark": args.benchmark, "question": q.question},
+        )
         completed += 1
         if result.get("predicted_answer"):
             collected_count += 1
@@ -437,6 +443,9 @@ async def run_eval(
         encoding="utf-8",
     )
     (out_dir / "summary.txt").write_text(summary, encoding="utf-8")
+    from workflows._shared.case_study import try_export_batch
+
+    await asyncio.to_thread(try_export_batch, out_dir, task_ids=[q.id for q in questions])
     if external_scoring:
         logger.info(
             "Run finished — %d/%d answers collected; external scoring pending",

@@ -139,7 +139,13 @@ def collect_usage(trial: Path) -> dict[str, Any]:
             )
     # Keep total construction usage (including handoff/tail flushes) explicit;
     # online-only counters remain in the native Graph records for separate audit.
-    graph_usage = _sum_usage([_token_usage(g["usage"]) for g in graphs])
+    # Current servers nest counts under llm_totals; totals also includes local
+    # embedding tokens. Keep legacy flat counters readable without treating
+    # embedding work as Graph-model tokens or replacing missing usage with zero.
+    graph_usage = _sum_usage([
+        _token_usage(g["usage"].get("llm_totals", g["usage"].get("totals", g["usage"])))
+        for g in graphs
+    ])
     agent_usage = _sum_usage(agent_calls)
     return {
         "agent_model_calls": len(agent_calls),
@@ -148,7 +154,7 @@ def collect_usage(trial: Path) -> dict[str, Any]:
         "combined": _sum_usage([agent_usage, graph_usage]),
         "graph_fallback_calls": fallback_count,
         "graphs": graphs,
-        "accounting": "Observed LLM response usage; missing usage is null, never estimated. Input includes cache. Output includes reasoning. Graph includes final/handoff flushes.",
+        "accounting": "Observed LLM response usage; missing usage is null, never estimated. Input includes cache. Output includes reasoning. Graph uses llm_totals when available (excluding local embedding tokens) and includes final/handoff flushes.",
     }
 
 
@@ -174,6 +180,7 @@ async def execute_task(
     )
     meta = {
         "_trial_dir": str(trial),
+        "_case_study_defer_export": True,  # package after result.json and the final report
         "profile": config["profile"],
         "pipeline_id": config["pipeline"],
         "benchmark": task.benchmark,
@@ -251,6 +258,12 @@ async def execute_task(
         "graph_records": "agent/",
     }
     write_json(trial / "result.json", result)
+    from workflows._shared.case_study import try_export_case
+
+    await asyncio.to_thread(
+        try_export_case, trial,
+        metadata={"question": task.question, "final_response": report},
+    )
     return result
 
 
@@ -367,6 +380,14 @@ async def run_worker(
                         "usage": collect_usage(trial),
                     },
                 )
+        # Also package terminal failures that never reached execute_task's tail.
+        from workflows._shared.case_study import CASE_NAME, try_export_case
+
+        if not (trial / CASE_NAME).is_file():
+            task = json.loads((output / "_cases" / f"{task_id}.json").read_text())
+            await asyncio.to_thread(
+                try_export_case, trial, metadata={"question": task["question"]},
+            )
         # Official input layout. Never write into the downloaded evaluator tree.
         if config["benchmark"] == drb2.NAME and (trial / "report.md").is_file():
             target = (
@@ -473,6 +494,14 @@ async def run(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> None:
     elif output.exists() and any(output.iterdir()):
         raise ValueError("Output directory is nonempty and has no matching run.json.")
     if all((output / "trials" / task.task_id / "result.json").exists() for task in tasks):
+        from workflows._shared.case_study import try_export_batch, try_export_case
+
+        for task in tasks:
+            await asyncio.to_thread(
+                try_export_case, output / "trials" / task.task_id,
+                metadata={"question": task.question},
+            )
+        await asyncio.to_thread(try_export_batch, output, task_ids=config["task_ids"])
         print(json.dumps(summarize(output, config["task_ids"]), ensure_ascii=False, indent=2))
         return
     # Health only: no prompt/model requests and no charges during preflight.
@@ -495,6 +524,9 @@ async def run(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> None:
         write_json(cases / f"{task.task_id}.json", asdict(task))
     sem = asyncio.Semaphore(args.workers)
     await asyncio.gather(*(run_worker(task.task_id, config, output, sem) for task in tasks))
+    from workflows._shared.case_study import try_export_batch
+
+    await asyncio.to_thread(try_export_batch, output, task_ids=config["task_ids"])
     print(json.dumps(summarize(output, config["task_ids"]), ensure_ascii=False, indent=2))
 
 
@@ -541,8 +573,14 @@ def parser() -> argparse.ArgumentParser:
                 help="Outer per-task seconds; 0 disables only this outer limit.",
             )
             child.add_argument("--max-turns", type=int)
-            child.add_argument("--search-calls", type=int, default=20)
-            child.add_argument("--fetch-calls", type=int, default=30)
+            child.add_argument(
+                "--search-calls", type=int, default=20,
+                help="Search query budget per task, shared by all agents (default: 20; 0: unlimited).",
+            )
+            child.add_argument(
+                "--fetch-calls", type=int, default=30,
+                help="URL fetch budget per task, shared by all agents (default: 30; 0: unlimited).",
+            )
             child.add_argument("--fetch-chars", type=int, default=20_000)
             child.add_argument("--out", type=Path, required=True)
             child.add_argument("--dry-run", action="store_true")
@@ -586,9 +624,12 @@ def main() -> None:
                 )
             print(f"Total: {len(tasks)}")
             return
-        for key in ("workers", "max_turns", "search_calls", "fetch_calls", "fetch_chars"):
+        for key in ("workers", "max_turns", "fetch_chars"):
             if getattr(args, key) is not None and getattr(args, key) <= 0:
                 raise ValueError(f"--{key.replace('_', '-')} must be positive.")
+        for key in ("search_calls", "fetch_calls"):
+            if getattr(args, key) < 0:
+                raise ValueError(f"--{key.replace('_', '-')} must be nonnegative (0: unlimited).")
         if args.timeout is not None and args.timeout < 0:
             raise ValueError("--timeout must be nonnegative.")
         asyncio.run(run(args, tasks))

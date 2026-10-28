@@ -1,0 +1,31 @@
+schema_version: 1
+backend: unified
+model_key: graph
+embedding_key: embedding
+models:
+  graph:
+    model: gpt-6-luna
+    api_key_env: LITELLM_OPENAI_API_KEY
+    base_url: https://litellm.mybigai.ac.cn/
+    reasoning_effort: none
+    temperature: 1
+    max_tokens: 8192
+  embedding:
+    provider: local
+    model: sentence-transformers/all-MiniLM-L6-v2
+    device: cpu
+    batch_size: 8
+pipeline:
+  runtime:
+    context_chars: 12000
+    extraction_history_turns: 2
+  edge_generation:
+    max_previous_windows: 3
+  tool_results:
+    semantic_extraction: true
+    max_semantic_calls: 12
+    max_facts: 3
+runner:
+  context_chars: 12000
+  verify_merge: false
+  incremental_merge: true

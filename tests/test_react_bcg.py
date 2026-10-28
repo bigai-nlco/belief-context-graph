@@ -134,6 +134,22 @@ class FakeGraph:
         self.closed = True
 
 
+@pytest.mark.asyncio
+async def test_acknowledged_snapshots_are_saved_without_extra_graph_calls(tmp_path):
+    backend = FakeGraph()
+    memory = BCGMemory(BCGSettings(url="http://unused"), tmp_path, "snapshots", backend=backend)
+    await memory.prepare(history(3))
+    await memory.prepare(history(3))  # cached projection must not duplicate history
+    await memory.flush_final([*history(3), {"role": "assistant", "content": "Final answer"}])
+    await memory.close()
+    rows = [json.loads(line) for line in (tmp_path / "graph_snapshots.jsonl").read_text().splitlines()]
+    assert len(rows) == len(backend.pushes) == 2
+    assert all(row["snapshot_scope"] == "acknowledged_update" for row in rows)
+    assert rows[-1]["snapshot"] == memory.snapshot
+    assert rows[0]["snapshot"]["n_turns_ingested"] < rows[1]["snapshot"]["n_turns_ingested"]
+    assert rows[0]["snapshot"]["nodes"] != rows[1]["snapshot"]["nodes"]
+
+
 def test_two_steps_are_atomic_and_all_user_inputs_are_pinned():
     messages = history(0) + step(0, parallel=3)
     messages += [{"role": "user", "content": "Additional requirement"}]
@@ -205,10 +221,11 @@ def test_graph_write_before_eviction_caching_and_resume(tmp_path):
         original = history(3)
         projected = await memory.prepare(original)
         assert original == history(3)
-        assert projected[0] == original[0]
-        assert projected[1]["role"] == "system" and projected[1]["transient"]
-        assert "<belief_graph>" in projected[1]["content"]
-        assert projected[2:] == [original[1], *original[4:]]
+        assert projected[0]["role"] == "system"
+        assert projected[0]["content"].startswith(original[0]["content"] + "\n\n")
+        assert "<belief_graph>" in projected[0]["content"]
+        assert projected[1:] == [original[1], *original[4:]]
+        assert [i for i, m in enumerate(projected) if m["role"] == "system"] == [0]
         assert len(backend.pushes) == 2
         assert [t["role"] for t in backend.pushes[-1][1]] == ["assistant", "tool"]
         assert await memory.prepare(original) == projected
@@ -392,6 +409,71 @@ def test_bad_settings_are_rejected(config):
         BCGSettings.from_agent({"bcg": config})
 
 
+@pytest.mark.parametrize(
+    "system_content",
+    [
+        "original instructions",
+        "",
+        None,
+        [],
+        [{"type": "text", "text": "original instructions", "cache_control": {"type": "ephemeral"}}],
+    ],
+)
+def test_graph_merges_into_a_copy_of_system_content(tmp_path, system_content):
+    async def run():
+        memory = BCGMemory(BCGSettings(), tmp_path, "session", backend=FakeGraph())
+        messages = history(3)
+        messages[0] = {"role": "system", "content": system_content, "name": "host"}
+        original = copy.deepcopy(messages)
+        projected = await memory.prepare(messages)
+        memory_text = memory.last_event["system_memory"]
+        assert projected[0]["name"] == "host"
+        assert projected[0]["role"] == "system"
+        if isinstance(system_content, list):
+            assert projected[0]["content"] == [
+                *system_content, {"type": "text", "text": memory_text}
+            ]
+        else:
+            assert projected[0]["content"] == (
+                (system_content + "\n\n" if system_content else "") + memory_text
+            )
+        assert messages == original
+        assert projected[1:] == [messages[1], *messages[4:]]
+        assert memory.last_event["messages_after"] == len(projected)
+        assert "<belief_graph>" in memory_text
+        expected = copy.deepcopy(projected)
+        if isinstance(projected[0]["content"], list) and system_content:
+            projected[0]["content"][0]["text"] = "caller mutation"
+            assert messages == original
+        projected[0]["content"] = "caller mutation"
+        assert await memory.prepare(messages) == expected
+        assert messages == original
+        await memory.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("developer_prefix", [False, True])
+def test_graph_creates_first_system_when_original_has_none(tmp_path, developer_prefix):
+    async def run():
+        memory = BCGMemory(BCGSettings(), tmp_path, "session", backend=FakeGraph())
+        messages = history(3)[1:]
+        if developer_prefix:
+            messages.insert(0, {"role": "developer", "content": "Keep host instructions"})
+        original = copy.deepcopy(messages)
+        retained = partition(messages, 2).retained
+        projected = await memory.prepare(messages)
+        assert projected[0] == {
+            "role": "system", "content": memory.last_event["system_memory"], "transient": True
+        }
+        assert projected[1:] == retained
+        assert [i for i, m in enumerate(projected) if m["role"] == "system"] == [0]
+        assert messages == original
+        await memory.close()
+
+    asyncio.run(run())
+
+
 def test_streaming_and_chat_use_same_projection_without_mutating_native_blocks(tmp_path):
     async def run():
         class Provider:
@@ -415,6 +497,7 @@ def test_streaming_and_chat_use_same_projection_without_mutating_native_blocks(t
         provider = Provider()
         client = BCGClient(provider, memory)
         messages = history(2) + step(2, native=True)
+        original = copy.deepcopy(messages)
         observer = BCGObserver(memory)
         await observer.on_before_llm(SimpleNamespace(messages=messages))
         assert memory.calls == 1
@@ -425,6 +508,9 @@ def test_streaming_and_chat_use_same_projection_without_mutating_native_blocks(t
         assert memory.calls == 1
         assert provider.inputs[0] == provider.inputs[1]
         assert provider.inputs[0][0][-2:] == messages[-2:]
+        assert messages == original
+        assert [m["role"] for m in provider.inputs[0][0]].count("system") == 1
+        assert provider.inputs[0][0][0]["content"].startswith("original instructions\n\n")
         assert deltas[0].reasoning_blocks == [{"type": "thinking", "signature": "original"}]
         await memory.close()
 
@@ -445,6 +531,7 @@ def test_real_agent_loop_four_tool_steps_then_answer(tmp_path):
                 self.inputs = []
 
             async def chat(self, messages, **kwargs):
+                assert [i for i, m in enumerate(messages) if m["role"] == "system"] == [0]
                 self.inputs.append(copy.deepcopy(messages))
                 number = len(self.inputs)
                 if number <= 4:
@@ -485,7 +572,10 @@ def test_real_agent_loop_four_tool_steps_then_answer(tmp_path):
         assert result.final_content == "Final answer using the collected evidence."
         assert len(provider.inputs) == 5
         assert len(result.messages) == 11  # original system/user, 4 pairs, final
-        assert len(provider.inputs[-1]) == 7  # system + graph + user + 2 pairs
+        assert len(provider.inputs[-1]) == 6  # system including graph + user + 2 pairs
+        for request in provider.inputs[3:]:
+            assert request[0]["content"].count("<belief_graph>") == 1
+            assert request[0]["content"].count("<context_blocks_guide>") == 1
         assert all("<belief_graph>" not in str(m) for m in result.messages)
         assert memory.raw_results["lookup-1"] == "Evidence for fact 1"
         assert memory.last_event["evicted_steps"] == 2
@@ -574,7 +664,7 @@ def test_production_react_node_wires_bcg_without_a_strategy_flag(tmp_path, monke
     assert result["tool_calls_count"] == 4
     assert len(result["session_messages"]) == 11
     assert len(provider.inputs) == 5
-    assert len(provider.inputs[-1]) == 7
+    assert len(provider.inputs[-1]) == 6
     assert result["bcg"]["fallback"] is None
     assert result["bcg"]["evicted_steps"] == 2
     checkpoint = json.loads((tmp_path / "trial/agent/bcg/state.json").read_text())

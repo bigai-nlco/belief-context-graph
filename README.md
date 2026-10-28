@@ -214,6 +214,24 @@ Only the active workflow's memory directory is created. The run also retains ses
 
 Server-side construction records are separate: with the command above, they are saved under `bcg-graph-server/graphs/<problem_id>/`. Use the problem ID in the Agent's memory state to find the corresponding Graph. Conversation, tool results, and local files can contain private information; do not publish these records or `.env` files.
 
+## Annotate case studies
+
+Case Study Studio provides a shared run dashboard and annotation workbench. Start approved tests, view live per-task progress, and open completed results by run number without importing files. Reviewers identify themselves by nickname and save independent annotations on the server.
+
+The shared dashboard starts and displays DeepResearch Bench II only (`drb2`, task IDs such as `2,5,30`). Historical DRBench files and annotations remain stored; the command-line benchmark adapters are unchanged.
+
+```bash
+.venv/bin/python tools/case_study_studio/serve.py --shared --host 0.0.0.0 --port 8876
+```
+
+Open **http://127.0.0.1:8876** on the host, or `http://<server-LAN-IP>:8876` on the trusted LAN. Sign in with a nickname to start or stop tests, view results, and annotate; no administrator code is required. Existing experiments are cataloged automatically. Each new launch gets an independent `results/studio/RUN-<number>/` directory. Profiles and API keys are server-side only. See the [Case Study Studio guide](tools/case_study_studio/README.md) for prerequisites, identity recovery, and storage details. Do not expose this plain-HTTP service to the public Internet.
+
+The original browser-local mode remains available without `--shared`, or through **打开原有本地草稿 / 导入旧标注**. Local drafts are retained. No model, Graph server, or API key is needed for viewing and annotating existing evidence. Export JSON workspaces, Markdown case studies, or CSV summaries as before.
+
+BCG workflows now automatically write `case-study.json.gz` in the task/session artifact directory. The report and subprocess benchmark runners also write `case-studies.json.gz` at the batch output root when the run finishes. Import one batch bundle or several task bundles together; each Case retains its own evidence and annotations. No manual extraction is needed. Graph updates received by the Agent are saved locally alongside injection records, so a remote Graph server does not require a second manual download. Reimporting identical evidence preserves existing annotations.
+
+For existing records, run `python -m workflows._shared.case_study /path/to/task-or-batch`; add `--graph-dir /path/to/graphs` to include older service-side histories. This packages existing files only and makes no model calls.
+
 ## Run Deep Research benchmarks
 
 The report runner supports **DeepResearch Bench II** (`drb2`) and the local-file **DRBench L1 variant** (`drbench`) with the same BCG workflows. Run these commands from the Agent checkout after configuring and starting the Graph server:
@@ -229,6 +247,8 @@ uv run python -m benchmarks.public.runner.run_reports run drb2 \
 ```
 
 Remove `--dry-run` to run it. Use `--pipeline stateful-react-agent` for a single Agent. `--workers` controls concurrent questions, not specialist count; start with `1`. Local benchmark execution requires a usable sandbox such as Linux bubblewrap, separately from the native TUI setup above. See the [report benchmark guide](benchmarks/public/reports/README.md) for data preparation, DRBench commands, tool restrictions, result paths, and resuming.
+
+DRB2 defaults to 20 search queries and 30 URL fetches per task, shared across agents. Use `--search-calls 0 --fetch-calls 0` to disable both count limits, or pass positive values to set larger budgets. Each query or URL in a batched tool call counts separately. This does not disable turn, timeout, source-access, or response-size limits.
 
 These adapters save full reports, diagnostic metrics, and separate Agent/Graph token usage. Official rubric/insight judging is not implemented here: `official_score` remains `null`, so diagnostic metrics must not be reported as benchmark accuracy.
 

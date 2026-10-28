@@ -59,6 +59,8 @@ data/
 benchmarks/public/datasets
 benchmarks/datasets
 private/
+# Shared Studio identities, annotations, evidence caches and administrator code.
+runtime/case-study-studio/
 
 # User specific claude configurations
 .claude

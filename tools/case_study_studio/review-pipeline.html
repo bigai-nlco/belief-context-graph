@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="BCG Agent Review 方法说明：逐阶段输入、处理、输出、证据溯源与模型请求。">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Agent Review Pipeline · BCG</title>
+  <link rel="icon" href="./icon.svg"><link rel="stylesheet" href="./review-pipeline.css">
+  <script type="module" src="./review-pipeline.mjs"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到方法正文</a>
+  <header class="site-header">
+    <a class="brand" href="./"><img src="./icon.svg" width="32" height="32" alt=""><strong>BCG</strong><span>METHOD NOTES</span></a>
+    <nav aria-label="章节"><a href="#overview">方法定义</a><a href="#pipeline">逐步 I/O</a><a href="#example">贯穿示例</a><a href="#contracts">Prompt &amp; Schema</a><a href="#reproduce">复现与边界</a></nav>
+    <a class="back-link" href="./">返回工作台 ↗</a>
+  </header>
+  <main id="main"><div class="loading" role="status">正在加载与当前代码对应的方法快照…</div></main>
+  <dialog id="source-dialog" aria-labelledby="source-title">
+    <header><div><span class="eyebrow">RUNTIME SOURCE</span><h2 id="source-title">实现依据</h2><p id="source-path"></p></div><button id="close-source" class="square-button" aria-label="关闭代码">×</button></header>
+    <pre id="source-code" tabindex="0"></pre>
+  </dialog>
+  <div id="notice" role="status" aria-live="polite"></div>
+  <noscript><p>此页面需要 JavaScript 来查看阶段输入输出、完整模板与代码。</p></noscript>
+</body>
+</html>

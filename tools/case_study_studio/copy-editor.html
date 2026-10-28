@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; frame-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>BCG · 页面文案编辑</title>
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./copy-editor.css">
+  <script type="module" src="./copy-editor.mjs"></script>
+</head>
+<body>
+  <header class="editor-header">
+    <a class="editor-brand" href="./" target="_blank" rel="noopener"><img src="./icon.svg" width="34" height="34" alt=""><span>BCG <small>文案编辑工作台</small></span></a>
+    <div class="header-note">修改界面文字 · 保留真实记录</div>
+    <div class="header-actions"><button id="import-copy">导入修改稿</button><button id="export-copy" class="primary">导出修改稿</button></div>
+  </header>
+  <section class="editor-instructions"><strong>1 点选页面文字</strong><span>→</span><strong>2 在右侧修改并预览</strong><span>→</span><strong>3 导出 JSON，交给维护者部署</strong><p>草稿自动保存在当前浏览器，不改变其他人看到的正式页面。切换到「浏览页面」可打开教程、Demo 和各个标签页。</p></section>
+  <div class="editor-layout">
+    <section class="preview">
+      <div class="preview-toolbar">
+        <div class="mode-switch" aria-label="编辑与预览"><button id="pick-mode" aria-pressed="true">点选文字</button><button id="browse-mode" aria-pressed="false">浏览页面</button></div>
+        <div class="jump-links"><button data-jump="home">首页</button><button data-jump="demo">真实 Demo</button><button data-jump="guide">标注教程</button></div>
+        <span id="preview-status">正在载入页面…</span>
+      </div>
+      <iframe id="preview" title="页面文案实时预览"></iframe>
+      <div class="preview-foot"><span>橙色边框标出可编辑文字。修改会同步到相同文案出现的位置。</span><a href="./" target="_blank" rel="noopener">打开正式页面 ↗</a></div>
+    </section>
+    <aside class="copy-panel">
+      <div class="panel-heading"><div><span class="eyebrow">COPY EDITOR</span><h1>修改页面文案</h1></div><span id="change-count">0 项修改</span></div>
+      <div id="editor-notice" role="status" aria-live="polite">点击左侧文字，或从下方列表选择。</div>
+      <section id="selected-copy" hidden>
+        <div class="selection-meta"><span id="selection-kind"></span><button id="reset-entry" class="text-button">恢复此条</button></div>
+        <label class="copy-field">原文<textarea id="original-copy" rows="3" readonly></textarea></label>
+        <label class="copy-field">修改后的文字<textarea id="replacement-copy" rows="5" spellcheck="false" placeholder="填写希望在页面显示的文字"></textarea></label>
+        <p id="slot-hint" hidden>保留 {{n1}} 等占位符；它们代表实际运行的动态数字。</p>
+        <div class="edit-actions"><button id="apply-copy" class="primary">应用到预览</button><button id="undo-copy">撤销上次修改</button></div>
+        <p class="field-note">只替换文字，不执行 HTML。下拉选项的显示名称与保存值分开，标注数据保持原样。</p>
+      </section>
+      <section class="catalog">
+        <div class="catalog-heading"><h2>全部文案</h2><span id="catalog-count">0 条</span></div>
+        <input id="copy-search" type="search" placeholder="搜索原文或修改后的文字" aria-label="搜索文案">
+        <label class="changed-filter"><input id="changed-only" type="checkbox">只看已修改</label>
+        <div id="copy-list" role="list"></div>
+      </section>
+      <div class="panel-footer"><span id="draft-status">正在读取草稿…</span><button id="reset-all" class="text-button">清空草稿</button></div>
+    </aside>
+  </div>
+  <input id="copy-file" type="file" accept=".json,application/json" hidden>
+</body>
+</html>

@@ -411,6 +411,109 @@ async def test_budgets_shared_across_tool_bindings(datasets, tmp_path, monkeypat
     assert len(calls) == 2 and any("budget exhausted" in result for result in results)
 
 
+@pytest.mark.asyncio
+async def test_zero_search_budget_is_unlimited_across_bindings(datasets, tmp_path, monkeypatch):
+    from plugins.tools.web_search import web_search
+
+    calls = []
+
+    async def search(**kwargs):
+        calls.append(kwargs)
+        await asyncio.sleep(0)
+        return "Public information: https://example.org/public"
+
+    monkeypatch.setattr(web_search, "func", search)
+    policy = ReportPolicy(
+        drb2.load_tasks(datasets)[0], tmp_path / "ws", tmp_path / "trace", search_calls=0
+    )
+    bindings = [{entry.name: entry for entry in policy.bind([])} for _ in range(3)]
+    results = await asyncio.gather(*(
+        binding["web_search"].ainvoke({"q": [f"query-{i}-{j}" for j in range(10)]})
+        for i, binding in enumerate(bindings)
+    ))
+    assert len(calls) == 30
+    assert policy.search_remaining is None
+    assert all("budget exhausted" not in result for result in results)
+    # Unlimited requests do not bypass benchmark source restrictions.
+    refused = await bindings[0]["web_search"].ainvoke({"q": BLOCKED_TITLE})
+    assert "BLOCKED" in refused and len(calls) == 30
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("budget,expected", [(0, 35), (2, 2)])
+async def test_fetch_budget_unlimited_and_finite_across_bindings(
+    datasets, tmp_path, monkeypatch, budget, expected
+):
+    from benchmarks.public.reports import runtime
+
+    calls = []
+
+    def handler(request):
+        calls.append(str(request.url))
+        return httpx.Response(200, text="Public evidence.")
+
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        runtime.httpx, "AsyncClient",
+        lambda **kw: original_client(transport=httpx.MockTransport(handler), **kw),
+    )
+
+    async def vetted(url):
+        return "", ()
+
+    monkeypatch.setattr(runtime, "vet_public_url", vetted)
+    policy = ReportPolicy(
+        drb2.load_tasks(datasets)[0], tmp_path / "ws", tmp_path / "trace", fetch_calls=budget
+    )
+    bindings = [{entry.name: entry for entry in policy.bind([])} for _ in range(2)]
+    results = await asyncio.gather(
+        bindings[0]["web_fetch"].ainvoke({"url": [f"https://example.org/{i}" for i in range(20)]}),
+        bindings[1]["web_fetch"].ainvoke({"url": [f"https://example.org/{i}" for i in range(20, 35)]}),
+    )
+    assert len(calls) == expected
+    assert "\n\n".join(results).count("Fetch budget exhausted.") == 35 - expected
+    assert policy.fetch_remaining == (None if budget == 0 else 0)
+    assert "BLOCKED" in await policy.fetch_one(BLOCKED_URL)
+    assert len(calls) == expected
+
+
+@pytest.mark.parametrize("option", ["search_calls", "fetch_calls"])
+def test_report_policy_rejects_negative_budgets(datasets, tmp_path, option):
+    with pytest.raises(ValueError, match="nonnegative"):
+        ReportPolicy(
+            drb2.load_tasks(datasets)[0], tmp_path / "ws", tmp_path / "trace", **{option: -1}
+        )
+
+
+@pytest.mark.parametrize("search,fetch", [(0, 0), (0, 30), (20, 0)])
+def test_report_cli_accepts_unlimited_budgets(datasets, tmp_path, monkeypatch, search, fetch):
+    observed = []
+
+    async def run(args, tasks):
+        observed.append((args.search_calls, args.fetch_calls, len(tasks)))
+
+    monkeypatch.setattr(run_reports, "run", run)
+    monkeypatch.setattr(sys, "argv", [
+        "run_reports", "run", "drb2", "--data-root", str(datasets),
+        "--out", str(tmp_path / "out"), "--dry-run",
+        "--search-calls", str(search), "--fetch-calls", str(fetch),
+    ])
+    run_reports.main()
+    assert observed == [(search, fetch, 2)]
+
+
+@pytest.mark.parametrize("option", ["--search-calls", "--fetch-calls"])
+def test_report_cli_rejects_negative_budgets(datasets, tmp_path, monkeypatch, capsys, option):
+    monkeypatch.setattr(sys, "argv", [
+        "run_reports", "run", "drb2", "--data-root", str(datasets),
+        "--out", str(tmp_path / "out"), "--dry-run", option, "-1",
+    ])
+    with pytest.raises(SystemExit) as exc:
+        run_reports.main()
+    assert exc.value.code == 2
+    assert f"{option} must be nonnegative" in capsys.readouterr().err
+
+
 def test_selection_dry_run_and_prepare_do_not_call_models(datasets, tmp_path, monkeypatch, capsys):
     parsed = run_reports.parser().parse_args(
         [
@@ -450,7 +553,15 @@ def test_reimporting_prepared_data_never_removes_its_own_source(datasets):
     assert (datasets / "drbench/tasks/DR0001/config/eval.json").exists()
 
 
-def test_usage_counts_llm_events_once_and_keeps_missing_values_unknown(tmp_path):
+@pytest.mark.parametrize("graph_usage", [
+    {"input_tokens": 30, "output_tokens": 10},
+    {"totals": {"input_tokens": 30, "output_tokens": 10}},
+    {
+        "totals": {"input_tokens": 530, "output_tokens": 10, "total_tokens": 540},
+        "llm_totals": {"input_tokens": 30, "output_tokens": 10, "total_tokens": 40},
+    },
+])
+def test_usage_counts_llm_events_once_and_keeps_missing_values_unknown(tmp_path, graph_usage):
     root = tmp_path / "agent/trajectories"
     _jsonl(
         root / "main.jsonl",
@@ -465,7 +576,7 @@ def test_usage_counts_llm_events_once_and_keeps_missing_values_unknown(tmp_path)
         json.dumps(
             {
                 "problem_id": "one",
-                "snapshot": {"token_usage": {"input_tokens": 30, "output_tokens": 10}},
+                "snapshot": {"token_usage": graph_usage},
             }
         ),
     )
@@ -510,6 +621,14 @@ async def test_worker_preserves_whole_report_and_never_passes_reference(datasets
     assert result["status"] == "completed"
     assert result["official_score"] is None and result["scoring_status"] == "official_pending"
     assert "reference" not in result and "ground_truth" not in result
+    from workflows._shared.case_study import CASE_NAME, read_bundle
+
+    bundle = read_bundle(tmp_path / "trial" / CASE_NAME)
+    imported = json.loads(bundle["cases"][0]["files"][0]["text"])
+    assert imported["final_response"] == report
+    assert imported["question"] == task.question
+    assert imported["status"] == "completed"
+    assert "reference" not in imported and "ground_truth" not in imported
 
 
 @pytest.mark.parametrize("pipeline", ["stateful-react-agent", "agent_team"])

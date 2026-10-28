@@ -78,13 +78,16 @@ class ReportPolicy:
         fetch_calls: int = 30,
         fetch_chars: int = 20_000,
     ) -> None:
+        if search_calls < 0 or fetch_calls < 0:
+            raise ValueError("Search/fetch budgets must be nonnegative; 0 means unlimited.")
         self.task = task
         self.workspace = workspace.resolve()
         self.trace_path = trace_path
         self.trace: list[dict[str, Any]] = []
         self.blocklist = drb2.blocklist_payload(task) if task.benchmark == drb2.NAME else {}
-        self.search_remaining = search_calls
-        self.fetch_remaining = fetch_calls
+        # None is unlimited; finite budgets may reach zero and must stay exhausted.
+        self.search_remaining: int | None = search_calls if search_calls else None
+        self.fetch_remaining: int | None = fetch_calls if fetch_calls else None
         self.fetch_chars = fetch_chars
         self.web = task.benchmark == drb2.NAME
         self.mapping: dict[str, str] = {}
@@ -235,9 +238,10 @@ class ReportPolicy:
             async def one(query: str) -> str:
                 if self.blocked(query):
                     return self._record("web_search", {"q": query}, _BLOCKED, ok=False)
-                if self.search_remaining <= 0:
-                    return "Search budget exhausted. Use the evidence already collected."
-                self.search_remaining -= 1
+                if self.search_remaining is not None:
+                    if self.search_remaining <= 0:
+                        return "Search budget exhausted. Use the evidence already collected."
+                    self.search_remaining -= 1
                 result = str(
                     await original_search.ainvoke(
                         {"q": query, "num_results": min(10, max(1, num_results))}
@@ -266,9 +270,10 @@ class ReportPolicy:
     async def fetch_one(self, url: str) -> str:
         if self.blocked(url):
             return self._record("web_fetch", {"url": url}, _BLOCKED, ok=False)
-        if self.fetch_remaining <= 0:
-            return "Fetch budget exhausted. Use the evidence already collected."
-        self.fetch_remaining -= 1
+        if self.fetch_remaining is not None:
+            if self.fetch_remaining <= 0:
+                return "Fetch budget exhausted. Use the evidence already collected."
+            self.fetch_remaining -= 1
         current = url
         try:
             async with httpx.AsyncClient(

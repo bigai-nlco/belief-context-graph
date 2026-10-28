@@ -1,0 +1,28 @@
+llm:
+  model: gpt-6-luna
+  api_key: ${OPENAI_API_KEY}
+  base_url: https://litellm.mybigai.ac.cn/
+  temperature: 1.0
+  max_tokens: 32768
+  extra_body:
+    reasoning_effort: low
+agent:
+  main_max_turns: 200
+  tool_timeout_s: 900
+  llm_timeout_s: 600
+  reasoning_only_timeout_s: 120
+  reasoning_only_max_tokens: 16384
+  logical_call_timeout_s: 900
+  thinking_format: reasoning_content
+  thinking_in_history: true
+  max_len: 262144
+  max_input_tokens: 229376
+  reporter: false
+  agent_tools: [web_search, web_fetch, bash, download_file, grep_search, glob_search, recover_result]
+  web_search_impl: original
+  web_fetch_impl: original
+  bcg:
+    url: http://127.0.0.1:8852
+    recent_turns: 2
+    graph_chars: 6600
+    timeout: 180

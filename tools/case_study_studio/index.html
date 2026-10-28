@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="BCG Case Study Studio — 本地轨迹分析与证据标注工作台">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>BCG · Case Study Studio</title>
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./runs.css">
+  <link rel="stylesheet" href="./copy-runtime.css">
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <div id="app">
+    <div class="workbench-loading">
+      <div class="workbench-loading-card" role="status" aria-live="polite">
+        <div class="workbench-loading-mark" aria-hidden="true">
+          <span class="workbench-loading-ring"></span>
+          <img src="./icon.svg" width="30" height="30" alt="">
+        </div>
+        <p>正在打开标注工作台…</p>
+      </div>
+    </div>
+  </div>
+  <input id="file-input" type="file" accept=".json,.gz,.jsonl,.ndjson,.md,.txt" multiple hidden>
+  <input id="folder-input" type="file" webkitdirectory multiple hidden>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <dialog id="dimension-dialog" class="dimension-dialog" aria-labelledby="dimension-title" aria-describedby="dimension-intro">
+    <form id="dimension-form">
+      <div class="dialog-header"><h2 id="dimension-title">添加自定义维度</h2><button type="button" class="icon-button" data-action="cancel-dimension" aria-label="关闭自定义维度">×</button></div>
+      <p id="dimension-intro">补充关键过程体现的新维度，仅用于当前 Case。</p>
+      <label class="field"><span>维度名称</span><input id="dimension-name" name="title" required maxlength="60" placeholder="例如：保留多来源结论的适用范围" autocomplete="off"></label>
+      <label class="field"><span>维度说明（可选）</span><textarea id="dimension-description" name="description" rows="3" maxlength="500" placeholder="说明这个维度关注的行为和判断依据。"></textarea></label>
+      <p id="dimension-error" class="dimension-error" role="alert" data-copy-lock></p>
+      <div class="dimension-dialog-actions"><button type="button" class="button" data-action="cancel-dimension">取消</button><button type="submit" class="button primary" id="dimension-submit">添加维度</button></div>
+    </form>
+  </dialog>
+  <dialog id="help-dialog" class="guide-dialog" aria-labelledby="help-title">
+    <div class="dialog-header"><div><span class="eyebrow">ANNOTATION TUTORIAL</span><h2 id="help-title">完成第一份 Case 标注</h2><p>在「分析」中切换标注步骤，左侧阅读位置保持不变。完成后导出 Case Study。</p></div><button class="icon-button" id="close-help" aria-label="关闭教程">×</button></div>
+    <nav class="guide-nav" aria-label="教程步骤">
+      <button data-guide-step="0" aria-current="step"><span>01</span>准备文件</button>
+      <button data-guide-step="1"><span>02</span>基本信息</button>
+      <button data-guide-step="2"><span>03</span>关键过程</button>
+      <button data-guide-step="3"><span>04</span>维度评价</button>
+      <button data-guide-step="4"><span>05</span>完成与导出</button>
+    </nav>
+    <div id="guide-content" class="guide-content">
+      <section data-guide-page="0" aria-labelledby="guide-step-heading-0">
+        <h3 id="guide-step-heading-0" tabindex="-1">导入自动生成的 Case 运行包</h3>
+        <p>一个 Case 对应一次任务运行。Agent 结束任务后生成 <code>case-study.json.gz</code>；批量测试结束后生成 <code>case-studies.json.gz</code>。直接导入压缩包即可，也可以一次选择多个包，页面会按 Case 分开显示。</p>
+        <div class="guide-practice"><div><strong>先阅读一次真实运行</strong><p>任务是“Europa Clipper 与 JUICE 任务对比”。Agent 实际检索了 NASA、ESA 资料。Demo 包含报告、轨迹、逐轮 Graph 和注入记录，标注留空。</p><span class="badge green">真实任务 · GPT-6-Luna · BCG</span></div><button class="button primary" data-action="guide-demo">打开真实 Demo</button></div>
+        <div class="guide-table-wrap"><table class="guide-table">
+          <thead><tr><th>准备的文件</th><th>界面中的用途</th></tr></thead>
+          <tbody>
+            <tr><td>Case 运行包 <code>.json.gz</code></td><td>自动读取其中每个 Case 的任务、结果、轨迹、Graph 和注入记录。无需解压，标注初始为空。</td></tr>
+            <tr><td>任务结果 JSON / <code>report.md</code></td><td>在「任务和结果」阅读任务原文和最终结果。</td></tr>
+            <tr><td>轨迹 JSON / JSONL、Agent session state</td><td>在「运行轨迹」直接阅读 Agent 的消息、Thinking、工具调用和结果。多 Agent 时按 Agent 切换。</td></tr>
+            <tr><td>Graph <code>state.json</code> / <code>result.json</code>、<code>belief_graph.jsonl</code></td><td>在「Belief Graph」中选择「全部 Graph」查看完整图，选择「每轮 Graph」用左右按钮查看各轮快照。</td></tr>
+            <tr><td><code>requests.jsonl</code>、graph-contexts 或 Model I/O</td><td>在「每轮 Belief 注入情况」查看实际请求或注入内容，用左右按钮切换轮次。</td></tr>
+          </tbody>
+        </table></div>
+        <ol class="guide-actions-list"><li>点击「导入 Case」，选择汇总运行包或多个单 Case 运行包，也可拖入文件。使用「选择目录」时，页面优先读取目录里的运行包。</li><li>在左侧 Case 列表中切换任务。重复导入同一份记录会自动跳过，不覆盖已有标注。新证据版本单独保存。</li><li>旧记录仍可按单题多选散文件导入，遗漏的文件用「补充附件」添加。进入工作台后，左侧阅读记录，右侧填写标注。</li></ol>
+        <div class="guide-action-row"><button class="button" data-action="guide-import">导入自己的文件</button><span>运行包 JSON / JSON.GZ；单题散文件 JSONL / Markdown / TXT。</span></div>
+        <details class="guide-details"><summary>页面中的常用术语</summary><dl class="guide-definitions">
+          <dt>Case</dt><dd>一道题在一种模式下的完整运行记录。</dd>
+          <dt>Belief</dt><dd>Graph 中记录的一条事实、假设或结论，通常带有来源与 confidence。</dd>
+          <dt>Relation</dt><dd>belief 之间的关系。例如 <code>B31 depends_on B28</code> 表示 B31 依赖 B28。</dd>
+          <dt>Context</dt><dd>某次模型调用的输入。本页「每轮 Belief 注入情况」展示其中的系统内容或 Graph 注入记录。</dd>
+          <dt>关键过程</dt><dd>选定的一次行动或决策，包含来源、实际行为和后续影响。</dd>
+        </dl></details>
+      </section>
+      <section data-guide-page="1" aria-labelledby="guide-step-heading-1" hidden>
+        <h3 id="guide-step-heading-1" tabindex="-1">阅读任务和最终报告，填写基本信息</h3>
+        <p class="guide-location">操作位置：左侧「任务和结果」 → 右侧「基本信息」</p>
+        <ol class="guide-actions-list"><li>先读任务原文，明确需要回答的问题和交付内容。</li><li>填写标注人、Agent 形式和任务目标。</li><li>阅读最终报告，记录任务结果。</li></ol>
+        <div class="guide-example"><span class="guide-example-label">填写示范 · Europa Clipper 与 JUICE 任务对比</span><dl class="guide-definitions">
+          <dt>任务目标</dt><dd>比较两个木星探测任务的时间、探测对象、任务方式与互补性。</dd>
+          <dt>任务结果</dt><dd>先选“尚未评判”。逐项核对最终报告与来源后，再填写达标情况。</dd>
+        </dl></div>
+        <p class="guide-outcome">完成本步后：任务目标与结果已记录，下一步查看影响结果的行动。</p>
+        <div class="guide-action-row"><button class="button primary" data-guide-open="basic">打开基本信息</button><span class="guide-needs-case">先在第 1 步导入文件或打开练习 Case。</span></div>
+      </section>
+      <section data-guide-page="2" aria-labelledby="guide-step-heading-2" hidden>
+        <h3 id="guide-step-heading-2" tabindex="-1">沿轨迹记录关键过程</h3>
+        <p class="guide-location">操作位置：左侧「运行轨迹」 → 记录旁的「引用为关键过程」</p>
+        <ol class="guide-actions-list"><li>沿运行轨迹定位有分析价值的行动，重点查看 BCG 本应帮助复用证据、减少重复搜索或发现缺口，却没有发挥作用的地方。</li><li>点击「引用为关键过程」，自动保存位置、原文摘录和所属 Agent。也可先选中一段文字，再点击引用。</li><li>填写三项：「BCG 应发挥的作用」「实际发生的情况」「影响与改进线索」。再选择归因环节和证据强度。每项用一两句话即可。</li><li>需要进一步定位问题时，展开「补充证据检查」，补充入图、注入或外部限制的信息。过程名称可以在「过程信息」中修改，随后进入维度评价。</li></ol>
+        <div class="guide-example"><span class="guide-example-label">真实记录 E01 · 已有任务信息后的再次搜索</span><dl class="guide-definitions">
+          <dt>证据位置</dt><dd>点击“查看 Graph 注入”进入本地调用 4。再到「运行轨迹」查看记录 12 的 Assistant 调用及后续工具结果，无需选择文件。</dd>
+          <dt>BCG 应发挥的作用</dt><dd>复用已核查的发射日期、到达规划和飞掠次数，让下一次搜索指向缺少的信息。</dd>
+          <dt>实际发生的情况</dt><dd>调用 4 已注入 B10–B12，Agent 仍搜索“Europa Clipper launched October 14 2024 arrival Jupiter April 2030 49 flybys objectives official NASA”。</dd>
+          <dt>影响与改进线索</dt><dd>本轮查询与已有事实重合。对照两次工具结果，确认是否补充了独立来源或新信息，再判断是否需要优化搜索前的证据复用。</dd>
+          <dt>证据强度</dt><dd>Graph 注入与再次搜索均明确可见。Agent 本轮只输出 Tool Call，没有说明再次搜索的原因。</dd>
+        </dl></div>
+        <details class="guide-details"><summary>证据强度与归因环节的选择</summary><dl class="guide-definitions">
+          <dt>明确可见</dt><dd>请求、输出或工具调用直接呈现了相关信息的使用过程。</dd>
+          <dt>有较强迹象</dt><dd>信息已注入，后续行动与之吻合，但输出没有明确说明引用来源。</dd>
+          <dt>证据不足</dt><dd>缺少对应请求、输出或结果，暂时无法建立完整的使用链。</dd>
+          <dt>归因环节</dt><dd>沿“信息获取 → 建图 → Graph 选择 → 注入表达 → Agent 使用”检查，选择最早出现问题的环节。过程正常选择“无明显失效”，暂不确定选择“无法判断”。</dd>
+        </dl></details>
+        <p class="guide-outcome">完成本步后：已整理轨迹中的关键过程。下一步根据这些过程选择维度，同一个过程可以体现多个维度。</p>
+        <div class="guide-action-row"><button class="button primary" data-guide-open="events">打开关键过程</button><span class="guide-needs-case">先在第 1 步导入文件或打开练习 Case。</span></div>
+      </section>
+      <section data-guide-page="3" aria-labelledby="guide-step-heading-3" hidden>
+        <h3 id="guide-step-heading-3" tabindex="-1">选择关键过程体现的维度，再评价</h3>
+        <p class="guide-location">操作位置：右侧「维度评价」</p>
+        <p>顶部列出 8 个预设维度，可同时点亮多个。点击「＋ 自定义维度」可填写名称和说明，为当前 Case 添加新维度。点亮表示从已记录的关键过程中发现该维度存在影响可能，依据是轨迹中的实际行为与 Graph 内容，而不是任务类型。下方只显示已点亮的维度。</p>
+        <ol class="guide-actions-list"><li>回顾已记录的关键过程，点亮其中体现的维度。Agent 复用了历史信息，或已有可用信息却未复用，都可以选择「长程信息复用」。</li><li>在每个已选维度中，关联支撑判断的一个或多个关键过程。</li><li>填写「是否利用」「是否产生效果」及判断依据。悬浮或聚焦字段右侧的感叹号可查看说明。</li></ol>
+        <div class="guide-table-wrap"><table class="guide-table">
+          <thead><tr><th>字段</th><th>选择方法</th></tr></thead><tbody>
+            <tr><td>点亮维度</td><td>关键过程体现了该维度的影响可能，即使 Agent 最终未利用，也应选中并评价。取消点亮会隐藏表单，已填草稿保留。</td></tr>
+            <tr><td>是否利用</td><td><strong>充分利用 / 部分利用</strong>：相关信息得到全部或部分使用。<strong>未利用</strong>：已有可用信息被忽略。<strong>误用</strong>：错误解读信息或关系。证据不足时选<strong>无法判断</strong>。</td></tr>
+            <tr><td>是否产生效果</td><td><strong>正向</strong>：帮助推进任务。<strong>负向</strong>：引入错误或无效开销。<strong>无明显变化</strong>：未观察到进展差异。<strong>待验证</strong>：影响尚不明确。</td></tr>
+            <tr><td>证据来源</td><td>每个已选维度至少关联一个关键过程。点击「查看」阅读过程中的来源、行为与影响，再写判断依据。</td></tr>
+            <tr><td>未发现相关维度</td><td>查看轨迹后没有找到相关过程时，勾选「已查看轨迹，未发现相关维度」，在归因总结中记录结论与依据。</td></tr>
+          </tbody>
+        </table></div>
+        <div class="guide-example"><span class="guide-example-label">A2「减少无效重复搜索」初步填写</span><dl class="guide-definitions">
+          <dt>点亮 A2</dt><dd>E01 中，当轮 Graph 已包含同主题搜索结果，Agent 随后又进行了同主题查询。由这个实际过程选择「减少无效重复搜索」。</dd><dt>是否利用</dt><dd>无法判断：先对比两次结果，再判断复用或忽略情况。</dd><dt>是否产生效果</dt><dd>待验证：核对再次搜索带来的信息增量。</dd>
+          <dt>证据来源</dt><dd>勾选 E01。该过程记录了 call 4 的搜索行为、B10/B11/B12 → B3 的注入情况及原始记录位置。</dd>
+          <dt>判断依据</dt><dd>相关日期和飞掠次数已经注入，随后出现同主题查询。继续比较新增来源与结论变化，完成利用情况和效果判断。</dd>
+        </dl></div>
+        <p>同一过程可以支撑多个维度。A7 的 Token 节省还需结合可比指标判断；不能只凭轨迹变短或任务看起来复杂就断定节省。</p>
+        <p class="guide-outcome">完成本步后：所有已选维度都有关键过程、利用情况、效果和判断依据。进度按已选维度统计，例如选择 3 个并全部完成后显示 3 / 3。</p>
+        <div class="guide-action-row"><button class="button primary" data-guide-open="dimensions">打开维度评价</button><span class="guide-needs-case">先在第 1 步导入文件或打开练习 Case。</span></div>
+      </section>
+      <section data-guide-page="4" aria-labelledby="guide-step-heading-4" hidden>
+        <h3 id="guide-step-heading-4" tabindex="-1">写出归因总结，完成并导出</h3>
+        <p class="guide-location">操作位置：右侧「归因总结」 → 「完成标注」 → 页面右上角「导出」</p>
+        <ol class="guide-actions-list"><li>在「回顾已记录的评价」中核对已选维度的利用情况、效果和判断依据。点击维度或关键过程可返回查看，左侧轨迹保持不变。</li><li>在「归因判断」中用 1–3 句话概括主要作用或问题，引用相应过程编号，并选择结论的证据强度。这部分由标注人判断，不会根据评价结果自动生成。</li><li>在「下一步改进」中选择优先改进的环节，可多选。分别写出具体改法和验证方式。没有改进建议时可以留空。</li><li>查看底部待补内容，补齐后点击「完成标注」。导出工作包留存，或导出 Markdown 分享分析。</li></ol>
+        <div class="guide-example"><span class="guide-example-label">基于已观察记录的初步总结</span><p>E01 中，Graph 已保存并注入发射日期、到达规划和飞掠次数，第 4 轮仍进行了同主题搜索。后续分析重点是这次搜索增加了哪些证据，以及这些信息如何进入最终报告。</p></div>
+        <p>已有证据支持归因后，再选择对应的改进环节。例如，确认信息已注入但未被利用时，选择「Agent 使用」，提出具体调整，并验证同类过程中的重复查询是否减少、必要核验是否保留。「对照与其他信息来源」用于补充同题对照或其他可用信息。</p>
+        <details class="guide-details" open><summary>完成标注所需内容</summary><ul>
+          <li>标注人和任务结果。</li>
+          <li>已选维度的利用情况、效果与判断依据，或已确认未发现相关维度。</li>
+          <li>主要作用或主要问题，以及结论的证据强度。</li>
+          <li>每个已选维度各自关联至少一个关键过程。正向或负向评价所关联的过程需包含来源引用、实际行为、后续影响和证据强度。</li>
+        </ul></details>
+        <div class="guide-table-wrap"><table class="guide-table"><thead><tr><th>导出格式</th><th>用途</th></tr></thead><tbody>
+          <tr><td>工作包 JSON</td><td>保存所有 Case、原始证据和标注，之后可重新导入继续填写。</td></tr>
+          <tr><td>当前 Case · Markdown</td><td>导出当前 Case 的分析报告，用于分享和复核。</td></tr>
+          <tr><td>所有 Case · CSV</td><td>汇总每个 Case 的维度评价与指标，用于后续统计。</td></tr>
+        </tbody></table></div>
+        <p class="guide-outcome">标注自动保存在当前浏览器。跨设备继续时，导出并重新导入工作包 JSON。</p>
+        <div class="guide-action-row"><button class="button primary" data-guide-open="conclusion">打开归因总结</button><span class="guide-needs-case">先在第 1 步导入文件或打开练习 Case。</span></div>
+      </section>
+    </div>
+    <div class="guide-footer"><button id="guide-prev" class="button" data-action="guide-prev" disabled>上一步</button><span id="guide-page-number" aria-live="polite">1 / 5</span><button id="guide-next" class="button primary" data-action="guide-next">下一步</button></div>
+  </dialog>
+  <noscript>此标注工作台需要浏览器启用 JavaScript。所有数据处理均在本地浏览器内完成。</noscript>
+</body>
+</html>

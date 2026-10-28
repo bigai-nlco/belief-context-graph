@@ -105,6 +105,31 @@ def _digest(value: Any) -> str:
     ).hexdigest()
 
 
+def _with_system_memory(messages: list[Message], memory: str) -> list[Message]:
+    """Append memory to a request-only copy of the first system message.
+
+    Qwen's chat template accepts a system role only at position zero. Keep
+    the durable instructions and retained provider messages untouched, and
+    preserve structured system blocks (including their provider metadata).
+    """
+    result = list(messages)
+    if result and result[0].get("role") == "system":
+        first = copy.deepcopy(result[0])
+        content = first.get("content")
+        if content is None or isinstance(content, str):
+            first["content"] = (content + "\n\n" if content else "") + memory
+        elif isinstance(content, list):
+            first["content"] = [*content, {"type": "text", "text": memory}]
+        else:
+            raise UnsupportedHistory("unsupported_system_content")
+        result[0] = first
+    else:
+        first = system_msg(memory)
+        first["transient"] = True
+        result.insert(0, first)
+    return result
+
+
 def _nodes(snapshot: dict[str, Any]) -> dict[int, dict[str, Any]]:
     nodes = snapshot.get("nodes")
     if nodes is None:
@@ -280,6 +305,28 @@ class BCGMemory:
             os.chmod(path, 0o600)
             handle.write(json.dumps(event, ensure_ascii=False) + "\n")
 
+    def _record_snapshot(self) -> None:
+        """Keep each acknowledged update locally, also with a remote Graph server.
+
+        A batch acknowledgement is one snapshot, not reconstructed per-turn
+        history. Preserve node/edge contents; omit repeated construction logs.
+        """
+        keys = (
+            "problem_id", "nodes", "all_nodes", "beliefs", "decisions", "relations",
+            "n_turns_ingested", "token_usage", "finalized",
+        )
+        event = {
+            "problem_id": self.problem_id,
+            "call": self.calls,
+            "stream_turn_index": len(self.acknowledged) - 1,
+            "snapshot_scope": "acknowledged_update",
+            "snapshot": {key: self.snapshot[key] for key in keys if key in self.snapshot},
+        }
+        path = self.directory / "graph_snapshots.jsonl"
+        with path.open("a", encoding="utf-8") as handle:
+            os.chmod(path, 0o600)
+            handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+
     async def _persist(self) -> None:
         try:
             await asyncio.to_thread(self._save)
@@ -326,6 +373,10 @@ class BCGMemory:
         self.acknowledged = copy.deepcopy(turns)
         self.tainted = False
         await self._persist()
+        try:
+            await asyncio.to_thread(self._record_snapshot)
+        except OSError:
+            logger.warning("BCG historical snapshot could not be written")
         return len(pending)
 
     async def prepare(self, messages: list[Message]) -> list[Message]:
@@ -373,19 +424,8 @@ class BCGMemory:
                     graph, node_ids, relation_ids = render_graph(
                         self.snapshot, selection, self.settings.graph_chars
                     )
-                    result = list(plan.retained)
-                    # Dedicated system block directly after the original system
-                    # prefix. Neither the prefix nor retained provider items are
-                    # rewritten; the block never enters durable conversation.
-                    index = 0
-                    while index < len(result) and result[index].get("role") in {
-                        "system",
-                        "developer",
-                    }:
-                        index += 1
-                    memory_message = system_msg(self.context_guide + "\n\n" + graph)
-                    memory_message["transient"] = True
-                    result.insert(index, memory_message)
+                    system_memory = self.context_guide + "\n\n" + graph
+                    result = _with_system_memory(plan.retained, system_memory)
                     event.update(
                         {
                             "messages_after": len(result),
@@ -394,7 +434,7 @@ class BCGMemory:
                             "graph_chars": len(graph),
                             "selected_node_ids": node_ids,
                             "selected_relation_ids": relation_ids,
-                            "system_memory": memory_message.get("content"),
+                            "system_memory": system_memory,
                         }
                     )
             except (GraphError, UnsupportedHistory) as exc:
