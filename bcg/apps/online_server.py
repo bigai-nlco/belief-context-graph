@@ -317,6 +317,7 @@ def make_handler(manager, trajectory_closed_error: type, *, quiet: bool = False)
             except ValueError as e:
                 self._send(400, {"error": str(e)})
             except Exception as e:  # noqa: BLE001 - report, don't crash the server
+                import traceback; traceback.print_exc()
                 self._send(500, {"error": f"{type(e).__name__}: {e}"})
 
     return Handler

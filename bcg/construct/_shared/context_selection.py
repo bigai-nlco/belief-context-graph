@@ -9,8 +9,14 @@ from __future__ import annotations
 
 import math
 import re
+import threading
 from collections import defaultdict
 from typing import Any
+
+try:  # numpy ships with the server's scientific stack; stay usable without it
+    import numpy as _np
+except ImportError:  # pragma: no cover - exercised only on a stripped install
+    _np = None
 
 DEFAULT_NODE_CHAR_BUDGET = 6_600
 FOCUSED_SEARCH_CHAR_BUDGET = 650
@@ -113,7 +119,51 @@ def _embedding_units(node: dict[str, Any]) -> list[str]:
     return units
 
 
-def _cosine(left: list[float], right: list[float]) -> float:
+# One embedder instance is shared by every worker thread of the HTTP server.
+# Model forwards are not reentrant, so serialise them; the server runs one
+# selection at a time anyway and the lock costs nothing in that case.
+_EMBED_LOCK = threading.Lock()
+
+
+def _as_float_vector(value: Any) -> Any:
+    """Return one embedding row as plain floats, detached from any framework.
+
+    An embedder may hand back torch tensors. Iterating one element by element,
+    as the redundancy pass does O(n^2) times, runs torch kernels inside the HTTP
+    server's worker threads and segfaults there. Converting once at the boundary
+    keeps every later operation in numpy (or plain Python) and is also far
+    faster than the elementwise generator it replaces.
+    """
+    detached = getattr(value, "detach", None)
+    if callable(detached):  # torch tensor
+        value = detached()
+        for name in ("cpu", "numpy"):
+            method = getattr(value, name, None)
+            if callable(method):
+                value = method()
+    if _np is not None:
+        return _np.asarray(value, dtype=_np.float64).ravel()
+    tolist = getattr(value, "tolist", None)
+    return [float(item) for item in (tolist() if callable(tolist) else value)]
+
+
+def _embed(embedder: Any, units: list[str]) -> list[Any]:
+    """Embed once, under the lock, and hand back framework-free vectors."""
+    with _EMBED_LOCK:
+        rows = embedder.embed(units, purpose="compact_context_selection")
+    return [_as_float_vector(row) for row in rows]
+
+
+def _cosine(left: Any, right: Any) -> float:
+    if _np is not None:
+        left_vector = _np.asarray(left, dtype=_np.float64).ravel()
+        right_vector = _np.asarray(right, dtype=_np.float64).ravel()
+        denominator = float(
+            _np.linalg.norm(left_vector) * _np.linalg.norm(right_vector)
+        )
+        if not denominator or not math.isfinite(denominator):
+            return 0.0
+        return float(left_vector @ right_vector) / denominator
     numerator = sum(a * b for a, b in zip(left, right, strict=False))
     left_norm = math.sqrt(sum(value * value for value in left))
     right_norm = math.sqrt(sum(value * value for value in right))
@@ -146,7 +196,7 @@ def _similarities(
             )
             for node in nodes
         }, "lexical"
-    vectors = embedder.embed(units, purpose="compact_context_selection")
+    vectors = _embed(embedder, units)
     query_vector = vectors[0]
     return {
         node_id: max(_cosine(query_vector, vector) for vector in vectors[start:end])
@@ -166,7 +216,7 @@ def _selection_features(
     dict[int, float],
     dict[int, float],
     dict[int, list[float]],
-    dict[int, list[float]] | None,
+    dict[int, Any] | None,
     str,
 ]:
     """Embed one selector request once and expose endpoint vectors."""
@@ -216,7 +266,7 @@ def _selection_features(
         start = len(units)
         units.extend(_embedding_units(node))
         spans[node["id"]] = (start, len(units))
-    vectors = embedder.embed(units, purpose="compact_context_selection")
+    vectors = _embed(embedder, units)
     query_vector, focus_vector, question_vector = vectors[:3]
     query_scores = {
         node_id: max(_cosine(query_vector, vector) for vector in vectors[start:end])
@@ -531,7 +581,7 @@ def select_connected_context(
 def _coherent_relations(
     relations: list[dict[str, Any]],
     by_id: dict[int, dict[str, Any]],
-    node_vectors: dict[int, list[float]] | None,
+    node_vectors: dict[int, Any] | None,
 ) -> list[tuple[int, int, float, dict[str, Any]]]:
     """Return one retrieval edge per endpoint pair, suppressing noisy conflicts."""
     best: dict[tuple[int, int], tuple[float, dict[str, Any]]] = {}
