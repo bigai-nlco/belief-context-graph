@@ -153,8 +153,8 @@ def stats(values: list[float]) -> dict[str, float | None]:
     }
 
 
-def fmt_stats(s: dict[str, Any], unit: str = "") -> str:
-    if not s.get("n"):
+def fmt_stats(s: dict[str, Any] | None, unit: str = "") -> str:
+    if not s or not s.get("n"):
         return "no samples"
     return (
         f"n={s['n']}  min={s['min']}{unit}  p50={s['p50']}{unit}  "
@@ -460,6 +460,21 @@ def collect_bcg(trial: Path) -> dict[str, Any]:
         for e in injected
     ]
     trimmed = [e["trim_dropped_nodes"] for e in injected if "trim_dropped_nodes" in e]
+    action_chars = [e["action_chars"] for e in injected if "action_chars" in e]
+    action_counts = [
+        len(e.get("action_node_ids") or []) for e in injected if "action_node_ids" in e
+    ]
+    # Every call the model was actually shown, pooled over the session. The
+    # coverage metric below asks how many of its searches appeared here.
+    shown_actions: set[str] = set()
+    for event in injected:
+        for line in (event.get("system_memory") or "").splitlines():
+            found = re.match(
+                r'\s*(?:- )?\[B\d+\]\s+(?:\S+\s+)?\\?"(.+?)\\?"\s*(?:\(blocked[^)]*\))?\s*$',
+                line,
+            )
+            if found:
+                shown_actions.add(normalize_query(found.group(1)))
     dropped_ids = [i for e in injected for i in (e.get("trim_dropped_node_ids") or [])]
     variants = Counter(
         str(e.get("variant") or e.get("bcg_variant") or "")
@@ -490,6 +505,9 @@ def collect_bcg(trial: Path) -> dict[str, Any]:
             [float(e.get("messages_before", 0) - e.get("messages_after", 0)) for e in injected]
         ),
         "trim_dropped_nodes": stats([float(t) for t in trimmed]) if trimmed else None,
+        "action_chars": stats([float(c) for c in action_chars]) if action_chars else None,
+        "action_nodes_shown": stats([float(c) for c in action_counts]) if action_counts else None,
+        "shown_action_queries": shown_actions,
         "trim_dropped_node_ids": sorted(set(dropped_ids)),
         "prep_duration_ms": stats(
             [float(e["duration_ms"]) for e in prepares if isinstance(e.get("duration_ms"), (int, float))]
@@ -516,7 +534,9 @@ def collect_bcg(trial: Path) -> dict[str, Any]:
     }
 
 
-def collect_trajectory(trial: Path, graph: dict[str, Any]) -> dict[str, Any]:
+def collect_trajectory(
+    trial: Path, graph: dict[str, Any], bcg_shown: set[str] | None = None
+) -> dict[str, Any]:
     rows = load_trajectory(trial)
     calls: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -570,6 +590,15 @@ def collect_trajectory(trial: Path, graph: dict[str, Any]) -> dict[str, Any]:
     near_pairs.sort(key=lambda item: item["overlap"], reverse=True)
     # A repeat the graph could have prevented: the query is recorded in the
     # graph as a completed action, and the model ran it again anyway.
+    shown = bcg_shown or set()
+    shown_tokens = [query_tokens(q) for q in shown]
+    # Match on content words: the graph stores a query with escaped quotes and
+    # the trajectory does not, and a rephrasing is still the same search.
+    covered = sum(
+        1
+        for q in set(queries)
+        if any(jaccard(query_tokens(q), s) >= 0.75 for s in shown_tokens)
+    )
     recorded = graph.get("recorded_queries") or {}
     preventable = {
         q: {"times": n, "recorded_as": f"B{recorded[q]}"}
@@ -605,6 +634,8 @@ def collect_trajectory(trial: Path, graph: dict[str, Any]) -> dict[str, Any]:
         "search_calls": by_name.get("web_search", 0) + by_name.get("search", 0),
         "fetch_calls": by_name.get("web_fetch", 0) + by_name.get("fetch", 0),
         "distinct_queries": len(qcounts),
+        "queries_listed_in_block": covered,
+        "query_coverage_pct": pct(covered, len(qcounts)),
         "repeated_queries": repeated_queries,
         "repeated_query_calls": sum(n - 1 for n in qcounts.values() if n > 1),
         "preventable_repeats": preventable,
@@ -759,7 +790,7 @@ def collect_trial(trial: Path) -> dict[str, Any]:
     result = read_json(trial / "result.json") or {}
     bcg = collect_bcg(trial)
     rows = load_trajectory(trial)
-    traj = collect_trajectory(trial, bcg["graph"])
+    traj = collect_trajectory(trial, bcg["graph"], bcg.pop("shown_action_queries", None))
     return {
         "task": trial.name,
         "path": str(trial),
@@ -865,6 +896,9 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 len(r["trajectory"]["preventable_repeats"]) for r in rows
             ),
             "C_near_duplicate_pairs": int(total("trajectory.near_duplicate_pairs")),
+            "C_query_coverage_pct": round(
+                statistics.fmean([r["trajectory"]["query_coverage_pct"] for r in rows] or [0]), 1
+            ),
         },
         "efficiency": {
             "turns": int(total("log.turns")),
@@ -1064,11 +1098,15 @@ constraint and a smarter trim policy would change nothing.""",
             f"  messages after    {fmt_stats(b['messages_after'])}",
             f"  messages removed  {fmt_stats(b['messages_removed'])}",
             f"  nodes shown       {fmt_stats(b['selected_nodes'])}",
-            f"  action nodes      {fmt_stats(b['action_nodes_shown'])}",
             f"  relations shown   {fmt_stats(b['selected_relations'])}",
             f"  graph chars       {fmt_stats(b['graph_chars'])}  (budget {meta.get('graph_chars', '?')})",
             f"  prepare latency   {fmt_stats(b['prep_duration_ms'], ' ms')}",
         ]
+        if b["action_chars"] is not None:
+            out += [
+                f"  action section    {fmt_stats(b['action_chars'], ' chars')}",
+                f"  actions listed    {fmt_stats(b['action_nodes_shown'])}",
+            ]
         if b["trim_dropped_nodes"] is None:
             out += [
                 "  trim dropped      not instrumented",
@@ -1197,6 +1235,10 @@ section is supposed to achieve.""",
         t = one["trajectory"]
         out.append(f"  duplicates by tool     {t['duplicate_by_name']}")
         out.append(f"  distinct queries       {t['distinct_queries']} of {t['search_calls']} searches")
+        out.append(
+            f"  queries listed in block {t['queries_listed_in_block']} "
+            f"({t['query_coverage_pct']}%)   <<< actions-section coverage"
+        )
         if t["duplicate_by_name"].get("bcg_recover"):
             out += [
                 "  ·  repeated bcg_recover calls inflate the identical-repeats count.",
@@ -1309,7 +1351,7 @@ length collapse has traded the answer for the metric.""",
             f"{c['C_preventable_repeats']} searches repeated a query the graph had "
             "recorded — a completed-actions section targets exactly this."
         )
-    if one and (one["bcg"]["action_nodes_shown"].get("p50") or 0) <= 2 \
+    if one and ((one["bcg"]["action_nodes_shown"] or {}).get("p50") or 0) <= 2 \
             and one["bcg"]["graph"]["node_kinds"].get("action", 0) > 6:
         todo.append(
             "The graph holds many action nodes but only a couple reach the model. "
@@ -1363,6 +1405,7 @@ COMPARE = [
     ("core.C_duplicate_search_calls", "C duplicate searches", "lower"),
     ("core.C_preventable_repeats", "C preventable repeats", "lower"),
     ("core.C_near_duplicate_pairs", "C near-duplicate pairs", "lower"),
+    ("core.C_query_coverage_pct", "C query coverage %", "higher"),
     ("efficiency.turns", "turns", "watch"),
     ("efficiency.tool_calls", "tool calls", "watch"),
     ("efficiency.agent_total_tokens", "agent tokens", "lower"),
@@ -1455,7 +1498,7 @@ def dump_queries(run_dir: Path, only: set[str] | None) -> str:
         if only and trial.name not in only:
             continue
         bcg = collect_bcg(trial)
-        traj = collect_trajectory(trial, bcg["graph"])
+        traj = collect_trajectory(trial, bcg["graph"], bcg.get("shown_action_queries"))
         out += [BAR, f"task {trial.name}", BAR, "", "  searches in order:"]
         seen: Counter = Counter()
         for i, query in enumerate(traj["queries_in_order"], 1):
