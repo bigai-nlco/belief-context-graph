@@ -205,10 +205,15 @@ def test_graph_write_before_eviction_caching_and_resume(tmp_path):
         original = history(3)
         projected = await memory.prepare(original)
         assert original == history(3)
-        assert projected[0] == original[0]
-        assert projected[1]["role"] == "system" and projected[1]["transient"]
-        assert "<belief_graph>" in projected[1]["content"]
-        assert projected[2:] == [original[1], *original[4:]]
+        # The graph block extends the existing system message instead of being a
+        # second system message: some OpenAI-compatible endpoints reject any
+        # system message that is not messages[0].
+        assert projected[0]["role"] == original[0]["role"]
+        assert projected[0]["content"].startswith(original[0]["content"])
+        assert "<belief_graph>" in projected[0]["content"]
+        assert projected[0]["transient"]
+        assert "transient" not in original[0]  # the caller's message is untouched
+        assert projected[1:] == [original[1], *original[4:]]
         assert len(backend.pushes) == 2
         assert [t["role"] for t in backend.pushes[-1][1]] == ["assistant", "tool"]
         assert await memory.prepare(original) == projected
@@ -316,6 +321,72 @@ def test_rendering_escapes_data_preserves_edges_and_never_cuts_a_belief():
     snapshot["relations"][0]["to_id"] = 99
     with pytest.raises(GraphError):
         render_graph(snapshot, selection, 1000)
+
+
+def test_split_rendering_separates_actions_and_keeps_selector_order(monkeypatch):
+    """The split style regroups the same nodes; it must not change which survive."""
+    from workflows.stateful_react_agent.bcg import runtime as bcg_runtime
+
+    snapshot = {
+        "nodes": [
+            {
+                "id": 7,
+                "belief": 'The assistant is using web_search to search for \\"stock diversification 1968\\".',
+                "confidence": 0.78,
+                "source": {"turn_id": 3},
+                "tool_name": "web_search",
+            },
+            {
+                "id": 8,
+                "belief": "The web_search tool returned: [BLOCKED] This source is unavailable for this task.",
+                "confidence": 0.78,
+                "source": {"turn_id": 5},
+            },
+            {"id": 9, "belief": "Statman argued 30 stocks suffice.", "confidence": 0.88,
+             "source": {"turn_id": 4}},
+            {"id": 10, "belief": "Industry factors dominate country factors.", "confidence": 0.93,
+             "source": {"turn_id": 6}},
+            {
+                "id": 11,
+                "belief": "The web_search tool returned 9 result(s): 1. Expected shortfall measures tail risk.",
+                "confidence": 0.88,
+                "source": {"turn_id": 7},
+            },
+        ],
+        "relations": [{"id": 2, "from_id": 9, "to_id": 7, "type": "depends_on"}],
+    }
+    selection = {"node_ids": [10, 9, 7, 11, 8], "relation_ids": [2]}
+
+    monkeypatch.setattr(bcg_runtime, "RENDER_STYLE", "v0")
+    baseline, baseline_ids, baseline_edges = render_graph(snapshot, selection, 2000)
+    assert "## Beliefs" in baseline and "## Completed actions" not in baseline
+
+    monkeypatch.setattr(bcg_runtime, "RENDER_STYLE", "split")
+    text, ids, edges = render_graph(snapshot, selection, 2000)
+    assert ids == baseline_ids and edges == baseline_edges
+    assert "## Completed actions" in text and "## Findings" in text
+    # Template prose around the query is dropped; the query itself survives.
+    assert '- [B7] web_search "stock diversification 1968"' in text
+    assert "is using web_search to search for" not in text
+    assert "- [B8] web_search returned a blocked source" in text
+    # A node describing what a tool RETURNED is evidence, not an action: burying
+    # it under completed actions would hide content the model has to read.
+    assert "[B11]" in text.split("## Findings")[1]
+    assert "[B11]" not in text.split("## Findings")[0]
+    # Actions are chronological, findings keep the selector's relevance order.
+    assert text.index("[B7]") < text.index("[B8]")
+    assert text.index("[B10]") < text.index("[B9]")
+    assert len(text) < len(baseline)
+    # Relations are rendered identically in both styles.
+    assert "- [B9] depends_on [B7]" in text
+
+    # A tight budget must drop the same nodes in both styles: trimming walks the
+    # selector's order, which display order never touches.
+    monkeypatch.setattr(bcg_runtime, "RENDER_STYLE", "v0")
+    _, tight_v0, _ = render_graph(snapshot, selection, 300)
+    monkeypatch.setattr(bcg_runtime, "RENDER_STYLE", "split")
+    _, tight_split, _ = render_graph(snapshot, selection, 300)
+    assert tight_v0 == tight_split
 
 
 @pytest.mark.parametrize("snapshot", [{"nodes": "bad"}, {"beliefs": None}, {"decisions": 1}])
@@ -485,7 +556,8 @@ def test_real_agent_loop_four_tool_steps_then_answer(tmp_path):
         assert result.final_content == "Final answer using the collected evidence."
         assert len(provider.inputs) == 5
         assert len(result.messages) == 11  # original system/user, 4 pairs, final
-        assert len(provider.inputs[-1]) == 7  # system + graph + user + 2 pairs
+        assert len(provider.inputs[-1]) == 6  # system+graph merged, user, 2 pairs
+        assert "<belief_graph>" in provider.inputs[-1][0]["content"]
         assert all("<belief_graph>" not in str(m) for m in result.messages)
         assert memory.raw_results["lookup-1"] == "Evidence for fact 1"
         assert memory.last_event["evicted_steps"] == 2
@@ -574,7 +646,8 @@ def test_production_react_node_wires_bcg_without_a_strategy_flag(tmp_path, monke
     assert result["tool_calls_count"] == 4
     assert len(result["session_messages"]) == 11
     assert len(provider.inputs) == 5
-    assert len(provider.inputs[-1]) == 7
+    assert len(provider.inputs[-1]) == 6  # system+graph merged, user, 2 pairs
+    assert "<belief_graph>" in provider.inputs[-1][0]["content"]
     assert result["bcg"]["fallback"] is None
     assert result["bcg"]["evicted_steps"] == 2
     checkpoint = json.loads((tmp_path / "trial/agent/bcg/state.json").read_text())
