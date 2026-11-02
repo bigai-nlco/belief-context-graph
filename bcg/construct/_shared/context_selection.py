@@ -38,6 +38,13 @@ def _confidence(node: dict[str, Any]) -> float:
     return float(value) if isinstance(value, (int, float)) else 0.5
 
 
+def _task_adjusted_confidence(confidence: float, task_relevance: float) -> float:
+    """Keep factual confidence, but discount its selection weight when irrelevant."""
+    confidence = min(1.0, max(0.0, float(confidence)))
+    task_relevance = min(1.0, max(0.0, float(task_relevance)))
+    return confidence * (0.5 + 0.5 * task_relevance)
+
+
 def _is_search(node: dict[str, Any]) -> bool:
     return node.get("extraction_method") == "rule_tool_call" or isinstance(
         node.get("query"), str
@@ -373,7 +380,9 @@ def _connected_from_similarities(
             0.44 * similarities[node_id]
             + 0.27 * ppr.get(node_id, 0.0)
             + 0.16 * recency[node_id]
-            + 0.13 * _confidence(by_id[node_id])
+            + 0.13 * _task_adjusted_confidence(
+                _confidence(by_id[node_id]), similarities[node_id]
+            )
             + _adjustment(by_id[node_id]),
         )
         for node_id in node_ids
@@ -408,7 +417,9 @@ def _connected_from_similarities(
             newest_raw,
             key=lambda node: (
                 0.72 * similarities[node["id"]]
-                + 0.18 * _confidence(node)
+                + 0.18 * _task_adjusted_confidence(
+                    _confidence(node), similarities[node["id"]]
+                )
                 + 0.10 * scores[node["id"]]
             ),
         )

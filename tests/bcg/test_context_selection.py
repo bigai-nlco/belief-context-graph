@@ -11,6 +11,7 @@ import pytest
 
 from bcg.construct._shared.context_selection import (
     _selected_relation_ids,
+    _task_adjusted_confidence,
     select_connected_context,
     select_focused_context,
 )
@@ -329,3 +330,9 @@ def test_local_embedding_max_length_never_exceeds_native_limit(
     )
 
     assert client._ensure_model().max_seq_length == expected_max
+
+
+def test_task_relevance_discounts_confidence_only_in_selection_weight() -> None:
+    assert _task_adjusted_confidence(0.8, 1.0) == pytest.approx(0.8)
+    assert _task_adjusted_confidence(0.8, 0.0) == pytest.approx(0.4)
+    assert _task_adjusted_confidence(0.8, 0.5) == pytest.approx(0.6)
