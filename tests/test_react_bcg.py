@@ -587,7 +587,8 @@ def test_real_agent_loop_four_tool_steps_then_answer(tmp_path):
     asyncio.run(run())
 
 
-def test_production_react_node_wires_bcg_without_a_strategy_flag(tmp_path, monkeypatch):
+@pytest.mark.parametrize("mode", [None, "bcg", "default"])
+def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode):
     from frontier_agent.core.runtime import registry
     from frontier_agent.core.runtime.resources.manager import ResourceManager
     from workflows.stateful_react_agent.bcg import runtime
@@ -607,6 +608,8 @@ def test_production_react_node_wires_bcg_without_a_strategy_flag(tmp_path, monke
         async def chat(self, messages, **kwargs):
             self.inputs.append(copy.deepcopy(messages))
             n = len(self.inputs)
+            names = [t["function"]["name"] for t in kwargs.get("tools") or []]
+            assert ("bcg_recover" in names) == (mode != "default")
             if n <= 4:
                 return LLMResponse(
                     content=f"Checking evidence {n}",
@@ -639,6 +642,13 @@ def test_production_react_node_wires_bcg_without_a_strategy_flag(tmp_path, monke
             "salvage_infra_errors": False,
         }
     }
+    if mode is not None:
+        profile["agent"]["context_mode"] = mode
+    if mode == "default":
+        profile["agent"]["bcg"] = {"url": "not-a-graph-url"}
+        def no_memory(*args, **kwargs):
+            raise AssertionError("Default must not construct BCGMemory")
+        monkeypatch.setattr(main_agent, "BCGMemory", no_memory)
     monkeypatch.setattr(
         main_agent, "_resolve_llm_and_profile", lambda *a, **kw: (provider, profile, None)
     )
@@ -664,6 +674,20 @@ def test_production_react_node_wires_bcg_without_a_strategy_flag(tmp_path, monke
     assert result["tool_calls_count"] == 4
     assert len(result["session_messages"]) == 11
     assert len(provider.inputs) == 5
+    assert result["context_mode"] == (mode or "bcg")
+    if mode == "default":
+        assert [len(request) for request in provider.inputs] == [2, 4, 6, 8, 10]
+        for request in provider.inputs:
+            assert request[0]["role"] == "system"
+            assert request[1] == {"role": "user", "content": "Find the answer"}
+            assert "<belief_graph>" not in str(request)
+            assert "<context_blocks_guide>" not in str(request)
+        for number in range(1, 5):
+            assert any(m.get("tool_call_id") == f"c{number}" for m in provider.inputs[-1])
+        assert not (tmp_path / "trial/agent/bcg").exists()
+        assert not graph.pushes and not graph.selections and not graph.closed
+        assert result["bcg"] == {} and result["bcg_graph_usage_online"] == {}
+        return
     assert len(provider.inputs[-1]) == 6
     assert result["bcg"]["fallback"] is None
     assert result["bcg"]["evicted_steps"] == 2
@@ -674,3 +698,10 @@ def test_production_react_node_wires_bcg_without_a_strategy_flag(tmp_path, monke
         > result["bcg_graph_usage_online"]["total_tokens"]
     )
     assert graph.closed
+
+
+@pytest.mark.parametrize("mode", ["hybrid", "", None, [], True])
+def test_invalid_context_modes_fail_explicitly(mode):
+    from workflows.stateful_react_agent.profile import resolve_context_mode
+    with pytest.raises(ValueError, match="context_mode"):
+        resolve_context_mode({"context_mode": mode})

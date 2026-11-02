@@ -37,11 +37,11 @@ try{
   assert.equal(await evaluate('document.querySelector("[data-ai-review=\\"2\\"]").textContent'),'AI 标注');
   assert.equal(await evaluate('document.querySelector(".run-table a[href*=\\"task=2\\"]").textContent'),'人工标注');
   // Preview server states in this offline browser only, without writing reviews.
-  await evaluate(`window.annotationTestFetch=window.fetch;window.annotationPreview={};
+  await evaluate(`window.annotationTestFetch=window.fetch;window.annotationPreview={};window.annotationPolls=0;window.runPreview={};
     window.fetch=async(...args)=>{
       const response=await window.annotationTestFetch(...args);
       if(args[0]!=='/api/runs/1')return response;
-      const data=await response.json();Object.assign(data.tasks.find(t=>t.id==='2'),window.annotationPreview);
+      const data=await response.json();Object.assign(data,window.runPreview);Object.assign(data.tasks.find(t=>t.id==='2'),window.annotationPreview);window.annotationPolls++;
       return new Response(JSON.stringify(data),{status:response.status,headers:{'Content-Type':'application/json'}});
     };`);
   const preview=async(data,label)=>{
@@ -86,6 +86,46 @@ try{
   }
   await preview({reviews:[],ai_review:{status:'running',completed_batches:5,batches:5}},'标注中');
   assert.equal((await progressValues())[1].value,0,'AI work in progress is not counted as completed');
+  await until(()=>evaluate('!!document.querySelector(".ai-review-busy")'),'running button ready');
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
+  await evaluate(`window.stableWrap=document.querySelector('.run-table-wrap');window.stableTable=window.stableWrap.querySelector('table');
+    window.stableRow=window.stableTable.querySelector('tbody tr');window.stableSpinner=document.querySelector('.ai-review-spinner');
+    window.stableNav=document.querySelector('#run-list [data-run="1"]');window.stableLink=window.stableRow.querySelector('a');
+    window.stableLink.focus({preventScroll:true});window.stableWrap.scrollLeft=180;`);
+  await delay(150); // Ignore the deliberate setup scroll; subsequent polls must not scroll.
+  await evaluate(`window.pollStart=window.annotationPolls;window.pollScrollEvents=0;
+    window.pollScrollListener=e=>{if(e.target.matches?.('.run-table-wrap'))window.pollScrollEvents++;};
+    document.addEventListener('scroll',window.pollScrollListener,true);`);
+  await until(()=>evaluate('window.annotationPolls>=window.pollStart+2'),'two automatic refresh cycles');
+  await delay(100);
+  const stableLayout=()=>evaluate(`({
+    wrap:window.stableWrap===document.querySelector('.run-table-wrap'),table:window.stableTable===document.querySelector('.run-table'),
+    row:window.stableRow===document.querySelector('.run-table tbody tr'),nav:window.stableNav===document.querySelector('#run-list [data-run="1"]'),
+    position:document.querySelector('.run-table-wrap').scrollLeft,scrollEvents:window.pollScrollEvents,
+    pageOverflow:document.documentElement.scrollWidth>innerWidth,
+  })`);
+  const stableExpected={wrap:true,table:true,row:true,nav:true,position:180,scrollEvents:0,pageOverflow:false};
+  assert.deepEqual(await stableLayout(),stableExpected,'unchanged polling preserves DOM and causes no scroll events');
+  assert(await evaluate('document.activeElement===window.stableLink'),'automatic polling preserves keyboard focus');
+  for(const completed of [2,3,4,5]){
+    await evaluate(`window.annotationPreview.ai_review={status:'running',completed_batches:${completed},batches:5};document.dispatchEvent(new Event('visibilitychange'));`);
+    await until(()=>evaluate(`document.querySelector('.ai-review-progress')?.textContent.includes('已分析 ${completed} / 5 批')`),'progress text updates '+completed);
+    assert(await evaluate('document.querySelector(".ai-review-spinner")===window.stableSpinner'),'progress updates do not restart spinner animation');
+    assert.deepEqual(await stableLayout(),stableExpected,'changing progress preserves the scroller');
+  }
+  // Optional notices before the table must not cause its detach/reattach either.
+  await evaluate(`window.removedScrollers=0;window.scrollerObserver=new MutationObserver(changes=>{for(const change of changes)for(const node of change.removedNodes)if(node===window.stableWrap)window.removedScrollers++;});window.scrollerObserver.observe(document.querySelector('#run-content'),{childList:true});`);
+  for(const error of ['Offline notice',null]){
+    await evaluate(`window.runPreview={error:${JSON.stringify(error)}};document.dispatchEvent(new Event('visibilitychange'));`);
+    await until(()=>evaluate(`document.querySelector('[data-live-key="run-error"]')?.textContent===${JSON.stringify(error||undefined)}`),'run notice updated');
+    assert.equal(await evaluate('window.removedScrollers'),0,'run notice changes never detach the table');
+    assert.deepEqual(await stableLayout(),stableExpected,'run notice changes preserve scroll position');
+  }
+  await preview({reviews:[],ai_review:{status:'completed'}},'AI 已标注');
+  await until(()=>evaluate('!!document.querySelector(".ai-review-link")'),'completed link updates in place');
+  assert.deepEqual(await stableLayout(),stableExpected,'review completion preserves the table');
+  await evaluate('document.removeEventListener("scroll",window.pollScrollListener,true);window.scrollerObserver.disconnect()');
+  await preview({reviews:[],ai_review:{status:'running',completed_batches:5,batches:5}},'标注中');
   for(const width of [1920,1440,1024,390]){
     await command('Emulation.setDeviceMetricsOverride',{width,height:1050,deviceScaleFactor:1,mobile:false});
     await evaluate('document.querySelector(".run-table-wrap").scrollLeft=99999');

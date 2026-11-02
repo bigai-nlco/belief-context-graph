@@ -1,0 +1,16 @@
+.stats-page{height:100dvh;display:flex;flex-direction:column;overflow:hidden;background:#f5f7fa}
+.stats-header{flex:0 0 auto}.stats-header .runs-actions{flex-wrap:wrap}
+.stats-body{flex:1;min-height:0;position:relative}
+#stats-report{width:100%;height:100%;border:0;background:#f5f7fa}
+.stats-placeholder{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:28px;text-align:center;color:#26364b}
+.stats-placeholder h1{font-size:23px;margin:0}.stats-placeholder p{color:#617083;margin:0;max-width:520px}
+.stats-spinner{width:28px;height:28px;border:3px solid #dce1e9;border-top-color:#7c2945;border-radius:50%;animation:stats-spin .8s linear infinite}
+.stats-feedback{padding:9px 24px;background:#fff2d9;border-bottom:1px solid #ecd6ac;color:#624b25;font-size:14px}
+.stats-summary-status{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 24px;background:#fff;border-bottom:1px solid #e0e5ec;font-size:12px;color:#617083;flex:0 0 auto}
+.stats-summary-status .stats-spinner{height:14px;width:14px;border-width:2px;flex:0 0 14px}
+.stats-summary-status .button{padding:5px 10px;font-size:12px}
+#summary-status-text{overflow-wrap:anywhere;flex:1;min-width:160px}
+[hidden]{display:none!important}
+@keyframes stats-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.stats-spinner{animation-duration:2s}}
+@media(max-width:720px){.stats-header{padding:12px;gap:12px}.stats-header .runs-brand-label{font-size:10px}.stats-header .runs-actions{gap:6px}.stats-header .button{font-size:12px;padding:8px 10px}}

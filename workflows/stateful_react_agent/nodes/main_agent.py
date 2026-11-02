@@ -99,6 +99,7 @@ from workflows.stateful_react_agent.observers import (
     ReportSynthesisObserver,
     RichConsoleObserver,
 )
+from workflows.stateful_react_agent.profile import resolve_context_mode
 from workflows.stateful_react_agent.prompts import (
     BOARD_PROMPT_ADDENDUM,
     get_direct_system_prompt,
@@ -646,7 +647,8 @@ async def react_agent_node(state: dict[str, Any], ctx: NodeContext) -> dict[str,
     ) = _resolve_runaway_guardrails(agent_cfg)
     history_policy = resolve_history_policy(agent_cfg)
     max_input_tokens = int(agent_cfg.get("max_input_tokens", 0) or 0)
-    bcg_settings = BCGSettings.from_agent(agent_cfg)
+    context_mode = resolve_context_mode(agent_cfg)
+    bcg_settings = BCGSettings.from_agent(agent_cfg) if context_mode == "bcg" else None
     max_len = int(agent_cfg.get("max_len", 0) or 0)
     # See the sibling call in agent_team: the sglang doctor covers the compose
     # path only, and nothing checked the values the loop is actually built from.
@@ -896,9 +898,8 @@ async def react_agent_node(state: dict[str, Any], ctx: NodeContext) -> dict[str,
             "refusing unisolated host fallback"
         )
 
-    # BCG replaces the single-agent retention strategy. Keep the complete
-    # transcript for checkpoints/recovery and project only the model request.
-    # Agent Team reuses this projector with per-job graphs and cross-graph links.
+    # Both modes keep the transcript. Only BCG projects the model request;
+    # Default sends ordinary chronological history directly to the provider.
     session_root = os.environ.get("APODEX_RUN_DIR", "").strip()
     trajectory_dir = _resolve_trajectory_dir(state, ctx.task_id)
     task_record_dir = (
@@ -908,13 +909,16 @@ async def react_agent_node(state: dict[str, Any], ctx: NodeContext) -> dict[str,
         Path(session_root) / "bcg" if session_root and metadata.get("_bcg_terminal_session")
         else task_record_dir / "bcg"
     )
-    memory = BCGMemory(
-        bcg_settings, bcg_dir, str(metadata.get("session_id") or ctx.task_id),
-    )
-    if not direct:
-        tools.append(memory.recovery_tool())
-        tool_names.append("bcg_recover")
-    bcg_llm = BCGClient(llm, memory)
+    memory = None
+    request_llm = llm
+    if bcg_settings is not None:
+        memory = BCGMemory(
+            bcg_settings, bcg_dir, str(metadata.get("session_id") or ctx.task_id),
+        )
+        if not direct:
+            tools.append(memory.recovery_tool())
+            tool_names.append("bcg_recover")
+        request_llm = BCGClient(llm, memory)
 
     event_store = registry.get_optional(EventStore)
     model_name = extract_model_name(llm)
@@ -930,8 +934,9 @@ async def react_agent_node(state: dict[str, Any], ctx: NodeContext) -> dict[str,
             user_message=question,
         ),
         ReactStepTracker(),
-        BCGObserver(memory),
     ]
+    if memory is not None:
+        observers.append(BCGObserver(memory))
     if not direct:
         # Repetition stop-loss. Both of these stay hint-only: this agent IS
         # the run, so a false positive must cost one message, never the answer.
@@ -1077,7 +1082,7 @@ async def react_agent_node(state: dict[str, Any], ctx: NodeContext) -> dict[str,
         result = await loop_fn(
             system_prompt=system_prompt,
             user_message=question,
-            llm=bcg_llm,
+            llm=request_llm,
             tools=tools,
             config=LoopConfig(
                 max_turns=max_turns,
@@ -1122,14 +1127,16 @@ async def react_agent_node(state: dict[str, Any], ctx: NodeContext) -> dict[str,
                 "workspace_root": workspace_root_str,
             },
         )
-        result.metadata["bcg_graph_usage_online"] = memory.snapshot.get("token_usage", {})
+        if memory is not None:
+            result.metadata["bcg_graph_usage_online"] = memory.snapshot.get("token_usage", {})
         # A terminal session can continue, so its recent steps must not enter
         # the graph early. One-shot benchmark tasks export the final tail only
         # AFTER answering; these extra construction tokens are recorded apart.
-        if not metadata.get("_bcg_terminal_session") and result.stopped_by not in {"paused", "llm_error", "user_rejected"}:
+        if memory is not None and not metadata.get("_bcg_terminal_session") and result.stopped_by not in {"paused", "llm_error", "user_rejected"}:
             await memory.flush_final(result.messages)
     finally:
-        await memory.close()
+        if memory is not None:
+            await memory.close()
         reset_policy_mode(policy_token)
         reset_filesystem_state(fs_token)
         if sb_token is not None:
@@ -1173,6 +1180,7 @@ async def react_agent_node(state: dict[str, Any], ctx: NodeContext) -> dict[str,
         else "complete"
     )
     return {
+        "context_mode": context_mode,
         "final_answer": final_text,
         "final_content": final_text,
         "session_turn": build_session_turn(

@@ -25,8 +25,13 @@ _PROFILE_ALIASES = {
     "Apodex1.1-solve": "tui",
 }
 
-# Retain accepted profile names, not the replaced context strategies. Every
-# single-agent ReAct profile now uses BCG; Agent Team is unchanged.
+
+def resolve_context_mode(agent: dict[str, Any]) -> str:
+    """Keep existing profiles on BCG; explicitly opt into unprojected history."""
+    mode = agent.get("context_mode", "bcg")
+    if mode not in ("bcg", "default"):
+        raise ValueError("agent.context_mode must be 'bcg' or 'default'")
+    return mode
 
 
 def _deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:

@@ -17,12 +17,16 @@ from tools.case_study_studio import run_job
 from tools.case_study_studio.tests.test_control import build_fixture, request_config, write
 
 
-@pytest.mark.parametrize("mode", ["success", "bad_preflight", "cancel", "missing_key", "legacy_benchmark"])
+@pytest.mark.parametrize("mode", ["success", "bad_preflight", "cancel", "missing_key", "legacy_benchmark",
+                                 "judge_error", "judge_partial", "judge_cancel", "legacy_no_judge", "default"])
 def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
     root = tmp_path / "agent"
     control = build_fixture(root)
     user = control.register("operator")["user"]
-    run = control.create_run(request_config(profile="gpt6-luna"), user)
+    run = control.create_run(request_config(profile="gpt6-luna", mode="default" if mode == "default" else "bcg"), user)
+    if mode == "default":
+        # Default must work without the construction profile or sibling environment.
+        (root / "tools/case_study_studio/profiles/graph.yaml").unlink()
     directory = control.directory(control.row(run["id"]))
     directory.mkdir(parents=True)
     monkeypatch.setattr(sys, "argv", ["run_job.py", "--root", str(root), "--state", str(control.state), "--run-id", str(run["id"])])
@@ -30,8 +34,14 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     monkeypatch.chdir(root)
     monkeypatch.setattr(os, "environ", os.environ.copy())
     monkeypatch.setattr(run_job.signal, "signal", lambda *_: None)
-    monkeypatch.setattr(dotenv, "dotenv_values", lambda *_: {} if mode == "missing_key" else {
-        "LITELLM_OPENAI_API_KEY": "test-key-not-real", "SERPER_API_KEY": "test-serper-not-real"})
+    def dotenv_fixture(path: Path) -> dict:
+        if mode == "missing_key":
+            return {}
+        if path == root / ".env":
+            return {"LITELLM_OPENAI_API_KEY": None, "JUDGE_API_KEY": ""}
+        return {"LITELLM_OPENAI_API_KEY": "test-key-not-real", "SERPER_API_KEY": "test-serper-not-real"}
+
+    monkeypatch.setattr(dotenv, "dotenv_values", dotenv_fixture)
     preflights, children, stopped = [], [], []
 
     def preflight(cmd: list, **kwargs: object) -> SimpleNamespace:
@@ -43,10 +53,27 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
     def spawn(cmd: list, **kwargs: object) -> SimpleNamespace:
         graph = "-c" in cmd
+        judge = "judge" in cmd
         proc = SimpleNamespace(pid=90000 + len(children), stopped=False, returncode=None if graph else 0)
         proc.poll = lambda: 0 if proc.stopped or not graph else None
         children.append((cmd, proc))
-        if not graph:
+        if judge:
+            if mode != "default":
+                assert children[0][1].stopped  # No graph service is needed to grade a report.
+            assert cmd[cmd.index("--out") + 1] == str(directory / "drb2")
+            assert "--force" not in cmd
+            assert os.environ["JUDGE_API_KEY"] == "test-key-not-real"
+            assert os.environ["JUDGE_BASE_URL"] == "https://litellm.mybigai.ac.cn/"
+            if mode == "judge_error":
+                proc.returncode = 2
+            elif mode == "judge_cancel":
+                proc.returncode = None
+                proc.poll = lambda: 0 if proc.stopped else None
+                control.cancel_run(run["id"], user)
+            else:
+                write(directory, "drb2/summary.json", {"status_counts": {"completed": 1},
+                    "rubric": {"complete": mode != "judge_partial"}})
+        elif not graph:
             write(directory, "drb2/summary.json", {"status_counts": {"completed": 1}})
         return proc
 
@@ -58,12 +85,18 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(subprocess, "run", preflight)
     monkeypatch.setattr(subprocess, "Popen", spawn)
     monkeypatch.setattr(run_job, "stop_tree", stop)
-    monkeypatch.setattr(httpx, "get", lambda *a, **k: SimpleNamespace(status_code=200))
+    def health(*args: object, **kwargs: object) -> SimpleNamespace:
+        assert mode != "default", "Default must not query a Graph service"
+        return SimpleNamespace(status_code=200)
+    monkeypatch.setattr(httpx, "get", health)
     if mode == "cancel":
         control.cancel_run(run["id"], user)
-    if mode == "legacy_benchmark":
+    if mode in {"legacy_benchmark", "legacy_no_judge"}:
         config = json.loads(control.row(run["id"])["config"])
-        config["tasks"] = {"drbench": ["DR0001"]}
+        if mode == "legacy_benchmark":
+            config["tasks"] = {"drbench": ["DR0001"]}
+        else:
+            config.pop("judge_reports")
         with control.connect() as db:
             db.execute("UPDATE runs SET config=? WHERE id=?", (json.dumps(config), run["id"]))
     run_job.main()
@@ -71,18 +104,56 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     batch = json.loads((directory / "batch.json").read_text())
     assert row["finished_at"] and batch["graph_stopped"]
     assert "test-key-not-real" not in (directory / "batch.json").read_text()
-    if mode == "success":
+    if mode == "default":
+        assert row["status"] == "finished" and batch["mode"] == "default"
+        assert len(children) == 2 and len(preflights) == 1
+        assert not any("-c" in cmd for cmd, _ in children), "no Graph subprocess"
+        assert batch["graph"] == {"enabled": False}
+        assert batch["judge"]["model"] == "gpt-6-luna" and batch["judge"]["reasoning_effort"] == "high"
+        assert not (directory / "graph.yaml").exists() and not (directory / "graph-server.log").exists()
+        agent = yaml.safe_load((directory / "agent.yaml").read_text())
+        assert agent["agent"]["context_mode"] == "default" and "bcg" not in agent["agent"]
+        assert agent["llm"]["extra_body"]["reasoning_effort"] == "low"
+    elif mode in {"success", "legacy_no_judge"}:
         assert row["status"] == "finished"
-        assert len(preflights) == 1 and len(children) == 2 and len(stopped) == 2
+        assert len(preflights) == 1
+        assert len(children) == (3 if mode == "success" else 2)
+        assert all(child.stopped or child.returncode is not None for _, child in children)
+        if mode == "success":
+            assert batch["judge"]["finished_at"] and batch["exit_codes"]["drb2_judge"] == 0
+            assert batch["judge"]["model"] == "gpt-6-luna"
+            assert batch["judge"]["reasoning_effort"] == "high"
         graph = yaml.safe_load((directory / "graph.yaml").read_text())
         agent = yaml.safe_load((directory / "agent.yaml").read_text())
         assert graph["models"]["graph"]["reasoning_effort"] == "none"
+        assert agent["agent"]["context_mode"] == "bcg" and batch["mode"] == "bcg"
         assert graph["models"]["graph"]["api_key_env"] == "LITELLM_OPENAI_API_KEY"
         assert agent["llm"]["extra_body"]["reasoning_effort"] == "low"
         assert agent["agent"]["bcg"]["url"] == batch["graph"]["url"]
         assert "test-key-not-real" not in (directory / "agent.yaml").read_text()
+    elif mode.startswith("judge_"):
+        assert row["status"] == ("cancelled" if mode == "judge_cancel" else "finished_with_judge_errors")
+        assert batch["phase"] == "judging"
+        assert (directory / "drb2/summary.json").is_file()
+        assert children[-1][1].stopped
+        if mode != "judge_cancel":
+            assert "报告已保留" in row["error"]
     else:
         assert row["status"] == ("cancelled" if mode == "cancel" else "failed")
         assert not children
         if mode == "legacy_benchmark":
             assert not preflights
+
+
+def test_judge_configuration_does_not_inherit_local_agent_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(os, "environ", {"OPENAI_API_KEY": "EMPTY", "OPENAI_BASE_URL": "http://localhost:8001/v1"})
+    public = run_job.configure_judge({"LITELLM_OPENAI_API_KEY": "private-judge-key"})
+    assert os.environ["JUDGE_API_KEY"] == "private-judge-key"
+    assert os.environ["JUDGE_BASE_URL"] == "https://litellm.mybigai.ac.cn/"
+    assert public["model"] == "gpt-6-luna" and public["reasoning_effort"] == "high"
+    assert "private-judge-key" not in json.dumps(public)
+    public = run_job.configure_judge({"JUDGE_API_KEY": "explicit-key", "JUDGE_BASE_URL": "https://judge.example/v1",
+        "JUDGE_MODEL": "custom-judge", "DRB2_JUDGE_REASONING_EFFORT": "low"})
+    assert os.environ["JUDGE_API_KEY"] == "explicit-key"
+    assert os.environ["JUDGE_BASE_URL"] == "https://judge.example/v1"
+    assert public["model"] == "custom-judge" and public["reasoning_effort"] == "low"

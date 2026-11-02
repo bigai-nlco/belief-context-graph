@@ -1,6 +1,23 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {benchmarkLabel,remoteLocation,caseLink,defaultRunTitle,bindAIAnnotation,saveSharedCase,taskAnnotationStatus,canAnnotateTask,annotationProgress} from '../shared.mjs';
+import {benchmarkLabel,remoteLocation,caseLink,defaultRunTitle,bindAIAnnotation,saveSharedCase,taskAnnotationStatus,canAnnotateTask,annotationProgress,reportScoreLabel,runDisplayStatus} from '../shared.mjs';
+
+test('report judging is separate from report generation and annotation',()=>{
+  assert.equal(runDisplayStatus({status:'running',phase:'judging'}),'judging');
+  assert.equal(runDisplayStatus({status:'cancelled',phase:'judging'}),'cancelled');
+  assert.equal(runDisplayStatus({status:'finished_with_judge_errors',phase:'judging'}),'finished_with_judge_errors');
+  assert.equal(reportScoreLabel({status:'completed'}),'待评分');
+  assert.equal(reportScoreLabel({status:'running'}),'—');
+  assert.equal(reportScoreLabel({scoring_status:'official_protocol_scored',official_score:0}),'0.0 / 100');
+  assert.equal(reportScoreLabel({scoring_status:'official_protocol_scored',official_score:0.735}),'73.5 / 100');
+  assert.equal(reportScoreLabel({scoring_status:'official_protocol_scored',official_score:1}),'100.0 / 100');
+  assert.equal(reportScoreLabel({scoring_status:'official_protocol_scored',official_score:null,status:'completed'}),'待评分');
+  assert.equal(reportScoreLabel({scoring_status:'official_protocol_scored',official_score:NaN,status:'completed'}),'待评分');
+  assert.equal(reportScoreLabel({scoring_status:'official_pending',official_score:1,status:'completed'}),'待评分');
+  assert.equal(reportScoreLabel({scoring_status:'judge_error'}),'评分失败');
+  assert.equal(reportScoreLabel({scoring_status:'not_judged'}),'未评分');
+  assert.equal(taskAnnotationStatus({scoring_status:'official_protocol_scored',official_score:1}).completed,false);
+});
 
 test('annotation progress counts eligible tasks once and excludes failures and drafts',()=>{
   const task=(reviews=[],ai='not_started',changes={})=>({status:'completed',annotatable:true,reviews:reviews.map(status=>({status})),ai_review:{status:ai},...changes});

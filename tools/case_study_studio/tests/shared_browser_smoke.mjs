@@ -51,6 +51,9 @@ try{
   const reviewerName=('离线标注甲-'+Date.now()+'-ABCDEFGHIJKLMNOPQRSTUVWXYZ').slice(0,40);
   await fill('#identity-form [name=name]',reviewerName);await click('#identity-form [type=submit]');
   await until(()=>evaluate('!!document.querySelector(".run-table")'),'run list');
+  for(const selector of ['.runs-actions a[href="./review-pipeline.html"]','.run-heading-actions a[href*="annotation-stats.html"]']){
+    assert.equal(await evaluate(`getComputedStyle(document.querySelector(${JSON.stringify(selector)})).textDecorationLine`),'none','navigation buttons have no text underline');
+  }
   const aliceToken=await evaluate('localStorage.getItem("bcg-studio-personal-token")');
   const api=async(path,token=aliceToken,method='GET',body)=>{const r=await fetch(origin+'/api/'+path,{method,headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});const data=await r.json();assert(r.ok,JSON.stringify(data));return data;};
   await click('#identity-button');
@@ -89,6 +92,87 @@ try{
   assert.equal(await evaluate('document.querySelector(".run-heading .eyebrow").textContent'),'RUN-0001');
   await shot('runs-desktop.png');
   assert.equal(await evaluate('document.querySelector(".run-table tbody strong").textContent'),'DeepResearch Bench II');
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.run-table tbody tr:first-child .task-agent-tokens .token-breakdown>span')].map(e=>e.textContent)`),['输入 100','输出 20']);
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.run-table tbody tr:first-child .task-graph-tokens .token-breakdown>span')].map(e=>e.textContent)`),['输入 30','输出 10']);
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.run-table tbody tr:nth-child(2) .task-graph-tokens .token-breakdown>span')].map(e=>e.textContent)`),['输入 —','输出 —']);
+  assert.equal(await evaluate('document.querySelectorAll(".run-table th")[2].textContent'),'分数');
+  assert(await evaluate('[...document.querySelectorAll(".run-table tbody tr")].every(row=>row.cells.length===9)'),'each task has a dedicated score cell');
+  assert.equal(await evaluate('document.querySelector(".run-table tbody tr:nth-child(2) .task-score").textContent'),'—');
+  // Simulate scoring transitions in the fixture response, without changing any saved result.
+  await evaluate(`window.scoreTestFetch=window.fetch;window.scoreTestTask={};
+    window.fetch=async(...args)=>{const response=await window.scoreTestFetch(...args);
+      if(String(args[0])!=='/api/runs/1')return response;
+      const data=await response.json();Object.assign(data.tasks[0],window.scoreTestTask);return Response.json(data);};`);
+  for(const [scoring_status,official_score,label] of [
+    ['official_protocol_scored',0,'0.0 / 100'],
+    ['official_protocol_scored',0.10091743119266056,'10.1 / 100'],
+    ['official_protocol_scored',1,'100.0 / 100'],
+    ['judge_error',null,'评分失败'],
+    ['not_judged',null,'未评分'],
+    ['official_pending',null,'待评分'],
+  ]){
+    await evaluate(`window.scoreTestTask=${JSON.stringify({scoring_status,official_score})};document.dispatchEvent(new Event('visibilitychange'));`);
+    await until(()=>evaluate(`document.querySelector('.run-table tbody tr:first-child .task-score').textContent===${JSON.stringify(label)}`),'score cell '+label);
+    assert(await evaluate(`!document.querySelector('.run-table tbody tr:first-child .task-status').textContent.includes('评分')`),'score is not duplicated under execution status');
+    if(official_score===0.10091743119266056)await shot('score-column.png');
+  }
+  await evaluate('window.fetch=window.scoreTestFetch;document.dispatchEvent(new Event("visibilitychange"))');
+  // Saved Judge explanations load only on demand. All data below is synthetic.
+  await evaluate(`window.scoreDetailOriginalFetch=window.fetch;window.scoreDetailRequests=0;
+    window.scoreDetailMode='normal';window.scoreDetailFixture={run:'RUN-0001',benchmark:'drb2',task_id:'2',status:'scored',score:1/3,model:'offline-judge',reasoning_effort:'high',judged_at:'2026-10-28T12:00:00Z',duration_seconds:20,dimensions:[
+      {id:'info_recall',label:'信息召回',score:.5,items:[{criterion:'Criterion A: preserve precise evidence',score:1,reason:'Reason A',evidence:'Original report evidence A'},{criterion:'Criterion B: a missing constraint',score:0,reason:'Reason B',evidence:''}]},
+      {id:'analysis',label:'分析',score:0,items:[{criterion:'Criterion C: use permitted references',score:-1,reason:'Blocked citation',evidence:'Original report evidence C'}]},
+      {id:'presentation',label:'表达呈现',score:null,items:[]}]};
+    window.fetch=async(...args)=>{
+      if(String(args[0])==='/api/runs/1/tasks/drb2/2/score'){
+        window.scoreDetailRequests++;
+        if(window.scoreDetailMode==='fail')return Response.json({error:'QA read failure'},{status:503});
+        if(window.scoreDetailMode==='delayed')await new Promise(resolve=>window.releaseScoreDetail=resolve);
+        return Response.json(window.scoreDetailFixture);
+      }
+      const response=await window.scoreDetailOriginalFetch(...args);
+      if(String(args[0])!=='/api/runs/1')return response;
+      const data=await response.json();Object.assign(data.tasks[0],{score_details_available:true,scoring_status:'official_protocol_scored',official_score:1/3});return Response.json(data);
+    };document.dispatchEvent(new Event('visibilitychange'));`);
+  await until(()=>evaluate('!!document.querySelector("[data-score-task=\\"2\\"]")'),'score view button');
+  assert.equal(await evaluate('window.scoreDetailRequests'),0,'polling never fetches explanations');
+  assert.equal(await evaluate('document.querySelector("[data-score-task=\\"5\\"]")'),null,'no view button without a saved Judge record');
+  await click('[data-score-task="2"]');
+  await until(()=>evaluate('document.querySelectorAll("#score-dialog .score-criterion").length===3'),'all saved rubric items');
+  assert.equal(await evaluate('window.scoreDetailRequests'),1);
+  assert(await evaluate('document.querySelector("#score-dialog").textContent.includes("Reason A")'));
+  assert(await evaluate('document.querySelector("#score-dialog").textContent.includes("Original report evidence A")'));
+  assert.equal(await evaluate('document.querySelectorAll("#score-dialog [data-evidence-status=not-required]").length'),1);
+  assert.equal(await evaluate('document.querySelectorAll("#score-dialog [data-evidence-status=missing]").length'),0);
+  assert(await evaluate('document.querySelector("#score-dialog .score-legend").textContent.includes("从 Agent 最终报告中摘录")'));
+  for(const width of [1440,390,320]){
+    await command('Emulation.setDeviceMetricsOverride',{width,height:800,deviceScaleFactor:1,mobile:false});
+    const layout=await evaluate(`(()=>{const d=document.querySelector('#score-dialog'),c=document.querySelector('#score-dialog-content'),b=d.querySelector('[data-close]'),svg=b.querySelector('svg');const r=d.getBoundingClientRect(),h=b.getBoundingClientRect(),s=svg.getBoundingClientRect();return {left:r.left,right:r.right,bottom:r.bottom,overflow:d.scrollWidth>d.clientWidth+1||c.scrollWidth>c.clientWidth+1,centered:Math.abs(h.left+h.width/2-s.left-s.width/2)<1&&Math.abs(h.top+h.height/2-s.top-s.height/2)<1};})()`);
+    await shot('score-details-'+width+'.png');
+    assert(!layout.overflow&&layout.left>=15&&layout.right<=width-15&&layout.bottom<=800,'score dialog fits viewport: '+JSON.stringify({width,...layout}));
+    assert(layout.centered,'score close icon is centered');
+  }
+  await evaluate(`const e=document.querySelector('[data-score-dimension]');e.value='info_recall';e.dispatchEvent(new Event('change'));const s=document.querySelector('[data-score-filter]');s.value='0';s.dispatchEvent(new Event('change'));`);
+  assert.equal(await evaluate('document.querySelectorAll("#score-dialog .score-criterion").length'),1);
+  assert(await evaluate('document.querySelector("#score-dialog .score-items").textContent.includes("Reason B")'));
+  assert(await evaluate('document.querySelector("#score-dialog .score-items").textContent.includes("0 分项按评分规则不提供原文证据")'));
+  assert.equal(await evaluate('window.scoreDetailRequests'),1,'filtering never refetches or grades');
+  await click('[data-close="score-dialog"]');
+  await until(()=>evaluate('!document.querySelector("#score-dialog").open'),'score dialog closed');
+  await evaluate('window.scoreDetailMode="fail"');await click('[data-score-task="2"]');
+  await until(()=>evaluate('!!document.querySelector("[data-reload-score]")'),'read error with retry');
+  await evaluate('window.scoreDetailMode="normal"');await click('[data-reload-score]');
+  await until(()=>evaluate('document.querySelectorAll("#score-dialog .score-criterion").length===3'),'retry loads saved details');
+  await click('[data-close="score-dialog"]');
+  await until(()=>evaluate('!document.querySelector("#score-dialog").open'),'retry dialog closed');
+  await evaluate('window.scoreDetailMode="delayed"');await click('[data-score-task="2"]');
+  await until(()=>evaluate('typeof window.releaseScoreDetail==="function"'),'delayed load started');
+  await click('[data-close="score-dialog"]');
+  await until(()=>evaluate('!document.querySelector("#score-dialog").open'),'close while loading');
+  await evaluate('window.releaseScoreDetail()');await pause(100);
+  assert.equal(await evaluate('document.querySelector("#score-dialog-content").textContent'),'','late responses never repopulate a closed dialog');
+  await evaluate('window.fetch=window.scoreDetailOriginalFetch;document.dispatchEvent(new Event("visibilitychange"))');
+  await until(()=>evaluate('!document.querySelector("[data-score-task=\\"2\\"]")'),'restore fixture scoring');
   // Exercise digit growth on fixture DOM only; never change saved experiment data.
   const tableLayout=async value=>evaluate(`(()=>{
     const table=document.querySelector('.run-table'),wrap=table.parentElement;
@@ -99,6 +183,7 @@ try{
   })()`);
   for(const width of [1920,1440,1024,360]){
     await command('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:false});
+    await evaluate(`document.querySelector('.task-score .report-score').textContent='100.0 / 100';document.querySelector('.task-score').dataset.scoringStatus='official_protocol_scored'`);
     await evaluate('document.querySelector(".run-table-wrap").scrollLeft=100');
     const before=await tableLayout('0');
     for(const value of ['—','1,000','9,999,999','9,876,543,210','9,007,199,254,740,991']){
@@ -166,6 +251,10 @@ try{
     })()`);
     assert(Math.abs(close.dx)<.5 && Math.abs(close.dy)<.5,'launch close icon is centered at '+width+'px');
     assert.equal(close.label,'关闭');
+    assert(await evaluate(`(()=>{
+      const picker=document.querySelector('#launch-task-picker'),chips=document.querySelector('#selected-tasks'),dialog=document.querySelector('#launch-dialog');
+      return picker.scrollWidth<=picker.clientWidth+1&&chips.scrollWidth<=chips.clientWidth+1&&dialog.scrollWidth<=dialog.clientWidth+1;
+    })()`),'task picker fits the launch dialog at '+width+'px');
     await shot('launch-close-'+width+'.png');
   }
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
@@ -179,17 +268,116 @@ try{
   assert.equal(await evaluate('document.querySelectorAll("#launch-form [name=drbench]").length'),0);
   assert.equal(await evaluate('document.querySelectorAll("#launch-form [name=admin]").length'),0);
   assert.equal((await api('settings')).launch_requires_admin,false);
-  assert(await evaluate('document.querySelector("#launch-form [name=drb2]").required'));
+  assert.equal(await evaluate('document.querySelector("#launch-form [name=drb2]").type'),'hidden');
   const launchSettings=await api('settings');
+  assert.deepEqual(launchSettings.context_modes,['bcg','default']);
+  assert.equal(await evaluate('document.querySelector("#launch-mode").value'),'bcg','existing launch defaults to BCG');
+  assert.equal(await evaluate('document.querySelector("#launch-mode option[value=default]").disabled'),false);
+  await evaluate('document.querySelector("#launch-mode").value="default";document.querySelector("#launch-mode").dispatchEvent(new Event("change",{bubbles:true}))');
+  assert(await evaluate('document.querySelector("#launch-context-info").textContent.includes("不建图、不注入 Graph")'));
+  await click('[data-close=launch-dialog]');await click('#launch-button');
+  assert.equal(await evaluate('document.querySelector("#launch-mode").value'),'default','reopening preserves the selected context mode');
+  await shot('launch-default-mode.png');
+  await evaluate('document.querySelector("#launch-mode").value="bcg";document.querySelector("#launch-mode").dispatchEvent(new Event("change",{bubbles:true}))');
+  assert(await evaluate('document.querySelector("#launch-context-info").textContent.includes("Graph 6,600 字符")'));
   assert.equal(await evaluate('document.querySelector("#launch-form [name=drb2]").value'),launchSettings.default_tasks.drb2.join(','),'launch form uses the server default task list');
   assert.equal(launchSettings.default_tasks.drb2.length,32);
   assert.equal(await evaluate('document.querySelector("#launch-max-tasks").textContent'),'32');
-  await fill('#launch-form [name=drb2]','2');
+  const taskIds=()=>evaluate('document.querySelector("#launch-form [name=drb2]").value');
+  assert.equal(await evaluate('document.querySelectorAll(".task-chip").length'),32);
+  const markedIds=()=>evaluate('[...document.querySelectorAll(".task-chip.is-marked")].map(e=>e.dataset.removeTask)');
+  const selectionGeometry=()=>evaluate(`(()=>{
+    const b=document.querySelector('#selected-tasks').getBoundingClientRect();
+    return {box:{left:b.left,top:b.top,right:b.right,bottom:b.bottom},chips:[...document.querySelectorAll('.task-chip')].map(e=>{
+      const r=e.getBoundingClientRect();return {id:e.dataset.removeTask,left:r.left,top:r.top,right:r.right,bottom:r.bottom};})};
+  })()`);
+  const dragChips=async(start,end,release=true)=>{
+    await command('Input.dispatchMouseEvent',{type:'mouseMoved',x:start.x,y:start.y});
+    await command('Input.dispatchMouseEvent',{type:'mousePressed',x:start.x,y:start.y,button:'left',buttons:1,clickCount:1});
+    for(let i=1;i<=6;i++)await command('Input.dispatchMouseEvent',{type:'mouseMoved',x:start.x+(end.x-start.x)*i/6,y:start.y+(end.y-start.y)*i/6,button:'left',buttons:1});
+    if(release)await command('Input.dispatchMouseEvent',{type:'mouseReleased',x:end.x,y:end.y,button:'left',clickCount:1});
+  };
+  let geometry=await selectionGeometry();
+  const firstThree=geometry.chips.slice(0,3).map(c=>c.id),first=geometry.chips[0],third=geometry.chips[2];
+  await dragChips({x:first.left+4,y:first.top+4},{x:third.right-2,y:third.bottom-2});
+  assert.deepEqual(await markedIds(),firstThree,'drag may start on a chip and selects several IDs');
+  assert.equal(await taskIds(),launchSettings.default_tasks.drb2.join(','),'releasing a drag does not single-delete or change launch selection');
+  await shot('task-picker-marquee-desktop.png');
+  await click('#task-remove-marked');
+  assert.deepEqual((await taskIds()).split(','),launchSettings.default_tasks.drb2.filter(id=>!firstThree.includes(id)),'batch removal preserves the order of all remaining IDs');
+  assert.deepEqual(await markedIds(),[]);
+  await click('#task-restore');
+  await dragChips({x:third.right-2,y:third.bottom-2},{x:first.left+4,y:first.top+4});
+  assert.deepEqual(await markedIds(),firstThree,'reverse drag selects the same IDs');
+  await click('#task-unmark');assert.deepEqual(await markedIds(),[]);
+  assert.equal(await taskIds(),launchSettings.default_tasks.drb2.join(','),'cancel selection does not delete IDs');
+  await dragChips({x:first.left+4,y:first.top+4},{x:third.right-2,y:third.bottom-2});
+  await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+  await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+  assert.deepEqual(await markedIds(),[]);
+  assert(await evaluate('document.querySelector("#launch-dialog").open'),'Escape cancels marking before closing dialog');
+  await dragChips({x:first.left+4,y:first.top+4},{x:third.right-2,y:third.bottom-2});
+  const fourth=geometry.chips[3],cx=(fourth.left+fourth.right)/2,cy=(fourth.top+fourth.bottom)/2;
+  await command('Input.dispatchMouseEvent',{type:'mousePressed',x:cx,y:cy,button:'left',buttons:1,clickCount:1,modifiers:2});
+  await command('Input.dispatchMouseEvent',{type:'mouseReleased',x:cx,y:cy,button:'left',clickCount:1,modifiers:2});
+  assert.deepEqual(await markedIds(),geometry.chips.slice(0,4).map(c=>c.id),'Ctrl-click adds another ID to the removal selection');
+  await evaluate('document.querySelector("#selected-tasks").focus()');
+  await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Delete',code:'Delete',windowsVirtualKeyCode:46});
+  await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Delete',code:'Delete',windowsVirtualKeyCode:46});
+  assert.equal((await taskIds()).split(',').length,28,'Delete removes only the marked IDs');
+  await click('#task-restore');
+  await command('Emulation.setDeviceMetricsOverride',{width:360,height:1000,deviceScaleFactor:1,mobile:false});
+  await evaluate('document.querySelector("#selected-tasks").scrollTop=0;document.querySelector("#selected-tasks").scrollIntoView({block:"center"})');
+  geometry=await selectionGeometry();
+  const bottom={x:geometry.box.right-4,y:geometry.box.bottom-4};
+  await dragChips({x:geometry.box.left+3,y:geometry.box.top+3},bottom,false);
+  await until(()=>evaluate('(()=>{const e=document.querySelector("#selected-tasks");return e.scrollTop+e.clientHeight>=e.scrollHeight-1;})()'),'drag near the edge scrolls the chip list');
+  await command('Input.dispatchMouseEvent',{type:'mouseReleased',...bottom,button:'left',clickCount:1});
+  assert.equal((await markedIds()).length,32,'cross-row scrolling allows selecting all IDs');
+  assert.equal(await taskIds(),launchSettings.default_tasks.drb2.join(','));
+  assert(await evaluate('document.querySelector("#launch-task-picker").scrollWidth<=document.querySelector("#launch-task-picker").clientWidth+1'),'batch controls fit mobile width');
+  await shot('task-picker-marquee-mobile.png');
+  await click('#task-remove-marked');assert.equal(await taskIds(),'');
+  assert.equal((await api('runs')).runs.length,1,'selection never starts a test');
+  await click('#task-restore');
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+  await click('[data-remove-task="2"]');
+  assert.equal(await evaluate('document.querySelectorAll(".task-chip").length'),31);
+  assert(!(await taskIds()).split(',').includes('2'));
+  await click('#task-restore');
+  assert.equal(await taskIds(),launchSettings.default_tasks.drb2.join(','));
+  await click('#task-clear');
+  assert.equal(await taskIds(),'');
+  await click('#launch-form [type=submit]');
+  assert(await evaluate('document.querySelector("#task-picker-error").textContent.includes("至少选择")'));
+  assert.equal((await api('runs')).runs.length,1,'empty selection does not queue a run');
+  await fill('#task-id-input','drb2:2,5,5');await click('#task-add');
+  assert.equal(await taskIds(),'2,5','batch add deduplicates');
+  await fill('#task-id-input','1-33');await click('#task-add');
+  assert.equal(await taskIds(),'2,5','over-limit paste leaves selection unchanged');
+  assert(await evaluate('document.querySelector("#task-picker-error").textContent.includes("最多选择")'));
+  await fill('#task-id-input','');
+  await click('.task-library summary');
+  await click('[data-task-id="5"]');assert.equal(await taskIds(),'2');
+  await fill('#task-catalog-search','30');await click('#task-select-filtered');
+  assert.equal(await taskIds(),'2,30');
+  await click('[data-close=launch-dialog]');await click('#launch-button');
+  assert.equal(await taskIds(),'2,30','reopening keeps the selection');
+  await shot('task-picker.png');
+  await click('#task-clear');await fill('#task-id-input','2');
+  await evaluate('document.querySelector("#task-id-input").dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true}))');
+  assert.equal(await taskIds(),'2','Enter adds IDs rather than submitting the launch form');
   assert.equal((await api('runs')).runs.length,1);
+  await evaluate('document.querySelector("#launch-mode").value="default";document.querySelector("#launch-mode").dispatchEvent(new Event("change",{bubbles:true}))');
   await shot('launch-dialog.png');await click('#launch-form [type=submit]');
   await until(()=>evaluate('document.querySelector(".run-heading .eyebrow")?.textContent==="RUN-0002"'),'queued batch');
   assert.equal((await api('runs/2')).status,'queued');
   assert.equal((await api('runs/2')).title,suggestedTitle,'timestamped name is persisted');
+  const defaultRun=await api('runs/2');
+  assert.equal(defaultRun.mode,'default','the real launch form sends and persists Default');
+  assert.equal(defaultRun.graph,null);
+  assert(await evaluate('document.querySelector(".run-heading").textContent.includes("模式：Default")'));
+  assert(await evaluate('document.querySelector(".run-heading").textContent.includes("Graph：不启用")'));
   await click('#launch-button');
   assert.match(await evaluate('document.querySelector("#launch-form [name=title]").value'),/^DeepResearch Bench II 测试 · \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
   await click('[data-close=launch-dialog]');
@@ -286,6 +474,39 @@ try{
   await command('Emulation.setDeviceMetricsOverride',{width:430,height:932,deviceScaleFactor:1,mobile:true});
   assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'mobile no page overflow');
   await shot('runs-mobile.png');
+  // Annotation statistics are a read-only export, never an AI review trigger.
+  await navigate('/?run=1');await until(()=>evaluate('!!document.querySelector("a[href*=annotation-stats]")'),'statistics entry');
+  await click('a[href*=annotation-stats]');
+  await until(()=>evaluate('document.querySelector("#stats-report")?.contentDocument?.body?.textContent.includes("暂无已完成标注")'),'draft-only statistics empty state');
+  const annotationBeforeStats=await api('runs/1/tasks/drb2/2/annotation',bob.token);
+  await api('runs/1/tasks/drb2/2/annotation',bob.token,'PUT',{
+    ...annotationBeforeStats,annotation:{...annotationBeforeStats.annotation,status:'reviewed',result:'部分正确 / 部分达标',
+      dimensions:{...annotationBeforeStats.annotation.dimensions,A1:{opportunity:'有',utilization:'未利用',effect:'负向',eventIds:['stats-e1']}},
+      events:[{id:'stats-e1',label:'离线统计示例',strength:'明确可见'}],conclusion:{focus:['Agent 使用'],evidence:'明确可见'}},
+  });
+  await click('#stats-refresh');
+  await until(()=>evaluate('document.querySelector("#stats-report")?.contentDocument?.querySelectorAll(".cohort").length===1'),'completed review chart');
+  assert(await evaluate('document.querySelector("#stats-report").contentDocument.querySelectorAll("svg").length===7'));
+  for(const width of [1440,1024,390,320]){
+    await command('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:false});
+    assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'statistics outer page fits '+width);
+    assert(await evaluate('(()=>{const d=document.querySelector("#stats-report").contentDocument;return d.documentElement.scrollWidth<=d.documentElement.clientWidth+1;})()'),'statistics report fits '+width);
+    assert(await evaluate('(()=>{const b=document.querySelector("#stats-download").getBoundingClientRect();return b.left>=0&&b.right<=innerWidth;})()'),'statistics export visible '+width);
+    await shot('annotation-stats-'+width+'.png');
+  }
+  const beforeExport=await api('runs/1/tasks/drb2/2/annotation',bob.token);
+  await api('runs/1/tasks/drb2/2/annotation',bob.token,'PUT',{...beforeExport,annotation:beforeExport.annotation});
+  await click('#stats-download');
+  await until(()=>evaluate('document.querySelector("#stats-feedback").textContent.includes("标注已有更新")'),'stale export cannot mismatch chart');
+  await click('#stats-refresh');
+  await until(()=>evaluate('!document.querySelector("#stats-refresh").disabled'),'statistics refresh complete');
+  await command('Browser.setDownloadBehavior',{behavior:'allow',downloadPath:dir});
+  await click('#stats-download');
+  await until(async()=>{try{return (await readFile(join(dir,'RUN-0001-annotation-stats.zip'))).subarray(0,2).toString()==='PK';}catch{return false;}},'statistics ZIP download');
+  await evaluate('localStorage.removeItem("bcg-studio-personal-token")');
+  await navigate('/annotation-stats.html?run=1');
+  await until(()=>evaluate('document.querySelector("#stats-feedback").textContent.includes("填写昵称")'),'statistics requires identity');
+  await evaluate(`localStorage.setItem('bcg-studio-personal-token',${JSON.stringify(bob.token)})`);
   await navigate('/index.html');await until(()=>evaluate('!!document.querySelector(".welcome")'),'local workspace remains separate');
   assert.equal(await evaluate('document.querySelectorAll(".case-item").length'),0);
   assert.equal(errors.length,0,JSON.stringify(errors));

@@ -553,6 +553,57 @@ def test_reimporting_prepared_data_never_removes_its_own_source(datasets):
     assert (datasets / "drbench/tasks/DR0001/config/eval.json").exists()
 
 
+@pytest.mark.asyncio
+async def test_default_report_mode_needs_no_graph_and_records_zero_graph_usage(datasets, tmp_path, monkeypatch):
+    profile = _write(tmp_path / "default.yaml", "llm:\n  model: offline-fixture\nagent:\n  context_mode: default\n  bcg:\n    url: invalid-unused-url\n")
+    args = run_reports.parser().parse_args([
+        "run", "drb2", "--data-root", str(datasets), "--pipeline", "stateful-react-agent",
+        "--profile", str(profile), "--out", str(tmp_path / "default-out"),
+    ])
+    tasks = run_reports.load_tasks(args)
+    config = run_reports.build_config(args, tasks)
+    assert config["mode"] == "default" and config["graph_url"] is None
+    assert config["recent_turns"] is None and config["graph_chars"] == 0
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def run(self, instruction, **kwargs):
+            assert kwargs["meta"]["profile_overrides"]["agent"]["context_mode"] == "default"
+            return {"final_answer": "# Report\nEvidence-based answer.\n## References\nhttps://example.org/source"}
+
+    async def worker(task_id, actual, output, sem):
+        task = next(task for task in tasks if task.task_id == task_id)
+        trial = output / "trials" / task_id
+        _jsonl(trial / "agent/trajectories/react_agent.jsonl", [
+            {"t": "llm", "usage": {"prompt_tokens": 100, "completion_tokens": 20}},
+        ])
+        await run_reports.execute_task(task, actual, trial, session_factory=Session)
+
+    def no_http(*args, **kwargs):
+        raise AssertionError("Default must skip the Graph health check")
+    monkeypatch.setattr(httpx, "AsyncClient", no_http)
+    monkeypatch.setattr(run_reports, "run_worker", worker)
+    await run_reports.run(args, tasks)
+    from workflows._shared.case_study import CASE_NAME, read_bundle
+    for task in tasks:
+        trial = args.out / "trials" / task.task_id
+        result = json.loads((trial / "result.json").read_text())
+        assert result["mode"] == "default" and result["graph_records"] is None
+        assert result["usage"]["graph"] == {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        assert result["usage"]["combined"] == result["usage"]["agent"]
+        bundle = read_bundle(trial / CASE_NAME)["cases"][0]
+        assert bundle["mode"] == "default"
+        assert not any("Graph" in warning for warning in bundle["warnings"])
+    args.pipeline = "agent_team"
+    with pytest.raises(ValueError, match="only by stateful-react-agent"):
+        run_reports.build_config(args, tasks)
+
+
 @pytest.mark.parametrize("graph_usage", [
     {"input_tokens": 30, "output_tokens": 10},
     {"totals": {"input_tokens": 30, "output_tokens": 10}},
@@ -1018,7 +1069,7 @@ def test_drb2_judge_follows_official_batching_retries_and_aggregation():
         failures=[
             "not json",
             '```json\n{"results": []}\n```',
-            # Upstream's key clean-up mangles compact one-line objects; kept as is.
+            # Valid compact JSON, but incomplete for this three-item batch.
             '{"results": [{"rubric_item": "a", "score": 1, "reason": "r", "evidence": "e"}]}',
             ConnectionError("down"),
         ]
@@ -1037,7 +1088,8 @@ def test_drb2_judge_follows_official_batching_retries_and_aggregation():
     assert all("TRUNCATED" not in prompt and "0123456789" in prompt for prompt in client.prompts)
     assert BLOCKED_URL in client.prompts[0] and '"rubric_items": [\n    "d"\n  ]' in client.prompts[-1]
     assert result["scores"]["info_recall"]["b"]["score"] == -1
-    assert result["usage_summary"]["total_tokens"] == 24
+    # Count the three invalid responses as well as the two valid batches.
+    assert result["usage_summary"]["total_tokens"] == 60
     assert drb2_judge.compute_dimension_averages(result) == {
         "inforecall": 0.5, "analysis": 1.0, "presentation": 0.0, "total": 0.5, "blocked_rate": 0.25,
     }
@@ -1045,7 +1097,8 @@ def test_drb2_judge_follows_official_batching_retries_and_aggregation():
     failed = asyncio.run(
         drb2_judge.judge_report(content, "r", ScriptedJudge(failures=["x", "y"]), exhausted, sleep=sleep)
     )
-    assert failed == {"error": "batch 1 failed after 2 retries"}
+    assert failed["error"] == "batch 1 failed after 2 retries"
+    assert failed["usage_summary"]["total_tokens"] == 24
 
 
 def test_drb2_judge_config_records_the_model_actually_used(monkeypatch):
@@ -1054,14 +1107,14 @@ def test_drb2_judge_config_records_the_model_actually_used(monkeypatch):
     for name in ("JUDGE_MODEL", "DRB2_JUDGE_REASONING_EFFORT"):
         monkeypatch.delenv(name, raising=False)
     default = drb2_judge.JudgeConfig.from_env().public()
-    assert default["model"] == "gpt-5.5-luna" and not default["model_overridden"]
-    assert default["reasoning_effort"] == "medium" and default["upstream_model"] == "gpt-5.5"
+    assert default["model"] == "gpt-6-luna" and not default["model_overridden"]
+    assert default["reasoning_effort"] == "high" and default["upstream_model"] == "gpt-5.5"
     monkeypatch.setenv("JUDGE_MODEL", "other-judge")
-    monkeypatch.setenv("DRB2_JUDGE_REASONING_EFFORT", "high")
+    monkeypatch.setenv("DRB2_JUDGE_REASONING_EFFORT", "low")
     monkeypatch.setenv("JUDGE_BASE_URL", "https://judge.example/v1/chat/completions")
     config = drb2_judge.JudgeConfig.from_env()
     assert config.public()["model"] == "other-judge" and config.public()["model_overridden"]
-    assert config.reasoning_effort == "high" and config.base_url == "https://judge.example/v1"
+    assert config.reasoning_effort == "low" and config.base_url == "https://judge.example/v1"
     assert "api_key" not in config.public()
 
 
@@ -1101,8 +1154,27 @@ def _judge_args(datasets, output, *extra):
     )
 
 
+@pytest.mark.parametrize("complete,dry_run", [(False, False), (True, False), (False, True)])
+def test_judge_cli_does_not_exit_success_on_incomplete_scoring(monkeypatch, tmp_path, capsys, complete, dry_run):
+    async def judge(args):
+        return None if args.dry_run else {"rubric": {"complete": complete}}
+
+    monkeypatch.setattr(run_reports, "judge_run", judge)
+    monkeypatch.setattr(sys, "argv", [
+        "run_reports", "judge", "--out", str(tmp_path), *(["--dry-run"] if dry_run else []),
+    ])
+    if complete or dry_run:
+        run_reports.main()
+    else:
+        with pytest.raises(SystemExit) as exc:
+            run_reports.main()
+        assert exc.value.code == 2
+        assert "LLM Judge did not finish" in capsys.readouterr().err
+
+
 def test_judge_grades_a_finished_run_offline(datasets, tmp_path, monkeypatch, capsys):
     monkeypatch.delenv("JUDGE_MODEL", raising=False)
+    monkeypatch.delenv("DRB2_JUDGE_REASONING_EFFORT", raising=False)
     output = _finished_drb2_run(datasets, tmp_path)
     clients = []
 
@@ -1120,16 +1192,23 @@ def test_judge_grades_a_finished_run_offline(datasets, tmp_path, monkeypatch, ca
     record = json.loads((output / "trials/1/result.json").read_text())
     assert record["status"] == "completed" and record["scoring_status"] == "official_protocol_scored"
     assert record["official_score"] == 0.5 and record["rubric_scores"]["blocked_rate"] == 0.25
-    assert record["judge"]["model"] == "gpt-5.5-luna" and record["judge"]["upstream_model"] == "gpt-5.5"
+    assert record["judge"]["model"] == "gpt-6-luna" and record["judge"]["upstream_model"] == "gpt-5.5"
+    assert record["judge"]["reasoning_effort"] == "high"
     detail = json.loads((output / "trials/1/judge/drb2_rubric.json").read_text())
     assert detail["result"]["scores"]["analysis"]["c"] == {"score": 1, "reason": "r", "evidence": "e"}
     assert "api_key" not in json.dumps(detail)
+    attempts_path = output / "trials/1" / detail["attempts"]
+    attempts = [json.loads(line) for line in attempts_path.read_text().splitlines()]
+    assert len(attempts) == 1 and attempts[0]["status"] == "valid"
+    assert attempts[0]["batch"] == 1 and attempts[0]["attempt"] == 1
+    assert attempts[0]["response"].startswith("```json")
+    assert attempts_path.stat().st_mode & 0o777 == 0o600
     failed = json.loads((output / "trials/2/result.json").read_text())
     assert failed["scoring_status"] == "not_judged" and failed["official_score"] is None
     exported = [json.loads(line) for line in (output / "judge/drb2_result.jsonl").read_text().splitlines()]
     assert exported == [{"model": "bcg-stateful-react-agent", "idx": 1, "result": detail["result"]}]
     rubric = summary["rubric"]
-    assert rubric["complete"] and rubric["judge_models"] == ["gpt-5.5-luna"]
+    assert rubric["complete"] and rubric["judge_models"] == ["gpt-6-luna"]
     assert rubric["valid_only"]["total"] == 0.5 and rubric["valid_only"]["tasks"] == 1
     assert rubric["zero_filled"]["total"] == 0.25 and rubric["zero_filled"]["tasks"] == 2
     assert summary["official_score"] == 0.5
@@ -1140,6 +1219,84 @@ def test_judge_grades_a_finished_run_offline(datasets, tmp_path, monkeypatch, ca
     assert len(clients) == 1  # Nothing left to grade: no client, no probe.
     asyncio.run(run_reports.judge_run(_judge_args(datasets, output, "--force"), client_factory=factory))
     assert len(clients) == 2 and len(clients[1].prompts) == 1
+    # A regrade preserves the original response journal instead of overwriting it.
+    updated = json.loads((output / "trials/1/judge/drb2_rubric.json").read_text())
+    assert updated["attempts"] != detail["attempts"] and attempts_path.is_file()
+
+
+def test_run_with_judge_reuses_existing_scoring_and_does_not_rerun_agent(datasets, tmp_path, monkeypatch):
+    output = _finished_drb2_run(datasets, tmp_path)
+    args = run_reports.parser().parse_args(
+        ["run", "drb2", "--data-root", str(datasets), "--pipeline", "stateful-react-agent",
+         "--out", str(output), "--judge", "--judge-workers", "2"]
+    )
+    clients = []
+
+    def factory(config):
+        clients.append(ScriptedJudge(config))
+        return clients[-1]
+
+    async def unexpected_worker(*args):
+        raise AssertionError("completed reports must not rerun the Agent")
+
+    monkeypatch.setattr(run_reports, "run_worker", unexpected_worker)
+    monkeypatch.setattr(run_reports.drb2_judge, "OpenAIChatClient", factory)
+    tasks = run_reports.load_tasks(args)
+    asyncio.run(run_reports.run_with_judge(args, tasks))
+    record = json.loads((output / "trials/1/result.json").read_text())
+    assert record["official_score"] == 0.5 and record["scoring_status"] == "official_protocol_scored"
+    assert len(clients) == 1 and len(clients[0].prompts) == 1
+    assert (output / "trials/1/judge/drb2_rubric.json").is_file()
+    asyncio.run(run_reports.run_with_judge(args, tasks))
+    assert len(clients) == 1  # Resume does not pay to grade already scored reports.
+
+
+@pytest.mark.parametrize("dry,enabled", [(True, True), (False, False)])
+def test_run_judge_is_explicit_and_dry_run_is_free(datasets, tmp_path, monkeypatch, dry, enabled):
+    args = run_reports.parser().parse_args(
+        ["run", "drb2", "--data-root", str(datasets), "--out", str(tmp_path / "out"),
+         *(["--judge"] if enabled else []), *(["--dry-run"] if dry else [])]
+    )
+    calls = []
+
+    async def run(args, tasks):
+        calls.append("run")
+
+    async def judge(*args):
+        raise AssertionError("Judge must not run for dry-run or without --judge")
+
+    monkeypatch.setattr(run_reports, "run", run)
+    monkeypatch.setattr(run_reports, "judge_run", judge)
+    asyncio.run(run_reports.run_with_judge(args, []))
+    assert calls == ["run"]
+
+
+def test_run_judge_forwards_source_and_surfaces_partial_grading(datasets, tmp_path, monkeypatch):
+    args = run_reports.parser().parse_args(
+        ["run", "drb2", "--out", str(tmp_path / "out"), "--data-root", str(datasets),
+         "--data-file", str(tmp_path / "custom.jsonl"), "--task-ids", "drb2:1,2", "--judge", "--judge-workers", "3"]
+    )
+    calls = []
+
+    async def run(args, tasks):
+        calls.append("reports")
+
+    async def judge(actual):
+        assert calls == ["reports"]
+        assert actual.data_root == args.data_root and actual.data_file == args.data_file
+        assert actual.out == args.out and actual.workers == 3
+        assert actual.task_ids is None and actual.force is False  # Uses the run's selection.
+        return {"rubric": {"complete": False}}
+
+    monkeypatch.setattr(run_reports, "run", run)
+    monkeypatch.setattr(run_reports, "judge_run", judge)
+    with pytest.raises(RuntimeError, match="Reports are preserved"):
+        asyncio.run(run_reports.run_with_judge(args, []))
+    args.benchmark = drbench.NAME
+    calls.clear()
+    with pytest.raises(ValueError, match=r"only.*drb2"):
+        asyncio.run(run_reports.run_with_judge(args, []))
+    assert calls == []
 
 
 def test_judge_fails_closed_and_retries_errors(datasets, tmp_path, monkeypatch):

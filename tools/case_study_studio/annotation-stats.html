@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-src 'self' about:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>BCG · 标注统计</title><link rel="icon" href="./icon.svg">
+  <link rel="stylesheet" href="./styles.css"><link rel="stylesheet" href="./runs.css"><link rel="stylesheet" href="./annotation-stats.css">
+  <script type="module" src="./annotation-stats.mjs"></script>
+</head>
+<body class="stats-page">
+  <header class="runs-header stats-header">
+    <a class="runs-brand" id="stats-back" href="./"><img src="./icon.svg" width="32" height="32" alt=""><strong>BCG</strong><span class="runs-brand-label">ANNOTATION STATISTICS</span></a>
+    <div class="runs-actions"><a class="button" id="stats-return" href="./">返回运行</a><button class="button" id="stats-refresh" type="button">刷新统计</button><button class="button primary" id="stats-download" type="button" disabled>下载图表与数据</button></div>
+  </header>
+  <div class="stats-feedback" role="status" id="stats-feedback" hidden></div>
+  <div class="stats-summary-status" id="stats-summary-status" role="status" hidden>
+    <span class="stats-spinner" id="summary-spinner" aria-hidden="true" hidden></span>
+    <span id="summary-status-text"></span>
+    <button type="button" class="button" id="summary-generate" hidden>生成 AI 总结</button>
+    <button type="button" class="button" id="summary-retry" hidden>重试 AI 总结</button>
+  </div>
+  <main class="stats-body" aria-busy="true">
+    <div class="stats-placeholder" id="stats-placeholder"><span class="stats-spinner" aria-hidden="true"></span><h1>正在汇总标注</h1><p>统计完成后，可手动点击生成 AI 问题总结。</p></div>
+    <iframe id="stats-report" title="Run 标注统计报告" sandbox="allow-same-origin" hidden></iframe>
+  </main>
+</body></html>

@@ -71,11 +71,31 @@ def test_catalog_and_progress_are_stable(control: Control) -> None:
     task = item["tasks"][0]
     assert (task["calls"], task["turn"], task["searches"]) == (1, 1, 2)
     assert (task["agent_tokens"], task["graph_tokens"]) == (120, 40)
+    assert (task["agent_input"], task["agent_output"]) == (100, 20)
+    assert (task["graph_input"], task["graph_output"]) == (30, 10)
     assert task["annotatable"]
     assert not item["tasks"][1]["annotatable"]
     assert "source" not in json.dumps(first)
     # Reading the run list must not consume any future launch numbers.
     assert control.create_run(request_config(), user)["number"] == "RUN-0002"
+
+
+@pytest.mark.parametrize("usage, expected", [
+    ({"input_tokens": 30, "output_tokens": 6, "total_tokens": 36}, (30, 6, 36)),
+    ({"total_tokens": 36}, (None, None, 36)),
+    ({"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, (0, 0, 0)),
+    ({}, (None, None, None)),
+])
+def test_live_graph_token_breakdown_uses_latest_observed_counts(
+    control: Control, usage: dict, expected: tuple,
+) -> None:
+    trial = control.results / "offline-smoke/drb2/trials/5"
+    events = [{"graph_usage_cumulative": {"llm_totals": value}} for value in (
+        {"input_tokens": 10, "output_tokens": 2, "total_tokens": 12}, usage,
+    )]
+    write(trial, "agent/bcg/requests.jsonl", "".join(json.dumps(event) + "\n" for event in events))
+    task = next(task for task in control.detail(1)["tasks"] if task["id"] == "5")
+    assert (task["graph_input"], task["graph_output"], task["graph_tokens"]) == expected
 
 
 def test_deepresearch_only_preserves_archived_files_and_reviews(control: Control) -> None:
@@ -206,6 +226,47 @@ def test_launch_bounds(control: Control, changes: dict) -> None:
     assert len(control.list_runs(user)) == 1
 
 
+def test_task_catalog_uses_real_ids_without_exposing_judge_material(control: Control, monkeypatch: pytest.MonkeyPatch) -> None:
+    from benchmarks.public.reports import drb2
+
+    monkeypatch.delenv("FRONTIER_AGENT_DATASETS_DIR", raising=False)
+    assert control.settings()["task_catalog"]["drb2"] == {"available": False, "tasks": []}
+
+    def row(idx: int) -> dict:
+        return {"idx": idx, "prompt": f"Question {idx}", "language": "en", "theme": "science",
+                "content": {"rubric": {"info_recall": ["judge-secret"]}, "blocked": {"title": "blocked-secret"}}}
+
+    source = write(control.root, "benchmarks/public/datasets/drb2/tasks_and_rubrics.jsonl",
+                   "\n".join(json.dumps(row(i)) for i in [5, 2]))
+    with patch.object(drb2, "load_tasks", wraps=drb2.load_tasks) as load:
+        catalog = control.settings()["task_catalog"]["drb2"]
+        assert catalog["available"] and [task["id"] for task in catalog["tasks"]] == ["2", "5"]
+        assert catalog["tasks"][0] == {"id": "2", "preview": "Question 2", "language": "en", "theme": "science"}
+        assert "secret" not in json.dumps(catalog)
+        assert control.task_catalog() == catalog and load.call_count == 1
+        write(source.parent, source.name, "\n".join(json.dumps(row(i)) for i in [5, 2, 30]))
+        assert [task["id"] for task in control.task_catalog()["tasks"]] == ["2", "5", "30"]
+        assert load.call_count == 2
+    user = control.register("catalog-test")["user"]
+    with pytest.raises(APIError, match="999") as error:
+        control.create_run(request_config(tasks={"drb2": ["999"]}), user)
+    assert error.value.status == 400 and len(control.list_runs(user)) == 1
+    assert control.create_run(request_config(tasks={"drb2": ["2", "30"]}), user)["total"] == 2
+
+
+def test_task_catalog_honors_configured_dataset_directory(control: Control, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FRONTIER_AGENT_DATASETS_DIR", raising=False)
+    write(control.root, ".env", "FRONTIER_AGENT_DATASETS_DIR=custom-data\n")
+    row = {"idx": 77, "prompt": "Custom dataset task", "content": {"rubric": {}}}
+    source = write(control.root, "custom-data/drb2/tasks_and_rubrics.jsonl", json.dumps(row))
+    assert [task["id"] for task in control.task_catalog()["tasks"]] == ["77"]
+    monkeypatch.setenv("FRONTIER_AGENT_DATASETS_DIR", str(control.root / "missing"))
+    assert not control.task_catalog()["available"]
+    monkeypatch.delenv("FRONTIER_AGENT_DATASETS_DIR")
+    write(source.parent, source.name, "not json")
+    assert not control.task_catalog()["available"]
+
+
 def test_default_32_tasks_fit_the_launch_limit(control: Control) -> None:
     expected = ["2", "5", "8", "9", "23", "27", "30", "37", "38", "49", "52", "58", "63", "64",
                 "76", "77", "81", "87", "88", "93", "96", "98", "100", "101", "103", "105", "108",
@@ -216,8 +277,39 @@ def test_default_32_tasks_fit_the_launch_limit(control: Control) -> None:
     user = control.register("default-tasks-reviewer")["user"]
     result = control.create_run(request_config(tasks=settings["default_tasks"]), user)
     assert result["total"] == 32 and result["status"] == "queued"
+    assert result["judge"] == {"enabled": True}
     assert [task["id"] for task in result["tasks"]] == expected
     assert control.row(result["id"])["pid"] is None
+
+
+def test_context_mode_is_validated_saved_and_displayed(control: Control) -> None:
+    user = control.register("mode-operator")["user"]
+    assert control.detail(1)["mode"] == "bcg", "legacy runs stay BCG"
+    result = control.create_run(request_config(mode="default"), user)
+    config = json.loads(control.row(result["id"])["config"])
+    assert config["mode"] == result["mode"] == "default"
+    assert config["judge_reports"] is True
+    assert result["graph"] is None
+    assert all(t["graph_tokens"] == t["graph_input"] == t["graph_output"] == 0 for t in result["tasks"])
+    for mode in ("summary", None, [], True):
+        with pytest.raises(APIError, match="模式"):
+            control.create_run(request_config(mode=mode), user)
+    assert control.create_run(request_config(), user)["mode"] == "bcg"
+
+
+def test_report_scores_do_not_change_annotation_status(control: Control) -> None:
+    trial = control.results / "offline-smoke/drb2/trials/2"
+    record = json.loads((trial / "result.json").read_text())
+    record.update(official_score=0.5, rubric_scores={"total": 0.5, "inforecall": 0.4},
+                  scoring_status="official_protocol_scored")
+    write(trial, "result.json", record)
+    task = control.detail(1)["tasks"][0]
+    assert task["official_score"] == 0.5 and task["rubric_scores"]["inforecall"] == 0.4
+    assert task["scoring_status"] == "official_protocol_scored" and task["annotatable"]
+    assert task["reviews"] == [] and task["ai_review"]["status"] == "not_started"
+    record.update(official_score=None, rubric_scores=None, scoring_status="judge_error")
+    write(trial, "result.json", record)
+    assert control.detail(1)["tasks"][0]["annotatable"]  # Judge failure is not Agent failure.
 
 
 def test_signed_in_reviewers_can_start_and_cancel(control: Control) -> None:
@@ -296,6 +388,7 @@ def test_http_permissions_and_static_boundary(control: Control) -> None:
         assert call("/api/runs", method="POST", body=request_config())[0] == 401
         assert call("/api/runs/1/cancel", method="POST", body={})[0] == 401
         assert call("/api/runs/1/tasks/drb2/2/ai-review")[0] == 401
+        assert call("/api/runs/1/tasks/drb2/2/score")[0] == 401
         assert call("/api/runs/1/tasks/drb2/2/evidence-preview")[0] == 401
         assert call("/api/runs/1/tasks/drb2/2/ai-review", method="POST", body={})[0] == 401
         assert call("/api/settings")[0] == 200
@@ -311,6 +404,14 @@ def test_http_permissions_and_static_boundary(control: Control) -> None:
         identity = json.loads(raw)
         auth = {"Authorization": "Bearer " + identity["token"]}
         assert call("/api/runs", headers=auth)[0] == 200
+        score_path = "/api/runs/1/tasks/drb2/2/score"
+        assert call(score_path, headers=auth)[0] == 404
+        from tools.case_study_studio.tests.test_score_details import save_score
+        save_score(control)
+        score_status, score_raw = call(score_path, headers=auth)
+        assert score_status == 200 and json.loads(score_raw)["dimensions"][0]["items"][0]["reason"] == "Reason A"
+        assert b"private-key" not in score_raw
+        assert call(score_path, method="POST", body={}, headers=auth)[0] == 404
         assert call("/api/runs", method="POST", body=request_config(), headers={**auth, "Origin": "http://evil.example"})[0] == 403
         status, raw = call("/api/runs", method="POST", body=request_config(), headers=auth)
         assert status == 201

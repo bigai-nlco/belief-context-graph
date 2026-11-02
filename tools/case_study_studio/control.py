@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import secrets
 import sqlite3
@@ -94,7 +95,9 @@ class Control:
             """)
         self.database.chmod(0o600)
         from tools.case_study_studio.review_queue import AIReviews
+        from tools.case_study_studio.run_summary_queue import RunSummaries
         self.ai_reviews = AIReviews(self)
+        self.run_summaries = RunSummaries(self)
         self.scan()
         if schedule:
             threading.Thread(target=self._schedule, daemon=True, name="studio-queue").start()
@@ -147,8 +150,39 @@ class Control:
             {"id": key, **{k: v for k, v in value.items() if k != "source"}}
             for key, value in self.profiles().items()
             if safe_child(self.root, value["source"]).is_file()],
-            "default_tasks": DEFAULT_IDS, "graph_model": "gpt-6-luna", "graph_effort": "none",
-            "max_tasks": MAX_TASKS, "poll_seconds": 3, "launch_requires_admin": False}
+            "default_tasks": DEFAULT_IDS, "context_modes": ["bcg", "default"],
+            "graph_model": "gpt-6-luna", "graph_effort": "none",
+            "max_tasks": MAX_TASKS, "poll_seconds": 3, "launch_requires_admin": False,
+            "task_catalog": {"drb2": self.task_catalog()}}
+
+    def task_catalog(self) -> dict:
+        """Expose IDs and task previews only, never rubrics or blocked sources."""
+        from dotenv import dotenv_values
+
+        from benchmarks.public.reports import drb2
+
+        configured = (os.environ.get("FRONTIER_AGENT_DATASETS_DIR")
+                      or dotenv_values(self.root / ".env").get("FRONTIER_AGENT_DATASETS_DIR"))
+        data_root = Path(configured).expanduser() if configured else self.root / "benchmarks/public/datasets"
+        if not data_root.is_absolute():
+            data_root = self.root / data_root
+        try:
+            source = drb2.find_tasks_file(data_root)
+            stat = source.stat()
+            stamp = (str(source.resolve()), stat.st_mtime_ns, stat.st_size)
+            with self.lock:
+                cached = self.file_cache.get("drb2-task-catalog")
+                if cached and cached["stamp"] == stamp:
+                    return cached["catalog"]
+                tasks = drb2.load_tasks(data_root, data_file=source)
+                catalog = {"available": True, "tasks": [
+                    {"id": task.task_id, "preview": " ".join(task.question.split())[:180],
+                     "language": task.metadata.get("language", ""), "theme": task.metadata.get("theme", "")}
+                    for task in sorted(tasks, key=lambda task: int(task.task_id))]}
+                self.file_cache["drb2-task-catalog"] = {"stamp": stamp, "catalog": catalog}
+                return catalog
+        except (OSError, ValueError):
+            return {"available": False, "tasks": []}
 
     def scan(self) -> None:
         candidates = []
@@ -230,6 +264,7 @@ class Control:
         root = self.directory(row)
         batch = read_json(root / "batch.json")
         config = json.loads(row["config"])
+        mode = config.get("mode", batch.get("mode", "bcg"))
         ai_reviews = self.ai_reviews.statuses(run_id)
         status = row["status"] if row["managed"] else batch.get("status", "unknown")
         if not row["managed"] and status in {"running", "starting"} and not alive(batch.get("runner_pid"), str(root)):
@@ -247,6 +282,7 @@ class Control:
                     continue
                 trial = safe_child(root, benchmark, "trials", task_id)
                 result = read_json(trial / "result.json")
+                score_path = trial / "judge/drb2_rubric.json"
                 trace = self._read_progress(trial / "agent/trajectories/react_agent.jsonl", "trace")
                 tool = self._read_progress(trial / "tools.jsonl", "tools")
                 graph = self._read_progress(trial / "agent/bcg/requests.jsonl", "graph")
@@ -258,6 +294,8 @@ class Control:
                     "input_tokens": trace.get("input", 0), "output_tokens": trace.get("output", 0),
                     "total_tokens": trace.get("input", 0) + trace.get("output", 0)}
                 graph_usage = usage.get("graph") or graph.get("graph_usage", {})
+                if mode == "default" and not graph_usage:
+                    graph_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
                 task_reviews = [{"name": x["name"], "user_id": x["user_id"],
                     "status": json.loads(x["annotation"]).get("status", "draft"),
                     "mine": bool(user and x["user_id"] == user["id"]), "updated_at": x["updated_at"]}
@@ -269,18 +307,26 @@ class Control:
                     "blocked": tool.get("blocked", 0), "duration": result.get("duration_seconds"),
                     "agent_tokens": agent_usage.get("total_tokens"),
                     "graph_tokens": graph_usage.get("total_tokens"),
+                    "graph_input": graph_usage.get("input_tokens"), "graph_output": graph_usage.get("output_tokens"),
+                    "official_score": result.get("official_score"),
+                    "rubric_scores": result.get("rubric_scores"),
+                    "scoring_status": result.get("scoring_status", "official_pending"),
+                    "score_details_available": score_path.is_file() and score_path.resolve().is_relative_to(trial),
                     "agent_input": agent_usage.get("input_tokens"), "agent_output": agent_usage.get("output_tokens"),
                     "report": (trial / "report.md").is_file(), "reviews": task_reviews,
                     "ai_review": ai_reviews.get((benchmark, task_id), {"status": "not_started"}),
                     "annotatable": task_status == "completed"})
         ended = sum(t["status"] in TERMINAL for t in tasks)
         return {"id": run_id, "number": self.label(run_id), "title": row["title"], "status": status,
+            "mode": mode,
             "managed": bool(row["managed"]), "created_at": row["created_at"],
             "started_at": row["started_at"] or batch.get("started_at"),
             "finished_at": row["finished_at"] or batch.get("finished_at"),
             "agent": batch.get("agent", {}).get("model") or config.get("agent_model", ""),
-            "graph": batch.get("graph", {}).get("model") or "gpt-6-luna",
+            "graph": (batch.get("graph", {}).get("model") or "gpt-6-luna") if mode == "bcg" else None,
             "workers": batch.get("workers") or config.get("workers"),
+            "phase": batch.get("phase"),
+            "judge": batch.get("judge", {"enabled": bool(config.get("judge_reports"))}),
             "owner": row["owner"], "error": row["error"], "cancel_requested": bool(row["cancel"]),
             "tasks": tasks, "total": len(tasks), "ended": ended,
             "reports": sum(t["report"] for t in tasks),
@@ -309,6 +355,44 @@ class Control:
         if not task["annotatable"]:
             raise APIError(409, "仅正常完成的任务可以标注")
         return trial, task
+
+    def score_details(self, run_id: int, benchmark: str, task_id: str) -> dict:
+        """Read saved rubric explanations on demand; never calls or reruns Judge."""
+        trial, _ = self.task(run_id, benchmark, task_id)
+        path = safe_child(trial, "judge", "drb2_rubric.json")
+        if not path.is_file():
+            raise APIError(404, "该任务尚无评分详情")
+        record = read_json(path)
+        if (record.get("benchmark") != "deepresearch_bench_ii"
+                or str(record.get("task_id")) != task_id):
+            raise APIError(409, "评分记录与当前任务不匹配")
+        if record.get("status") not in {"scored", "judge_error"}:
+            raise APIError(409, "评分记录尚未完整生成")
+        result = record.get("result") or {}
+        scores = record.get("scores") or {}
+        dimensions = []
+        for key, label, score_key in (
+            ("info_recall", "信息召回", "inforecall"),
+            ("analysis", "分析", "analysis"),
+            ("presentation", "表达呈现", "presentation"),
+        ):
+            items = []
+            for criterion, detail in (result.get("scores") or {}).get(key, {}).items():
+                items.append({
+                    "criterion": criterion,
+                    **{field: detail.get(field) for field in ("score", "reason", "evidence")},
+                })
+            dimensions.append({"id": key, "label": label, "score": scores.get(score_key), "items": items})
+        # Do not expose arbitrary Judge configuration, prompt/response journals,
+        # server paths or credentials through the browser endpoint.
+        judge = record.get("judge") or {}
+        return {
+            "run": self.label(run_id), "benchmark": benchmark, "task_id": task_id,
+            "status": record["status"], "score": scores.get("total"),
+            "model": judge.get("model"), "reasoning_effort": judge.get("reasoning_effort"),
+            "judged_at": record.get("judged_at"), "duration_seconds": record.get("duration_seconds"),
+            "dimensions": dimensions,
+        }
 
     def evidence(self, run_id: int, benchmark: str, task_id: str) -> tuple[Path, str]:
         trial, _ = self.annotation_task(run_id, benchmark, task_id)
@@ -381,6 +465,9 @@ class Control:
         return {"revision": revision + 1, "updated_at": stamp}
 
     def create_run(self, data: dict, user: dict) -> dict:
+        mode = data.get("mode", "bcg")
+        if mode not in ("bcg", "default"):
+            raise APIError(400, "请选择 BCG 或 Default 模式")
         profile_id = data.get("profile")
         profile = self.profiles().get(profile_id) if isinstance(profile_id, str) else None
         if not profile or not safe_child(self.root, profile["source"]).is_file():
@@ -401,8 +488,13 @@ class Control:
                 raise APIError(400, "task ID 格式错误或包含重复项")
         if sum(map(len, tasks.values())) > MAX_TASKS:
             raise APIError(400, f"单次最多启动 {MAX_TASKS} 个任务")
+        catalog = self.task_catalog()
+        if catalog["available"]:
+            available = {task["id"] for task in catalog["tasks"]}
+            if missing := [task_id for task_id in tasks.get("drb2", []) if task_id not in available]:
+                raise APIError(400, "题库中没有这些题号：" + ", ".join(missing))
         config = {"profile": data["profile"], "agent_model": profile["agent"],
-                  "tasks": tasks, "workers": workers, "pipeline": "stateful-react-agent"}
+                  "mode": mode, "tasks": tasks, "workers": workers, "pipeline": "stateful-react-agent", "judge_reports": True}
         for key, default, minimum, maximum in (("timeout", 3600, 60, 14400),
                 ("max_turns", 200, 1, 300), ("search_calls", 0, 0, 2000), ("fetch_calls", 0, 0, 2000)):
             value = data.get(key, default)
@@ -435,7 +527,7 @@ class Control:
 
     def _schedule(self) -> None:
         while not self.closed.wait(2):
-            for tick in (self.tick, self.ai_reviews.tick):
+            for tick in (self.tick, self.ai_reviews.tick, self.run_summaries.tick):
                 try:
                     tick()
                 except Exception:

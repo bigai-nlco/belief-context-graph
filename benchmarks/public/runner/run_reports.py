@@ -1,7 +1,7 @@
-"""Run DRB2 / DRBench through FrontierAgent's BCG ReAct or Agent Team.
+"""Run DRB2 / DRBench through FrontierAgent's Default/BCG ReAct or Agent Team.
 
 One process per task isolates runtime registries, task workspaces and Graphs.
-`run` collects reports and deterministic diagnostics. `judge` applies the
+`run` collects reports and deterministic diagnostics (`--judge` also grades DRB2 reports). `judge` applies the
 official DRB2 rubric protocol to a finished run's saved reports afterwards.
 """
 
@@ -23,6 +23,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from benchmarks.public.reports import drb2, drb2_judge, drbench
 from benchmarks.public.reports.models import BenchmarkTask
@@ -114,7 +115,7 @@ def _sum_usage(items: list[dict[str, int | None]]) -> dict[str, int | None]:
     }
 
 
-def collect_usage(trial: Path) -> dict[str, Any]:
+def collect_usage(trial: Path, *, mode: str = "bcg") -> dict[str, Any]:
     # Only JSONL llm events, never the duplicate JSON trajectory envelope.
     agent_calls: list[dict[str, int | None]] = []
     fallback_count = 0
@@ -145,10 +146,14 @@ def collect_usage(trial: Path) -> dict[str, Any]:
     # Current servers nest counts under llm_totals; totals also includes local
     # embedding tokens. Keep legacy flat counters readable without treating
     # embedding work as Graph-model tokens or replacing missing usage with zero.
-    graph_usage = _sum_usage([
+    graph_usage: dict[str, int | None] = _sum_usage([
         _token_usage(g["usage"].get("llm_totals", g["usage"].get("totals", g["usage"])))
         for g in graphs
     ])
+    if mode == "default" and not graphs:
+        # No construction is performed in Default; this is known zero, not
+        # missing provider usage. Never hide unexpected Graph records.
+        graph_usage = {key: 0 for key in ("input_tokens", "output_tokens", "total_tokens")}
     agent_usage = _sum_usage(agent_calls)
     return {
         "agent_model_calls": len(agent_calls),
@@ -192,7 +197,7 @@ async def execute_task(
         "_sys_prompt_addendum": policy.prompt,
         # Keep report delivery inside the research agent; no separate writer
         # can accidentally fall back to short-answer extraction.
-        "profile_overrides": {"agent": {"reporter": False}},
+        "profile_overrides": {"agent": {"reporter": False, "context_mode": config.get("mode", "bcg")}},
     }
     if config.get("max_turns"):
         meta["profile_overrides"]["agent"].update(
@@ -238,14 +243,14 @@ async def execute_task(
     )
     if scoring_errors and status == "completed":
         status = "score_error"
-    usage = collect_usage(trial)
+    usage = collect_usage(trial, mode=config.get("mode", "bcg"))
     if usage["graph_fallback_calls"] and status == "completed":
         status = "graph_fallback"
     result = {
         "benchmark": task.benchmark,
         "task_id": task.task_id,
         "pipeline": config["pipeline"],
-        "mode": "bcg",
+        "mode": config.get("mode", "bcg"),
         "status": status,
         "error": error,
         "duration_seconds": round(time.monotonic() - started, 3),
@@ -258,7 +263,7 @@ async def execute_task(
         "answer_status": state.get("answer_status"),
         "report": "report.md",
         "tool_trace": "tools.jsonl",
-        "graph_records": "agent/",
+        "graph_records": "agent/" if config.get("mode", "bcg") == "bcg" else None,
     }
     write_json(trial / "result.json", result)
     from workflows._shared.case_study import try_export_case
@@ -523,10 +528,14 @@ async def judge_run(
                 async with semaphore:
                     trial = output / "trials" / task_id
                     report = (trial / "report.md").read_text(encoding="utf-8", errors="ignore")
+                    attempt_record = Path("judge/attempts") / (
+                        datetime.now(UTC).strftime("%Y%m%dT%H%M%S") + f"-{uuid4().hex}.jsonl"
+                    )
                     started = time.monotonic()
                     try:
                         result = await drb2_judge.judge_report(
-                            contents.get(int(task_id)), report, client, judge_config, label=f"idx={task_id}"
+                            contents.get(int(task_id)), report, client, judge_config,
+                            label=f"idx={task_id}", attempts_path=trial / attempt_record,
                         )
                     except Exception as exc:  # A transport bug must not lose other tasks.
                         result = {"error": f"{type(exc).__name__}: {exc}"}
@@ -544,6 +553,7 @@ async def judge_run(
                             "judge": judge_config.public(),
                             "duration_seconds": round(time.monotonic() - started, 3),
                             "judged_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                            "attempts": str(attempt_record),
                             "result": result,
                         },
                     )
@@ -581,7 +591,7 @@ async def judge_run(
         if path.is_file() and (record := json.loads(path.read_text()))["status"] == "scored":
             lines.append(
                 json.dumps(
-                    {"model": f"bcg-{config['pipeline']}", "idx": record["idx"], "result": record["result"]},
+                    {"model": f"{config.get('mode', 'bcg')}-{config['pipeline']}", "idx": record["idx"], "result": record["result"]},
                     ensure_ascii=False,
                 )
             )
@@ -641,12 +651,12 @@ async def run_worker(
                         "task_id": task_id,
                         "benchmark": config["benchmark"],
                         "pipeline": config["pipeline"],
-                        "mode": "bcg",
+                        "mode": config.get("mode", "bcg"),
                         "status": failure,
                         "duration_seconds": time.monotonic() - start,
                         "official_score": None,
                         "scoring_status": "official_pending",
-                        "usage": collect_usage(trial),
+                        "usage": collect_usage(trial, mode=config.get("mode", "bcg")),
                     },
                 )
         # Also package terminal failures that never reached execute_task's tail.
@@ -664,7 +674,7 @@ async def run_worker(
                 / "export"
                 / drb2.NAME
                 / "report"
-                / f"bcg-{config['pipeline']}"
+                / f"{config.get('mode', 'bcg')}-{config['pipeline']}"
                 / f"idx-{task_id}.md"
             )
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -678,9 +688,14 @@ async def run_worker(
 
 def build_config(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> dict[str, Any]:
     from workflows.stateful_react_agent.bcg.runtime import BCGSettings
+    from workflows.stateful_react_agent.profile import resolve_context_mode
 
     resolved = resolve_profile(args.pipeline, args.profile)
-    settings = BCGSettings.from_agent(resolved.get("agent") or {})
+    agent = resolved.get("agent") or {}
+    mode = resolve_context_mode(agent)
+    if mode == "default" and args.pipeline != "stateful-react-agent":
+        raise ValueError("Default context mode is supported only by stateful-react-agent")
+    settings = BCGSettings.from_agent(agent) if mode == "bcg" else None
     profile = Path(args.profile)
     # Only non-secret model identifiers are persisted; never keys or full env.
     model = (resolved.get("llm") or {}).get("model", "")
@@ -694,15 +709,16 @@ def build_config(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> dict[s
         "adapter_revision": _ADAPTER_REVISION,
         "benchmark": args.benchmark,
         "pipeline": args.pipeline,
+        "mode": mode,
         "profile": str(profile.resolve()) if profile.is_file() else args.profile,
         "profile_sha256": hashlib.sha256(profile.read_bytes()).hexdigest()
         if profile.is_file()
         else None,
         "effective_profile_sha256": _digest(public_profile(resolved)),
         "agent_model": model,
-        "graph_url": settings.url,
-        "recent_turns": settings.recent_turns,
-        "graph_chars": settings.graph_chars,
+        "graph_url": settings.url if settings else None,
+        "recent_turns": settings.recent_turns if settings else None,
+        "graph_chars": settings.graph_chars if settings else 0,
         "cross_graph_chars": (resolved.get("agent", {}).get("bcg") or {}).get(
             "cross_graph_chars", 2000
         ),
@@ -773,18 +789,19 @@ async def run(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> None:
         await asyncio.to_thread(try_export_batch, output, task_ids=config["task_ids"])
         print(json.dumps(summarize(output, config["task_ids"]), ensure_ascii=False, indent=2))
         return
-    # Health only: no prompt/model requests and no charges during preflight.
-    import httpx
+    if config["mode"] == "bcg":
+        # Health only: Default does not depend on any Graph service.
+        import httpx
 
-    from workflows.stateful_react_agent.bcg.runtime import BCGSettings
+        from workflows.stateful_react_agent.bcg.runtime import BCGSettings
 
-    settings = BCGSettings.from_agent(
-        resolve_profile(args.pipeline, args.profile).get("agent") or {}
-    )
-    headers = {"Authorization": f"Bearer {settings.api_key}"} if settings.api_key else {}
-    async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
-        response = await client.get(config["graph_url"].rstrip("/") + "/health", headers=headers)
-        response.raise_for_status()
+        settings = BCGSettings.from_agent(
+            resolve_profile(args.pipeline, args.profile).get("agent") or {}
+        )
+        headers = {"Authorization": f"Bearer {settings.api_key}"} if settings.api_key else {}
+        async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
+            response = await client.get(config["graph_url"].rstrip("/") + "/health", headers=headers)
+            response.raise_for_status()
     output.mkdir(parents=True, exist_ok=True)
     write_json(output / "run.json", config)
     cases = output / "_cases"
@@ -797,6 +814,24 @@ async def run(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> None:
 
     await asyncio.to_thread(try_export_batch, output, task_ids=config["task_ids"])
     print(json.dumps(summarize(output, config["task_ids"]), ensure_ascii=False, indent=2))
+
+
+async def run_with_judge(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> None:
+    """Orchestrate the existing runner and judge; do not change the scoring protocol."""
+    if args.judge and args.benchmark != drb2.NAME:
+        raise ValueError("--judge is supported only for DeepResearch Bench II (drb2).")
+    await run(args, tasks)
+    if not args.judge or args.dry_run:
+        return
+    summary = await judge_run(argparse.Namespace(
+        out=args.out, data_root=args.data_root, data_file=args.data_file,
+        task_ids=None, workers=args.judge_workers, force=False, dry_run=False,
+    ))
+    if not summary or not (summary.get("rubric") or {}).get("complete"):
+        raise RuntimeError(
+            "Report generation finished, but LLM judging is incomplete. Reports are preserved; "
+            "retry with `run_reports judge --out <same-output>` and the same dataset arguments."
+        )
 
 
 def parser() -> argparse.ArgumentParser:
@@ -853,6 +888,11 @@ def parser() -> argparse.ArgumentParser:
             child.add_argument("--fetch-chars", type=int, default=20_000)
             child.add_argument("--out", type=Path, required=True)
             child.add_argument("--dry-run", action="store_true")
+            child.add_argument(
+                "--judge", action="store_true",
+                help="After DRB2 reports finish, run the existing official-protocol LLM Judge.",
+            )
+            child.add_argument("--judge-workers", type=int, default=10, help="Concurrent report evaluations with --judge.")
     grader = commands.add_parser(
         "judge",
         help="Grade a finished DRB2 run with the official rubric protocol; no Agent calls.",
@@ -888,7 +928,9 @@ def main() -> None:
             if args.workers <= 0:
                 raise ValueError("--workers must be positive.")
             logging.basicConfig(level=logging.WARNING, format="%(message)s")
-            asyncio.run(judge_run(args))
+            summary = asyncio.run(judge_run(args))
+            if not args.dry_run and not (summary or {}).get("rubric", {}).get("complete"):
+                raise RuntimeError("LLM Judge did not finish all selected reports; inspect judge/judge.log and retry `judge`.")
             return
         if args.command == "prepare":
             if args.source and len(args.benchmarks) != 1:
@@ -914,7 +956,7 @@ def main() -> None:
                 )
             print(f"Total: {len(tasks)}")
             return
-        for key in ("workers", "max_turns", "fetch_chars"):
+        for key in ("workers", "max_turns", "fetch_chars", "judge_workers"):
             if getattr(args, key) is not None and getattr(args, key) <= 0:
                 raise ValueError(f"--{key.replace('_', '-')} must be positive.")
         for key in ("search_calls", "fetch_calls"):
@@ -922,7 +964,7 @@ def main() -> None:
                 raise ValueError(f"--{key.replace('_', '-')} must be nonnegative (0: unlimited).")
         if args.timeout is not None and args.timeout < 0:
             raise ValueError("--timeout must be nonnegative.")
-        asyncio.run(run(args, tasks))
+        asyncio.run(run_with_judge(args, tasks))
     except (ValueError, OSError, RuntimeError) as exc:
         cli.error(str(exc))
 

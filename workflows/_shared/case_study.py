@@ -166,9 +166,9 @@ def export_case(
             add(base / graph_id / "belief_graph.jsonl", base, "graphs/")
     if not any("trajectories/" in p for p in paths):
         warnings.append("缺少 Agent 运行轨迹。")
-    if not any(p.endswith("state.json") for p in paths):
+    if info["mode"] != "default" and not any(p.endswith("state.json") for p in paths):
         warnings.append("缺少完整 Graph 记录。")
-    if not any(p.endswith(("graph_snapshots.jsonl", "belief_graph.jsonl")) for p in paths):
+    if info["mode"] != "default" and not any(p.endswith(("graph_snapshots.jsonl", "belief_graph.jsonl")) for p in paths):
         warnings.append("缺少历史 Graph 快照，未从最终图推造历史状态。")
     if len(paths) + 1 > MAX_FILES:
         raise ValueError("More than 300 evidence files in one case")

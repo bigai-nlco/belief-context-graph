@@ -13,7 +13,7 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, cast
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 if TYPE_CHECKING:
     from tools.case_study_studio.control import Control
@@ -25,7 +25,8 @@ ASSETS = {"index.html", "styles.css", "app.mjs", "model.mjs", "browser_crypto.mj
           "vendor/marked.LICENSE", "runs.html", "runs.css", "runs.mjs", "shared.mjs",
           "review-pipeline.html", "review-pipeline.css", "review-pipeline.mjs",
           "review-pipeline-data.mjs", "review-pipeline-contract.json",
-          "evidence-loader.mjs", "evidence-worker.mjs", "evidence-cache.mjs"}
+          "evidence-loader.mjs", "evidence-worker.mjs", "evidence-cache.mjs", "task-picker.mjs", "score-details.mjs",
+          "annotation-stats.html", "annotation-stats.css", "annotation-stats.mjs"}
 
 
 class StudioHTTPServer(ThreadingHTTPServer):
@@ -130,6 +131,53 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json(control.create_run(self._body(), user), 201)
         if len(parts) >= 3 and parts[:2] == ["api", "runs"] and parts[2].isdigit():
             run_id = int(parts[2])
+            if parts[3:] == ["annotation-summary"] and method == "GET":
+                hashes = parse_qs(urlsplit(self.path).query).get("statistics_sha", [])
+                if len(hashes) != 1 or len(hashes[0]) != 64:
+                    raise APIError(400, "Run 总结查询格式不正确")
+                return self._json({"job": control.run_summaries.current(run_id, hashes[0])})
+            if parts[3:] == ["annotation-summary"] and method == "POST":
+                body = self._body()
+                if (set(body) - {"statistics_sha", "retry"} or type(body.get("retry", False)) is not bool
+                        or not isinstance(body.get("statistics_sha"), str) or len(body["statistics_sha"]) != 64):
+                    raise APIError(400, "Run 总结请求格式不正确")
+                return self._json(control.run_summaries.enqueue(run_id, body["statistics_sha"], user,
+                    retry=body.get("retry", False)), 202)
+            if len(parts) == 5 and parts[3] == "annotation-summary" and method == "GET":
+                return self._json(control.run_summaries.get(run_id, parts[4]))
+            if method == "GET" and (parts[3:] == ["annotation-stats"]
+                    or (len(parts) == 6 and parts[3] == "annotation-stats" and parts[5] == "download")):
+                from tools.case_study_studio.annotation_charts import render_report
+                from tools.case_study_studio.annotation_stats import (
+                    StatsError,
+                    archive,
+                    collect_snapshot,
+                    report_files,
+                    summarize,
+                )
+                control.row(run_id)  # Preserve the API's 404 semantics, without reading trajectories.
+                try:
+                    snapshot = collect_snapshot(control.root, control.state, run_id)
+                    stats = summarize(snapshot)
+                    if len(parts) == 4:
+                        report_html, _ = render_report(stats)
+                        return self._json({"stats": stats, "report_html": report_html})
+                    if parts[4] != stats["input_sha256"]:
+                        raise APIError(409, "标注已有更新，请刷新统计后下载，避免导出与图表不同的版本")
+                    files = report_files(snapshot)
+                    summary_keys = parse_qs(urlsplit(self.path).query).get("summary", [])
+                    if summary_keys:
+                        files.update(control.run_summaries.export(run_id, summary_keys[0], stats["input_sha256"]))
+                    raw = archive(files)
+                except StatsError as exc:
+                    raise APIError(409, str(exc)) from exc
+                self.send_response(200)
+                self.send_header("Content-Type", "application/zip")
+                self.send_header("Content-Length", str(len(raw)))
+                self.send_header("Content-Disposition", f'attachment; filename="RUN-{run_id:04d}-annotation-stats.zip"')
+                self.end_headers()
+                self.wfile.write(raw)
+                return
             if len(parts) == 3 and method == "GET":
                 return self._json(control.detail(run_id, user))
             if parts[3:] == ["cancel"] and method == "POST":
@@ -137,6 +185,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json(control.cancel_run(run_id, user))
             if len(parts) == 7 and parts[3] == "tasks":
                 benchmark, task_id, action = parts[4:]
+                if action == "score" and method == "GET":
+                    return self._json(control.score_details(run_id, benchmark, task_id))
                 if action in {"evidence", "evidence-preview"} and method == "GET":
                     preview = action == "evidence-preview"
                     path, digest = (control.evidence_preview if preview else control.evidence)(run_id, benchmark, task_id)

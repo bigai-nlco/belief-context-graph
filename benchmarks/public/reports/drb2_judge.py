@@ -8,12 +8,11 @@ Licensed under the Apache License, Version 2.0 (the same license as this
 repository; see ``LICENSE`` at the repository root).
 
 Kept verbatim from upstream (so scores follow the official protocol):
-``PROMPT_TEMPLATE``, ``FENCED_JSON_PATTERN``, ``_try_clean_and_load``,
-``parse_model_text``, ``validate_batch_result``, the rubric batching /
+``PROMPT_TEMPLATE``, ``FENCED_JSON_PATTERN``, ``_try_clean_and_load``, the rubric batching /
 truncation / per-dimension organisation in :func:`judge_report`, and
-``compute_dimension_averages``. Defaults equal upstream ``.env_example``:
+``compute_dimension_averages``. Limits retain upstream ``.env_example`` values:
 50 items per batch, 10 attempts per batch, 150,000 report characters,
-``reasoning_effort=medium``, ``max_completion_tokens=32768``, 600 s timeout.
+``max_completion_tokens=32768``, 600 s timeout.
 
 Changed by this repository (Apache-2.0 §4(b) notice):
 
@@ -22,10 +21,16 @@ Changed by this repository (Apache-2.0 §4(b) notice):
 * A transport error sleeps briefly before the next attempt (upstream retries
   immediately). The attempt budget and every scoring rule are unchanged; the
   reasoning effort is never lowered between attempts.
-* Configuration uses this repository's ``JUDGE_*`` names. The default model is
-  ``gpt-5.5-luna``; the upstream evaluator pins ``gpt-5.5``. The model actually
-  used is recorded with every result.
+* Configuration uses this repository's ``JUDGE_*`` names. Defaults are
+  ``gpt-6-luna`` with ``reasoning_effort=high``; the upstream evaluator pins
+  ``gpt-5.5`` with ``medium`` effort. The model and effort actually used are
+  recorded with every result.
 * Upstream ``print`` logging -> :mod:`logging`.
+* Parse valid JSON before applying the legacy clean-up. Validate exact rubric
+  membership and the prescribed result fields, and give invalid-output retries
+  concrete formatting feedback without changing any scoring criterion.
+* Save per-attempt responses and diagnostics when requested, and account for
+  tokens from failed attempts as well as successful ones.
 """
 
 from __future__ import annotations
@@ -35,6 +40,8 @@ import json
 import logging
 import os
 import re
+import time
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,8 +52,8 @@ logger = logging.getLogger(__name__)
 UPSTREAM_REPOSITORY = "https://github.com/imlrz/DeepResearch-Bench-II"
 UPSTREAM_COMMIT = "7c7a9a8cda9dad4e6728f4d6a89bb04541feb222"
 UPSTREAM_MODEL = "gpt-5.5"
-DEFAULT_MODEL = "gpt-5.5-luna"
-DEFAULT_REASONING_EFFORT = "medium"
+DEFAULT_MODEL = "gpt-6-luna"
+DEFAULT_REASONING_EFFORT = "high"
 DEFAULT_MAX_OUTPUT_TOKENS = 32768
 DEFAULT_TIMEOUT = 600
 DEFAULT_CHUNK_SIZE = 50
@@ -233,7 +240,7 @@ class OpenAIChatClient:
 
 
 # =========================
-# JSON fenced block extraction / parsing -- verbatim from upstream
+# JSON fenced block extraction / parsing (standard parser first)
 # =========================
 FENCED_JSON_PATTERN = r'```json\s*(.*)```'
 
@@ -247,41 +254,59 @@ def _try_clean_and_load(s: str):
 
 def parse_model_text(text: str):
     matches = re.findall(FENCED_JSON_PATTERN, text, re.DOTALL)
-    if matches:
-        try:
-            return _try_clean_and_load(matches[0]), True
-        except json.JSONDecodeError as e:
-            logger.warning(f"[warn] failed to parse fenced JSON: {e}; trying full text...")
-    try:
-        return _try_clean_and_load(text), True
-    except json.JSONDecodeError as e:
-        logger.warning(f"[warn] failed to parse JSON from full text: {e}")
-        return None, False
+    candidates = [*matches, text]
+    # The upstream regex can rewrite valid compact JSON, including rubric text
+    # containing quotes/colons. Never run it on an already valid JSON response.
+    for loader in (json.loads, _try_clean_and_load):
+        for candidate in candidates:
+            try:
+                return loader(candidate.strip()), True
+            except json.JSONDecodeError:
+                pass
+    return None, False
 
 
 # =========================
-# Batched evaluation and validation -- verbatim from upstream
+# Batched evaluation and strict, diagnosable output validation
 # =========================
-def validate_batch_result(rubric_items: list[str], parsed_result: dict) -> bool:
-    """
-    Validate that the model output contains all rubric_items with exact text match.
-    """
+def batch_validation_errors(rubric_items: list[str], parsed_result: Any) -> list[str]:
+    """Explain schema/exact-match errors; never fuzzy-match or invent scores."""
     if not isinstance(parsed_result, dict):
-        return False
-    results = parsed_result.get("results", [])
+        return ["The response must be a JSON object with a results array."]
+    results = parsed_result.get("results")
     if not isinstance(results, list):
-        return False
+        return ["The results field must be an array of result objects."]
+    errors = []
     if len(results) != len(rubric_items):
-        return False
+        errors.append(f"Expected {len(rubric_items)} results, received {len(results)}.")
+    returned = []
+    for index, result in enumerate(results):
+        if not isinstance(result, dict):
+            errors.append(f"results[{index}] must be an object, not {type(result).__name__}.")
+            continue
+        item = result.get("rubric_item")
+        if isinstance(item, str):
+            returned.append(item)
+        else:
+            errors.append(f"results[{index}].rubric_item must be the exact input string.")
+        score = result.get("score")
+        if isinstance(score, bool) or not isinstance(score, (int, float)) or score not in (-1, 0, 1):
+            errors.append(f"results[{index}].score must be the number -1, 0, or 1.")
+        for field in ("reason", "evidence"):
+            if not isinstance(result.get(field), str):
+                errors.append(f"results[{index}].{field} must be a string.")
+    expected_counts, returned_counts = Counter(rubric_items), Counter(returned)
+    missing = list((expected_counts - returned_counts).elements())
+    unexpected = list((returned_counts - expected_counts).elements())
+    if missing:
+        errors.append(f"Missing exact rubric_item text ({len(missing)}): {json.dumps(missing, ensure_ascii=False)}")
+    if unexpected:
+        errors.append(f"Unexpected or duplicate rubric_item text ({len(unexpected)}): {json.dumps(unexpected, ensure_ascii=False)}")
+    return errors
 
-    # 检查每个 rubric_item 是否严格匹配
-    returned_items = [r.get("rubric_item", "") for r in results]
-    for expected in rubric_items:  # noqa: SIM110 -- verbatim upstream
-        # Ensure every rubric_item from the input is present in the results
-        if expected not in returned_items:
-            return False
 
-    return True
+def validate_batch_result(rubric_items: list[str], parsed_result: Any) -> bool:
+    return not batch_validation_errors(rubric_items, parsed_result)
 
 
 async def query_rubric_batch(
@@ -293,47 +318,72 @@ async def query_rubric_batch(
     max_retries: int = 5,
     *,
     sleep: Callable[[float], Any] = asyncio.sleep,
+    record_attempt: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[list[dict] | None, dict]:
-    """Upstream ``query_rubric_batch``; returns ``(results_list, usage_metadata)``."""
+    """Grade one upstream batch, retry invalid output with explicit feedback."""
     rubric_input = {
         "task": task,
         "rubric_items": rubric_items,
         "blocked": blocked
     }
     rubric_json = json.dumps(rubric_input, ensure_ascii=False, indent=2)
+    base_prompt = PROMPT_TEMPLATE.format(paper=paper_content, rubric=rubric_json)
+    prompt = base_prompt
+    total_usage: dict[str, int] = {}
 
     for attempt in range(max_retries):
+        started = time.monotonic()
+        text, usage_metadata, parsed = "", {}, None
+        request_failed = False
         try:
-            prompt = PROMPT_TEMPLATE.format(paper=paper_content, rubric=rubric_json)
             text, usage_metadata = await client.complete(prompt)
-
+        except Exception as exc:
+            request_failed = True
+            errors = [f"Request failed ({type(exc).__name__})."]
+        else:
+            for key, value in usage_metadata.items():
+                total_usage[key] = total_usage.get(key, 0) + value
             if not text:
-                logger.warning(f"[warn] batch attempt {attempt+1}/{max_retries} returned empty text")
-                continue
-
-            # Parse JSON
-            parsed, ok = parse_model_text(text)
-            if not ok:
-                logger.warning(f"[warn] batch attempt {attempt+1}/{max_retries} JSON parse failed")
-                continue
-
-            # Validate result
-            if not isinstance(parsed, dict) or not validate_batch_result(rubric_items, parsed):
-                logger.warning(f"[warn] batch attempt {attempt+1}/{max_retries} validation failed: rubric_item mismatch or wrong count")
-                continue
-
-            # Success
-            return parsed["results"], usage_metadata
-
-        except Exception as e:
-            logger.warning(f"[warn] batch attempt {attempt+1}/{max_retries} request error: {e}")
-            # Local change: back off on transport errors instead of retrying at once.
+                errors = ["The response was empty. Return the complete JSON object."]
+            else:
+                parsed, ok = parse_model_text(text)
+                errors = batch_validation_errors(rubric_items, parsed) if ok else [
+                    "The response was not parseable JSON. Return one complete JSON object."
+                ]
+        if record_attempt is not None:
+            # Deliberately outside the request exception handler: a disk error
+            # must stop the job, not trigger another paid model request.
+            record_attempt({
+                "attempt": attempt + 1,
+                "prompt": prompt,
+                "response": text,
+                "usage": usage_metadata,
+                "validation_errors": errors,
+                "duration_seconds": round(time.monotonic() - started, 3),
+                "status": "request_error" if request_failed else "invalid_output" if errors else "valid",
+            })
+        if not errors:
+            assert isinstance(parsed, dict)
+            return parsed["results"], total_usage
+        logger.warning("[warn] batch attempt %s/%s failed: %s", attempt + 1, max_retries,
+                       "; ".join(errors)[:2000])
+        if request_failed:
             if attempt + 1 < max_retries:
-                await sleep(min(2.0**attempt, 30.0))
+                await sleep(min(2.0 ** attempt, 30.0))
             continue
+        # A fresh attempt has specific correction feedback, rather than blindly
+        # repeating the same invalid/cached response. Scores still come solely
+        # from the original report, rubric, and official scoring instructions.
+        feedback = "\n".join(errors)[:6000]
+        prompt = base_prompt + (
+            f"\n\n<output_validation_feedback>\nAttempt {attempt + 1} was rejected:\n{feedback}\n"
+            f"Return a complete replacement with all {len(rubric_items)} results, in input order. "
+            "Copy each rubric_item exactly from the input. Do not rename, omit, or duplicate items. "
+            "Keep the original scoring rules; this feedback concerns output format only.\n"
+            "</output_validation_feedback>"
+        )
 
-    # All attempts failed
-    return None, {}
+    return None, total_usage
 
 
 async def judge_report(
@@ -344,12 +394,13 @@ async def judge_report(
     *,
     label: str = "",
     sleep: Callable[[float], Any] = asyncio.sleep,
+    attempts_path: Path | None = None,
 ) -> dict[str, Any]:
     """Upstream ``process_one_with_chunking`` for one Markdown report.
 
     ``content`` is the task's raw ``content`` object from
     ``tasks_and_rubrics.jsonl``. Returns upstream's ``result_dict``, or
-    ``{"error": ...}`` exactly where upstream returns one.
+    an ``error`` at the same failure points, retaining observed token usage.
     """
     rubric_content = content
     chunk_size = config.chunk_size
@@ -405,16 +456,18 @@ async def judge_report(
     for batch_idx, batch_items in enumerate(batches):
         logger.info(f"[info] {label} processing batch {batch_idx+1}/{len(batches)} ({len(batch_items)} items)")
 
+        def record_attempt(record: dict[str, Any], *, batch: int = batch_idx + 1) -> None:
+            if attempts_path is not None:
+                attempts_path.parent.mkdir(parents=True, exist_ok=True)
+                with attempts_path.open("a", encoding="utf-8") as stream:
+                    attempts_path.chmod(0o600)
+                    stream.write(json.dumps({"batch": batch, **record}, ensure_ascii=False) + "\n")
+
         results, usage_metadata = await query_rubric_batch(
             client, batch_items, task, blocked, text_content,
-            max_retries, sleep=sleep,
+            max_retries, sleep=sleep, record_attempt=record_attempt,
         )
 
-        if results is None:
-            logger.error(f"[err] {label} batch {batch_idx+1} failed")
-            return {"error": f"batch {batch_idx+1} failed after {max_retries} retries"}
-
-        all_results.extend(results)
         all_usage_metadata.append(usage_metadata)
 
         # Accumulate token counts
@@ -422,6 +475,18 @@ async def judge_report(
         total_output_tokens += usage_metadata.get("candidatesTokenCount", 0)
         total_thoughts_tokens += usage_metadata.get("thoughtsTokenCount", 0)
         total_tokens_sum += usage_metadata.get("totalTokenCount", 0)
+
+        if results is None:
+            logger.error(f"[err] {label} batch {batch_idx+1} failed")
+            return {
+                "error": f"batch {batch_idx+1} failed after {max_retries} retries",
+                "usage_summary": {
+                    "total_tokens": total_tokens_sum, "input_tokens": total_input_tokens,
+                    "output_tokens": total_output_tokens, "thoughts_tokens": total_thoughts_tokens,
+                },
+                "usage_metadata_per_batch": all_usage_metadata,
+            }
+        all_results.extend(results)
 
     # Re-organize results by dimension
     scores_by_dimension = {

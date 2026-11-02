@@ -27,11 +27,33 @@ The workflow uses the shared `run_agent_loop` kernel with stateful observers for
 wall-clock enforcement, BCG memory, repeated-text detection, stuck-target
 handling, and final-answer recovery. A no-tool assistant response is terminal.
 
+## Context modes
+
+Single-agent ReAct supports `agent.context_mode: bcg` (the default for existing
+profiles) and `agent.context_mode: default`. The Studio launch dialog exposes
+this as **上下文模式** independently of the Agent model.
+
+**Default** sends the chronological system instructions, user messages, assistant
+replies and tool results through the normal provider history handling. It does
+not project history to two recent steps, start or contact a Graph service, inject
+Graph guidance, expose `bcg_recover`, or flush a final Graph. Existing tool-output
+processing, repetition guards, model context-size limits and turn/time limits
+still apply. This mode adds no automatic history compaction. Tools, sandboxing,
+Agent model settings and report judging otherwise remain the same.
+
+To select it outside Studio, add this key to a copy of your existing ReAct YAML
+profile while preserving its other settings:
+
+```yaml
+agent:
+  context_mode: default  # bcg restores Graph-backed context
+```
+
 ## BCG memory
 
-BCG replaces the old single-agent context retention in **all** ReAct profiles.
-There is no original-ReAct/BCG strategy switch. Agent Team uses the same
+The behavior below applies only to `context_mode: bcg`. Agent Team uses the same
 projection foundation with [independent per-job graphs and cross-graph links](../agent_team/README.md#bcg-multi-agent-memory).
+Agent Team's context behavior is unchanged; the Default switch is single-agent only.
 
 Before each model request:
 
@@ -47,7 +69,7 @@ Before each model request:
    signatures are never treated as text for graph extraction.
 4. After the service acknowledges the write, call its `focused` graph selector
    using the task and recent steps. Insert the selected original beliefs,
-   confidence values and directed relations in a separate **system** message,
+   confidence values and directed relations into the initial **system** message,
    within `<context_blocks_guide>` and `<belief_graph>` blocks. No synthetic
    dialogue or model-specific chat template is used. Confidence is not
    recalculated by FrontierAgent.
@@ -178,9 +200,11 @@ the token cap when tuning.
 | `benchmark` | Same BCG context, benchmark budgets/tools | `OPENAI_*` |
 | `tui` | Same BCG context, resumable full transcript | `OPENAI_*`, aligned web tools, task board |
 
-Profile configuration is under `agent.bcg`; the shipped values read the
+BCG configuration is under `agent.bcg`; the shipped values read the
 `BCG_*` environment variables above. The retired aliases `keep5` → `benchmark`,
-`Apodex1.1-solve` → `tui`, and `default` → `simple` all use BCG too. Old
+`Apodex1.1-solve` → `tui`, and `default` → `simple` select BCG unless
+`agent.context_mode` explicitly selects Default. The `default` profile alias is
+not the Default context mode. Old
 `keep_last_k` and `context_compaction` keys no longer control ReAct. The aliases
 do **not** reproduce the previous baseline's context behavior.
 

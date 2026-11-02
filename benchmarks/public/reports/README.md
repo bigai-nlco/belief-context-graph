@@ -3,7 +3,8 @@
 These adapters run **the current FrontierAgent workflows**, not the older BCG
 TypeScript reference agent. Both `stateful-react-agent` (single agent) and
 `agent_team` (independent per-job graphs with cross-graph references) use their
-existing BCG memory implementation. The default pipeline here is `agent_team`.
+existing BCG memory implementation by default. Single-agent ReAct additionally
+supports Default full-history context. The default pipeline here is `agent_team`.
 
 The data adapters, renderers, preparation and deterministic metrics were migrated
 from `bigai-nlco/belief-context-graph`, branch `feature/add-benchmark`, commit
@@ -15,7 +16,7 @@ The old Agent runner and unrelated changes from that branch were not imported.
 | DeepResearch Bench II (`deepresearch_bench_ii`, short name `drb2`) | `tasks_and_rubrics.jsonl`, language/theme filters | Web search and full-page fetch, with task-specific source restrictions | Report length/citations and blocked-source citation audit; official-protocol rubric scores via `judge` |
 | DRBench (`drbench`) | Original `subsets/` and `tasks/`, or full upstream clone | Task-scoped read-only text renderings of enterprise files, email and chat; web disabled | File read/surfaced recall, citation recall/precision and distractor citation rate |
 
-**Scoring boundary:** `run` saves `official_score: null` and
+**Scoring boundary:** report generation saves `official_score: null` and
 `scoring_status: official_pending`. For DRB2, the separate `judge` command then
 applies the official rubric protocol to the saved reports
 ([below](#drb2-rubric-judging)). DRBench insight-recall judging is not implemented
@@ -89,6 +90,15 @@ shuffles deterministically before `--limit`. `--profile` accepts a workflow prof
 name or a YAML file. Models and reasoning settings come from that profile, not
 hard-coded benchmark defaults.
 
+For a single-agent run without BCG, copy your Agent profile, set
+`agent.context_mode: default` while preserving its other settings, and pass it
+with `--pipeline stateful-react-agent --profile /path/to/default-agent.yaml`.
+Default sends the normal chronological dialogue history, without Graph calls,
+Graph injection or BCG's recent-two-step projection. It skips Graph preflight,
+records `mode: default` and zero Graph tokens, and uses the same tools, guards
+and Judge as BCG. It still obeys the model context-size limit. An absent
+`context_mode` means BCG; `agent_team` supports BCG only.
+
 `--workers` is concurrent **questions**, not the number of sub-agents. Each worker
 is a separate process. Tool limits are shared across the whole team per question:
 `--search-calls 20`, `--fetch-calls 30`, `--fetch-chars 20000` by default. The outer
@@ -96,7 +106,7 @@ per-question timeout defaults to 3600 seconds for DRB2, 2400 for DRBench. `--tim
 0` disables only that outer ceiling; inner workflow turn/request limits still
 apply. `--max-turns` optionally overrides coordinator and specialist turn limits.
 
-Graph health is checked before starting model work. If Graph later fails, native
+In BCG mode, Graph health is checked before starting model work. If Graph later fails, native
 BCG preserves full context, and the result is marked `graph_fallback` instead of
 silently describing a raw-context execution as a normal BCG run. The existing
 workflow sandbox requirement remains in force (bubblewrap on local runs or an
@@ -126,12 +136,25 @@ explicitly configured isolated deployment).
 
 ## DRB2 rubric judging
 
+Add `--judge` to a CLI DRB2 run to call the existing Judge after all reports finish:
+
+```bash
+uv run python -m benchmarks.public.runner.run_reports run drb2 \
+  --task-ids "drb2:2,5,30" --pipeline stateful-react-agent \
+  --workers 3 --out results/drb2-react --judge --judge-workers 3
+```
+
+Without `--judge`, CLI report generation remains unchanged. `--dry-run` never calls the Judge. The grading step reuses the exact dataset and selection saved for the run, skips already scored reports, and does not rerun the Agent. An incomplete automatic evaluation exits with an error while keeping all reports and partial scores. Retry only grading with the `judge` command below. Shared Studio launches enable this final grading stage automatically for new runs; existing historical runs are not automatically graded.
+
 `judge` grades a finished DRB2 run's saved reports with the official evaluator's
 protocol, ported in [`drb2_judge.py`](drb2_judge.py) from
 [DeepResearch-Bench-II](https://github.com/imlrz/DeepResearch-Bench-II) at commit
-`7c7a9a8` (Apache-2.0). The prompt, JSON parsing, exact rubric-item validation,
-50-item batches, 10 attempts per batch, 150,000-character report truncation and
-the score aggregation are verbatim. It never starts the Agent, so a judge model
+`7c7a9a8` (Apache-2.0). The scoring prompt, 50-item batches, 10 attempts per batch,
+150,000-character report truncation and score aggregation are unchanged. Valid
+JSON is parsed before legacy clean-up; exact rubric text and required result
+fields are validated. Invalid-output retries include specific formatting feedback,
+without altering scoring criteria or accepting approximate rubric matches.
+It never starts the Agent, so a judge model
 can be changed or retried without rerunning research.
 
 ```bash
@@ -143,8 +166,8 @@ uv run python -m benchmarks.public.runner.run_reports judge \
 ```
 
 The judge uses `JUDGE_API_KEY` / `JUDGE_BASE_URL` (falling back to `OPENAI_*`) and
-`JUDGE_MODEL`, default `gpt-5.5-luna`; the upstream evaluator pins `gpt-5.5`.
-`DRB2_JUDGE_REASONING_EFFORT` defaults to upstream's `medium` and is never lowered
+`JUDGE_MODEL`, default `gpt-6-luna`; the upstream evaluator pins `gpt-5.5`.
+`DRB2_JUDGE_REASONING_EFFORT` defaults to `high` (upstream: `medium`) and is never lowered
 on retries. The model actually used is written to every graded result. A 16-token
 probe with the grading model and parameters runs first; an unusable judge stops the
 command before any report is graded.
@@ -155,12 +178,18 @@ the run's `dataset_sha256`. Only reports of tasks with agent status `completed` 
 graded; other tasks are marked `not_judged`. Rerunning `judge` grades remaining
 and `judge_error` tasks and skips scored ones; `--force` regrades everything and
 `--task-ids` limits the selection. `--workers` (default 10) is concurrent reports.
+If grading remains incomplete, `judge` exits nonzero while preserving the reports,
+response journals and any completed scores.
 
 Per task, `result.json` gains `rubric_scores` (`inforecall`, `analysis`,
 `presentation`, `total`, `blocked_rate`), `official_score` (= `total`),
 `scoring_status: official_protocol_scored` and the judge settings; the full
 per-item scores, reasons, evidence and token usage are in
-`trials/<id>/judge/drb2_rubric.json`. `summary.json` gains a `rubric` block with
+`trials/<id>/judge/drb2_rubric.json`. Its `attempts` field points to a per-invocation
+JSONL journal under `trials/<id>/judge/attempts/`, recording each prompt, raw reply,
+validation errors and observed usage. Retries preserve older journals; usage
+includes invalid responses as well as successful responses (not the initial probe).
+`summary.json` gains a `rubric` block with
 four views of the official mean over tasks: `valid_only` (graded reports only, as
 the leaderboard averages), `zero_filled` (tasks without a usable report count as
 0), and `_leaderboard` variants of both that drop tasks 112 and 114, which upstream

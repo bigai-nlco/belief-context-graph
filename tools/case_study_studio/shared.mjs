@@ -8,6 +8,14 @@ export function storeToken(token) {localStorage.setItem(TOKEN_KEY, token);}
 export function logout() {localStorage.removeItem(TOKEN_KEY);}
 export const benchmarkLabel = id => id === 'drb2' ? 'DeepResearch Bench II' : id;
 export const canAnnotateTask = task => task?.status === 'completed' && task.annotatable === true;
+export const runDisplayStatus = run => run.status === 'running' && run.phase === 'judging' ? 'judging' : run.status;
+export function reportScoreLabel(task) {
+  if(task.scoring_status === 'official_protocol_scored' && Number.isFinite(task.official_score))
+    return `${(task.official_score * 100).toFixed(1)} / 100`;
+  if(task.scoring_status === 'judge_error') return '评分失败';
+  if(task.scoring_status === 'not_judged') return '未评分';
+  return task.status === 'completed' ? '待评分' : '—';
+}
 export function taskAnnotationStatus(task) {
   const reviews=task.reviews||[],ai=task.ai_review?.status;
   const humanDone=reviews.some(r=>r.status==='reviewed'),aiDone=ai==='completed';

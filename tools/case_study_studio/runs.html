@@ -16,6 +16,13 @@
     <span class="refresh-label" aria-live="polite" aria-atomic="true">刷新</span>
   </button></div><p>按启动编号查看结果</p><nav id="run-list" aria-label="测试运行列表"></nav></aside><main class="runs-main" id="run-content"><p class="boot">正在读取运行记录…</p></main></div>
   <div id="run-notice" class="run-notice" role="status" hidden></div>
+  <dialog id="score-dialog" class="studio-dialog score-dialog" aria-labelledby="score-dialog-title">
+    <div class="dialog-header">
+      <div><h2 id="score-dialog-title">Report 评分详情</h2><p id="score-dialog-subtitle"></p></div>
+      <button type="button" class="icon-button" data-close="score-dialog" aria-label="关闭评分详情"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+    </div>
+    <div id="score-dialog-content" class="score-dialog-content" aria-busy="false"></div>
+  </dialog>
   <dialog id="identity-dialog" class="studio-dialog identity-dialog" aria-labelledby="identity-title">
     <div class="dialog-header">
       <h2 id="identity-title">标注身份</h2>
@@ -47,9 +54,24 @@
       <div class="launch-grid launch-name-fields">
         <label class="field"><span>测试名称</span><input name="title" required maxlength="100" autocomplete="off"></label>
         <label class="field"><span>Agent 模型</span><select name="profile" id="launch-profile"></select></label>
+        <label class="field"><span>上下文模式</span><select name="mode" id="launch-mode"><option value="bcg">BCG · 最近两轮 + Belief Graph</option><option value="default" disabled>Default · 完整对话上下文，不使用 BCG</option></select></label>
       </div>
-      <div class="graph-setting">单 Agent BCG · 最近 2 轮 · Graph 6,600 字符<br>建图：gpt-6-luna / none · LiteLLM</div>
-      <label class="field"><span>DeepResearch Bench II task ID</span><input name="drb2" required placeholder="任务编号，以逗号分隔，例如 2,5,30"></label>
+      <div class="graph-setting" id="launch-context-info">单 Agent BCG · 最近 2 轮 · Graph 6,600 字符<br>建图：gpt-6-luna / none · LiteLLM<br>报告生成后自动进行 LLM Judge 评分</div>
+      <section class="task-picker" id="launch-task-picker" aria-labelledby="task-picker-heading">
+        <div class="task-picker-heading"><h3 id="task-picker-heading">DeepResearch Bench II 题目</h3><span id="task-selection-count" role="status" aria-live="polite"></span></div>
+        <div class="task-picker-actions"><span id="task-selection-help">拖拽框选后批量移除；点击题号可单独移除</span><div><button type="button" class="button subtle" id="task-restore">恢复默认</button><button type="button" class="button subtle" id="task-clear">清空</button></div></div>
+        <input type="hidden" name="drb2">
+        <div class="selected-tasks" id="selected-tasks" role="group" tabindex="0" aria-label="已选题号" aria-describedby="task-selection-help"></div>
+        <div class="task-marquee-actions"><span id="task-marked-count" role="status" aria-live="polite">框选 0 题</span><button type="button" class="button subtle" id="task-unmark" disabled>取消框选</button><button type="button" class="button" id="task-remove-marked" disabled>移除选中</button></div>
+        <div class="task-add-row"><label class="task-id-field" for="task-id-input"><span>批量添加</span><input id="task-id-input" type="text" maxlength="2000" autocomplete="off" placeholder="题号或范围，例如 2,5,30 或 20-25" aria-describedby="task-picker-error"></label><button type="button" class="button" id="task-add">添加</button></div>
+        <p class="form-error task-picker-error" id="task-picker-error" role="alert"></p>
+        <details class="task-library">
+          <summary>从题库选择 <span id="task-catalog-count"></span></summary>
+          <p id="task-catalog-note"></p>
+          <div class="task-catalog-tools"><input type="search" id="task-catalog-search" maxlength="200" aria-label="搜索题号或题目关键词" placeholder="搜索题号或题目关键词"><button type="button" class="button subtle" id="task-select-filtered">选中筛选结果</button></div>
+          <div class="task-catalog-grid" id="task-catalog-grid" role="group" aria-label="题库题号"></div>
+        </details>
+      </section>
       <div class="launch-grid">
         <label class="field"><span>任务并发</span><input name="workers" type="number" required min="1" max="2" value="2"></label>
         <label class="field"><span>单题时间上限（秒）</span><input name="timeout" type="number" required min="60" max="14400" value="3600"></label>
