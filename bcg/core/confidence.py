@@ -163,19 +163,21 @@ def _normalized_evidence_content(record: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 BASE_CONFIDENCE: dict[tuple, float] = {
-    # role          stance         confidence
-    ("user", "asserted"): 0.88,
-    ("user", "recalled"): 0.78,
-    ("user", "judged"): 0.72,
-    ("user", "speculated"): 0.58,
-    ("tool", "asserted"): 0.88,  # what the tool returned is treated as fact
-    ("tool", "recalled"): 0.78,
-    ("tool", "judged"): 0.74,
-    ("tool", "speculated"): 0.62,
-    ("assistant", "asserted"): 0.78,  # final answers / committed claims
-    ("assistant", "recalled"): 0.68,
-    ("assistant", "judged"): 0.65,
-    ("assistant", "speculated"): 0.45,
+    # Derived from separate role reliability and stance quality components.
+    # Keeping this compatibility table avoids changing the public constant,
+    # while removing arbitrary overlaps such as user/recalled == tool/recalled.
+    ("user", "asserted"): 0.800,
+    ("user", "recalled"): 0.750,
+    ("user", "judged"): 0.700,
+    ("user", "speculated"): 0.600,
+    ("tool", "asserted"): 0.775,
+    ("tool", "recalled"): 0.725,
+    ("tool", "judged"): 0.675,
+    ("tool", "speculated"): 0.575,
+    ("assistant", "asserted"): 0.700,
+    ("assistant", "recalled"): 0.650,
+    ("assistant", "judged"): 0.600,
+    ("assistant", "speculated"): 0.500,
 }
 
 SOURCE_RELIABILITY = {

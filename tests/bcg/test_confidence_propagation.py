@@ -6,7 +6,7 @@ import pytest
 
 from bcg.construct.hybrid import confidence as hybrid_confidence
 from bcg.construct.unified import confidence as unified_confidence
-from bcg.core.confidence import select_independent_evidence
+from bcg.core.confidence import initial_confidence, select_independent_evidence
 
 BACKENDS = [unified_confidence, hybrid_confidence]
 
@@ -224,3 +224,16 @@ def test_hybrid_source_type_takes_precedence_over_flat_role() -> None:
         "llm_reasoning"
     )
     assert node["confidence"] == pytest.approx(0.95)
+
+
+def test_unified_prior_uses_distinct_role_and_stance_components() -> None:
+    # This is a transparent rule prior, not a calibrated factual probability.
+    assert initial_confidence("user", "asserted") == pytest.approx(0.800)
+    assert initial_confidence("tool", "recalled") == pytest.approx(0.725)
+    assert initial_confidence("assistant", "asserted") == pytest.approx(0.700)
+    assert initial_confidence("assistant", "speculated") == pytest.approx(0.500)
+    assert len({
+        initial_confidence(role, stance)
+        for role in ("user", "tool", "assistant")
+        for stance in ("asserted", "recalled", "judged", "speculated")
+    }) > 8
