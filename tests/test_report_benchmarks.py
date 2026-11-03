@@ -485,6 +485,114 @@ def test_report_policy_rejects_negative_budgets(datasets, tmp_path, option):
         )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("budget,expected", [(0, 3), (1, 1)])
+async def test_serper_fetch_uses_proxy_and_shared_budget(
+    datasets, tmp_path, monkeypatch, budget, expected,
+):
+    from benchmarks.public.reports import runtime
+    from frontier_agent.infra import config
+
+    monkeypatch.setattr(config, "get_config", lambda: SimpleNamespace(
+        serper_api_key="test-key", serper_base_url="http://search.internal:9999",
+    ))
+    monkeypatch.delenv("SERPER_SCRAPE_ENDPOINT", raising=False)
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        assert str(request.url) == "http://search.internal:9999/scrape"
+        assert request.method == "POST" and request.headers["X-API-KEY"] == "test-key"
+        assert json.loads(request.content)["includeMarkdown"] is True
+        return httpx.Response(200, json={"markdown": "# Evidence\n" + "a" * 100})
+
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(runtime.httpx, "AsyncClient", lambda **kw: original_client(
+        transport=httpx.MockTransport(handler), **kw,
+    ))
+
+    async def vetted(url):
+        return "", ()
+
+    monkeypatch.setattr(runtime, "vet_public_url", vetted)
+    policy = ReportPolicy(
+        drb2.load_tasks(datasets)[0], tmp_path / "ws", tmp_path / "trace",
+        fetch_provider="serper", fetch_calls=budget, fetch_chars=20,
+    )
+    bindings = [{t.name: t for t in policy.bind([])} for _ in range(2)]
+    results = await asyncio.gather(
+        bindings[0]["web_fetch"].ainvoke({"url": ["https://example.org/a", "https://example.org/b"]}),
+        bindings[1]["web_fetch"].ainvoke({"url": "https://example.org/c"}),
+    )
+    assert len(seen) == expected
+    assert "\n".join(results).count("Fetch budget exhausted") == 3 - expected
+    assert all(e["provider"] == "serper" and e["http_status"] == 200 for e in policy.trace)
+    assert all("# Evidence\n" in e["result"] and "truncated" in e["result"] for e in policy.trace)
+    assert "test-key" not in (tmp_path / "trace").read_text()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scenario", [
+    "blocked_request", "private_request", "blocked_metadata", "blocked_text",
+    "private_metadata", "empty", "http_error", "invalid_json", "service_redirect",
+])
+async def test_serper_fetch_rejects_unsafe_or_failed_responses(
+    datasets, tmp_path, monkeypatch, scenario,
+):
+    from benchmarks.public.reports import runtime
+    from frontier_agent.infra import config
+
+    monkeypatch.setattr(config, "get_config", lambda: SimpleNamespace(
+        serper_api_key="test-key", serper_base_url="http://unused.internal",
+    ))
+    monkeypatch.setenv("SERPER_SCRAPE_ENDPOINT", "http://scrape.internal/read")
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        assert str(request.url) == "http://scrape.internal/read"
+        if scenario == "http_error":
+            return httpx.Response(429, text=BLOCKED_TITLE + " test-key")
+        if scenario == "invalid_json":
+            return httpx.Response(200, text="not-json")
+        if scenario == "service_redirect":
+            return httpx.Response(302, headers={"location": "http://elsewhere.internal"})
+        payload = {"markdown": "Public evidence", "metadata": {}}
+        if scenario == "blocked_metadata":
+            payload["metadata"] = {"title": BLOCKED_TITLE, "url": BLOCKED_URL}
+        elif scenario == "private_metadata":
+            payload["metadata"] = {"url": "http://127.0.0.1/admin"}
+        elif scenario == "blocked_text":
+            payload["text"] = BLOCKED_TITLE
+        elif scenario == "empty":
+            payload = {"message": "Unable to fetch"}
+        return httpx.Response(200, json=payload)
+
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(runtime.httpx, "AsyncClient", lambda **kw: original_client(
+        transport=httpx.MockTransport(handler), **kw,
+    ))
+
+    async def vetted(url):
+        return ("private" if "127.0.0.1" in url else ""), ()
+
+    monkeypatch.setattr(runtime, "vet_public_url", vetted)
+    policy = ReportPolicy(
+        drb2.load_tasks(datasets)[0], tmp_path / "ws", tmp_path / "trace",
+        fetch_provider="serper",
+    )
+    url = {"blocked_request": BLOCKED_URL, "private_request": "http://127.0.0.1/admin"}.get(
+        scenario, "https://example.org/article",
+    )
+    result = await policy.fetch_one(url)
+    assert not policy.trace[-1]["ok"]
+    assert "test-key" not in result and BLOCKED_TITLE not in result
+    assert "Public evidence" not in result
+    assert len(seen) == (0 if scenario in {"blocked_request", "private_request"} else 1)
+    if scenario == "http_error":
+        assert "HTTP 429" in result and policy.trace[-1]["http_status"] == 429
+
+
 @pytest.mark.parametrize("search,fetch", [(0, 0), (0, 30), (20, 0)])
 def test_report_cli_accepts_unlimited_budgets(datasets, tmp_path, monkeypatch, search, fetch):
     observed = []

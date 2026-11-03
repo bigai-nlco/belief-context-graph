@@ -185,6 +185,7 @@ async def execute_task(
         search_calls=config["search_calls"],
         fetch_calls=config["fetch_calls"],
         fetch_chars=config["fetch_chars"],
+        fetch_provider=config.get("fetch_provider", "direct"),
     )
     meta = {
         "_trial_dir": str(trial),
@@ -729,6 +730,7 @@ def build_config(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> dict[s
         "search_calls": args.search_calls,
         "fetch_calls": args.fetch_calls,
         "fetch_chars": args.fetch_chars,
+        "fetch_provider": args.fetch_provider,
         "task_ids": [task.task_id for task in tasks],
         "dataset_sha256": _digest([serialized, source_hashes]),
         "seed": args.seed,
@@ -886,6 +888,10 @@ def parser() -> argparse.ArgumentParser:
                 help="URL fetch budget per task, shared by all agents (default: 30; 0: unlimited).",
             )
             child.add_argument("--fetch-chars", type=int, default=20_000)
+            child.add_argument(
+                "--fetch-provider", choices=("direct", "serper"), default="direct",
+                help="Web fetch backend (default: direct); serper uses SERPER_SCRAPE_ENDPOINT or SERPER_BASE_URL/scrape.",
+            )
             child.add_argument("--out", type=Path, required=True)
             child.add_argument("--dry-run", action="store_true")
             child.add_argument(

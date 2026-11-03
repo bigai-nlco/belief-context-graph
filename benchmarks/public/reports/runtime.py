@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import fnmatch
 import json
+import os
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -77,9 +78,13 @@ class ReportPolicy:
         search_calls: int = 20,
         fetch_calls: int = 30,
         fetch_chars: int = 20_000,
+        fetch_provider: str = "direct",
     ) -> None:
         if search_calls < 0 or fetch_calls < 0:
             raise ValueError("Search/fetch budgets must be nonnegative; 0 means unlimited.")
+        if fetch_provider not in {"direct", "serper"}:
+            raise ValueError("fetch_provider must be direct or serper.")
+        self.fetch_provider = fetch_provider
         self.task = task
         self.workspace = workspace.resolve()
         self.trace_path = trace_path
@@ -155,8 +160,15 @@ class ReportPolicy:
         audit = drb2.audit_blocked_citations(decoded, self.blocklist)
         return bool(audit["blocked_citation_hits"])
 
-    def _record(self, name: str, args: dict[str, Any], result: str, *, ok: bool = True) -> str:
+    def _record(
+        self, name: str, args: dict[str, Any], result: str, *, ok: bool = True,
+        http_status: int | None = None,
+    ) -> str:
         event = {"tool": name, "args": args, "result": result, "ok": ok}
+        if name == "web_fetch":
+            event["provider"] = self.fetch_provider
+            if http_status is not None:
+                event["http_status"] = http_status
         self.trace.append(event)
         self.trace_path.parent.mkdir(parents=True, exist_ok=True)
         with self.trace_path.open("a", encoding="utf-8") as stream:
@@ -257,7 +269,7 @@ class ReportPolicy:
 
         @tool
         async def web_fetch(url: str | list[str]) -> str:
-            """Read public HTML/text/PDF sources. Every redirect is checked against task restrictions."""
+            """Read public web sources through the configured fetch backend, subject to task restrictions."""
             urls = [url] if isinstance(url, str) else url
             results = await asyncio.gather(*(self.fetch_one(value) for value in urls[:20]))
             return "\n\n".join(results)
@@ -266,6 +278,81 @@ class ReportPolicy:
         for entry in bound:
             entry.metadata.update(is_read_only=True, concurrency_safe=True)
         return [*allowed, *bound]
+
+    async def _fetch_serper(self, url: str) -> str:
+        """Use a trusted Scrape proxy; inspect its entire payload before returning text.
+
+        The proxy owns DNS and intermediate redirects. Unlike direct fetching,
+        the client can inspect only the requested URL and returned metadata/text.
+        """
+        from frontier_agent.infra.config import get_config
+
+        config = get_config()
+        endpoint = os.environ.get("SERPER_SCRAPE_ENDPOINT", "").strip()
+        if not endpoint:
+            base = config.serper_base_url.rstrip("/")
+            endpoint = (
+                "https://scrape.serper.dev"
+                if base == "https://google.serper.dev" else base + "/scrape"
+            )
+        if not config.serper_api_key:
+            return self._record(
+                "web_fetch", {"url": url},
+                "Fetch unavailable (SERPER_API_KEY is not configured).", ok=False,
+            )
+        if blocked_download_url(url):
+            return self._record("web_fetch", {"url": url}, _BLOCKED, ok=False)
+        refusal, _ = await vet_public_url(url)
+        if refusal:
+            return self._record("web_fetch", {"url": url}, _BLOCKED, ok=False)
+        async with httpx.AsyncClient(
+            timeout=60, follow_redirects=False, trust_env=False
+        ) as client, client.stream(
+            "POST", endpoint,
+            headers={"X-API-KEY": config.serper_api_key, "Accept": "application/json"},
+            json={"url": url, "includeMarkdown": True},
+        ) as response:
+            response.raise_for_status()
+            body, truncated = await read_bounded(response)
+            if truncated:
+                raise ValueError("Scrape response exceeds the byte limit.")
+            payload = json.loads(body)
+            if not isinstance(payload, dict):
+                raise ValueError("Scrape response must be an object.")
+            # Check all metadata and both text forms, even if only Markdown is
+            # rendered. Never disclose blocked titles/URLs from error responses.
+            if self.blocked(json.dumps(payload, ensure_ascii=False)):
+                return self._record(
+                    "web_fetch", {"url": url}, _BLOCKED, ok=False,
+                    http_status=response.status_code,
+                )
+            metadata = payload.get("metadata")
+            if isinstance(metadata, dict):
+                for key in ("url", "sourceURL", "finalUrl", "final_url"):
+                    target = metadata.get(key)
+                    if isinstance(target, str) and target:
+                        refusal, _ = await vet_public_url(target)
+                        if refusal or blocked_download_url(target):
+                            return self._record(
+                                "web_fetch", {"url": url}, _BLOCKED, ok=False,
+                                http_status=response.status_code,
+                            )
+            content = next((
+                value.strip() for key in ("markdown", "text")
+                if isinstance(value := payload.get(key), str) and value.strip()
+            ), "")
+            if not content or payload.get("error"):
+                return self._record(
+                    "web_fetch", {"url": url},
+                    "Fetch unavailable (Serper returned no readable page content).",
+                    ok=False, http_status=response.status_code,
+                )
+            result = f"Source: {url}\n{content[:self.fetch_chars]}"
+            if len(content) > self.fetch_chars:
+                result += "\n[Source truncated at the configured limit.]"
+            return self._record(
+                "web_fetch", {"url": url}, result, http_status=response.status_code,
+            )
 
     async def fetch_one(self, url: str) -> str:
         if self.blocked(url):
@@ -276,6 +363,8 @@ class ReportPolicy:
             self.fetch_remaining -= 1
         current = url
         try:
+            if self.fetch_provider == "serper":
+                return await self._fetch_serper(url)
             async with httpx.AsyncClient(
                 timeout=45, follow_redirects=False, trust_env=False
             ) as client:
@@ -329,8 +418,16 @@ class ReportPolicy:
                         result = f"Source: {current}\n{text[: self.fetch_chars]}"
                         if truncated or len(text) > self.fetch_chars:
                             result += "\n[Source truncated at the configured limit.]"
-                        return self._record("web_fetch", {"url": url}, result)
+                        return self._record(
+                            "web_fetch", {"url": url}, result, http_status=response.status_code,
+                        )
                 raise ValueError("Too many redirects.")
+        except httpx.HTTPStatusError as exc:
+            return self._record(
+                "web_fetch", {"url": url},
+                f"Fetch unavailable (HTTP {exc.response.status_code}).", ok=False,
+                http_status=exc.response.status_code,
+            )
         except Exception as exc:
             # Do not echo the target of a blocked redirect or private connection.
             return self._record(

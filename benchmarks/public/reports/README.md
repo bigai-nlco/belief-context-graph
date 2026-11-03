@@ -108,6 +108,18 @@ per-question timeout defaults to 3600 seconds for DRB2, 2400 for DRBench. `--tim
 0` disables only that outer ceiling; inner workflow turn/request limits still
 apply. `--max-turns` optionally overrides coordinator and specialist turn limits.
 
+DRB2 defaults to `--fetch-provider direct`. Use `--fetch-provider serper` to read
+page text/Markdown through a trusted Serper Scrape service with `SERPER_API_KEY`.
+Set `SERPER_SCRAPE_ENDPOINT` to the full POST endpoint, or let it use
+`SERPER_BASE_URL/scrape` (public Serper uses `https://scrape.serper.dev`). For
+example, an internal service can use `SERPER_SCRAPE_ENDPOINT=http://HOST:PORT/scrape`.
+There is no automatic fallback to direct requests. Both modes retain shared
+budgets, output limits, and benchmark source filtering. Serper mode validates
+the requested URL and filters the complete returned payload, including metadata;
+the trusted service owns DNS and intermediate redirects, which the client cannot
+audit. Direct mode validates each redirect itself. The run manifest records the
+provider; `tools.jsonl` records the provider and observed HTTP status for fetches.
+
 In BCG mode, Graph health is checked before starting model work. If Graph later fails, native
 BCG preserves full context, and the result is marked `graph_fallback` instead of
 silently describing a raw-context execution as a normal BCG run. The existing
