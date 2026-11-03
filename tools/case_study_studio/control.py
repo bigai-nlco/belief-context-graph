@@ -16,6 +16,8 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
+from tools.case_study_studio.run_version import public_version
+
 ROOT = Path(__file__).resolve().parents[2]
 # The shared Studio exposes DeepResearch Bench II only. Keep archived files and
 # database rows for other benchmarks intact; this is a catalog/launch filter.
@@ -319,6 +321,7 @@ class Control:
         ended = sum(t["status"] in TERMINAL for t in tasks)
         return {"id": run_id, "number": self.label(run_id), "title": row["title"], "status": status,
             "mode": mode,
+            "code_version": public_version(batch.get("code_version")),
             "managed": bool(row["managed"]), "created_at": row["created_at"],
             "started_at": row["started_at"] or batch.get("started_at"),
             "finished_at": row["finished_at"] or batch.get("finished_at"),

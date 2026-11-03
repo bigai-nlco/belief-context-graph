@@ -1,6 +1,7 @@
 import {api, storedToken, storeToken, logout, caseLink, benchmarkLabel, defaultRunTitle, taskAnnotationStatus, canAnnotateTask, annotationProgress, reportScoreLabel, runDisplayStatus} from './shared.mjs';
 import {mountTaskPicker} from './task-picker.mjs';
 import {mountScoreDetails} from './score-details.mjs';
+import {renderVersion, versionLabel} from './run-version.mjs';
 
 const $=s=>document.querySelector(s);
 const escape=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -67,7 +68,7 @@ function patchLiveChildren(parent,nextParent){
       if(node!==cursor)parent.insertBefore(node,cursor);
       if(!node.isEqualNode(next)){
         if(node.nodeType===1){
-          for(const {name} of [...node.attributes])if(!next.hasAttribute(name))node.removeAttribute(name);
+          for(const {name} of [...node.attributes])if(!next.hasAttribute(name)&&!(name==='open'&&node.matches('details[data-preserve-open]')))node.removeAttribute(name);
           for(const {name,value} of next.attributes)if(node.getAttribute(name)!==value)node.setAttribute(name,value);
           patchLiveChildren(node,next);
         }else if(node.nodeValue!==next.nodeValue)node.nodeValue=next.nodeValue;
@@ -83,7 +84,7 @@ function renderLive(parent,html,{reset=false}={}){
   else patchLiveChildren(parent,template.content);
 }
 function renderList(runs){
-  renderLive($('#run-list'),runs.length?runs.map(run=>`<button class="run-item ${run.id===selected?'selected':''}" data-run="${run.id}" data-live-key="run-${run.id}"><div><strong>${escape(run.number)}</strong>${badge(runDisplayStatus(run))}</div><p class="run-name">${escape(run.title)}</p><div><small>${run.mode==='default'?'Default':'BCG'} · ${run.ended} / ${run.total} 已结束</small><small>${run.reports} 份报告</small></div></button>`).join(''):'<p class="muted">暂无测试。点击右上角启动测试。</p>');
+  renderLive($('#run-list'),runs.length?runs.map(run=>`<button class="run-item ${run.id===selected?'selected':''}" data-run="${run.id}" data-live-key="run-${run.id}"><div><strong>${escape(run.number)}</strong>${badge(runDisplayStatus(run))}</div><p class="run-name">${escape(run.title)}</p><div><small>${run.mode==='default'?'Default':'BCG'} · ${run.ended} / ${run.total} 已结束</small><small>${run.reports} 份报告</small></div><small class="run-version-label">${escape(versionLabel(run))}</small></button>`).join(''):'<p class="muted">暂无测试。点击右上角启动测试。</p>');
 }
 function renderRun(run){
   const current=$('#run-content');
@@ -100,6 +101,7 @@ function renderRun(run){
     </div>
     <p>模式：${run.mode==='default'?'Default':'BCG'} · Agent：${escape(run.agent||'待启动')} · Graph：${run.mode==='default'?'不启用':escape(run.graph)} · 并发 ${run.workers||'—'}<br>启动时间：${time(run.started_at||run.created_at)}${run.finished_at?` · 结束：${time(run.finished_at)}`:''}</p>
     ${run.judge?.enabled?`<p>Report 评分：${run.tasks.filter(t=>t.scoring_status==='official_protocol_scored').length} / ${run.tasks.filter(t=>t.status==='completed').length} 份报告${run.judge.model?` · Judge ${escape(run.judge.model)}`:''}</p>`:''}
+    ${renderVersion(run)}
     </section>
     ${run.error?`<div class="notice amber" data-live-key="run-error">${escape(run.error)}</div>`:''}
     <section class="run-stats" data-live-key="stats"><div class="run-stat"><span>已产出报告 / 任务数</span><strong>${run.reports} / ${run.total}</strong></div><div class="run-stat"><span>超时 / 错误 / 中断</span><strong>${run.failed}</strong></div><div class="run-stat"><span>${tokenLabel}</span><strong>${num(agent+graph)}</strong></div><div class="run-stat"><span>批次耗时</span><strong>${Math.floor(seconds/60)} <small>分钟</small></strong></div></section>

@@ -62,6 +62,16 @@ the retrieval-only tests also work on Node 18 with `--experimental-global-webcry
 
 ## Shared runs and annotation
 
+### Per-run code version
+
+New Studio runs save a `code_version` stamp in their output directory's `batch.json` when the worker starts, before preflight or model requests. The run list shows the short local commit and uncommitted-change status. Expand **代码版本** on a run to see the full commit, branch, GitHub link, capture time, Agent/Graph source fingerprints and `uv.lock` fingerprint. Polling or changing the current branch never rewrites an existing stamp. Queued runs are stamped at execution time; historical runs without a stamp display **未记录**, not today's revision. Git is optional, and source fingerprints still work in a source archive.
+
+`source_sha256` retains a per-file hash inventory. Fingerprints cover Python code and template/config files in `frontier_agent`, `apodex`, `workflows`, `plugins`, `benchmarks/public`, the Studio launch profiles/worker, `pyproject.toml`, `uv.lock`, and, in BCG mode, the bundled `bcg` package. They do not read `.env`, result directories, or model weights. The dirty flag covers tracked and non-ignored untracked changes across the checkout, including documentation. No Git fetch or API request is made, so the commit link does not certify that this local commit has been pushed.
+
+The stamp identifies startup sources, not an isolated immutable environment or a backup of local changes. For comparable experiments, commit changes before launching, do not edit runtime code during a run, and keep model/thinking, task selection, profiles and dependency environment fixed. `agent.yaml`, `graph.yaml` (BCG only) and the batch configuration retain the run settings; a lockfile fingerprint alone does not prove installed-package equality.
+
+### Start the shared server
+
 From the prepared Agent checkout:
 
 ```bash

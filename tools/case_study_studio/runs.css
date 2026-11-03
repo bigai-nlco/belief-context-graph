@@ -221,3 +221,28 @@
 .ai-readonly .event-meta .event-disclosure-note{display:none}
 .event-report-quote{padding:14px 0}
 .ai-review-mode [hidden]{display:none!important}
+
+/* Launch provenance stays outside the fixed-width task table. */
+.run-item .run-version-label{display:block;margin-top:8px;overflow-wrap:anywhere;font-family:ui-monospace,monospace}
+.run-heading .run-version-missing{font-size:12px;color:var(--muted);margin:12px 0 0}
+.run-version{margin-top:16px;border:1px solid var(--line);border-radius:8px;min-width:0;font-size:12px}
+.run-version>summary{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:12px 14px;cursor:pointer;list-style:none;color:var(--navy)}
+.run-version>summary::-webkit-details-marker{display:none}
+.run-version>summary:before{content:'›';font-size:18px;line-height:1;transition:transform .15s}
+.run-version[open]>summary:before{transform:rotate(90deg)}
+.run-version>summary:focus-visible{outline:2px solid var(--navy);outline-offset:2px;border-radius:6px}
+.version-summary-label{font-weight:600}
+.run-version code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;overflow-wrap:anywhere}
+.run-version>summary>code{padding:3px 6px;background:var(--paper);border-radius:4px}
+.version-branch{min-width:0;overflow-wrap:anywhere;color:var(--muted)}
+.version-state{padding:3px 7px;border-radius:4px;background:var(--paper);color:var(--muted)}
+.version-state.dirty{color:#85551d;background:#fff4e1}
+.version-body{padding:0 16px 14px;border-top:1px solid var(--line)}
+.version-body dl{margin:12px 0}
+.version-body dl>div{display:grid;grid-template-columns:154px minmax(0,1fr);gap:8px;padding:6px 0}
+.version-body dt{color:var(--muted)}
+.version-body dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.version-body dd>a{display:inline-block;margin-left:8px;color:var(--red)}
+.run-heading .version-note,.run-heading .version-warning{margin:10px 0 0;font-size:11px;line-height:1.7}
+.run-heading .version-warning{color:#85551d}
+@media(max-width:680px){.version-body dl>div{grid-template-columns:minmax(0,1fr);gap:3px}.version-branch{flex-basis:100%;padding-left:19px}}

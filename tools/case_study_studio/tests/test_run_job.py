@@ -13,7 +13,7 @@ import httpx
 import pytest
 import yaml
 
-from tools.case_study_studio import run_job
+from tools.case_study_studio import run_job, run_version
 from tools.case_study_studio.tests.test_control import build_fixture, request_config, write
 
 
@@ -36,6 +36,8 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     monkeypatch.chdir(root)
     monkeypatch.setattr(os, "environ", os.environ.copy())
     monkeypatch.setattr(run_job.signal, "signal", lambda *_: None)
+    monkeypatch.setattr(run_version, "git_metadata", lambda *_: {
+        "commit": "a" * 40, "branch": "offline-fixture", "dirty": True, "repository_url": None})
     def dotenv_fixture(path: Path) -> dict:
         if mode == "missing_key":
             return {}
@@ -47,6 +49,7 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     preflights, children, stopped = [], [], []
 
     def preflight(cmd: list, **kwargs: object) -> SimpleNamespace:
+        assert json.loads((directory / "batch.json").read_text())["code_version"]["commit"] == "a" * 40
         preflights.append(cmd)
         assert cmd[-1] == "--dry-run"
         assert cmd[cmd.index("--task-ids") + 1] == "drb2:2"
@@ -108,6 +111,10 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     run_job.main()
     row = control.row(run["id"])
     batch = json.loads((directory / "batch.json").read_text())
+    assert batch["code_version"]["commit"] == "a" * 40
+    assert batch["code_version"]["branch"] == "offline-fixture"
+    assert batch["code_version"]["dirty"] is True
+    assert control.detail(run["id"])["code_version"] == run_version.public_version(batch["code_version"])
     assert row["finished_at"] and batch["graph_stopped"]
     assert "test-key-not-real" not in (directory / "batch.json").read_text()
     if mode == "default":

@@ -22,7 +22,7 @@ ASSETS = {"index.html", "styles.css", "retrieval.css", "retrieval.mjs", "app.mjs
           "demo.mjs", "demo-case.json", "icon.svg", "copy-editor.html",
           "copy-editor.css", "copy-editor.mjs", "copy-model.mjs", "copy-runtime.mjs",
           "copy-runtime.css", "copy-overrides.json", "markdown.mjs", "vendor/marked.mjs",
-          "vendor/marked.LICENSE", "runs.html", "runs.css", "runs.mjs", "shared.mjs",
+          "vendor/marked.LICENSE", "runs.html", "runs.css", "runs.mjs", "run-version.mjs", "shared.mjs",
           "review-pipeline.html", "review-pipeline.css", "review-pipeline.mjs",
           "review-pipeline-data.mjs", "review-pipeline-contract.json",
           "evidence-loader.mjs", "evidence-worker.mjs", "evidence-cache.mjs", "task-picker.mjs", "score-details.mjs",

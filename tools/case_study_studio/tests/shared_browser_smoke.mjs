@@ -90,6 +90,36 @@ try{
   assert(await evaluate('localStorage.getItem("bcg-studio-personal-token")')===aliceToken,'switching and restoring preserves the original identity');
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   assert.equal(await evaluate('document.querySelector(".run-heading .eyebrow").textContent'),'RUN-0001');
+  assert.equal(await evaluate('document.querySelector(".run-version-missing").textContent'),'代码版本：未记录');
+  // Synthetic provenance overlays the offline response, not any saved run.
+  await evaluate(`window.versionOriginalFetch=window.fetch;
+    window.versionFixture={schema_version:1,commit:'a'.repeat(40),branch:'feat/'+('long-branch-'.repeat(12)),dirty:true,
+      repository_url:'https://github.com/example/project',source_sha256:'b'.repeat(64),agent_sha256:'c'.repeat(64),
+      graph_sha256:'d'.repeat(64),lock_sha256:'e'.repeat(64),fingerprint_complete:true,captured_at:'2026-11-03T00:00:00Z'};
+    window.fetch=async(...args)=>{const response=await window.versionOriginalFetch(...args);
+      const url=String(args[0]);if(!['/api/runs','/api/runs/1'].includes(url))return response;
+      const data=await response.json();
+      if(url==='/api/runs')data.runs.forEach(run=>run.code_version=window.versionFixture);
+      else data.code_version=window.versionFixture;
+      return Response.json(data);};document.dispatchEvent(new Event('visibilitychange'));`);
+  await until(()=>evaluate('!!document.querySelector(".run-version")'),'run version appears');
+  assert(await evaluate('document.querySelector(".run-item .run-version-label").textContent.includes("aaaaaaaa")'));
+  await click('.run-version>summary');
+  assert(await evaluate('document.querySelector(".run-version").open'));
+  assert.equal(await evaluate('document.querySelector(".version-body a").getAttribute("href")'),'https://github.com/example/project/commit/'+'a'.repeat(40));
+  await evaluate(`document.dispatchEvent(new Event('visibilitychange'))`);
+  await pause(3500);
+  assert(await evaluate('document.querySelector(".run-version").open'),'polling preserves expanded version details');
+  for(const width of [1440,430,360,320]){
+    await command('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:false});
+    assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'long branch and hashes never widen the page');
+    assert(await evaluate(`(()=>{const p=document.querySelector('.run-version'),r=p.getBoundingClientRect();return p.scrollWidth<=p.clientWidth+1&&r.left>=0&&r.right<=innerWidth;})()`),'version card stays inside viewport');
+    await shot('run-version-'+width+'.png');
+  }
+  await click('.run-version>summary');
+  await evaluate('window.fetch=window.versionOriginalFetch;document.dispatchEvent(new Event("visibilitychange"))');
+  await until(()=>evaluate('!!document.querySelector(".run-version-missing")'),'legacy unknown version restored');
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await shot('runs-desktop.png');
   assert.equal(await evaluate('document.querySelector(".run-table tbody strong").textContent'),'DeepResearch Bench II');
   assert.deepEqual(await evaluate(`[...document.querySelectorAll('.run-table tbody tr:first-child .task-agent-tokens .token-breakdown>span')].map(e=>e.textContent)`),['输入 100','输出 20']);

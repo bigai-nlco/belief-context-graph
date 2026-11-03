@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import signal
@@ -70,6 +69,7 @@ def main() -> None:
     from dotenv import dotenv_values
 
     from tools.case_study_studio.control import Control, now, read_json
+    from tools.case_study_studio.run_version import capture_version
 
     control = Control(args.root, args.state)
     row = control.row(args.run_id)
@@ -101,6 +101,10 @@ def main() -> None:
     signal.signal(signal.SIGINT, signal_stop)
     final_status, error = "failed", None
     try:
+        # Capture the executing checkout, not the revision when a queued run was
+        # submitted or when its page is viewed. Persist before any model calls.
+        metadata["code_version"], metadata["source_sha256"] = capture_version(args.root, mode)
+        save()
         if mode not in ("bcg", "default"):
             raise RuntimeError("不支持的 Agent context mode")
         if set(config.get("tasks", {})) != {"drb2"}:
@@ -152,11 +156,6 @@ def main() -> None:
             os.environ.pop("BCG_GRAPH_URL", None)
         (root / "agent.yaml").write_text(yaml.safe_dump(profile, sort_keys=False))
         metadata["config"] = config
-        metadata["source_sha256"] = {
-            str(path.relative_to(args.root)): hashlib.sha256(path.read_bytes()).hexdigest()
-            for folder in ("workflows/stateful_react_agent", "benchmarks/public/reports", "benchmarks/public/runner",
-                           *(("bcg",) if mode == "bcg" else ()))
-            for path in sorted((args.root / folder).rglob("*.py"))}
         save()
 
         def command(benchmark: str, dry: bool = False) -> list[str]:
