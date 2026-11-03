@@ -22,7 +22,7 @@ from frontier_agent.core.messages import Message
 from .client import GraphError
 from .embeddings import RemoteRelevance
 from .messages import assistant_text, tool_calls
-from .rendering import GRAPH_OVERHEAD, _nodes, node_line, relation_line, render_graph
+from .rendering import _nodes, graph_overhead, relation_line, render_graph, styled_node_line
 from .vector_store import TongGraphVectorStore
 
 if TYPE_CHECKING:
@@ -176,6 +176,7 @@ def _encoder(settings: BCGSettings) -> LocalRelevance | RemoteRelevance:
 
 def select_prized_tree(
     snapshot: dict[str, Any], prizes: dict[int, float], budget: int, *, edge_cost: float = 0.2,
+    style: str = "v0",
 ) -> dict[str, Any]:
     """Return one connected tree within the *rendered* budget, or no selection.
 
@@ -188,10 +189,13 @@ def select_prized_tree(
     if not math.isfinite(edge_cost) or edge_cost <= 0:
         raise GraphError("invalid_pcst_edge_cost")
     nodes = _nodes(snapshot)
-    node_chars = {i: len(node_line(n)) + 1 for i, n in nodes.items()}
+    # Costs use the exact line format of the active render style, so the
+    # strict render below never disagrees with the solver's budget.
+    overhead = graph_overhead(style)
+    node_chars = {i: len(styled_node_line(n, style)) + 1 for i, n in nodes.items()}
     # A whole node larger than the budget cannot participate in any feasible
     # output. This is a size feasibility check, never a confidence threshold.
-    ids = sorted(i for i in nodes if GRAPH_OVERHEAD + node_chars[i] <= budget)
+    ids = sorted(i for i in nodes if overhead + node_chars[i] <= budget)
     rewards = {i: float(prizes.get(i, 0.0)) for i in ids}
     if any(not math.isfinite(p) or p < 0 for p in rewards.values()):
         raise GraphError("invalid_pcst_prize")
@@ -235,7 +239,7 @@ def select_prized_tree(
     index = {i: j for j, i in enumerate(ids)}
     best_id = max(ids, key=lambda i: (rewards[i], -node_chars[i], -i))
     best_nodes, best_edges = {best_id}, set()
-    best_key = (rewards[best_id], -(GRAPH_OVERHEAD + node_chars[best_id]))
+    best_key = (rewards[best_id], -(overhead + node_chars[best_id]))
     best_penalty, best_pruned = 0.0, 0
     solver_calls = 0
     if edges:
@@ -278,7 +282,7 @@ def select_prized_tree(
                     pending.extend(adjacency[i])
             if visited != kept or len(kept_edges) != len(kept) - 1:
                 raise GraphError("invalid_pcst_tree")
-            size = GRAPH_OVERHEAD + sum(node_chars[i] for i in kept) + sum(edge_chars[k] for k in kept_edges)
+            size = overhead + sum(node_chars[i] for i in kept) + sum(edge_chars[k] for k in kept_edges)
             pruned = 0
             while size > budget and len(kept) > 1:
                 leaves = [i for i in kept if len(adjacency[i]) == 1]
@@ -310,14 +314,15 @@ def select_prized_tree(
         solver_calls=solver_calls,
         selected_prizes={str(i): rewards[i] for i in sorted(best_nodes)},
     )
-    rendered, _, _ = render_graph(snapshot, result, budget, strict=True)
+    rendered, _, _ = render_graph(snapshot, result, budget, strict=True, style=style)
     result["rendered_chars"] = len(rendered)
     return result
 
 
 class PCSTSelector:
-    def __init__(self, settings: BCGSettings) -> None:
+    def __init__(self, settings: BCGSettings, style: str = "v0") -> None:
         self.settings = settings
+        self.style = style
 
     def persist_snapshot(self, snapshot: dict[str, Any]) -> dict[str, Any]:
         encoder = _encoder(self.settings)
@@ -371,8 +376,11 @@ class PCSTSelector:
                 ),
                 "prize": prizes[i],
                 "pinned_input": isinstance(node.get("source"), dict) and node["source"].get("turn_id") in {0, 1},
-                "rendered_chars": GRAPH_OVERHEAD + len(node_line(node)) + 1,
-                "feasible": GRAPH_OVERHEAD + len(node_line(node)) + 1 <= budget if budget is not None else None,
+                "rendered_chars": graph_overhead(self.style) + len(styled_node_line(node, self.style)) + 1,
+                "feasible": (
+                    graph_overhead(self.style) + len(styled_node_line(node, self.style)) + 1 <= budget
+                    if budget is not None else None
+                ),
             } for i, node in nodes.items()},
         )
 
@@ -381,6 +389,8 @@ class PCSTSelector:
     ) -> dict[str, Any]:
         audit = self.score_nodes(snapshot, question, focus, budget)
         prizes = {int(i): score["prize"] for i, score in audit["node_scores"].items()}
-        selection = select_prized_tree(snapshot, prizes, budget, edge_cost=self.settings.pcst_edge_cost)
+        selection = select_prized_tree(
+            snapshot, prizes, budget, edge_cost=self.settings.pcst_edge_cost, style=self.style,
+        )
         selection.update(audit)
         return selection
