@@ -4,6 +4,7 @@ export const DEFAULT_VIEW = Object.freeze({
   form: 'basic', tab: 'trajectory', source: '', context: '', graphView: 'full',
   graphFull: '', graphTurn: '', event: '', node: '', query: '', filter: '', page: 0,
   evidenceScroll: 0, formScroll: 0,
+  retrievalScope: 'all', retrievalFilter: 'all', retrievalNode: '', retrievalQuery: '', retrievalLabels: 'off',
 });
 
 export function normalizeView(value) {
@@ -11,9 +12,10 @@ export function normalizeView(value) {
   const view = {...DEFAULT_VIEW};
   for (const [key, allowed] of Object.entries({
     form: ['basic', 'events', 'dimensions', 'conclusion'],
-    tab: ['trajectory', 'context', 'graph', 'report'], graphView: ['full', 'turns'],
+    tab: ['trajectory', 'context', 'graph', 'retrieval', 'report'], graphView: ['full', 'turns'],
+    retrievalScope: ['all', 'selected'], retrievalFilter: ['all', 'selected', 'unselected'], retrievalLabels: ['on', 'off'],
   })) if (allowed.includes(input[key])) view[key] = input[key];
-  for (const key of ['source', 'context', 'graphFull', 'graphTurn', 'event', 'node', 'query', 'filter']) {
+  for (const key of ['source', 'context', 'graphFull', 'graphTurn', 'event', 'node', 'query', 'filter', 'retrievalNode', 'retrievalQuery']) {
     if (typeof input[key] === 'string') view[key] = input[key].slice(0, 4000);
   }
   for (const key of ['page', 'evidenceScroll', 'formScroll']) {

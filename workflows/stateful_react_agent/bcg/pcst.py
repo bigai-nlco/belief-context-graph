@@ -333,6 +333,7 @@ class PCSTSelector:
         nodes = _nodes(snapshot)
         settings = self.settings
         embedding_audit: dict[str, Any] = {}
+        relevance: dict[int, float] = {}
         if settings.retrieval == "query_pcst":
             if not question.strip():
                 raise GraphError("pcst_missing_question")
@@ -358,5 +359,20 @@ class PCSTSelector:
             retrieval="embedding" if settings.retrieval == "query_pcst" else "confidence",
             query={"question": question, "focus": focus}, embedding=embedding_audit,
             parameters={"edge_cost": settings.pcst_edge_cost, "confidence_floor": settings.pcst_confidence_floor},
+            graph_chars_budget=budget,
+            # Keep the scores from this invocation, including rejected candidates.
+            # A viewer must not re-embed historical text or infer missing scores.
+            node_scores={str(i): {
+                "confidence": _confidence(node),
+                "relevance": relevance.get(i),
+                "confidence_factor": (
+                    settings.pcst_confidence_floor + (1 - settings.pcst_confidence_floor) * _confidence(node)
+                    if settings.retrieval == "query_pcst" else None
+                ),
+                "prize": prizes[i],
+                "pinned_input": isinstance(node.get("source"), dict) and node["source"].get("turn_id") in {0, 1},
+                "rendered_chars": GRAPH_OVERHEAD + len(node_line(node)) + 1,
+                "feasible": GRAPH_OVERHEAD + len(node_line(node)) + 1 <= budget,
+            } for i, node in nodes.items()},
         )
         return selection

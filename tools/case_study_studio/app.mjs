@@ -1,4 +1,5 @@
 import {allDimensions, addCustomDimension, updateCustomDimension, removeCustomDimension, OPTIONS, IMPROVEMENT_STAGES, updateDemoTitle, uid, pretty, textOf, ingestFiles, graphViews, agentTrajectories, contextTurn, contextBeliefText, recordPresentation, eventEvidencePresentation, eventBeliefContext, eventFromTrajectory, newEvent, selectedDimensions, hasNoApplicableDimensions, setDimensionSelected, confirmNoApplicableDimensions, linkedEvents, setDimensionEvent, removeEvent, eventLabel, conclusionObservations, setConclusionFocus, completion, validateReview, tokenMetrics, markdownReport, csvSummary, workspaceExport, restoreWorkspace} from './model.mjs';
+import {renderRetrieval, retrievalRounds, bindRetrievalPan, zoomRetrieval} from './retrieval.mjs';
 import {REAL_DEMO_ID, buildDemoCase, demoLabel} from './demo.mjs';
 import {mountCopyRuntime} from './copy-runtime.mjs';
 import {renderMarkdown} from './markdown.mjs';
@@ -225,6 +226,7 @@ function renderShell() {
   if (c) {
     $('#evidence-content').scrollTop = state.evidenceScroll;
     $('#form-content').scrollTop = state.formScroll;
+    bindRetrievalPan(document);
     lockReviewer();
   }
   renderedCase = state.active;
@@ -250,7 +252,7 @@ function renderWorkspace(c) {
     ${c.warnings.length ? `<details class="notice amber"><summary>记录提示 · ${c.warnings.length}</summary><ul data-copy-lock>${c.warnings.map(w=>`<li>${escape(w)}</li>`).join('')}</ul></details>` : ''}
     ${renderDemoOverview(c)}
     <section class="summary-bar"><div><small>AGENT TOKENS</small><strong>${num(t.agent)}</strong></div><div title="${escape(t.graphScope)}"><small>GRAPH TOKENS <span>ⓘ</span></small><strong>${num(t.graph)}</strong></div><div><small>AGENT + GRAPH</small><strong>${num(t.combined)}</strong></div><div><small>关键过程</small><strong><b class="event-total" data-event-count data-copy-lock>${c.annotation.events.length}</b><span>个</span></strong></div><div class="progress-cell"><small>标注进度 <span id="review-progress">${dimensionProgress(c)}</span></small><progress id="progress-meter" value="${p.percent}" max="100"></progress></div></section>
-    <div class="workbench"><section class="panel evidence-panel"><div class="panel-heading"><div><span class="section-number">01</span><h2>轨迹</h2></div></div><nav class="tabs" aria-label="证据视图">${[['trajectory','运行轨迹'], ['context','每轮 Belief 注入情况'], ['graph','Belief Graph'], ['report','任务和结果']].map(([id, label]) => `<button data-tab="${id}" class="${state.tab === id ? 'selected' : ''}" aria-pressed="${state.tab === id}">${label}</button>`).join('')}</nav><div id="evidence-content" class="panel-body">${renderEvidence(c)}</div></section>
+    <div class="workbench"><section class="panel evidence-panel"><div class="panel-heading"><div><span class="section-number">01</span><h2>轨迹</h2></div></div><nav class="tabs" aria-label="证据视图">${[['trajectory','运行轨迹'], ['context','每轮 Belief 注入情况'], ['graph','Belief Graph'], ['retrieval','逐轮选图'], ['report','任务和结果']].map(([id, label]) => `<button data-tab="${id}" class="${state.tab === id ? 'selected' : ''}" aria-pressed="${state.tab === id}">${label}</button>`).join('')}</nav><div id="evidence-content" class="panel-body">${renderEvidence(c)}</div></section>
     <section class="panel annotation-panel"><div class="panel-heading"><div><span class="section-number">02</span><h2>分析</h2></div></div>${renderReviewRoute(c)}<div id="form-content" class="panel-body form-body">${renderForm(c)}</div></section></div>`;
 }
 function renderReviewRoute(c) {
@@ -267,6 +269,16 @@ function renderEvidence(c) {
   if (state.tab === 'trajectory') return renderTrajectory(c);
   if (state.tab === 'context') return renderContext(c);
   if (state.tab === 'graph') return renderGraph(c);
+  if (state.tab === 'retrieval') {
+    if (c.remote?.deferredEvidence) return renderGraph(c);
+    const html = renderRetrieval(c, state), ctx = c.contexts.find(v => v.id === state.context);
+    const turn = ctx ? contextTurn(c, ctx) : null;
+    if (turn?.status === 'ambiguous-call') {
+      const records = turn.agent.records.filter(r => String(r.call) === String(turn.call) && ['assistant', 'tool', 'function'].includes(r.role));
+      return html + `<details class="retrieval-output" open><summary>同编号轨迹 · call ${escape(turn.call)}</summary><p class="notice amber">本调用编号存在多条 Assistant 记录，可能包含重试。按原始顺序展示，不推断哪次尝试对应此图。</p>${records.map(renderContextOutput).join('')}</details>`;
+    }
+    return html + (turn?.assistant ? `<details class="retrieval-output" open><summary>对应 Agent 输出 · call ${escape(turn.call)}</summary>${renderContextOutput(turn.assistant)}${turn.results.length ? `<details><summary>本轮工具结果 · ${turn.results.length}</summary>${turn.results.map(renderContextOutput).join('')}</details>` : ''}</details>` : '<p class="notice">未匹配到唯一的当轮 Agent 输出，请补充同次运行轨迹。</p>');
+  }
   return renderReport(c);
 }
 function renderToolCall(call, index) {
@@ -571,7 +583,7 @@ function renderRelatedOccurrences(e) {
   return `<details class="ai-related-occurrences"><summary>同类过程与关联轮次 · ${items.length}</summary><p>${escape(e.groupReason)}</p>${items.map(item=>`<details><summary>${escape(item.agent)} · call ${escape(item.call)}</summary><h5>本轮注入的 Belief</h5><div class="report-markdown">${renderMarkdown(item.graphEvidence.text)}</div><h5>本轮 Agent 输出</h5><div class="report-markdown">${renderMarkdown(item.quote)}</div></details>`).join('')}</details>`;
 }
 function eventField(label, e, key, opts, events) { return field(label, `events.${events.indexOf(e)}.${key}`, e[key], opts); }
-function renderEvidenceOnly() { $('#evidence-content').innerHTML = renderEvidence(current()); lockReviewer(); scheduleViewSave(); }
+function renderEvidenceOnly() { $('#evidence-content').innerHTML = renderEvidence(current()); bindRetrievalPan(document); lockReviewer(); scheduleViewSave(); }
 function openEvidence(tab) {
   if (state.tab === tab) return;
   state.tab = tab;
@@ -590,7 +602,7 @@ async function ensureFullEvidence() {
   if(!c?.remote?.deferredEvidence)return c;
   if(fullEvidenceTask)return fullEvidenceTask;
   c.remote.graphLoading=true;c.remote.graphError='';
-  if(state.tab==='graph')renderEvidenceOnly();
+  if(['graph','retrieval'].includes(state.tab))renderEvidenceOnly();
   fullEvidenceTask=(async()=>{
     try{
       const full=await loadFullSharedEvidence(c);
@@ -611,7 +623,7 @@ async function ensureFullEvidence() {
       return full;
     }catch(error){
       c.remote.graphError=error.message;c.remote.graphLoading=false;
-      if(current()?.id===c.id&&state.tab==='graph')renderEvidenceOnly();
+      if(current()?.id===c.id&&['graph','retrieval'].includes(state.tab))renderEvidenceOnly();
       toast('完整 Graph 加载失败：'+error.message,true);
       return null;
     }finally{c.remote.graphLoading=false;fullEvidenceTask=null;}
@@ -781,7 +793,21 @@ async function deleteCase(id) {
 }
 
 document.addEventListener('click', async e => {
-  const target=e.target.closest('button, [data-node]');if(!target || target.disabled)return;
+  const target=e.target.closest('button, [data-node], [data-retrieval-node]');if(!target || target.disabled)return;
+  if(target.dataset.retrievalZoom){zoomRetrieval(document,target.dataset.retrievalZoom);return;}
+  if(target.dataset.retrievalNode!==undefined){
+    state.retrievalNode=target.dataset.retrievalNode;
+    const box=$('.retrieval-svg')?.getAttribute('viewBox'), top=$('#evidence-content').scrollTop;
+    renderEvidenceOnly();
+    if(box)$('.retrieval-svg')?.setAttribute('viewBox',box);
+    $('#evidence-content').scrollTop=top;return;
+  }
+  if(target.dataset.retrievalScope){state.retrievalScope=target.dataset.retrievalScope;renderEvidenceOnly();return;}
+  if(target.dataset.retrievalStep){
+    const rounds=retrievalRounds(current()), index=rounds.findIndex(r=>r.id===state.context);
+    state.context=rounds[Math.max(0,Math.min(rounds.length-1,index+Number(target.dataset.retrievalStep)))].id;
+    state.retrievalNode='';renderEvidenceOnly();$('#evidence-content').scrollTop=0;return;
+  }
   if(aiReadOnly() && target.matches(reviewMutations))return;
   if (deletingCases.size) return;
   if (target.dataset.deleteCase) { await deleteCase(target.dataset.deleteCase); return; }
@@ -804,7 +830,7 @@ document.addEventListener('click', async e => {
   if(target.dataset.guideOpen){openStage(target.dataset.guideOpen);return;}
   if(target.dataset.stage){openStage(target.dataset.stage);return;}
   if(target.dataset.case){await flush();activateCase(target.dataset.case);renderShell();return;}
-  if(target.dataset.tab){openEvidence(target.dataset.tab);if(target.dataset.tab==='graph')await ensureFullEvidence();return;}
+  if(target.dataset.tab){openEvidence(target.dataset.tab);if(['graph','retrieval'].includes(target.dataset.tab))await ensureFullEvidence();return;}
   if(target.dataset.form){openStage(target.dataset.form);return;}
   if(target.dataset.openEvent){
     if(!current()?.annotation.events.some(v=>v.id===target.dataset.openEvent))return;
@@ -898,10 +924,11 @@ document.addEventListener('focusin', e => {
 });
 document.addEventListener('keydown',e=>{
   if (e.key === 'Escape') document.querySelectorAll('.field-help:hover,.field-help:focus-within').forEach(el => el.classList.add('help-dismissed'));
-  if((e.key==='Enter'||e.key===' ')&&e.target.matches('[data-node][role="button"]')){e.preventDefault();e.target.dispatchEvent(new MouseEvent('click',{bubbles:true}));}
+  if((e.key==='Enter'||e.key===' ')&&e.target.matches('[data-node][role="button"], [data-retrieval-node][role="button"]')){e.preventDefault();e.target.dispatchEvent(new MouseEvent('click',{bubbles:true}));}
 });
 document.addEventListener('input',e=>{
   const el=e.target;
+  if(el.id==='retrieval-search'){state.retrievalQuery=el.value;const pos=el.selectionStart;renderEvidenceOnly();$('#retrieval-search').focus();$('#retrieval-search').setSelectionRange(pos,pos);return;}
   if(aiReadOnly() && el.matches(reviewMutations))return;
   if(el.dataset.field){
     if(sharedMode && el.dataset.field==='reviewer')return;
@@ -923,6 +950,9 @@ document.addEventListener('input',e=>{
 });
 document.addEventListener('change',e=>{
   const el=e.target;
+  if(el.id==='retrieval-round'){state.context=el.value;state.retrievalNode='';renderEvidenceOnly();$('#evidence-content').scrollTop=0;return;}
+  if(el.id==='retrieval-filter'){state.retrievalFilter=el.value;renderEvidenceOnly();return;}
+  if(el.id==='retrieval-labels'){state.retrievalLabels=el.checked?'on':'off';renderEvidenceOnly();return;}
   if(aiReadOnly() && el.matches(reviewMutations))return;
   if (el.matches('[data-no-dimensions]')) {
     const c=current();if (!c || !confirmNoApplicableDimensions(c,el.checked)) return;

@@ -133,6 +133,12 @@ def test_query_prizes_apply_confidence_floor_and_keep_bridge(solver, monkeypatch
     assert result["selected_prizes"]["20"] == 0.0
     assert result["selected_prizes"]["30"] == 1.0
     assert result["retrieval"] == "embedding"
+    assert result["graph_chars_budget"] == 1000
+    assert result["node_scores"]["10"]["relevance"] == 1.0
+    assert result["node_scores"]["10"]["confidence"] == 0.0
+    assert result["node_scores"]["10"]["confidence_factor"] == pytest.approx(0.2)
+    assert result["node_scores"]["40"]["prize"] == 0.0  # Rejected nodes remain auditable.
+    assert set(result["node_scores"]) == {"10", "20", "30", "40"}
 
 
 def test_confidence_mode_does_not_load_encoder(solver, monkeypatch):
@@ -141,6 +147,7 @@ def test_confidence_mode_does_not_load_encoder(solver, monkeypatch):
     monkeypatch.setattr(pcst, "_encoder", unexpected)
     result = pcst.PCSTSelector(BCGSettings(retrieval="confidence_pcst")).select(graph(), "q", "", 1000)
     assert result["node_ids"] == [10, 20, 30]
+    assert result["node_scores"]["10"]["relevance"] is None
 
 
 def test_focus_uses_latest_intent_and_query_without_tool_result_or_report():

@@ -190,6 +190,13 @@ PCST 结果包括奖励、求解调用次数、选择的长度惩罚、裁掉的
 远程模式还记录 provider、实际请求 URL、向量维度和新编码块数；不记录 embedding API key。
 原有 `selected_node_ids` / `selected_relation_ids` 仍代表最终真正注入的集合。
 
+新运行还会记录所有候选节点的 `node_scores`：参与奖励计算的 confidence、relevance、
+confidence 系数、最终 prize、原始输入是否置零、单节点渲染长度及预算可行性。
+`graph_chars_budget` 保存该次预算；这些字段只增加审计信息，不改变选择公式。
+Case Study Studio 的「逐轮选图」会将这些值与对应历史快照、实际选中集合和 Agent 输出一起展示，
+支持完整图高亮、仅选中子图、节点正文与关系详情。旧日志缺失的评分明确显示“未记录”，不重新编码补造。
+启动和导入方式见 [Studio 使用说明](../tools/case_study_studio/README.md#inspect-retrieval-by-model-call)。
+
 已有 `state.json` 的 `snapshot` 或独立 snapshot JSON 可用于重放：
 
 ```bash

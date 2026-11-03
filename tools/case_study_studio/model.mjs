@@ -228,9 +228,12 @@ function recordBody(value, role) {
     : body);
   const thinking = textOf(m.reasoning_content ?? m.thinking ?? m.reasoning) ||
     textOf(blocks.filter(b => obj(b) && thinkingBlockTypes.has(b.type)));
+  const graphSnapshot = [value.snapshot?.nodes, value.nodes, value.all_nodes].some(Array.isArray);
   return {
     // An empty Assistant content is not a JSON response. Keep log metadata in raw.
-    text: role === 'assistant' ? content : content || (request ? pretty(request) : pretty(value)),
+    // Graph snapshots already retain the full raw object and structured graph.
+    // A second pretty-printed copy can exceed IndexedDB's per-value size limit.
+    text: role === 'assistant' || graphSnapshot ? content : content || (request ? pretty(request) : pretty(value)),
     thinking, tools: calls.length ? pretty(calls) : '', toolCalls: calls.map(toolCallView),
   };
 }
@@ -450,7 +453,9 @@ function graphOf(value, sourceId, label) {
   if (!Array.isArray(nodes)) return null;
   return {id: `${sourceId}:graph`, fileId: sourceId, label, graphId: String(value.problem_id ?? value.graph_id ?? v.problem_id ?? value.item_id ?? ''),
     // No temporal reconstruction from final confidence/content: retain the uploaded snapshot as-is.
-    kind: 'uploaded_snapshot', scope: 'full', nodes: nodes.filter(obj), relations: arr(v.relations).filter(obj)};
+    kind: 'uploaded_snapshot', scope: 'full', nodes: nodes.filter(obj), relations: arr(v.relations).filter(obj),
+    call: value.call ?? null, nTurns: v.n_turns_ingested ?? null,
+    snapshotScope: value.snapshot_scope ?? null};
 }
 
 export function graphViews(c) {

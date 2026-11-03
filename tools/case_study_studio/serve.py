@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 if TYPE_CHECKING:
     from tools.case_study_studio.control import Control
 
-ASSETS = {"index.html", "styles.css", "app.mjs", "model.mjs", "browser_crypto.mjs", "view-state.mjs", "bundles.mjs",
+ASSETS = {"index.html", "styles.css", "retrieval.css", "retrieval.mjs", "app.mjs", "model.mjs", "browser_crypto.mjs", "view-state.mjs", "bundles.mjs",
           "demo.mjs", "demo-case.json", "icon.svg", "copy-editor.html",
           "copy-editor.css", "copy-editor.mjs", "copy-model.mjs", "copy-runtime.mjs",
           "copy-runtime.css", "copy-overrides.json", "markdown.mjs", "vendor/marked.mjs",

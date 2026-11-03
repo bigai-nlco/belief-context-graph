@@ -386,6 +386,8 @@ class BCGMemory:
                     raise GraphError("graph_retry_cooldown")
                 event["graph_turns_written"] = await self._ingest(plan.turns)
                 event["problem_id"] = self.problem_id
+                event["graph_n_turns_ingested"] = self.snapshot.get("n_turns_ingested")
+                event["graph_chars_budget"] = self.settings.graph_chars
                 if not plan.evicted_steps:
                     # A specialized projector can isolate a new sub-agent job
                     # from prior session assignments even before any NEW step
@@ -408,7 +410,6 @@ class BCGMemory:
                             retrieval_focus(messages), self.settings.graph_chars,
                         )
                     event["selector_result"] = copy.deepcopy(selection)
-                    event["graph_n_turns_ingested"] = self.snapshot.get("n_turns_ingested")
                     graph, node_ids, relation_ids = render_graph(
                         self.snapshot, selection, self.settings.graph_chars,
                         strict=self.settings.retrieval != "focused",

@@ -4,6 +4,45 @@ A run and annotation workbench for BCG Deep Research Agent cases. Shared mode li
 
 The workbench and copy editor use an [ACL Rolling Review-inspired palette](https://aclrollingreview.org/dates): white/cool-gray surfaces, navy controls and headings, burgundy links and selections, and separate warm warning states. Colors are bundled locally; the interface does not load styles or assets from the reference website.
 
+## Inspect retrieval by model call
+
+Open a case and choose **逐轮选图**. The view uses the full workbench width and joins each
+Agent call to its acknowledged historical graph. Green nodes and edges are the actual
+injected selection; gray nodes remain visible in **完整图 + 高亮选点**. Switch to **只看选中子图**
+to inspect the selected tree. Click any node or table row to read its complete text,
+source, confidence, relevance, prize and adjacent relations. Hover shows its text;
+**在图上显示正文摘要** adds short labels. Zoom buttons and dragging navigate the graph.
+
+The call selector and previous/next buttons update the graph, scores, injected text and
+corresponding Agent output together. The table supports text/ID search and selected/unselected
+filters. The metrics show graph size, actual selected counts, objective, character usage/budget,
+edge cost and context preparation time (which includes graph ingestion). Expanded calculation
+details show the original question/focus, solver parameters and embedding cache statistics.
+
+Use the existing shared task page, or start a local viewer and import the run's
+`case-study.json.gz` / `case-studies.json.gz`:
+
+```bash
+uv run python tools/case_study_studio/serve.py --host 127.0.0.1 --port 8877
+```
+
+For loose files, import `agent/bcg/requests.jsonl`, `agent/bcg/graph_snapshots.jsonl`
+and `agent/trajectories/react_agent.jsonl` from the same run together. Bundles retain directory
+ownership and are preferred for Team runs. Shared views load full graph evidence on demand.
+Matching uses Graph identity, call number and acknowledged turn count; it never substitutes the
+final graph for missing history, equates Graph turns with Agent calls, or recomputes historical scores.
+Older saved workspaces without snapshot metadata should reimport the original run bundle as a new case.
+
+New query-PCST/confidence-PCST runs record all candidate `node_scores` and the character budget
+in `selector_result`. Older logs show only their recorded values (often selected prizes and
+confidence); unavailable relevance/budgets are explicitly **未记录**. Zero is displayed as zero.
+Opening this view makes no embedding or generation-model calls and does not modify run evidence.
+
+Optional browser QA with Playwright installed: `python tools/case_study_studio/tests/retrieval_browser_smoke.py`.
+Set `STUDIO_URL` for the local server, `BCG_RETRIEVAL_CASE` to a real case bundle to additionally check every
+recorded call, and `BCG_RETRIEVAL_QA_OUT` for screenshots. The full Node test suite requires Node 20+;
+the retrieval-only tests also work on Node 18 with `--experimental-global-webcrypto`.
+
 ## Shared runs and annotation
 
 From the prepared Agent checkout:
