@@ -50,6 +50,8 @@ benchmarks/results/
 benchmarks/tasks-generated/
 experiments/
 results/
+graphs/
+outputs_stream/
 logs/
 # BCG memory contains private conversation and tool-source records.
 bcg_team/

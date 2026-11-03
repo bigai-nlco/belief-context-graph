@@ -76,7 +76,6 @@ def main() -> None:
     config = json.loads(row["config"])
     mode = config.get("mode", "bcg")
     root = control.directory(row)
-    graph_root = args.root.parent / "belief-context-graph-gpt56-luna"
     graph = runner = None
     interrupted = False
     metadata = {"started_at": now(), "status": "starting", "workers": config["workers"], "mode": mode,
@@ -155,7 +154,8 @@ def main() -> None:
         metadata["config"] = config
         metadata["source_sha256"] = {
             str(path.relative_to(args.root)): hashlib.sha256(path.read_bytes()).hexdigest()
-            for folder in ("workflows/stateful_react_agent", "benchmarks/public/reports", "benchmarks/public/runner")
+            for folder in ("workflows/stateful_react_agent", "benchmarks/public/reports", "benchmarks/public/runner",
+                           *(("bcg",) if mode == "bcg" else ()))
             for path in sorted((args.root / folder).rglob("*.py"))}
         save()
 
@@ -185,10 +185,10 @@ def main() -> None:
         if graph_endpoint is not None:
             graph_url, port = graph_endpoint
             with (root / "graph-server.log").open("ab") as stream:
-                graph = subprocess.Popen([str(graph_root / ".venv/bin/python"), "-u", "-c",
-                    "from bcg.apps.online_server import main; main()", "unified", "--config", str(root / "graph.yaml"),
+                graph = subprocess.Popen([sys.executable, "-u", "-m",
+                    "bcg.apps.online_server", "unified", "--config", str(root / "graph.yaml"),
                     "--host", "127.0.0.1", "--port", str(port), "--output-dir", str(root / "graphs")],
-                    cwd=graph_root, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
+                    cwd=args.root, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
             for _ in range(180):
                 if cancelled():
                     final_status = "cancelled"

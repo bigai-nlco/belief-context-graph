@@ -99,10 +99,10 @@ model, or read keys from a sibling BCG repository. The required service API is
 `POST /turns`, `GET /graph`, and `POST /context-selection` with the `focused`
 selector and snapshots containing `n_turns_ingested`.
 
-For an installed BCG service, for example (use your existing config path):
+Start the bundled construction service from this checkout (use your existing config path):
 
 ```bash
-bcg construct server unified --config ~/.bcg/config.yaml \
+uv run --extra graph python -m bcg.construct server unified --config ~/.bcg/config.yaml \
   --host 127.0.0.1 --port 8850 --output-dir ~/.bcg/graphs
 ```
 
@@ -211,7 +211,7 @@ do **not** reproduce the previous baseline's context behavior.
 ## Run
 
 ```bash
-uv sync --extra eval --extra sandbox --extra document-readers
+uv sync --extra eval --extra sandbox --extra document-readers --extra graph
 cp .env.example .env
 
 uv run python -m benchmarks.public.runner.run_subprocess \

@@ -25,8 +25,10 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     user = control.register("operator")["user"]
     run = control.create_run(request_config(profile="gpt6-luna", mode="default" if mode == "default" else "bcg"), user)
     if mode == "default":
-        # Default must work without the construction profile or sibling environment.
+        # Default must work without the construction profile or Graph dependencies.
         (root / "tools/case_study_studio/profiles/graph.yaml").unlink()
+    else:
+        write(root, "bcg/construct/unified/stream.py", "# offline Graph source fixture\n")
     directory = control.directory(control.row(run["id"]))
     directory.mkdir(parents=True)
     monkeypatch.setattr(sys, "argv", ["run_job.py", "--root", str(root), "--state", str(control.state), "--run-id", str(run["id"])])
@@ -52,8 +54,12 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         return SimpleNamespace(returncode=1 if mode == "bad_preflight" else 0)
 
     def spawn(cmd: list, **kwargs: object) -> SimpleNamespace:
-        graph = "-c" in cmd
+        graph = "bcg.apps.online_server" in cmd
         judge = "judge" in cmd
+        if graph:
+            assert cmd[:4] == [sys.executable, "-u", "-m", "bcg.apps.online_server"]
+            assert kwargs["cwd"] == root
+            assert "belief-context-graph-gpt56-luna" not in " ".join(cmd)
         proc = SimpleNamespace(pid=90000 + len(children), stopped=False, returncode=None if graph else 0)
         proc.poll = lambda: 0 if proc.stopped or not graph else None
         children.append((cmd, proc))
@@ -107,7 +113,7 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     if mode == "default":
         assert row["status"] == "finished" and batch["mode"] == "default"
         assert len(children) == 2 and len(preflights) == 1
-        assert not any("-c" in cmd for cmd, _ in children), "no Graph subprocess"
+        assert not any("bcg.apps.online_server" in cmd for cmd, _ in children), "no Graph subprocess"
         assert batch["graph"] == {"enabled": False}
         assert batch["judge"]["model"] == "gpt-6-luna" and batch["judge"]["reasoning_effort"] == "high"
         assert not (directory / "graph.yaml").exists() and not (directory / "graph-server.log").exists()
@@ -128,6 +134,7 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         assert graph["models"]["graph"]["reasoning_effort"] == "none"
         assert agent["agent"]["context_mode"] == "bcg" and batch["mode"] == "bcg"
         assert graph["models"]["graph"]["api_key_env"] == "LITELLM_OPENAI_API_KEY"
+        assert "bcg/construct/unified/stream.py" in batch["source_sha256"]
         assert agent["llm"]["extra_body"]["reasoning_effort"] == "low"
         assert agent["agent"]["bcg"]["url"] == batch["graph"]["url"]
         assert "test-key-not-real" not in (directory / "agent.yaml").read_text()

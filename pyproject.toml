@@ -31,6 +31,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+graph = [
+    # Bundled BCG construction service. Default-only Agents do not need local
+    # embeddings or metadata models; install this extra when hosting Graphs.
+    "httpx>=0.28.1",
+    "jsonschema>=4.23",
+    "langfuse>=4.7.1",
+    "numpy>=1.26",
+    "openai>=2.40.0",
+    "pydantic>=2.13.4",
+    "sentence-transformers",
+    "spacy",
+    "transformers",
+    "typer>=0.16",
+]
 document-readers = [
     "python-docx>=1.1",
     "python-pptx>=0.6.23",
@@ -96,7 +110,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["frontier_agent", "apodex", "plugins", "workflows", "benchmarks"]
+packages = ["frontier_agent", "apodex", "plugins", "workflows", "benchmarks", "bcg"]
 
 # PEP 561 marker, shipped for frontier_agent only. That package is the framework
 # surface downstream code imports, and it is pyright-clean. The marker is a

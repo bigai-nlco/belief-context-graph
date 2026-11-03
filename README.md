@@ -2,7 +2,7 @@
 
 A Deep Research Agent with Belief Context Graph (BCG) memory. This branch provides a single-agent ReAct workflow and a multi-agent research team. Both preserve user inputs and recent complete steps, move older steps into a belief graph, and inject selected beliefs and relations into the system context.
 
-This guide is for the `feat/bcg-deep-research-agent` branch. The executable is still named **`frontier-agent`**. The **BCG Graph server runs separately**; starting the Agent does not start the server or configure its model.
+This guide is for the `feat/bcg-deep-research-agent` branch. The executable is still named **`frontier-agent`**. Graph construction is included in [`bcg/`](bcg/). The terminal Agent connects to a separately running Graph process; the shared Studio starts the bundled Graph server automatically for each BCG test.
 
 ## 1. Install the Agent
 
@@ -11,15 +11,17 @@ Requirements: Git, Python 3.12, and `uv`. You also need a tool-capable model end
 ```bash
 git clone --branch feat/bcg-deep-research-agent --single-branch \
   https://github.com/bigai-nlco/belief-context-graph.git \
-  bcg-deep-research-agent
-cd bcg-deep-research-agent
+  belief-context-graph-deep-research
+cd belief-context-graph-deep-research
 
-uv sync --python 3.12 --extra document-readers
+uv sync --python 3.12 --extra document-readers --extra graph
 cp .env.example .env
 chmod 600 .env
 ```
 
 If you already have this checkout and a configured `.env`, keep that file instead of copying over it.
+
+The `graph` extra installs construction dependencies, including local embeddings. Omit it for Default-only runs or when connecting the Agent to an existing remote Graph server.
 
 ## 2. Configure the Agent and search tools
 
@@ -70,25 +72,13 @@ The bundled profiles include Qwen-style `top_k` and `chat_template_kwargs` param
 
 If you already have a compatible server, reuse it and set `BCG_GRAPH_URL` above to its address. The integration requires `POST /turns`, `GET /graph`, and `POST /context-selection` with the `focused` strategy, plus snapshots containing `n_turns_ingested`.
 
-Otherwise, install the Graph service from the BCG repository's **`main` branch in a separate directory**. Do not switch this Agent checkout to `main`: the two branches contain different applications.
-
-In another terminal, from the parent directory of your Agent checkout:
-
-```bash
-git clone --branch main --single-branch \
-  https://github.com/bigai-nlco/belief-context-graph.git \
-  bcg-graph-server
-cd bcg-graph-server
-uv sync --python 3.12
-```
-
-Create a `.env` in the **Graph server checkout** with the Graph model's key:
+Otherwise, use the bundled construction code in this same checkout. No second clone is required. Add the Graph model's key to the project-root `.env`, without replacing the Agent or search settings:
 
 ```dotenv
 GRAPH_API_KEY=your-graph-model-api-key
 ```
 
-Create `bcg.yaml` in that same directory. Replace the model and endpoint placeholders with your Graph model's settings:
+Create `bcg.yaml` in the project root. Replace the model and endpoint placeholders with your Graph model's settings:
 
 ```yaml
 schema_version: 1
@@ -109,13 +99,13 @@ models:
     device: cpu
 ```
 
-This example uses the `unified` backend with a hosted Graph model and local CPU embeddings. No local vLLM server is needed for this configuration. The embedding weights may download on first use; use a local model path if the server is offline. Adjust the Graph model's reasoning and output-token settings to what its endpoint supports. The full configuration reference is in the Graph checkout's `bcg/config/config.example.yaml`.
+This example uses the `unified` backend with a hosted Graph model and local CPU embeddings. No local vLLM server is needed for this configuration. The embedding weights may download on first use; use a local model path if the server is offline. Adjust the Graph model's reasoning and output-token settings to what its endpoint supports. See [`bcg/config/config.example.yaml`](bcg/config/config.example.yaml) for the full configuration reference. The copied `hybrid` backend remains available; its local metadata models require separate model downloads, including `uv run --extra graph python -m spacy download en_core_web_sm` when using that spaCy model.
 
 Start the server and leave this terminal running:
 
 ```bash
 chmod 600 .env
-uv run --env-file .env bcg construct server unified \
+uv run --extra graph --env-file .env python -m bcg.construct server unified \
   --config bcg.yaml \
   --host 127.0.0.1 \
   --port 8850 \
@@ -212,7 +202,7 @@ research-workspace/.apodex/runs/<session-id>/
 
 Only the active workflow's memory directory is created. The run also retains session checkpoints and full trajectories. `requests.jsonl` records selected beliefs/relations, injected memory, retained transcript indices, Graph usage, and fallback reasons. Full trajectories are not the same as the projected requests sent to the model.
 
-Server-side construction records are separate: with the command above, they are saved under `bcg-graph-server/graphs/<problem_id>/`. Use the problem ID in the Agent's memory state to find the corresponding Graph. Conversation, tool results, and local files can contain private information; do not publish these records or `.env` files.
+Server-side construction records are separate: with the command above, they are saved under `graphs/<problem_id>/` in this checkout. Studio-managed tests instead save them under the test's `graphs/` directory. Use the problem ID in the Agent's memory state to find the corresponding Graph. Conversation, tool results, and local files can contain private information; do not publish these records or `.env` files.
 
 ## Annotate case studies
 
@@ -237,7 +227,7 @@ For existing records, run `python -m workflows._shared.case_study /path/to/task-
 The report runner supports **DeepResearch Bench II** (`drb2`) and the local-file **DRBench L1 variant** (`drbench`) with the same BCG workflows. Run these commands from the Agent checkout after configuring and starting the Graph server:
 
 ```bash
-uv sync --extra eval --extra sandbox --extra document-readers
+uv sync --extra eval --extra sandbox --extra document-readers --extra graph
 uv run python -m benchmarks.public.runner.run_reports prepare drb2 drbench
 
 # Inspect a two-task configuration without calling models.
@@ -272,4 +262,4 @@ These adapters save full reports, diagnostic metrics, and separate Agent/Graph t
 - [Deep Research report benchmarks](benchmarks/public/reports/README.md)
 - [Terminal user guide](docs/tui-user-guide.md)
 
-This branch adapts the [FrontierAgent](https://github.com/ApodexAI/FrontierAgent) runtime for BCG-backed research. Its retained runtime code is licensed under [Apache 2.0](LICENSE). Migrated report benchmark adapters retain their [upstream license](benchmarks/public/reports/UPSTREAM_LICENSE); the separate BCG Graph service retains its own license.
+This branch adapts the [FrontierAgent](https://github.com/ApodexAI/FrontierAgent) runtime for BCG-backed research. Its retained runtime code is licensed under [Apache 2.0](LICENSE). Migrated report benchmark adapters retain their [upstream license](benchmarks/public/reports/UPSTREAM_LICENSE). The bundled `bcg/` package retains its [MIT license](bcg/LICENSE).

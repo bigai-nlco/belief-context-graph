@@ -227,7 +227,7 @@ applies the same task-specific retrieval restrictions to the coordinator and
 specialists and saves full reports with the existing multi-graph records.
 
 ```bash
-uv sync --extra eval --extra sandbox --extra document-readers
+uv sync --extra eval --extra sandbox --extra document-readers --extra graph
 cp .env.example .env
 
 # Coordinator + sub-agents, reporter off.

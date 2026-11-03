@@ -32,9 +32,11 @@ workflow profile. This runner does not silently use the old `~/.bcg/.env` keys.
 The Graph model and its credentials remain configured on the Graph server.
 
 ```bash
-uv sync --extra eval
+uv sync --extra eval --extra graph
 uv run python -m benchmarks.public.runner.run_reports prepare drb2 drbench
 ```
+
+The `graph` extra supports the construction server bundled in this checkout. It can be omitted for Default-only runs or when using a remote Graph server.
 
 Defaults to `benchmarks/public/datasets/`; set `FRONTIER_AGENT_DATASETS_DIR` or
 `--data-root` to move it. Download/import records revision and checksums in each

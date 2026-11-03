@@ -1,0 +1,74 @@
+# Unified BCG configuration defaults. This file is the SINGLE source of
+# behavioral defaults; code must not re-declare these values. Copy
+# config.example.yaml for user configuration; secrets stay in .env and are
+# referenced via api_key_env names only.
+schema_version: 1
+
+# Default construct backend (bcg.construct.dispatch.DEFAULT_BACKEND).
+backend: unified
+
+# Default routing entries selected from the models mapping.
+model_key: gpt-5.5
+embedding_key: embedding
+
+server:
+  host: 127.0.0.1
+  port: 8848
+
+# Model routing entries, keyed by model name. The `embedding` key is
+# reserved; any other key is a chat model. Secrets never live here.
+models: {}
+
+# Graph construction pipeline settings (the former model_config.json
+# "belief_graph" section). Both backends share stance, entity, confidence,
+# Tool Result, and edge-window settings; hybrid additionally consumes runtime,
+# merge, extractor, chunking, and edge-model routing fields.
+pipeline:
+  runtime:
+    evidence_mode: chunk
+    context_chars: 12000
+    # Node-extraction history window. 0 keeps every recent node that fits
+    # context_chars; positive values keep only nodes from the latest N
+    # non-empty Graph turns before applying the character budget.
+    extraction_history_turns: 2
+    min_content_len: 0
+  tool_results:
+    max_search_results: 10
+    max_snippet_chars: 240
+    semantic_extraction: true
+    max_facts: 3
+    max_semantic_calls: 12
+  incremental_merge:
+    enabled: true
+    threshold: 0.76
+    keep_newest_text: false
+  chunking:
+    enabled: true
+    breakpoint_percentile_threshold: 95.0
+    buffer_size: 1
+    min_chunk_sentences: 1
+    isolate_tool_calls: true
+  confidence:
+    initial_method: weighted_average
+    evidence_method: product
+    source_weight: 0.5
+    stance_weight: 0.5
+    default_source_reliability: 0.55
+    default_stance_quality: 0.65
+    relation_propagation:
+      default_relation_weight: 0.5
+      input_confidence_threshold: 0.8
+      min_confidence_delta: 0.001
+      max_iterations: 3
+
+# SDK-side run defaults (bcg.core.contracts.RunOptions). These are also the
+# source of the CLI entry-point defaults (apps/cli_options) after the
+# step-7 unification: one value per knob, no legacy profiles.
+runner:
+  evidence_mode: sentence
+  incremental_merge: true
+  incremental_merge_threshold: 0.86
+  verify_merge: false
+  context_chars: 100000
+  io_context_chars: 6000
+  min_content_len: 0
