@@ -551,6 +551,9 @@ async def test_actual_team_runtime_fanout_report_and_graph_projection(tmp_path, 
     profile = {
         "llm": {"max_tokens": 2048},
         "agent": {
+            # Exercise the mocked Graph.select contract without reaching an
+            # external embedding service when the production default changes.
+            "bcg": {"retrieval": "focused"},
             "planning_mode": False,
             "reporter": False,
             "main_max_turns": 20,

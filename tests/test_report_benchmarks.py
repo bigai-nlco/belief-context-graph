@@ -903,6 +903,9 @@ async def test_report_reaches_real_bcg_nodes_and_team_specialists(
     profile = {
         "llm": {"max_tokens": 2048},
         "agent": {
+            # This fixture mocks server-side selection, not remote embeddings.
+            # Query-PCST model-boundary coverage lives in test_bcg_embeddings.
+            "bcg": {"retrieval": "focused"},
             "planning_mode": False,
             "reporter": False,
             "main_max_turns": 20,
@@ -1064,6 +1067,7 @@ agent:
   reasoning_only_max_tokens: 0
   logical_call_timeout_s: 0
   bcg:
+    retrieval: focused
     url: {base}
     timeout: 5
     recent_turns: 2

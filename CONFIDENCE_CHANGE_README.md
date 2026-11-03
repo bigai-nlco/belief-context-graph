@@ -10,7 +10,7 @@ At relevance 1.0 it retains all weight; at relevance 0 it retains half. This is 
 
 Files changed:
 - `bcg/construct/_shared/context_selection.py`
-- `tests/test_context_selection.py`
+- `tests/bcg/test_context_selection.py`
 - `scripts/sandbox_confidence_smoke.py` (no dependencies or API key required)
 
 ## No-key sandbox smoke check
@@ -30,8 +30,8 @@ PASS: task relevance scales selection weight; factual confidence is unchanged
 The pytest suites can be run after installing development dependencies:
 
 ```bash
-uv sync --group dev
-uv run pytest -q tests/test_context_selection.py tests/test_confidence_propagation.py
+uv sync --locked --extra dev --extra graph --extra document-readers --inexact
+uv run pytest -q tests/bcg/test_context_selection.py tests/bcg/test_confidence_propagation.py
 ```
 
 This project’s full BCG construction/agent workflow still needs model configuration for LLM extraction; the deterministic smoke check above does not.
@@ -57,7 +57,7 @@ git pull
 Apply the files from this archive over that checkout, inspect with `git diff`, then:
 
 ```bash
-git add bcg/construct/_shared/context_selection.py tests/test_context_selection.py scripts/sandbox_confidence_smoke.py CONFIDENCE_CHANGE_README.md
+git add bcg/construct/_shared/context_selection.py tests/bcg/test_context_selection.py scripts/sandbox_confidence_smoke.py CONFIDENCE_CHANGE_README.md
 git commit -m "Adjust context confidence by task relevance"
 git push -u origin HEAD
 ```
