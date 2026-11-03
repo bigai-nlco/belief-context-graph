@@ -115,7 +115,7 @@ class Graph:
 
 
 def team(tmp_path, **kwargs):
-    return TeamMemory(BCGSettings(), tmp_path, "offline-team", backend_factory=Graph, **kwargs)
+    return TeamMemory(BCGSettings(retrieval="focused"), tmp_path, "offline-team", backend_factory=Graph, **kwargs)
 
 
 def test_only_host_tagged_reports_can_age_out():
@@ -396,7 +396,7 @@ async def test_checkpoint_reload_and_merged_reference_resolution(tmp_path):
     restored = team(tmp_path)
     assert restored.resolve(a.graph_id, 99)[0] == 0
     assert restored.memories[a.graph_id].problem_id == a.problem_id
-    different = TeamMemory(BCGSettings(), tmp_path, "different-team", backend_factory=Graph)
+    different = TeamMemory(BCGSettings(retrieval="focused"), tmp_path, "different-team", backend_factory=Graph)
     assert not different.members
     await restored.close()
 

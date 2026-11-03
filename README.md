@@ -70,7 +70,7 @@ The bundled profiles include Qwen-style `top_k` and `chat_template_kwargs` param
 
 ## 3. Start the BCG Graph server
 
-If you already have a compatible server, reuse it and set `BCG_GRAPH_URL` above to its address. The integration requires `POST /turns`, `GET /graph`, and `POST /context-selection` with the `focused` strategy, plus snapshots containing `n_turns_ingested`.
+If you already have a compatible server, reuse it and set `BCG_GRAPH_URL` above to its address. The default `query_pcst` retrieval requires `POST /turns`, `GET /graph`, and acknowledged snapshots containing `n_turns_ingested`. It selects context locally using the configured embedding service. The legacy `focused` strategy additionally requires `POST /context-selection`.
 
 Otherwise, use the bundled construction code in this same checkout. No second clone is required. Add the Graph model's key to the project-root `.env`, without replacing the Agent or search settings:
 
@@ -176,6 +176,17 @@ Use `--input /absolute/path/to/document.pdf` to attach a read-only document, and
 
 ## BCG settings and records
 
+Graph retrieval defaults to `BCG_RETRIEVAL=query_pcst`: it scores beliefs with
+the OpenAI-compatible embedding service at `http://10.1.100.76:8016/v1/embeddings`
+(model `sentence-transformers/all-MiniLM-L6-v2`), then selects a connected tree
+locally within the final rendered character budget. Configure the endpoint with
+`BCG_RETRIEVAL_EMBEDDING_URL`. PCST dependencies are included in the base install;
+no local model download is needed. Set `BCG_RETRIEVAL_EMBEDDING_STORE=tonggraph`
+and configure `TONGGRAPH_BASE_URL`, `TONGGRAPH_GRAPH`, and a writer `TONGGRAPH_TOKEN`
+to persist node vectors and reuse them after restarting the Agent.
+`confidence_pcst` and `focused` remain available. See the
+[PCST setup, algorithm and offline replay guide](docs/bcg-pcst-retrieval.md).
+
 | Setting | Default | Meaning |
 |---|---:|---|
 | `BCG_RECENT_TURNS` | `2` | Complete recent assistant/tool steps kept verbatim, in addition to user inputs. Parallel tool results remain in the same step. |
@@ -249,7 +260,7 @@ These adapters save full reports, diagnostic metrics, and separate Agent/Graph t
 | `frontier-agent` is not found | Run `uv sync` and use `uv run frontier-agent` from the Agent checkout. Installing the separate `bcg` package does not install this Agent. |
 | Model authentication or model-not-found error | Check the Agent checkout's `OPENAI_*` settings, the exact model ID, and any exported variables overriding `.env`. |
 | Unsupported model parameter | Update the active workflow profile's `llm` settings; Qwen-style parameters are not accepted by every provider. |
-| Graph connection failure or full-context fallback | Check `BCG_GRAPH_URL`, `/health`, Graph server logs, model credentials, and support for `focused` context selection. |
+| Graph connection failure or full-context fallback | Check `BCG_GRAPH_URL`, `/health`, Graph server logs, model credentials, and `BCG_RETRIEVAL_EMBEDDING_URL` connectivity for default `query_pcst` retrieval. |
 | Search fails | Check `SERPER_API_KEY`, `SERPER_BASE_URL`, and `WEB_SEARCH_PROVIDER` in the Agent environment. |
 | A private page cannot be fetched | Check the configured fetch provider and its credentials; research tools do not bypass website authentication. |
 | TUI does not open | Run in a normal interactive terminal, or use `--no-tui` for line mode. |

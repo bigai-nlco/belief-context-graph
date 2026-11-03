@@ -37,6 +37,7 @@ agent:
   logical_call_timeout_s: 900
   thinking_in_history: true
   bcg:
+    retrieval: ${BCG_RETRIEVAL:-query_pcst}
     url: ${BCG_GRAPH_URL:-http://127.0.0.1:8850}
     recent_turns: ${BCG_RECENT_TURNS:-2}
     graph_chars: ${BCG_GRAPH_CHARS:-6600}

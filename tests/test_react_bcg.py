@@ -137,7 +137,7 @@ class FakeGraph:
 @pytest.mark.asyncio
 async def test_acknowledged_snapshots_are_saved_without_extra_graph_calls(tmp_path):
     backend = FakeGraph()
-    memory = BCGMemory(BCGSettings(url="http://unused"), tmp_path, "snapshots", backend=backend)
+    memory = BCGMemory(BCGSettings(url="http://unused", retrieval="focused"), tmp_path, "snapshots", backend=backend)
     await memory.prepare(history(3))
     await memory.prepare(history(3))  # cached projection must not duplicate history
     await memory.flush_final([*history(3), {"role": "assistant", "content": "Final answer"}])
@@ -213,7 +213,7 @@ def test_unsupported_history_is_not_silently_truncated(bad):
 def test_graph_write_before_eviction_caching_and_resume(tmp_path):
     async def run():
         backend = FakeGraph()
-        memory = BCGMemory(BCGSettings(), tmp_path, "session", backend=backend)
+        memory = BCGMemory(BCGSettings(retrieval="focused"), tmp_path, "session", backend=backend)
         assert await memory.prepare(history(0)) == history(0)
         assert [t["role"] for t in backend.pushes[0][1]] == ["system", "user"]
         assert await memory.prepare(history(2)) == history(2)
@@ -238,13 +238,13 @@ def test_graph_write_before_eviction_caching_and_resume(tmp_path):
         assert backend.closed
         assert (tmp_path / "state.json").stat().st_mode & 0o777 == 0o600
         assert (tmp_path / "requests.jsonl").stat().st_mode & 0o777 == 0o600
-        resumed = BCGMemory(BCGSettings(), tmp_path, "session", backend=backend)
+        resumed = BCGMemory(BCGSettings(retrieval="focused"), tmp_path, "session", backend=backend)
         assert await resumed.prepare(original) == projected
         assert len(backend.pushes) == 2
         assert resumed.raw_results == memory.raw_results
         backend.turns.clear()  # a restarted graph server lost its in-memory sessions
         await resumed.close()
-        restored = BCGMemory(BCGSettings(), tmp_path, "session", backend=backend)
+        restored = BCGMemory(BCGSettings(retrieval="focused"), tmp_path, "session", backend=backend)
         assert await restored.prepare(original) == projected
         assert backend.pushes[-1][0] != backend.pushes[0][0]
         assert len(backend.pushes[-1][1]) == 4
@@ -257,7 +257,7 @@ def test_lost_ack_preserves_all_messages_and_rebuilds_new_graph(tmp_path):
     async def run():
         backend = FakeGraph()
         backend.fail_after_commit = True
-        memory = BCGMemory(BCGSettings(), tmp_path, "session", backend=backend)
+        memory = BCGMemory(BCGSettings(retrieval="focused"), tmp_path, "session", backend=backend)
         original = history(3)
         assert await memory.prepare(original) == original
         first_id = backend.pushes[0][0]
@@ -265,7 +265,7 @@ def test_lost_ack_preserves_all_messages_and_rebuilds_new_graph(tmp_path):
         assert await memory.prepare(original) == original
         assert len(backend.pushes) == 1  # observer prewarm + wrapper do not double-retry
         await memory.close()
-        resumed = BCGMemory(BCGSettings(), tmp_path, "session", backend=backend)
+        resumed = BCGMemory(BCGSettings(retrieval="focused"), tmp_path, "session", backend=backend)
         projected = await resumed.prepare(original)
         assert projected != original
         assert backend.pushes[-1][0] != first_id
@@ -278,13 +278,13 @@ def test_lost_ack_preserves_all_messages_and_rebuilds_new_graph(tmp_path):
 def test_branch_rollback_and_session_scope_do_not_reuse_wrong_graph(tmp_path):
     async def run():
         backend = FakeGraph()
-        memory = BCGMemory(BCGSettings(), tmp_path, "session", backend=backend)
+        memory = BCGMemory(BCGSettings(retrieval="focused"), tmp_path, "session", backend=backend)
         await memory.prepare(history(4))
         before = memory.problem_id
         await memory.prepare(history(3))
         assert memory.problem_id != before
         await memory.close()
-        other = BCGMemory(BCGSettings(), tmp_path, "another session", backend=backend)
+        other = BCGMemory(BCGSettings(retrieval="focused"), tmp_path, "another session", backend=backend)
         assert not other.acknowledged
         await other.prepare(history(0))
         assert other.problem_id != memory.problem_id
@@ -296,7 +296,7 @@ def test_branch_rollback_and_session_scope_do_not_reuse_wrong_graph(tmp_path):
 def test_empty_selection_falls_back_and_final_export_has_separate_usage(tmp_path):
     async def run():
         backend = FakeGraph()
-        memory = BCGMemory(BCGSettings(), tmp_path, "session", backend=backend)
+        memory = BCGMemory(BCGSettings(retrieval="focused"), tmp_path, "session", backend=backend)
         backend.empty_selection = True
         assert await memory.prepare(history(3)) == history(3)
         assert memory.last_event["fallback"] == "empty_or_oversized_selection"
@@ -421,7 +421,7 @@ def test_bad_settings_are_rejected(config):
 )
 def test_graph_merges_into_a_copy_of_system_content(tmp_path, system_content):
     async def run():
-        memory = BCGMemory(BCGSettings(), tmp_path, "session", backend=FakeGraph())
+        memory = BCGMemory(BCGSettings(retrieval="focused"), tmp_path, "session", backend=FakeGraph())
         messages = history(3)
         messages[0] = {"role": "system", "content": system_content, "name": "host"}
         original = copy.deepcopy(messages)
@@ -456,7 +456,7 @@ def test_graph_merges_into_a_copy_of_system_content(tmp_path, system_content):
 @pytest.mark.parametrize("developer_prefix", [False, True])
 def test_graph_creates_first_system_when_original_has_none(tmp_path, developer_prefix):
     async def run():
-        memory = BCGMemory(BCGSettings(), tmp_path, "session", backend=FakeGraph())
+        memory = BCGMemory(BCGSettings(retrieval="focused"), tmp_path, "session", backend=FakeGraph())
         messages = history(3)[1:]
         if developer_prefix:
             messages.insert(0, {"role": "developer", "content": "Keep host instructions"})
@@ -493,7 +493,7 @@ def test_streaming_and_chat_use_same_projection_without_mutating_native_blocks(t
                     reasoning_blocks=[{"type": "thinking", "signature": "original"}],
                 )
 
-        memory = BCGMemory(BCGSettings(), tmp_path, "session", backend=FakeGraph())
+        memory = BCGMemory(BCGSettings(retrieval="focused"), tmp_path, "session", backend=FakeGraph())
         provider = Provider()
         client = BCGClient(provider, memory)
         messages = history(2) + step(2, native=True)
@@ -551,7 +551,7 @@ def test_real_agent_loop_four_tool_steps_then_answer(tmp_path):
                 return LLMResponse(content="Final answer using the collected evidence.")
 
         graph = FakeGraph()
-        memory = BCGMemory(BCGSettings(), tmp_path, "loop", backend=graph)
+        memory = BCGMemory(BCGSettings(retrieval="focused"), tmp_path, "loop", backend=graph)
         provider = Provider()
         retention = PreserveTranscriptPolicy()
         result = await run_agent_loop(
@@ -589,6 +589,9 @@ def test_real_agent_loop_four_tool_steps_then_answer(tmp_path):
 
 @pytest.mark.parametrize("mode", [None, "bcg", "default"])
 def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode):
+    # This test exercises the legacy server selector; query-PCST has its own
+    # model-boundary tests with a deterministic embedding provider.
+    monkeypatch.setenv("BCG_RETRIEVAL", "focused")
     from frontier_agent.core.runtime import registry
     from frontier_agent.core.runtime.resources.manager import ResourceManager
     from workflows.stateful_react_agent.bcg import runtime

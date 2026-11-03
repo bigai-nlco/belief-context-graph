@@ -82,6 +82,7 @@ agent:
   # thinking_history_max_tokens: 8192
   # BCG retains the complete transcript and projects only model requests.
   bcg:
+    retrieval: ${BCG_RETRIEVAL:-query_pcst}
     url: ${BCG_GRAPH_URL:-http://127.0.0.1:8850}
     recent_turns: ${BCG_RECENT_TURNS:-2}
     graph_chars: ${BCG_GRAPH_CHARS:-6600}

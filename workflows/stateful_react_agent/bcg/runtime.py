@@ -12,8 +12,7 @@ import os
 import re
 import time
 import uuid
-from dataclasses import dataclass
-from html import escape
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -24,6 +23,7 @@ from frontier_agent.core.tool import Tool, tool
 
 from .client import GraphBackend, GraphError, HttpGraphBackend
 from .messages import Projection, UnsupportedHistory, partition, xml_json
+from .rendering import _nodes, render_graph
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,22 @@ class BCGSettings:
     graph_chars: int = 6_600
     timeout: float = 120.0
     api_key: str = ""
+    retrieval: str = "query_pcst"
+    pcst_edge_cost: float = 0.2
+    pcst_confidence_floor: float = 0.2
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_device: str = "cpu"
+    embedding_provider: str = "openai"
+    embedding_url: str = "http://10.1.100.76:8016/v1/embeddings"
+    embedding_api_key: str = field(default="", repr=False)
+    embedding_timeout: float = 60.0
+    embedding_chunk_bytes: int = 240
+    embedding_revision: str = "1"
+    embedding_store: str = "memory"
+    tonggraph_url: str = ""
+    tonggraph_token: str = field(default="", repr=False)
+    tonggraph_graph: str = "agent_workspace"
+    tonggraph_timeout: float = 30.0
 
     @classmethod
     def from_agent(cls, agent: dict[str, Any]) -> BCGSettings:
@@ -69,6 +85,22 @@ class BCGSettings:
             graph_chars=int(cfg.get("graph_chars", os.environ.get("BCG_GRAPH_CHARS", 6_600))),
             timeout=float(cfg.get("timeout", os.environ.get("BCG_GRAPH_TIMEOUT", 120))),
             api_key=str(cfg.get("api_key") or os.environ.get("BCG_GRAPH_API_KEY") or ""),
+            retrieval=str(cfg.get("retrieval", os.environ.get("BCG_RETRIEVAL", cls.retrieval))),
+            pcst_edge_cost=float(cfg.get("pcst_edge_cost", os.environ.get("BCG_PCST_EDGE_COST", 0.2))),
+            pcst_confidence_floor=float(cfg.get("pcst_confidence_floor", os.environ.get("BCG_PCST_CONFIDENCE_FLOOR", 0.2))),
+            embedding_model=str(cfg.get("embedding_model", os.environ.get("BCG_RETRIEVAL_EMBEDDING_MODEL", cls.embedding_model))),
+            embedding_device=str(cfg.get("embedding_device", os.environ.get("BCG_RETRIEVAL_EMBEDDING_DEVICE", "cpu"))),
+            embedding_provider=str(cfg.get("embedding_provider", os.environ.get("BCG_RETRIEVAL_EMBEDDING_PROVIDER", cls.embedding_provider))),
+            embedding_url=str(cfg.get("embedding_url", os.environ.get("BCG_RETRIEVAL_EMBEDDING_URL", cls.embedding_url))).rstrip("/"),
+            embedding_api_key=str(cfg.get("embedding_api_key", os.environ.get("BCG_RETRIEVAL_EMBEDDING_API_KEY", ""))),
+            embedding_timeout=float(cfg.get("embedding_timeout", os.environ.get("BCG_RETRIEVAL_EMBEDDING_TIMEOUT", cls.embedding_timeout))),
+            embedding_chunk_bytes=int(cfg.get("embedding_chunk_bytes", os.environ.get("BCG_RETRIEVAL_EMBEDDING_CHUNK_BYTES", cls.embedding_chunk_bytes))),
+            embedding_revision=str(cfg.get("embedding_revision", os.environ.get("BCG_RETRIEVAL_EMBEDDING_REVISION", cls.embedding_revision))),
+            embedding_store=str(cfg.get("embedding_store", os.environ.get("BCG_RETRIEVAL_EMBEDDING_STORE", cls.embedding_store))),
+            tonggraph_url=str(cfg.get("tonggraph_url", os.environ.get("TONGGRAPH_BASE_URL", ""))).rstrip("/"),
+            tonggraph_token=str(cfg.get("tonggraph_token", os.environ.get("TONGGRAPH_TOKEN") or os.environ.get("TONGGRAPH_AGENT_WRITER_TOKEN", ""))),
+            tonggraph_graph=str(cfg.get("tonggraph_graph", os.environ.get("TONGGRAPH_GRAPH", cls.tonggraph_graph))),
+            tonggraph_timeout=float(cfg.get("tonggraph_timeout", os.environ.get("TONGGRAPH_TIMEOUT", cls.tonggraph_timeout))),
         )
         url = urlsplit(value.url)
         if (
@@ -86,6 +118,41 @@ class BCGSettings:
             raise ValueError("BCG_RECENT_TURNS must be non-negative")
         if value.graph_chars < 512 or not math.isfinite(value.timeout) or value.timeout <= 0:
             raise ValueError("BCG_GRAPH_CHARS must be >= 512 and BCG_GRAPH_TIMEOUT positive")
+        if value.retrieval not in {"focused", "confidence_pcst", "query_pcst"}:
+            raise ValueError("BCG_RETRIEVAL must be focused, confidence_pcst or query_pcst")
+        if not math.isfinite(value.pcst_edge_cost) or value.pcst_edge_cost <= 0:
+            raise ValueError("BCG_PCST_EDGE_COST must be positive and finite")
+        if not math.isfinite(value.pcst_confidence_floor) or not 0 <= value.pcst_confidence_floor <= 1:
+            raise ValueError("BCG_PCST_CONFIDENCE_FLOOR must be between 0 and 1")
+        if not value.embedding_model.strip() or not value.embedding_device.strip():
+            raise ValueError("BCG retrieval embedding model and device must be non-empty")
+        if value.embedding_provider not in {"openai", "local"}:
+            raise ValueError("BCG_RETRIEVAL_EMBEDDING_PROVIDER must be openai or local")
+        endpoint = urlsplit(value.embedding_url)
+        if (
+            endpoint.scheme not in {"http", "https"} or not endpoint.hostname
+            or endpoint.username or endpoint.password or endpoint.query or endpoint.fragment
+        ):
+            raise ValueError("BCG_RETRIEVAL_EMBEDDING_URL must be an http(s) endpoint without credentials/query")
+        if not math.isfinite(value.embedding_timeout) or value.embedding_timeout <= 0:
+            raise ValueError("BCG_RETRIEVAL_EMBEDDING_TIMEOUT must be positive and finite")
+        if value.embedding_chunk_bytes < 4:
+            raise ValueError("BCG_RETRIEVAL_EMBEDDING_CHUNK_BYTES must be >= 4")
+        if not value.embedding_revision.strip():
+            raise ValueError("BCG_RETRIEVAL_EMBEDDING_REVISION must be non-empty")
+        if value.embedding_store not in {"memory", "tonggraph"}:
+            raise ValueError("BCG_RETRIEVAL_EMBEDDING_STORE must be memory or tonggraph")
+        if value.embedding_store == "tonggraph":
+            storage = urlsplit(value.tonggraph_url)
+            if (
+                storage.scheme not in {"http", "https"} or not storage.hostname
+                or storage.username or storage.password or storage.query or storage.fragment
+            ):
+                raise ValueError("TONGGRAPH_BASE_URL must be an http(s) endpoint without credentials/query")
+            if value.embedding_provider != "openai":
+                raise ValueError("TongGraph embedding persistence requires embedding_provider=openai")
+            if not value.tonggraph_graph.strip() or not math.isfinite(value.tonggraph_timeout) or value.tonggraph_timeout <= 0:
+                raise ValueError("TONGGRAPH_GRAPH must be non-empty and TONGGRAPH_TIMEOUT positive")
         return value
 
 
@@ -130,96 +197,6 @@ def _with_system_memory(messages: list[Message], memory: str) -> list[Message]:
     return result
 
 
-def _nodes(snapshot: dict[str, Any]) -> dict[int, dict[str, Any]]:
-    nodes = snapshot.get("nodes")
-    if nodes is None:
-        beliefs, decisions = snapshot.get("beliefs", []), snapshot.get("decisions", [])
-        if not isinstance(beliefs, list) or not isinstance(decisions, list):
-            raise GraphError("invalid_graph_nodes")
-        nodes = beliefs + decisions
-    if not isinstance(nodes, list):
-        raise GraphError("invalid_graph_nodes")
-    return {
-        node["id"]: node for node in nodes if isinstance(node, dict) and type(node.get("id")) is int
-    }
-
-
-def render_graph(
-    snapshot: dict[str, Any], selection: dict[str, Any], budget: int
-) -> tuple[str, list[int], list[int]]:
-    """Bound the block without truncating beliefs or inventing relation edges."""
-    ids, relation_ids = selection.get("node_ids"), selection.get("relation_ids")
-    if (
-        not isinstance(ids, list)
-        or not isinstance(relation_ids, list)
-        or not all(type(i) is int for i in ids + relation_ids)
-    ):
-        raise GraphError("invalid_selection_ids")
-    nodes = _nodes(snapshot)
-    if not set(ids) <= nodes.keys():
-        raise GraphError("selected_node_missing")
-    relations = snapshot.get("relations", [])
-    if not isinstance(relations, list):
-        raise GraphError("invalid_graph_relations")
-    edges = {r["id"]: r for r in relations if isinstance(r, dict) and type(r.get("id")) is int}
-    if not set(relation_ids) <= edges.keys():
-        raise GraphError("selected_relation_missing")
-    for relation_id in relation_ids:
-        edge = edges[relation_id]
-        if (
-            edge.get("from_id") not in ids
-            or edge.get("to_id") not in ids
-            or edge.get("type") not in {"depends_on", "supplements", "contradicts"}
-        ):
-            raise GraphError("invalid_selected_relation")
-    node_lines: dict[int, str] = {}
-    for node_id in dict.fromkeys(ids):
-        node = nodes[node_id]
-        content = node.get("belief") or node.get("decision")
-        if not isinstance(content, str) or not content:
-            raise GraphError("selected_node_has_no_text")
-        confidence = node.get("confidence")
-        suffix = (
-            f" (confidence {confidence})"
-            if isinstance(confidence, (float, int))
-            and not isinstance(confidence, bool)
-            and math.isfinite(confidence)
-            else ""
-        )
-        node_lines[node_id] = f"- [B{node_id}] {escape(content, quote=False)}{suffix}"
-
-    def block(kept: list[int]) -> tuple[str, list[int]]:
-        chosen = [
-            rid
-            for rid in dict.fromkeys(relation_ids)
-            if edges[rid]["from_id"] in kept and edges[rid]["to_id"] in kept
-        ]
-        lines = [
-            "<belief_graph>",
-            "## Beliefs",
-            *(node_lines[i] for i in sorted(kept)),
-            "",
-            "## Relations",
-        ]
-        for rid in chosen:
-            edge = edges[rid]
-            line = f"- [B{edge['from_id']}] {edge['type']} [B{edge['to_id']}]"
-            if isinstance(edge.get("note"), str) and edge["note"]:
-                line += ": " + escape(edge["note"], quote=False)
-            lines.append(line)
-        return "\n".join([*lines, "</belief_graph>"]), chosen
-
-    # Selector already budgets node text. Include confidence/relations/escaping
-    # in the final hard cap as well. Remove whole nodes with incident edges.
-    kept = list(node_lines)
-    while kept:
-        text, chosen = block(kept)
-        if len(text) <= budget:
-            return text, sorted(kept), chosen
-        kept.pop()
-    raise GraphError("empty_or_oversized_selection")
-
-
 class BCGMemory:
     """One session's graph ledger. Only acknowledged history may be omitted."""
 
@@ -252,6 +229,7 @@ class BCGMemory:
         self.last_event: dict[str, Any] = {}
         self._cached_key = ""
         self._cached_projection: list[Message] | None = None
+        self._pcst_selector: Any = None
         self._load()
 
     def _load(self) -> None:
@@ -396,6 +374,7 @@ class BCGMemory:
                 "graph_chars": 0,
                 "selected_node_ids": [],
                 "selected_relation_ids": [],
+                "retrieval_strategy": self.settings.retrieval,
                 "fallback": None,
             }
             result = messages
@@ -415,14 +394,24 @@ class BCGMemory:
                     event["retained_indices"] = plan.retained_indices
                     event["messages_after"] = len(result)
                 if plan.evicted_steps:
-                    selection = await self.backend.select(
-                        self.problem_id,
-                        plan.query,
-                        plan.question,
-                        self.settings.graph_chars,
-                    )
+                    if self.settings.retrieval == "focused":
+                        selection = await self.backend.select(
+                            self.problem_id, plan.query, plan.question, self.settings.graph_chars,
+                        )
+                    else:
+                        from .pcst import PCSTSelector, retrieval_focus
+
+                        if self._pcst_selector is None:
+                            self._pcst_selector = PCSTSelector(self.settings)
+                        selection = await asyncio.to_thread(
+                            self._pcst_selector.select, self.snapshot, plan.question,
+                            retrieval_focus(messages), self.settings.graph_chars,
+                        )
+                    event["selector_result"] = copy.deepcopy(selection)
+                    event["graph_n_turns_ingested"] = self.snapshot.get("n_turns_ingested")
                     graph, node_ids, relation_ids = render_graph(
-                        self.snapshot, selection, self.settings.graph_chars
+                        self.snapshot, selection, self.settings.graph_chars,
+                        strict=self.settings.retrieval != "focused",
                     )
                     system_memory = self.context_guide + "\n\n" + graph
                     result = _with_system_memory(plan.retained, system_memory)
@@ -515,6 +504,15 @@ class BCGMemory:
                 plan = self.project(messages, 0)
                 event["graph_turns_written"] = await self._ingest(plan.turns)
                 event["status"] = "ok"
+                if self.settings.retrieval == "query_pcst" and self.settings.embedding_store == "tonggraph":
+                    from .pcst import PCSTSelector
+
+                    if self._pcst_selector is None:
+                        self._pcst_selector = PCSTSelector(self.settings)
+                    # Persist even the recent/final nodes that never needed online retrieval.
+                    event["embedding"] = await asyncio.to_thread(
+                        self._pcst_selector.persist_snapshot, self.snapshot,
+                    )
             except (GraphError, UnsupportedHistory) as exc:
                 event.update(status="failed", reason=str(exc))
                 logger.warning("BCG final export failed (%s); transcript is still available", exc)

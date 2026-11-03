@@ -67,9 +67,10 @@ Before each model request:
    assistant graph turn, followed by **one batched tool-result graph turn**.
    Original tool names and call IDs are preserved. Ciphertext and reasoning
    signatures are never treated as text for graph extraction.
-4. After the service acknowledges the write, call its `focused` graph selector
-   using the task and recent steps. Insert the selected original beliefs,
-   confidence values and directed relations into the initial **system** message,
+4. After the service acknowledges the write, select graph context using
+   `BCG_RETRIEVAL`: `query_pcst` (default, remote embeddings with local PCST),
+   `confidence_pcst`, or the server's legacy `focused` selector. Insert the selected original beliefs,
+   confidence values and directed relations in the first **system** message,
    within `<context_blocks_guide>` and `<belief_graph>` blocks. No synthetic
    dialogue or model-specific chat template is used. Confidence is not
    recalculated by FrontierAgent.
@@ -93,11 +94,17 @@ the same graph. Provider context-length guards still apply during fallback.
 
 ### Setup
 
+For default query-PCST retrieval, including embedding service configuration,
+prize formulas, connectivity, strict budgets and saved-graph replay, see the [PCST guide](../../docs/bcg-pcst-retrieval.md).
+PCST needs `POST /turns`, `GET /graph` and acknowledged snapshots; only the
+legacy `focused` strategy also needs `POST /context-selection`.
+
 Run a BCG construction service separately, using its existing model config and
 credentials. FrontierAgent does not start a second Agent, change the graph
 model, or read keys from a sibling BCG repository. The required service API is
-`POST /turns`, `GET /graph`, and `POST /context-selection` with the `focused`
-selector and snapshots containing `n_turns_ingested`.
+`POST /turns` and `GET /graph`, with snapshots containing `n_turns_ingested`.
+The default retrieval additionally calls the embedding service configured by
+`BCG_RETRIEVAL_EMBEDDING_URL` (default `http://10.1.100.76:8016/v1/embeddings`).
 
 Start the bundled construction service from this checkout (use your existing config path):
 

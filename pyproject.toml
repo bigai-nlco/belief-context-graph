@@ -14,6 +14,9 @@ dependencies = [
     "openai>=1.50",
     "anthropic>=0.87.0",
     "httpx>=0.27",
+    "pcst-fast>=1.0.10,<2",
+    # pcst-fast's published wheels return corrupt indices with NumPy 2.
+    "numpy>=1.26,<2",
     "trafilatura>=1.12",
     "python-dotenv>=1.0",
     "rich>=14.0",
@@ -44,6 +47,11 @@ graph = [
     "spacy",
     "transformers",
     "typer>=0.16",
+]
+# Compatibility extra: PCST is now included in the base installation.
+bcg-pcst = []
+bcg-embeddings = [
+    "sentence-transformers>=6.2,<7",
 ]
 document-readers = [
     "python-docx>=1.1",
