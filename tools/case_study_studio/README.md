@@ -38,6 +38,23 @@ in `selector_result`. Older logs show only their recorded values (often selected
 confidence); unavailable relevance/budgets are explicitly **未记录**. Zero is displayed as zero.
 Opening this view makes no embedding or generation-model calls and does not modify run evidence.
 
+To inspect missing scores in an older bundle, create a separate score replay version:
+
+```bash
+uv run python -m scripts.backfill_bcg_scores --bundle /path/to/case-study.json.gz \
+  --out /path/to/score-replay/case-study.json.gz --report /path/to/score-replay/report.json
+```
+
+The command uses each call's saved question, focus and exact acknowledged snapshot.
+It verifies the configured embedding endpoint/model/chunking against the original audit,
+calls that service using a temporary memory cache, and checks the resulting prizes against
+the recorded selected prizes. It neither reruns PCST nor changes the original bundle.
+The new bundle retains the original node/edge selection, injected text and objective;
+supplemental values live under `selector_result.score_replay` and display **补算**.
+Recorded prizes take precedence, including zeros. Reimporting creates a separate evidence
+revision and preserves existing annotations. Calls without a selector result are not
+backfilled; their scores display **未计算**. Confidence-only relevance displays **不适用**.
+
 Optional browser QA with Playwright installed: `python tools/case_study_studio/tests/retrieval_browser_smoke.py`.
 Set `STUDIO_URL` for the local server, `BCG_RETRIEVAL_CASE` to a real case bundle to additionally check every
 recorded call, and `BCG_RETRIEVAL_QA_OUT` for screenshots. The full Node test suite requires Node 20+;

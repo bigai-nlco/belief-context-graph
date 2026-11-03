@@ -79,6 +79,31 @@ test('legacy audits show recorded prizes without reconstructing absent relevance
   assert.match(renderRetrieval(c,{...DEFAULT_VIEW}),/旧记录未保存全部候选评分/);
 });
 
+test('replay fills missing scores with labels and preserves original prizes, selections and evidence',()=>{
+  const a=audit();delete a.selector_result.node_scores;
+  a.selector_result.score_replay={kind:'retrospective_recomputation',node_scores:{
+    1:{confidence:.2,relevance:.4,prize:.15},2:{confidence:0,relevance:0,prize:0},3:{confidence:.9,relevance:.3,prize:.276}
+  },comparison:{matches_within_tolerance:false}};
+  const c=load([a]),ctx=c.contexts[0],before=JSON.stringify(c);
+  const rows=retrievalRows(retrievalSnapshot(c,ctx).graph,ctx);
+  assert.equal(rows[0].prize,.1);assert.equal(rows[0].prizeOrigin,'recorded');
+  assert.equal(rows[0].relevance,.4);assert.equal(rows[0].relevanceOrigin,'replay');
+  assert.equal(rows[1].prize,0);assert.equal(rows[1].prizeOrigin,'recorded');
+  assert.equal(rows[2].prize,.276);assert.equal(rows[2].prizeOrigin,'replay');
+  assert.equal(rows[2].selected,false);
+  const html=renderRetrieval(c,{...DEFAULT_VIEW,retrievalNode:'3'});
+  assert.match(html,/0\.276（补算）/);assert.match(html,/补算 prize 与部分原记录有差异/);
+  assert.equal(JSON.stringify(c),before);
+});
+
+test('unscored calls and confidence-only retrieval do not claim missing query scores',()=>{
+  const early=load([{call:4,problem_id:'g',graph_n_turns_ingested:7,selected_node_ids:[],selected_relation_ids:[]}]);
+  assert.match(renderRetrieval(early,{...DEFAULT_VIEW}),/未计算/);
+  const a=audit();a.selector_result.strategy='confidence_pcst';
+  for(const score of Object.values(a.selector_result.node_scores))score.relevance=null;
+  assert.match(renderRetrieval(load([a]),{...DEFAULT_VIEW}),/不适用/);
+});
+
 test('highlight uses actual injected IDs rather than an attempted selection on fallback',()=>{
   const a={...audit(),selected_node_ids:[],selected_relation_ids:[],fallback:'selection_exceeds_render_budget'};
   a.selector_result.node_ids=[1,2];a.selector_result.relation_ids=[8];

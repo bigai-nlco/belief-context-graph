@@ -111,6 +111,18 @@ def main() -> None:
                 assert sorted(ids) == sorted(event["selected_node_ids"]), event["call"]
                 assert sorted(edges) == sorted(event["selected_relation_ids"]), event["call"]
                 assert page.locator(".retrieval-output").count() == 1, event["call"]
+                replay = event.get("selector_result", {}).get("score_replay")
+                if replay:
+                    scores = page.locator(".retrieval-table tbody tr").evaluate_all(
+                        "rows => rows.map(row => [row.cells[3].textContent,row.cells[4].textContent])")
+                    assert len(scores) == len(replay["node_scores"]), event["call"]
+                    assert all("补算" in relevance and "未记录" not in prize for relevance, prize in scores)
+                    if event["call"] == 4:
+                        page.locator('.retrieval-node[data-retrieval-node="6"]').click()
+                        expect(page.locator(".retrieval-node-metrics dd").nth(1)).to_contain_text("补算")
+                        expect(page.locator(".retrieval-node-metrics dd").nth(2)).to_have_text("0（补算）")
+                        page.locator(".retrieval-graph-layout").scroll_into_view_if_needed()
+                        page.screenshot(path=str(output / "retrieval-replayed-B6.png"))
                 checked += 1
             page.locator(".retrieval-graph-layout").scroll_into_view_if_needed()
             page.screenshot(path=str(output / "retrieval-real-full.png"))

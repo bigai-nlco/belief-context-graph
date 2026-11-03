@@ -327,9 +327,10 @@ class PCSTSelector:
             str(n.get("belief") or n.get("decision") or "") for n in _nodes(snapshot).values()
         ])
 
-    def select(
-        self, snapshot: dict[str, Any], question: str, focus: str, budget: int,
+    def score_nodes(
+        self, snapshot: dict[str, Any], question: str, focus: str, budget: int | None = None,
     ) -> dict[str, Any]:
+        """Score every candidate without selecting a tree or changing graph state."""
         nodes = _nodes(snapshot)
         settings = self.settings
         embedding_audit: dict[str, Any] = {}
@@ -353,8 +354,7 @@ class PCSTSelector:
             source = node.get("source")
             if isinstance(source, dict) and source.get("turn_id") in {0, 1}:
                 prizes[i] = 0.0
-        selection = select_prized_tree(snapshot, prizes, budget, edge_cost=settings.pcst_edge_cost)
-        selection.update(
+        return dict(
             strategy=settings.retrieval, problem_id=snapshot.get("problem_id"),
             retrieval="embedding" if settings.retrieval == "query_pcst" else "confidence",
             query={"question": question, "focus": focus}, embedding=embedding_audit,
@@ -372,7 +372,15 @@ class PCSTSelector:
                 "prize": prizes[i],
                 "pinned_input": isinstance(node.get("source"), dict) and node["source"].get("turn_id") in {0, 1},
                 "rendered_chars": GRAPH_OVERHEAD + len(node_line(node)) + 1,
-                "feasible": GRAPH_OVERHEAD + len(node_line(node)) + 1 <= budget,
+                "feasible": GRAPH_OVERHEAD + len(node_line(node)) + 1 <= budget if budget is not None else None,
             } for i, node in nodes.items()},
         )
+
+    def select(
+        self, snapshot: dict[str, Any], question: str, focus: str, budget: int,
+    ) -> dict[str, Any]:
+        audit = self.score_nodes(snapshot, question, focus, budget)
+        prizes = {int(i): score["prize"] for i, score in audit["node_scores"].items()}
+        selection = select_prized_tree(snapshot, prizes, budget, edge_cost=self.settings.pcst_edge_cost)
+        selection.update(audit)
         return selection

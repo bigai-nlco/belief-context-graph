@@ -138,6 +138,10 @@ async def test_default_memory_uses_remote_query_pcst(tmp_path, mock_service, tea
     assert selection["strategy"] == "query_pcst"
     assert selection["embedding"]["provider"] == "openai"
     assert selection["embedding"]["model"] == BCGSettings.embedding_model
+    saved = [json.loads(line) for line in (memory.directory / "requests.jsonl").read_text().splitlines()]
+    assert selection["node_scores"]
+    scored_events = [event for event in saved if "selector_result" in event]
+    assert scored_events[-1]["selector_result"]["node_scores"] == selection["node_scores"]
     assert selection["rendered_chars"] <= (4600 if team_mode else 6600)
     assert len(projected) < len(messages)
     assert_connected(memory.snapshot, selection)

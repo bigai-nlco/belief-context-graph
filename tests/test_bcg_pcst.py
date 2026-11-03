@@ -150,6 +150,22 @@ def test_confidence_mode_does_not_load_encoder(solver, monkeypatch):
     assert result["node_scores"]["10"]["relevance"] is None
 
 
+def test_score_only_records_rejected_and_pinned_nodes_without_running_solver(monkeypatch):
+    monkeypatch.setattr(pcst, "_encoder", lambda *_: SimpleNamespace(
+        score=lambda *_: ([1.0, 0.0, 0.6, 0.5], {"model": "fake"})))
+    monkeypatch.setattr(pcst, "select_prized_tree", lambda *_a, **_k: pytest.fail("Scoring must not rerun PCST"))
+    snapshot = graph()
+    snapshot["nodes"][0]["source"] = {"turn_id": 1}
+    original = copy.deepcopy(snapshot)
+    scores = pcst.PCSTSelector(BCGSettings()).score_nodes(snapshot, "q", "f")["node_scores"]
+    assert set(scores) == {"10", "20", "30", "40"}
+    assert scores["10"]["relevance"] == 1.0 and scores["10"]["prize"] == 0.0
+    assert scores["10"]["pinned_input"] is True
+    assert scores["40"]["relevance"] == 0.5
+    assert scores["40"]["feasible"] is None  # A missing historical budget is not guessed.
+    assert snapshot == original
+
+
 def test_focus_uses_latest_intent_and_query_without_tool_result_or_report():
     messages = [
         {"role": "user", "content": "initial task"},

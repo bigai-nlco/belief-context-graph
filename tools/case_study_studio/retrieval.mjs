@@ -45,12 +45,24 @@ export function retrievalRows(graph, ctx) {
   if (!graph) return [];
   const selected = new Set(ctx.nodeIds), selection = ctx.raw?.selector_result || {};
   return graph.nodes.map(node => {
-    const score = selection.node_scores?.[String(node.id)];
-    return {node, selected: selected.has(node.id), score,
+    const recorded = selection.node_scores?.[String(node.id)], replay = selection.score_replay?.node_scores?.[String(node.id)];
+    const score = recorded || replay;
+    const recordedPrize = recorded?.prize ?? selection.selected_prizes?.[String(node.id)];
+    return {node, selected: selected.has(node.id), score, scoreOrigin: recorded ? 'recorded' : replay ? 'replay' : 'missing',
       confidence: score?.confidence ?? node.confidence,
-      relevance: score?.relevance,
-      prize: score?.prize ?? selection.selected_prizes?.[String(node.id)]};
+      relevance: recorded?.relevance ?? replay?.relevance,
+      prize: recordedPrize ?? replay?.prize,
+      relevanceOrigin: finite(recorded?.relevance) ? 'recorded' : finite(replay?.relevance) ? 'replay' : 'missing',
+      prizeOrigin: finite(recordedPrize) ? 'recorded' : finite(replay?.prize) ? 'replay' : 'missing',
+      scoringSkipped: !selection.strategy && !selection.node_scores && !ctx.nodeIds.length && !ctx.fallback,
+      relevanceApplicable: selection.strategy !== 'confidence_pcst'};
   }).sort((a, b) => Number(b.selected) - Number(a.selected) || (b.prize ?? -1) - (a.prize ?? -1) || a.node.id - b.node.id);
+}
+
+function scoreText(row, field) {
+  if (field === 'relevance' && !row.relevanceApplicable) return '不适用';
+  if (!finite(row[field]) && row.scoringSkipped) return '未计算';
+  return fmt(row[field]) + (row[`${field}Origin`] === 'replay' ? '（补算）' : '');
 }
 
 const layouts = new WeakMap();
@@ -105,7 +117,7 @@ function graphSVG(graph, ctx, rows, state) {
       const a = points.get(e.from_id), b = points.get(e.to_id), dx=b.x-a.x, dy=b.y-a.y, d=Math.max(1,Math.hypot(dx,dy)), selected=selectedEdges.has(e.id);
       return `<line class="retrieval-edge ${selected?'is-selected':''}" data-retrieval-edge="${esc(e.id)}" x1="${a.x+dx/d*radius}" y1="${a.y+dy/d*radius}" x2="${b.x-dx/d*(radius+3)}" y2="${b.y-dy/d*(radius+3)}" marker-end="url(#retrieval-arrow${selected?'-selected':''})"><title>${esc(`B${e.from_id} ${e.type} B${e.to_id}\n${e.note || ''}`)}</title></line>`;
     }).join('')}
-    ${displayed.slice().sort((a,b)=>Number(a.selected)-Number(b.selected)).map(row => {const n=row.node, p=points.get(n.id); return `<g class="retrieval-node ${row.selected?'is-selected':''} ${String(n.id)===state.retrievalNode?'is-active':''}" data-retrieval-node="${esc(n.id)}" role="button" tabindex="0" aria-label="${esc(`B${n.id} ${row.selected?'已选':'未选'} ${text(n)}`)}" transform="translate(${p.x},${p.y})"><title>${esc(`B${n.id} ${row.selected?'已选':'未选'}\nconfidence ${fmt(row.confidence)} · relevance ${fmt(row.relevance)} · prize ${fmt(row.prize)}\n${text(n)}`)}</title><circle r="${radius}"/><text y="${-radius-5}" text-anchor="middle">B${esc(n.id)}</text>${state.retrievalLabels==='on'?`<text class="retrieval-snippet" y="${radius+15}" text-anchor="middle">${esc(String(text(n)).slice(0,26))}${String(text(n)).length>26?'…':''}</text>`:''}</g>`;}).join('')}
+    ${displayed.slice().sort((a,b)=>Number(a.selected)-Number(b.selected)).map(row => {const n=row.node, p=points.get(n.id); return `<g class="retrieval-node ${row.selected?'is-selected':''} ${String(n.id)===state.retrievalNode?'is-active':''}" data-retrieval-node="${esc(n.id)}" role="button" tabindex="0" aria-label="${esc(`B${n.id} ${row.selected?'已选':'未选'} ${text(n)}`)}" transform="translate(${p.x},${p.y})"><title>${esc(`B${n.id} ${row.selected?'已选':'未选'}\nconfidence ${fmt(row.confidence)} · relevance ${scoreText(row,'relevance')} · prize ${scoreText(row,'prize')}\n${text(n)}`)}</title><circle r="${radius}"/><text y="${-radius-5}" text-anchor="middle">B${esc(n.id)}</text>${state.retrievalLabels==='on'?`<text class="retrieval-snippet" y="${radius+15}" text-anchor="middle">${esc(String(text(n)).slice(0,26))}${String(text(n)).length>26?'…':''}</text>`:''}</g>`;}).join('')}
   </svg>`;
 }
 
@@ -115,11 +127,12 @@ function detail(row, graph, ctx) {
   const edges=graph.relations.filter(e=>e.from_id===n.id || e.to_id===n.id);
   return `<article class="retrieval-detail" data-detail-node="${esc(n.id)}">
     <div class="retrieval-detail-heading"><strong>B${esc(n.id)}</strong><span class="retrieval-badge ${row.selected?'selected':''}">${row.selected?'已注入':'未选中'}</span></div>
-    <dl class="retrieval-node-metrics"><div><dt>confidence</dt><dd>${fmt(row.confidence)}</dd></div><div><dt>relevance</dt><dd>${fmt(row.relevance)}</dd></div><div><dt>prize</dt><dd>${fmt(row.prize)}</dd></div></dl>
+    <dl class="retrieval-node-metrics"><div><dt>confidence</dt><dd>${fmt(row.confidence)}</dd></div><div><dt>relevance</dt><dd>${scoreText(row,'relevance')}</dd></div><div><dt>prize</dt><dd>${scoreText(row,'prize')}</dd></div></dl>
     ${score?.pinned_input?'<p class="notice">原始输入已保留，节点奖励置零；仍可用于桥接。</p>':''}
     ${score?.feasible===false?'<p class="notice amber">该节点单独渲染已超过本轮预算。</p>':''}
     <p class="retrieval-node-text">${esc(text(n))}</p>
-    <div class="small muted">confidence 原值：${esc(n.confidence ?? '未记录')} · 奖励中的 confidence 系数：${fmt(score?.confidence_factor)}</div>
+    <div class="small muted">confidence 原值：${esc(n.confidence ?? '未记录')} · 奖励中的 confidence 系数：${fmt(score?.confidence_factor)}${row.scoreOrigin==='replay'?'（补算）':''}</div>
+    ${row.relevanceOrigin==='replay'||row.prizeOrigin==='replay'?'<p class="notice">标注“补算”的数值由当轮快照和问题事后重算；已有原始 prize 优先展示，选中状态仍来自当时记录。</p>':''}
     <details><summary>来源与原始属性</summary><pre>${esc(JSON.stringify(n,null,2))}</pre></details>
     <details open><summary>关联关系 · ${edges.length}</summary><div class="retrieval-relations">${edges.map(e=>`<p class="${selectedEdges.has(e.id)?'selected':''}"><strong>${selectedEdges.has(e.id)?'已选 · ':''}B${esc(e.from_id)} ${esc(e.type)} B${esc(e.to_id)}</strong><br>${esc(e.note || '')}</p>`).join('') || '<p>没有关联关系。</p>'}</div></details>
   </article>`;
@@ -144,14 +157,14 @@ export function renderRetrieval(c, state) {
     <nav class="retrieval-navigation" aria-label="逐轮选图切换"><button class="button" data-retrieval-step="-1" ${index===0?'disabled':''}>← 上一轮</button><label>模型调用<select id="retrieval-round">${rounds.map((r,i)=>`<option value="${esc(r.id)}" ${r.id===ctx.id?'selected':''}>${i+1}. call ${esc(r.call)} · ${esc(r.graphId || c.files.find(f=>f.id===r.fileId)?.path || '')}</option>`).join('')}</select></label><button class="button" data-retrieval-step="1" ${index===rounds.length-1?'disabled':''}>下一轮 →</button></nav>
     <p class="retrieval-provenance">${index+1} / ${rounds.length} 次调用 · ${esc(file)} · Graph 已确认 turns：${esc(graph?.nTurns ?? ctx.raw.graph_n_turns_ingested ?? '未记录')}</p>
     ${ctx.fallback?`<p class="notice amber">本轮回退到原始上下文：${esc(ctx.fallback)}。下方高亮以实际注入 ID 为准。</p>`:!ctx.nodeIds.length?'<p class="notice">本轮未注入子图，可能尚未发生历史裁剪。</p>':''}
-    ${!selection.node_scores?'<p class="retrieval-legacy">旧记录未保存全部候选评分。缺失值显示“未记录”，不会重新计算后冒充当时结果。</p>':''}
+    ${selection.score_replay?`<p class="retrieval-legacy">已补算 ${Object.keys(selection.score_replay.node_scores || {}).length} 个候选节点的评分，标记为“补算”。选点、边、子图收益和注入文本仍为原始记录。${selection.score_replay.comparison?.matches_within_tolerance===false?' 补算 prize 与部分原记录有差异，不能当作历史原值。':''}</p>`:selection.strategy&&!selection.node_scores?'<p class="retrieval-legacy">旧记录未保存全部候选评分。缺失值显示“未记录”，不会重新计算后冒充当时结果。</p>':!selection.strategy?'<p class="retrieval-legacy">本轮没有评分记录；未发生检索的调用显示“未计算”。</p>':''}
     <dl class="retrieval-metrics">${metric('完整图',graph?`${graph.nodes.length} 点 / ${graph.relations.length} 边`:'快照未匹配')}${metric('实际选中',`${ctx.nodeIds.length} 点 / ${ctx.relationIds.length} 边`)}${metric('子图收益',fmt(selection.objective))}${metric('图字符 / 上限',`${fmt(ctx.raw.graph_chars)} / ${fmt(budget)}`)}${metric('每条边成本',fmt(selection.parameters?.edge_cost))}${metric('上下文准备（秒）',fmt(finite(ctx.raw.duration_ms) ? ctx.raw.duration_ms / 1000 : null))}</dl>
     <details class="retrieval-calculation"><summary>查看计算参数、问题与向量缓存</summary><p>query_pcst：prize = relevance × [ε + (1 − ε) × confidence]；子图收益 = 节点奖励之和 − 边成本 × 所选边数。值来自该轮审计。</p><dl class="retrieval-metrics">${metric('ε',fmt(selection.parameters?.confidence_floor))}${metric('求解次数',fmt(selection.solver_calls))}${metric('长度惩罚',fmt(selection.size_penalty))}${metric('裁掉叶子',fmt(selection.leaves_pruned))}${metric('读回缓存文本',fmt(cache.loaded_texts))}${metric('新编码节点分块',fmt(embedding.new_node_chunks_encoded))}</dl><strong>问题</strong><pre>${esc(selection.query?.question || '未记录')}</pre><strong>当前焦点</strong><pre>${esc(selection.query?.focus || '未记录 / 使用原问题')}</pre><details><summary>原始选图审计</summary><pre>${esc(JSON.stringify(ctx.raw,null,2))}</pre></details></details>
     ${graph?`<div class="retrieval-controls"><div role="group" aria-label="图显示范围"><button class="button ${state.retrievalScope!=='selected'?'primary':''}" data-retrieval-scope="all">完整图 + 高亮选点</button><button class="button ${state.retrievalScope==='selected'?'primary':''}" data-retrieval-scope="selected">只看选中子图</button></div><label><input id="retrieval-labels" type="checkbox" ${state.retrievalLabels==='on'?'checked':''}> 在图上显示正文摘要</label></div>
     <div class="retrieval-legend"><span class="selected">● 已注入</span><span>○ 未选中</span><span class="active">◎ 当前查看</span><span>悬停读正文 · 点击看详情 · 拖动平移</span></div>
     <div class="retrieval-graph-layout"><div class="retrieval-canvas"><div class="retrieval-zoom"><button class="button" data-retrieval-zoom="in" aria-label="放大图">＋</button><button class="button" data-retrieval-zoom="out" aria-label="缩小图">−</button><button class="button" data-retrieval-zoom="reset">复位</button></div>${graphSVG(graph,ctx,rows,state)}</div>${detail(active,graph,ctx)}</div>
     <div class="retrieval-table-controls"><label class="search-input"><input id="retrieval-search" aria-label="搜索选图节点" placeholder="搜索节点编号或正文" value="${esc(state.retrievalQuery)}"></label><select id="retrieval-filter" aria-label="按是否选中筛选">${[['all','全部节点'],['selected','已选节点'],['unselected','未选节点']].map(([v,label])=>`<option value="${v}" ${state.retrievalFilter===v?'selected':''}>${label}</option>`).join('')}</select><span>${filtered.length} 个节点</span></div>
-    <div class="retrieval-table-wrap"><table class="retrieval-table"><thead><tr><th>节点</th><th>状态</th><th>confidence</th><th>relevance</th><th>prize</th><th>节点内容</th></tr></thead><tbody>${filtered.slice(0,500).map(r=>`<tr class="${r.selected?'is-selected':''}"><td><button data-retrieval-node="${esc(r.node.id)}">B${esc(r.node.id)}</button></td><td>${r.selected?'已选':'未选'}</td><td>${fmt(r.confidence)}</td><td>${fmt(r.relevance)}</td><td>${fmt(r.prize)}</td><td><button class="retrieval-text-button" data-retrieval-node="${esc(r.node.id)}">${esc(text(r.node))}</button></td></tr>`).join('')}</tbody></table></div>${filtered.length>500?'<p class="small muted">列表显示前 500 个匹配节点，可搜索缩小范围；图中保留全部节点。</p>':''}`:`<p class="notice amber">${notices[status] || '尚无对应图快照。'}</p>`}
+    <div class="retrieval-table-wrap"><table class="retrieval-table"><thead><tr><th>节点</th><th>状态</th><th>confidence</th><th>relevance</th><th>prize</th><th>节点内容</th></tr></thead><tbody>${filtered.slice(0,500).map(r=>`<tr class="${r.selected?'is-selected':''}"><td><button data-retrieval-node="${esc(r.node.id)}">B${esc(r.node.id)}</button></td><td>${r.selected?'已选':'未选'}</td><td>${fmt(r.confidence)}</td><td>${scoreText(r,'relevance')}</td><td>${scoreText(r,'prize')}</td><td><button class="retrieval-text-button" data-retrieval-node="${esc(r.node.id)}">${esc(text(r.node))}</button></td></tr>`).join('')}</tbody></table></div>${filtered.length>500?'<p class="small muted">列表显示前 500 个匹配节点，可搜索缩小范围；图中保留全部节点。</p>':''}`:`<p class="notice amber">${notices[status] || '尚无对应图快照。'}</p>`}
     <details class="retrieval-injected"><summary>当轮实际注入文本</summary><pre>${esc(ctx.text || '本轮没有图注入文本')}</pre></details>
   </section>`;
 }
