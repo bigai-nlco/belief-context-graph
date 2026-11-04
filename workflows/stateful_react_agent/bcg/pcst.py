@@ -62,6 +62,46 @@ def _confidence(node: dict[str, Any]) -> float:
     return max(0.0, min(1.0, float(value)))
 
 
+def _dependency_contribution(
+    nodes: dict[int, dict[str, Any]],
+    relations: list[dict[str, Any]],
+    relevance: dict[int, float],
+) -> dict[int, float]:
+    """Share of relevant downstream claims that depend on each node.
+
+    This is task-specific retrieval value, not a factual confidence update.
+    ``A depends_on B`` means B contributes to A, so A's relevance rewards B.
+    Normalizing by total relevance keeps this feature bounded in [0, 1].
+    """
+    def is_pinned(node: dict[str, Any]) -> bool:
+        source = node.get("source")
+        return isinstance(source, dict) and source.get("turn_id") in {0, 1}
+
+    denominator = sum(
+        max(0.0, float(relevance.get(node_id, 0.0)))
+        for node_id, node in nodes.items()
+        if not is_pinned(node)
+    )
+    contribution = {node_id: 0.0 for node_id in nodes}
+    if denominator <= 0.0:
+        return contribution
+    for relation in relations:
+        if relation.get("type") != "depends_on":
+            continue
+        try:
+            dependent_id = int(relation.get("from_id"))
+            premise_id = int(relation.get("to_id"))
+        except (TypeError, ValueError):
+            continue
+        dependent = nodes.get(dependent_id)
+        if dependent is None or premise_id not in nodes or is_pinned(dependent):
+            continue
+        contribution[premise_id] += max(
+            0.0, float(relevance.get(dependent_id, 0.0))
+        ) / denominator
+    return {node_id: min(1.0, value) for node_id, value in contribution.items()}
+
+
 class LocalRelevance:
     """Shared CPU/GPU encoder with token-sized chunks and bounded text caching."""
 
@@ -348,9 +388,18 @@ class PCSTSelector:
             )
             relevance = dict(zip(nodes, scores, strict=True))
             floor = settings.pcst_confidence_floor
-            prizes = {i: relevance[i] * (floor + (1 - floor) * _confidence(n)) for i, n in nodes.items()}
+            contribution = _dependency_contribution(
+                nodes, snapshot.get("relations") or [], relevance
+            )
+            prizes = {
+                i: relevance[i]
+                * (floor + (1 - floor) * _confidence(node))
+                * (1.0 + contribution[i])
+                for i, node in nodes.items()
+            }
         elif settings.retrieval == "confidence_pcst":
             prizes = {i: _confidence(n) for i, n in nodes.items()}
+            contribution = {i: 0.0 for i in nodes}
         else:
             raise GraphError("invalid_pcst_strategy")
         # Pinned initial-user beliefs can bridge, but receive no reward for
@@ -374,6 +423,8 @@ class PCSTSelector:
                     settings.pcst_confidence_floor + (1 - settings.pcst_confidence_floor) * _confidence(node)
                     if settings.retrieval == "query_pcst" else None
                 ),
+                "graph_contribution": contribution.get(i, 0.0),
+                "contribution_factor": 1.0 + contribution.get(i, 0.0),
                 "prize": prizes[i],
                 "pinned_input": isinstance(node.get("source"), dict) and node["source"].get("turn_id") in {0, 1},
                 "rendered_chars": graph_overhead(self.style) + len(styled_node_line(node, self.style)) + 1,
