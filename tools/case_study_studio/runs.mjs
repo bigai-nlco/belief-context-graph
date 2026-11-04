@@ -1,4 +1,4 @@
-import {api, storedToken, storeToken, logout, caseLink, benchmarkLabel, defaultRunTitle, taskAnnotationStatus, canAnnotateTask, annotationProgress, reportScoreLabel, runDisplayStatus} from './shared.mjs';
+import {api, storedToken, storeToken, logout, caseLink, benchmarkLabel, defaultRunTitle, taskAnnotationStatus, canAnnotateTask, annotationProgress, reportScoreLabel, runDisplayStatus, runScoreSummary} from './shared.mjs';
 import {mountTaskPicker} from './task-picker.mjs';
 import {mountScoreDetails} from './score-details.mjs';
 import {renderVersion, versionLabel} from './run-version.mjs';
@@ -91,6 +91,8 @@ function renderRun(run){
   const agent=run.tasks.reduce((n,t)=>n+(t.agent_tokens||0),0),graph=run.tasks.reduce((n,t)=>n+(t.graph_tokens||0),0);
   const tokenLabel=run.tasks.some(t=>t.calls>0&&(t.agent_tokens==null||t.graph_tokens==null))?'已记录模型 Token · 用量不完整':'累计模型 Token';
   const annotations=annotationProgress(run.tasks);
+  const scores=runScoreSummary(run.tasks);
+  const scoreTotal=scores.points===null?'—':scores.points.toLocaleString('en-US',{minimumFractionDigits:1,maximumFractionDigits:1});
   const annotationText=annotations.total?`已标注 ${annotations.completed} / ${annotations.total} 题`:'暂无可标注任务';
   const seconds=run.started_at?Math.max(0,(new Date(run.finished_at||Date.now())-new Date(run.started_at))/1000):0;
   renderLive(current,`<section class="run-heading" data-live-key="heading">
@@ -104,7 +106,13 @@ function renderRun(run){
     ${renderVersion(run)}
     </section>
     ${run.error?`<div class="notice amber" data-live-key="run-error">${escape(run.error)}</div>`:''}
-    <section class="run-stats" data-live-key="stats"><div class="run-stat"><span>已产出报告 / 任务数</span><strong>${run.reports} / ${run.total}</strong></div><div class="run-stat"><span>超时 / 错误 / 中断</span><strong>${run.failed}</strong></div><div class="run-stat"><span>${tokenLabel}</span><strong>${num(agent+graph)}</strong></div><div class="run-stat"><span>批次耗时</span><strong>${Math.floor(seconds/60)} <small>分钟</small></strong></div></section>
+    <section class="run-stats" data-live-key="stats">
+      <div class="run-stat"><span>已产出报告 / 任务数</span><strong>${run.reports} / ${run.total}</strong></div>
+      <div class="run-stat run-score-stat" title="已完成 Judge 评分的单题分数之和，每题满分 100。未评分不计入总分和均分。"><span>Judge 总分</span><strong class="run-score-total">${scoreTotal}</strong><small class="run-score-average">${scores.average===null?'暂无评分':`已评分题均分 ${scores.average.toFixed(1)} / 100`}</small><small class="run-score-coverage">已评分 ${scores.scored} / ${scores.total} 题</small></div>
+      <div class="run-stat"><span>超时 / 错误 / 中断</span><strong>${run.failed}</strong></div>
+      <div class="run-stat"><span>${tokenLabel}</span><strong>${num(agent+graph)}</strong></div>
+      <div class="run-stat"><span>批次耗时</span><strong>${Math.floor(seconds/60)} <small>分钟</small></strong></div>
+    </section>
     <section class="run-progress" aria-label="测试与标注进度" data-live-key="progress">
       <div class="progress-track progress-test"><div class="progress-track-heading"><label for="run-test-progress">测试进度</label><span>已结束 ${run.ended} / ${run.total} 题</span></div><progress id="run-test-progress" value="${run.ended}" max="${run.total||1}" aria-valuetext="已结束 ${run.ended} / ${run.total} 题"></progress></div>
       <div class="progress-track progress-annotation"><div class="progress-track-heading"><label for="run-annotation-progress" title="人工或 AI 任一完成即计入，每题只计一次">标注进度 <small>仅统计可标注任务</small></label><span>${annotationText}</span></div><progress id="run-annotation-progress" value="${annotations.completed}" max="${annotations.total||1}" aria-valuetext="${annotationText}"></progress></div>

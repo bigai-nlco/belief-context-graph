@@ -2,7 +2,7 @@
   "format": "bcg-review-method-contract",
   "version": 1,
   "prompt_version": "bcg-agent-use-review-v3",
-  "source_fingerprint": "f18c7012305567c97296bf33ba3500621efa4817a484c6e73f7b54d2c617d8df",
+  "source_fingerprint": "394237705805e40a04f957ddc460312101a28df7f3d704cf5953749f8c46b6d2",
   "source_files": {
     "tools/case_study_studio/review_queue.py": "dc96e7b1dc1db22b5a517a2fac1d7e4f4480e5d8b6c534df63d27dcef7441bcd",
     "tools/case_study_studio/control.py": "473fb47f5bece06feb18110ad21493323966d088faff7812933b0956fd52ec03",
@@ -13,7 +13,7 @@
     "tools/ai_review/rules.py": "c8e2874b33d14d0cc8f00ed66b5ebbe144a8d19e3dff81f8b20eff83d460c59a",
     "tools/case_study_studio/review_job.py": "c8dcd4a9453f35e176e36f7286ca75c3aaf02590b07f4fbecc70608b9b0400cc",
     "tools/ai_review/schema.py": "b32bc0171594dc0c03ab24e7b0b18f9600b10991125e42976341ffdb5a42f943",
-    "tools/case_study_studio/shared.mjs": "f0b1cb100dbe098657d79077459e241201f7fe9969e741ae5e36fe09de92bed5"
+    "tools/case_study_studio/shared.mjs": "96072d0f2e4ee43f5f318a7bb46d507628440b40dcfda026243d114eae3c8443"
   },
   "sources": {
     "admit": {

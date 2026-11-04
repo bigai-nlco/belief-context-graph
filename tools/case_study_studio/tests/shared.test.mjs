@@ -1,6 +1,22 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {benchmarkLabel,remoteLocation,caseLink,defaultRunTitle,bindAIAnnotation,saveSharedCase,taskAnnotationStatus,canAnnotateTask,annotationProgress,reportScoreLabel,runDisplayStatus} from '../shared.mjs';
+import {benchmarkLabel,remoteLocation,caseLink,defaultRunTitle,bindAIAnnotation,saveSharedCase,taskAnnotationStatus,canAnnotateTask,annotationProgress,reportScoreLabel,runDisplayStatus,runScoreSummary} from '../shared.mjs';
+
+test('run total sums only recorded Judge scores, with zero distinct from unscored',()=>{
+  const scored=official_score=>({scoring_status:'official_protocol_scored',official_score});
+  assert.deepEqual(runScoreSummary([]),{scored:0,total:0,points:null,average:null});
+  assert.deepEqual(runScoreSummary([scored(0)]),{scored:1,total:1,points:0,average:0});
+  const pending=[{status:'running'}, {scoring_status:'judge_error',official_score:.5},
+    {scoring_status:'not_judged',official_score:1}, {scoring_status:'official_pending',official_score:1},
+    ...[null,undefined,NaN,Infinity,'0.5',-.2,1.2].map(scored)];
+  assert.deepEqual(runScoreSummary(pending),{scored:0,total:pending.length,points:null,average:null});
+  assert.deepEqual(runScoreSummary([scored(.25),scored(.5),scored(0),...pending]),
+    {scored:3,total:pending.length+3,points:75,average:25});
+  // Aggregate original scores, not rounded per-task labels.
+  const summary=runScoreSummary([scored(1/3),scored(1/3),scored(1/3)]);
+  assert.equal(summary.points.toFixed(1),'100.0');
+  assert.equal(summary.average.toFixed(1),'33.3');
+});
 
 test('report judging is separate from report generation and annotation',()=>{
   assert.equal(runDisplayStatus({status:'running',phase:'judging'}),'judging');

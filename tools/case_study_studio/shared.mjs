@@ -16,6 +16,12 @@ export function reportScoreLabel(task) {
   if(task.scoring_status === 'not_judged') return '未评分';
   return task.status === 'completed' ? '待评分' : '—';
 }
+export function runScoreSummary(tasks) {
+  const scores=tasks.filter(task=>task.scoring_status==='official_protocol_scored'
+    && Number.isFinite(task.official_score) && task.official_score>=0 && task.official_score<=1);
+  const points=scores.length?scores.reduce((sum,task)=>sum+task.official_score*100,0):null;
+  return {scored:scores.length,total:tasks.length,points,average:points===null?null:points/scores.length};
+}
 export function taskAnnotationStatus(task) {
   const reviews=task.reviews||[],ai=task.ai_review?.status;
   const humanDone=reviews.some(r=>r.status==='reviewed'),aiDone=ai==='completed';

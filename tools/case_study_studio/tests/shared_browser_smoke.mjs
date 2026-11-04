@@ -129,10 +129,12 @@ try{
   assert(await evaluate('[...document.querySelectorAll(".run-table tbody tr")].every(row=>row.cells.length===9)'),'each task has a dedicated score cell');
   assert.equal(await evaluate('document.querySelector(".run-table tbody tr:nth-child(2) .task-score").textContent'),'—');
   // Simulate scoring transitions in the fixture response, without changing any saved result.
-  await evaluate(`window.scoreTestFetch=window.fetch;window.scoreTestTask={};
+  assert.equal(await evaluate('document.querySelector(".run-score-total").textContent'),'—');
+  assert.equal(await evaluate('document.querySelector(".run-score-coverage").textContent'),'已评分 0 / 2 题');
+  await evaluate(`window.scoreTestFetch=window.fetch;window.scoreTestTask={};window.scoreTestTask2={};
     window.fetch=async(...args)=>{const response=await window.scoreTestFetch(...args);
       if(String(args[0])!=='/api/runs/1')return response;
-      const data=await response.json();Object.assign(data.tasks[0],window.scoreTestTask);return Response.json(data);};`);
+      const data=await response.json();Object.assign(data.tasks[0],window.scoreTestTask);Object.assign(data.tasks[1],window.scoreTestTask2);return Response.json(data);};`);
   for(const [scoring_status,official_score,label] of [
     ['official_protocol_scored',0,'0.0 / 100'],
     ['official_protocol_scored',0.10091743119266056,'10.1 / 100'],
@@ -144,8 +146,27 @@ try{
     await evaluate(`window.scoreTestTask=${JSON.stringify({scoring_status,official_score})};document.dispatchEvent(new Event('visibilitychange'));`);
     await until(()=>evaluate(`document.querySelector('.run-table tbody tr:first-child .task-score').textContent===${JSON.stringify(label)}`),'score cell '+label);
     assert(await evaluate(`!document.querySelector('.run-table tbody tr:first-child .task-status').textContent.includes('评分')`),'score is not duplicated under execution status');
+    const scored=scoring_status==='official_protocol_scored';
+    assert.equal(await evaluate('document.querySelector(".run-score-total").textContent'),scored?(official_score*100).toFixed(1):'—');
+    assert.equal(await evaluate('document.querySelector(".run-score-coverage").textContent'),`已评分 ${scored?1:0} / 2 题`);
     if(official_score===0.10091743119266056)await shot('score-column.png');
   }
+  await evaluate(`window.scoreTestTask={scoring_status:'official_protocol_scored',official_score:1};
+    window.scoreTestTask2={scoring_status:'official_protocol_scored',official_score:.5,status:'completed'};
+    document.dispatchEvent(new Event('visibilitychange'));`);
+  await until(()=>evaluate('document.querySelector(".run-score-total").textContent==="150.0"'),'sum updates after second score');
+  assert.equal(await evaluate('document.querySelector(".run-score-average").textContent'),'已评分题均分 75.0 / 100');
+  assert.equal(await evaluate('document.querySelector(".run-score-coverage").textContent'),'已评分 2 / 2 题');
+  for(const width of [1440,1100,430,320]){
+    await command('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:false});
+    assert.equal(await evaluate('document.querySelectorAll(".run-stats>.run-stat").length'),5);
+    assert(await evaluate(`(()=>{const p=document.querySelector('.run-stats').getBoundingClientRect();
+      return [...document.querySelectorAll('.run-stat')].every(c=>{const r=c.getBoundingClientRect();
+        return r.left>=p.left-1&&r.right<=p.right+1&&c.scrollWidth<=c.clientWidth+1;});})()`),'all five stat cards fit at '+width);
+    assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'score card does not widen page');
+    await shot('score-total-'+width+'.png');
+  }
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await evaluate('window.fetch=window.scoreTestFetch;document.dispatchEvent(new Event("visibilitychange"))');
   // Saved Judge explanations load only on demand. All data below is synthetic.
   await evaluate(`window.scoreDetailOriginalFetch=window.fetch;window.scoreDetailRequests=0;
