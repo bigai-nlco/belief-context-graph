@@ -748,7 +748,8 @@ def test_usage_counts_llm_events_once_and_keeps_missing_values_unknown(tmp_path,
 
 
 @pytest.mark.asyncio
-async def test_worker_preserves_whole_report_and_never_passes_reference(datasets, tmp_path):
+@pytest.mark.parametrize("stop", ["no_tool", "context_limit_reached", "llm_error", "aborted"])
+async def test_worker_preserves_whole_report_and_never_passes_reference(datasets, tmp_path, stop):
     task = drb2.load_tasks(datasets)[0]
     report = "# 完整报告\n正文\n## References\nhttps://example.org/source"
 
@@ -764,7 +765,9 @@ async def test_worker_preserves_whole_report_and_never_passes_reference(datasets
             assert BLOCKED_TITLE not in json.dumps(kwargs, ensure_ascii=False)
             assert instruction == task.question
             assert "COMPLETE research report" in kwargs["meta"]["_sys_prompt_addendum"]
-            return {"final_answer": report}
+            return {"final_answer": report, "stopped_by": stop,
+                    "llm_error": "Maximum context length exceeded" if stop == "llm_error" else "",
+                    "llm_error_reason": "non_transient" if stop == "llm_error" else ""}
 
     config = {
         "pipeline": "agent_team",
@@ -777,7 +780,15 @@ async def test_worker_preserves_whole_report_and_never_passes_reference(datasets
         task, config, tmp_path / "trial", session_factory=Session
     )
     assert (tmp_path / "trial/report.md").read_text() == report
-    assert result["status"] == "completed"
+    expected_status = "agent_error" if stop in {"llm_error", "aborted"} else "completed"
+    assert result["status"] == expected_status
+    if stop == "llm_error":
+        assert result["error"] == "Maximum context length exceeded"
+        assert result["llm_error_reason"] == "non_transient"
+    elif stop == "aborted":
+        assert result["error"] == "aborted"
+    else:
+        assert result["error"] is None
     assert result["official_score"] is None and result["scoring_status"] == "official_pending"
     assert "reference" not in result and "ground_truth" not in result
     from workflows._shared.case_study import CASE_NAME, read_bundle
@@ -786,7 +797,7 @@ async def test_worker_preserves_whole_report_and_never_passes_reference(datasets
     imported = json.loads(bundle["cases"][0]["files"][0]["text"])
     assert imported["final_response"] == report
     assert imported["question"] == task.question
-    assert imported["status"] == "completed"
+    assert imported["status"] == expected_status
     assert "reference" not in imported and "ground_truth" not in imported
 
 

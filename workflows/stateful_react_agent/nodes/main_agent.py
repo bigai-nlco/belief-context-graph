@@ -650,12 +650,13 @@ async def react_agent_node(state: dict[str, Any], ctx: NodeContext) -> dict[str,
     context_mode = resolve_context_mode(agent_cfg)
     bcg_settings = BCGSettings.from_agent(agent_cfg) if context_mode == "bcg" else None
     max_len = int(agent_cfg.get("max_len", 0) or 0)
+    llm_max_tokens = int((profile or {}).get("llm", {}).get("max_tokens", 0) or 0)
     # See the sibling call in agent_team: the sglang doctor covers the compose
     # path only, and nothing checked the values the loop is actually built from.
     check_context_budget(
         max_len=max_len,
         max_input_tokens=max_input_tokens,
-        max_tokens=int((profile or {}).get("llm", {}).get("max_tokens", 0) or 0) or None,
+        max_tokens=llm_max_tokens or None,
         reasoning_only_max_tokens=reasoning_only_max_tokens,
         label="stateful_react",
     )
@@ -1097,6 +1098,16 @@ async def react_agent_node(state: dict[str, Any], ctx: NodeContext) -> dict[str,
                 reasoning_only_timeout_s=reasoning_only_timeout_s,
                 reasoning_only_max_tokens=reasoning_only_max_tokens,
                 logical_call_timeout_s=logical_call_timeout_s,
+                # Default sends the full transcript. The response-only
+                # ContextSizeGuard cannot catch a tool batch that makes the
+                # *next* request overflow: the provider rejects it first.
+                # Use the existing projected-input guard with the real model
+                # window/output reserve, then the existing final-answer path.
+                # BCG instead projects history at the request boundary; its
+                # full audit transcript must not trip this guard.
+                context_overflow_guard=(context_mode == "default" and max_len > 0),
+                max_context_length=max_len or LoopConfig.max_context_length,
+                max_completion_tokens=llm_max_tokens or LoopConfig.max_completion_tokens,
                 loop_policy=_loop_policy(),
                 compactor=retention,
                 compaction_policy=retention,

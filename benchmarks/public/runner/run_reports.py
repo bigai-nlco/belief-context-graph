@@ -232,6 +232,9 @@ async def execute_task(
         "aborted",
     }:
         status = "agent_error"
+        # The workflow returns provider failures in state instead of raising.
+        # Keep that cause even when finalization salvaged a partial report.
+        error = str(state.get("llm_error") or state.get("llm_error_reason") or state.get("stopped_by"))
     (trial / "report.md").write_text(report, encoding="utf-8")
     metrics, scoring_errors = score_report_task(
         task,
@@ -261,6 +264,7 @@ async def execute_task(
         "scoring_errors": scoring_errors,
         "usage": usage,
         "stopped_by": state.get("stopped_by"),
+        "llm_error_reason": state.get("llm_error_reason") or None,
         "answer_status": state.get("answer_status"),
         "report": "report.md",
         "tool_trace": "tools.jsonl",

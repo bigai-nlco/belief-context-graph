@@ -588,7 +588,8 @@ def test_real_agent_loop_four_tool_steps_then_answer(tmp_path):
 
 
 @pytest.mark.parametrize("mode", [None, "bcg", "default"])
-def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode):
+@pytest.mark.parametrize("context_window", [0, 49152])
+def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode, context_window):
     # This test exercises the legacy server selector; query-PCST has its own
     # model-boundary tests with a deterministic embedding provider.
     monkeypatch.setenv("BCG_RETRIEVAL", "focused")
@@ -637,7 +638,9 @@ def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode)
     provider = Provider()
     graph = FakeGraph()
     profile = {
+        "llm": {"max_tokens": 8192},
         "agent": {
+            "max_len": context_window,
             "main_max_turns": 20,
             "reasoning_only_timeout_s": 0,
             "reasoning_only_max_tokens": 0,
@@ -701,6 +704,71 @@ def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode)
         > result["bcg_graph_usage_online"]["total_tokens"]
     )
     assert graph.closed
+
+
+def test_default_context_limit_finalizes_before_an_overflowing_request(tmp_path, monkeypatch):
+    from frontier_agent.core.runtime import registry
+    from frontier_agent.core.runtime.resources.manager import ResourceManager
+    from workflows.stateful_react_agent.nodes import main_agent
+
+    @tool
+    async def web_search(query: str) -> str:
+        """Return a large offline search result, with no API calls."""
+        return "Relevant source observation. " * 1800
+
+    class Provider:
+        model = "offline-qwen"
+
+        def __init__(self):
+            self.inputs = []
+
+        async def chat(self, messages, **kwargs):
+            self.inputs.append(copy.deepcopy(messages))
+            if len(self.inputs) == 1:
+                # RUN-0013 task 30: this request fit, but its next tool batch
+                # pushed Default's growing history past the server window.
+                return LLMResponse(content="Read the next source.", tool_calls=[{
+                    "id": "large-search", "type": "function",
+                    "function": {"name": "web_search", "arguments": '{"query":"source"}'},
+                }], usage={"prompt_tokens": 36936, "completion_tokens": 206})
+            assert len(self.inputs) == 2, "Only one tool-free finalization is needed"
+            assert not kwargs.get("tools"), "Do not send another overflowing research request"
+            assert not any(message.get("role") == "tool" for message in messages)
+            assert "Find the answer" in str(messages)
+            return LLMResponse(content="# Final report\nSupported findings from the available evidence.")
+
+    for name in ("workspace", "outputs", "inputs"):
+        directory = tmp_path / name
+        directory.mkdir()
+        monkeypatch.setenv(f"FRONTIER_AGENT_{name.upper()}_DIR", str(directory))
+    monkeypatch.setenv("SANDBOX_BACKEND", "native")
+    provider = Provider()
+    profile = {"llm": {"max_tokens": 8192}, "agent": {
+        "context_mode": "default", "max_len": 49152, "max_input_tokens": 40960,
+        "main_max_turns": 20, "reasoning_only_timeout_s": 0, "reasoning_only_max_tokens": 0,
+        "logical_call_timeout_s": 0, "salvage_infra_errors": False,
+    }}
+    monkeypatch.setattr(main_agent, "_resolve_llm_and_profile", lambda *a, **kw: (provider, profile, None))
+    monkeypatch.setattr(main_agent, "_tools_for_stateful_react", lambda *a: [web_search])
+    monkeypatch.setattr(main_agent, "BCGMemory", lambda *a, **kw: pytest.fail("Default must not create a Graph"))
+    saved = registry.snapshot()
+    try:
+        registry.clear()
+        registry.register(ResourceManager, ResourceManager(provider, {"web_search": web_search}))
+        result = asyncio.run(main_agent.react_agent_node(
+            {"original_question": "Find the answer", "language": "en",
+             "metadata": {"_trial_dir": str(tmp_path / "trial")}},
+            SimpleNamespace(task_id="default-context-budget"),
+        ))
+    finally:
+        registry.restore(saved)
+    assert result["stopped_by"] == "context_limit_reached"
+    assert not result["llm_error"]
+    assert result["final_answer_rescue_mode"] == "clean_context_llm"
+    assert result["final_answer"].startswith("# Final report")
+    assert result["answer_status"] == "best_effort"
+    assert result["tool_calls_count"] == 1
+    assert len(provider.inputs) == 2
 
 
 @pytest.mark.parametrize("mode", ["hybrid", "", None, [], True])
