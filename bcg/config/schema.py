@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 SCHEMA_VERSION = 1
 ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
@@ -173,6 +173,10 @@ class ChunkingSettings(_ForbidExtra):
     isolate_tool_calls: bool | None = None
 
 
+class TaskStateSettings(_ForbidExtra):
+    enabled: StrictBool
+
+
 class PipelineSettings(_ForbidExtra):
     extractor: ExtractorSettings | None = None
     stance: StanceSettings | None = None
@@ -183,6 +187,7 @@ class PipelineSettings(_ForbidExtra):
     entities: EntitySettings | None = None
     confidence: ConfidenceSettings | None = None
     chunking: ChunkingSettings | None = None
+    task_state: TaskStateSettings | None = None
 
 
 class RunnerSettings(_ForbidExtra):
@@ -216,10 +221,12 @@ class BCGSettings(_ForbidExtra):
                 f"unsupported schema_version {self.schema_version}; "
                 f"this version of BCG expects {SCHEMA_VERSION}"
             )
+        if self.backend != "unified" and self.pipeline.task_state and self.pipeline.task_state.enabled:
+            raise ValueError("task_state currently requires the unified backend")
         return self
 
 
 __all__ = [
-    "BCGSettings",
     "SCHEMA_VERSION",
+    "BCGSettings",
 ]

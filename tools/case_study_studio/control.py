@@ -153,6 +153,7 @@ class Control:
             for key, value in self.profiles().items()
             if safe_child(self.root, value["source"]).is_file()],
             "default_tasks": DEFAULT_IDS, "context_modes": ["bcg", "bcg_no_retrieval", "default"],
+            "task_state_supported": True,
             "graph_model": "gpt-6-luna", "graph_effort": "none",
             "max_tasks": MAX_TASKS, "poll_seconds": 3, "launch_requires_admin": False,
             "task_catalog": {"drb2": self.task_catalog()}}
@@ -321,6 +322,7 @@ class Control:
         ended = sum(t["status"] in TERMINAL for t in tasks)
         return {"id": run_id, "number": self.label(run_id), "title": row["title"], "status": status,
             "mode": mode,
+            "task_state": bool(config.get("task_state", False)),
             "code_version": public_version(batch.get("code_version")),
             "managed": bool(row["managed"]), "created_at": row["created_at"],
             "started_at": row["started_at"] or batch.get("started_at"),
@@ -471,6 +473,9 @@ class Control:
         mode = data.get("mode", "bcg")
         if mode not in ("bcg", "bcg_no_retrieval", "default"):
             raise APIError(400, "请选择 BCG、BCG w/o Retrieval 或 Default 模式")
+        task_state = data.get("task_state", False)
+        if type(task_state) is not bool or (mode == "default" and task_state):
+            raise APIError(400, "任务状态维护仅适用于 BCG 模式，开关必须是布尔值")
         profile_id = data.get("profile")
         profile = self.profiles().get(profile_id) if isinstance(profile_id, str) else None
         if not profile or not safe_child(self.root, profile["source"]).is_file():
@@ -497,7 +502,8 @@ class Control:
             if missing := [task_id for task_id in tasks.get("drb2", []) if task_id not in available]:
                 raise APIError(400, "题库中没有这些题号：" + ", ".join(missing))
         config = {"profile": data["profile"], "agent_model": profile["agent"],
-                  "mode": mode, "tasks": tasks, "workers": workers, "pipeline": "stateful-react-agent", "judge_reports": True}
+                  "mode": mode, "task_state": task_state, "tasks": tasks, "workers": workers,
+                  "pipeline": "stateful-react-agent", "judge_reports": True}
         for key, default, minimum, maximum in (("timeout", 3600, 60, 14400),
                 ("max_turns", 200, 1, 300), ("search_calls", 0, 0, 2000), ("fetch_calls", 0, 0, 2000)):
             value = data.get(key, default)

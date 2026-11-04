@@ -102,6 +102,9 @@ class StreamOptions:
     reasoning_effort: str | None = None
     # skip turns whose content is shorter than this (0 = never skip)
     min_content_len: int = 0
+    # Opt-in task roles and deterministic workflow-state projection. Reuse
+    # existing node-extraction calls, without an additional planner/model call.
+    task_state_enabled: bool = False
     # Bounded, history-free semantic extraction for structured Tool Results.
     tool_result_max_search_results: int = 10
     tool_result_max_snippet_chars: int = 240
@@ -118,6 +121,11 @@ class StreamOptions:
         """Apply shared relation-propagation settings from model_config.json."""
         if not isinstance(cfg, dict):
             return
+        task_cfg = cfg.get("task_state") or {}
+        if isinstance(task_cfg, dict) and "enabled" in task_cfg:
+            if type(task_cfg["enabled"]) is not bool:
+                raise ValueError("pipeline.task_state.enabled must be a boolean")
+            self.task_state_enabled = task_cfg["enabled"]
         conf_cfg = cfg.get("confidence") or {}
         if isinstance(conf_cfg, dict):
             self.confidence_config = normalize_confidence_config(conf_cfg)
@@ -190,6 +198,7 @@ class StreamOptions:
             "max_previous_windows": self.max_previous_windows,
             "reasoning_effort": self.reasoning_effort,
             "min_content_len": self.min_content_len,
+            "task_state": {"enabled": self.task_state_enabled},
             "tool_result_max_search_results": self.tool_result_max_search_results,
             "tool_result_max_snippet_chars": self.tool_result_max_snippet_chars,
             "tool_result_semantic_extraction": self.tool_result_semantic_extraction,
@@ -239,7 +248,8 @@ class StreamingBeliefBuilder:
         self.entity_recognizer = entity_recognizer
         self.embedder = embedder
 
-        self.graph = BeliefGraph(confidence_config=self.options.confidence_config)
+        self.graph = BeliefGraph(confidence_config=self.options.confidence_config,
+                                 task_state_enabled=self.options.task_state_enabled)
         self.out_dir = Path(out_dir)
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir = self.out_dir / "logs"
@@ -310,6 +320,10 @@ class StreamingBeliefBuilder:
         ]
 
     def _formatted_node_extraction_history(self) -> str:
+        if self.options.task_state_enabled:
+            from .task_state import task_history
+
+            return task_history(self._node_extraction_history(), self.graph.active(), self.options.context_chars)
         return format_extraction_nodes(
             self._node_extraction_history(),
             char_budget=self.options.context_chars,
@@ -684,6 +698,7 @@ class StreamingBeliefBuilder:
                 graph_edges_str="[]",
                 max_tokens=self.max_tokens,
                 reasoning_effort=opt.reasoning_effort,
+                task_state_enabled=opt.task_state_enabled,
             )
             thinking_nodes = [dict(node) for node in thinking_result.get("nodes", [])]
             tool_call_nodes = [dict(node) for node in tool_call_result.get("nodes", [])]
@@ -1050,6 +1065,7 @@ class StreamingBeliefBuilder:
                 current_date=date,
                 max_tokens=self.max_tokens,
                 reasoning_effort=opt.reasoning_effort,
+                task_state_enabled=opt.task_state_enabled,
             )
         local_node_seconds = time.perf_counter() - _t_nodes
         if prepared is None:
@@ -1120,6 +1136,14 @@ class StreamingBeliefBuilder:
                 and node.get("extraction_method")
                 in {"rule_tool_call", "rule_tool_result"}
             }
+            if opt.task_state_enabled:
+                from .task_state import ANCHOR_ROLES
+
+                # Task anchors and status events are an append-only workflow
+                # ledger; semantic dedup must not erase an earlier state.
+                decision_ids |= {node["id"] for node in self.graph.active()
+                                 if node.get("task_role") in ANCHOR_ROLES | {"progress"}
+                                 or node.get("task_ids")}
             inc = run_merge_pass(
                 graph=self.graph,
                 strategy="embedding",
@@ -2163,6 +2187,14 @@ class StreamingBeliefBuilder:
             )
         if node_type == "decision":
             node["decision_history"] = []
+        if self.options.task_state_enabled:
+            from .task_state import classify_node
+
+            supported = bool(cleaned.get("supporting_sentence_indices") or cleaned.get("supporting_excerpts"))
+            supported = supported and bool(evid) and all(
+                ev.get("match") in {"exact", "normalized"} for ev in evid
+            )
+            classify_node(node, cleaned if supported else {}, self.graph.active())
         init_belief_confidence(node)
         recompute_evidence_confidence_from_node(
             node,
@@ -2244,6 +2276,8 @@ class StreamingBeliefBuilder:
             demoted_text = self._primary_text(node)
             node.pop("decision_history", None)
             node["node_type"] = "belief"
+            if self.options.task_state_enabled:
+                node["task_role"] = "intermediate_conclusion"
             self._set_primary_text_field(
                 node,
                 text_key="belief",

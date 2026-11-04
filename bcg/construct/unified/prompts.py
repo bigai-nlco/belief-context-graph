@@ -693,6 +693,7 @@ def build_node_extraction_prompt(
     graph_nodes: str = "[]",
     graph_edges: str = "[]",
     current_date: str | None = None,
+    task_state_enabled: bool = False,
 ) -> str | None:
     """Phase 1 prompt: extract beliefs + decisions only (no relations).
     Returns None for an unknown role."""
@@ -734,6 +735,13 @@ def build_node_extraction_prompt(
         belief_definition = _COMPACT_BELIEF_DEFINITION
         decision_definition = _ASSISTANT_DECISION_DEFINITION
         belief_details = _ASSISTANT_BELIEF_DETAILS
+        if task_state_enabled:
+            role_guidance = role_guidance.replace(
+                "Skip politeness, self-questions, and procedural narration unless it contains a\n"
+                "substantive claim, hypothesis, dependency, or conclusion.",
+                "Skip politeness, self-questions and generic procedural filler. Preserve explicit "
+                "bounded plans, next actions and progress as well as substantive reasoning.",
+            )
     parts.extend(
         part
         for part in (
@@ -745,6 +753,10 @@ def build_node_extraction_prompt(
         )
         if part
     )
+    if task_state_enabled and key in {"user", "assistant"}:
+        from .task_state import EXTRACTION_GUIDANCE
+
+        parts.append(EXTRACTION_GUIDANCE)
     if has_existing_nodes:
         parts.append(
             _ASSISTANT_NODE_GRAPH_CONTEXT_BLOCK

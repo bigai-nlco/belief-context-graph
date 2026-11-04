@@ -115,6 +115,9 @@ def _clean_node(
         "stance": _clean_stance(raw.get("stance")),
         "entities": _clean_entities(raw.get("entities")),
     }
+    from .task_state import clean_annotation
+
+    out.update(clean_annotation(raw))
     query = _clean_str(raw.get("query"))
     tool_name = _clean_str(raw.get("tool_name"))
     if query is not None:
@@ -1313,6 +1316,7 @@ def extract_nodes(
     temperature: float = 0.0,
     max_tokens: int | None = None,
     reasoning_effort: str | None = None,
+    task_state_enabled: bool = False,
 ) -> dict[str, Any]:
     """Phase 1: one LLM call to extract beliefs + decisions only (no relations)."""
     n_sentences = len(sentences or [])
@@ -1351,6 +1355,7 @@ def extract_nodes(
             graph_nodes=graph_nodes_str,
             graph_edges=graph_edges_str,
             current_date=current_date,
+            task_state_enabled=task_state_enabled,
         )
     else:
         prompt = build_node_extraction_prompt(
@@ -1360,6 +1365,7 @@ def extract_nodes(
             graph_nodes=graph_nodes_str,
             graph_edges=graph_edges_str,
             current_date=current_date,
+            task_state_enabled=task_state_enabled,
         )
 
     if prompt is None:
@@ -1440,6 +1446,22 @@ def extract_nodes(
         out_nodes.append(cd)
         out_decisions.append(cd)
         ordinal += 1
+
+    if task_state_enabled:
+        from .task_state import ANCHOR_ROLES
+
+        try:
+            shown = json.loads(graph_nodes_str) if graph_nodes_str else []
+        except (ValueError, TypeError):
+            shown = []
+        if not isinstance(shown, list):
+            shown = []
+        allowed = {n["id"] for n in shown if isinstance(n, dict)
+                   and type(n.get("id")) is int and n.get("task_role") in ANCHOR_ROLES}
+        for node in out_nodes:
+            refs = node.get("task_ids", [])
+            node["task_rejected_ids"] = [i for i in refs if i not in allowed]
+            node["task_ids"] = [i for i in refs if i in allowed]
 
     return {
         "nodes": out_nodes,

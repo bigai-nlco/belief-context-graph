@@ -373,6 +373,8 @@ def _bcg_from_construct(
         factors=list(snapshot.get("factors") or []),
         metadata=dict(metadata),
     )
+    if "task_state" in snapshot:
+        graph.metadata["task_state"] = snapshot["task_state"]
     evidence_by_id = {
         int(item["id"]): item
         for item in graph.evidence
@@ -434,6 +436,7 @@ def _bcg_from_construct(
                 int(value) for value in node.get("decision_history") or []
             ],
             metadata={"construct": dict(node)},
+            **{key: node[key] for key in ("task_role", "task_ids", "task_status", "task_annotation_source") if key in node},
         )
         graph.add_belief(payload)
     graph.add_relations(list(snapshot.get("relations") or []))
@@ -486,6 +489,8 @@ def _memory_document(
             "relations": len(base["relations"]),
         }
     )
+    if "task_state" in native:
+        base["task_state"] = native["task_state"]
     return base
 
 

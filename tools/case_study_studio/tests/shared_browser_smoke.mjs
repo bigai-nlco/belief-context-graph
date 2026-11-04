@@ -325,12 +325,15 @@ try{
   assert.equal(await evaluate('document.querySelector("#launch-mode").value'),'bcg','existing launch defaults to BCG');
   assert.equal(await evaluate('document.querySelector("#launch-mode option[value=default]").disabled'),false);
   await evaluate('document.querySelector("#launch-mode").value="default";document.querySelector("#launch-mode").dispatchEvent(new Event("change",{bubbles:true}))');
+  assert(await evaluate('document.querySelector("#launch-task-state").disabled'));
   assert(await evaluate('document.querySelector("#launch-context-info").textContent.includes("不建图、不注入 Graph")'));
   await click('[data-close=launch-dialog]');await click('#launch-button');
   assert.equal(await evaluate('document.querySelector("#launch-mode").value'),'default','reopening preserves the selected context mode');
   await shot('launch-default-mode.png');
   assert.equal(await evaluate('document.querySelector("#launch-mode option[value=bcg_no_retrieval]").disabled'),false);
   await evaluate('document.querySelector("#launch-mode").value="bcg_no_retrieval";document.querySelector("#launch-mode").dispatchEvent(new Event("change",{bubbles:true}))');
+  assert(await evaluate('!document.querySelector("#launch-task-state").disabled'));
+  await click('#launch-task-state');
   assert(await evaluate('document.querySelector("#launch-context-info").textContent.includes("全部节点和边")'));
   assert(await evaluate('document.querySelector("#launch-context-info").textContent.includes("不按 6,600 字符裁剪")'));
   for(const width of [1440,430,320]){
@@ -480,6 +483,8 @@ try{
   await until(()=>evaluate('document.querySelector(".run-heading .eyebrow")?.textContent==="RUN-0003"'),'queued full-graph batch');
   const fullGraphRun=await api('runs/3');
   assert.equal(fullGraphRun.mode,'bcg_no_retrieval');
+  assert.equal(fullGraphRun.task_state,true);
+  assert(await evaluate('document.querySelector(".run-heading").textContent.includes("任务状态")'));
   assert.equal(fullGraphRun.graph,'gpt-6-luna');
   assert.equal(fullGraphRun.judge.enabled,true);
   assert(await evaluate('document.querySelector(".run-heading").textContent.includes("模式：BCG w/o Retrieval")'));

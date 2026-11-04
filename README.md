@@ -198,6 +198,8 @@ Older steps leave the model context only after the Graph server acknowledges the
 
 For a retrieval ablation, select **BCG w/o Retrieval** in the Studio launch dialog, or set `agent.context_mode: bcg_no_retrieval` in a single-agent profile. This keeps the same Graph Construction, user inputs, two recent completed steps, system guidance, rendering style, tools and Judge. Once older steps are evicted, each request includes **all nodes and relations in the acknowledged Graph snapshot**, without retrieval, relevance/confidence filtering or the `BCG_GRAPH_CHARS` cap. Request logs record `retrieval_strategy: all` and `graph_chars_budget: null`. Retrieval embedding calls are skipped; Graph Construction's own models are unchanged. Large graphs can exceed the Agent model's context limit; this mode does not silently trim them or add compaction. The existing BCG and Default modes are unchanged.
 
+**Experimental task-state maintenance:** enable “维护任务状态” in the Studio launch dialog to classify evidence, intermediate conclusions, goals, plans and progress within the existing Unified extraction calls. Code builds a source-linked task-state view and injects it within the existing Graph budget, without a separate planner call. It is off by default and does not change Default mode. See the [task-state design, configuration and replay guide](docs/bcg-task-state.md).
+
 Interactive runs save records under the workspace selected by `--cwd`:
 
 ```text

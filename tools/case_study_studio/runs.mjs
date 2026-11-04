@@ -101,7 +101,7 @@ function renderRun(run){
       <h1>${escape(run.title)}</h1>
       <div class="run-heading-actions"><a class="button" href="./annotation-stats.html?run=${run.id}">标注统计</a>${badge(runDisplayStatus(run))}${run.managed&&['queued','starting','running'].includes(run.status)?`<button class="button" id="stop-run" data-run-id="${run.id}" ${run.cancel_requested?'disabled':''}>${run.cancel_requested?'正在停止…':'停止测试'}</button>`:''}</div>
     </div>
-    <p>模式：${escape(contextModeLabel(run.mode))} · Agent：${escape(run.agent||'待启动')} · Graph：${run.mode==='default'?'不启用':escape(run.graph)} · 并发 ${run.workers||'—'}<br>启动时间：${time(run.started_at||run.created_at)}${run.finished_at?` · 结束：${time(run.finished_at)}`:''}</p>
+    <p>模式：${escape(contextModeLabel(run.mode))}${run.task_state?' + 任务状态':''} · Agent：${escape(run.agent||'待启动')} · Graph：${run.mode==='default'?'不启用':escape(run.graph)} · 并发 ${run.workers||'—'}<br>启动时间：${time(run.started_at||run.created_at)}${run.finished_at?` · 结束：${time(run.finished_at)}`:''}</p>
     ${run.judge?.enabled?`<p>Report 评分：${run.tasks.filter(t=>t.scoring_status==='official_protocol_scored').length} / ${run.tasks.filter(t=>t.status==='completed').length} 份报告${run.judge.model?` · Judge ${escape(run.judge.model)}`:''}</p>`:''}
     ${renderVersion(run)}
     </section>
@@ -214,6 +214,8 @@ $('#launch-button').addEventListener('click',()=>{
 });
 $('#launch-profile').addEventListener('change',()=>{const profile=settings.profiles.find(p=>p.id===$('#launch-profile').value);$('#launch-form').elements.workers.max=profile.max_workers;$('#launch-form').elements.workers.value=Math.min(Number($('#launch-form').elements.workers.value),profile.max_workers);});
 $('#launch-mode').addEventListener('change',()=>{
+  $('#launch-task-state').disabled=$('#launch-mode').value==='default'||!settings?.task_state_supported;
+  if($('#launch-task-state').disabled)$('#launch-task-state').checked=false;
   $('#launch-context-info').innerHTML=$('#launch-mode').value==='default'
     ?'单 Agent Default · 按顺序保留系统提示、用户输入、Assistant 回复和工具结果<br>不建图、不注入 Graph、不按最近两轮裁剪；仍受模型上下文长度限制<br>报告生成后自动进行同一套 LLM Judge 评分'
     :$('#launch-mode').value==='bcg_no_retrieval'
@@ -227,7 +229,7 @@ $('#launch-form').addEventListener('submit',async event=>{
     if(!taskPicker)throw new Error('题目选择器尚未加载，请稍后再试。');
     const ids=taskPicker.value();
     const tasks={drb2:ids};
-    const body={title:form.get('title'),profile:form.get('profile'),mode:form.get('mode'),tasks};
+    const body={title:form.get('title'),profile:form.get('profile'),mode:form.get('mode'),tasks,task_state:form.has('task_state')};
     for(const key of ['workers','timeout','max_turns','search_calls','fetch_calls'])body[key]=Number(form.get(key));
     const run=await api('runs',{method:'POST',body});selected=run.id;history.replaceState(null,'','?run='+selected);event.target.elements.title.value='';suggestedRunTitle='';$('#launch-dialog').close();notice(`${run.number} 已加入队列`);await refresh();
   }catch(error){$('#launch-error').textContent=error.message;}finally{button.disabled=false;}
@@ -240,6 +242,7 @@ $('#cancel-form').addEventListener('submit',async event=>{
 try{
   settings=await api('settings');
   for(const option of $('#launch-mode').options)option.disabled=!settings.context_modes?.includes(option.value);
+  $('#launch-mode').dispatchEvent(new Event('change'));
   taskPicker=mountTaskPicker($('#launch-task-picker'),{
     defaults:settings.default_tasks.drb2,limit:settings.max_tasks,catalog:settings.task_catalog?.drb2,
   });

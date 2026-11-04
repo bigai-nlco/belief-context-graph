@@ -18,13 +18,13 @@ from tools.case_study_studio.tests.test_control import build_fixture, request_co
 
 
 @pytest.mark.parametrize("mode", ["success", "bad_preflight", "cancel", "missing_key", "legacy_benchmark",
-                                 "judge_error", "judge_partial", "judge_cancel", "legacy_no_judge", "default", "bcg_no_retrieval"])
+                                 "judge_error", "judge_partial", "judge_cancel", "legacy_no_judge", "default", "bcg_no_retrieval", "task_state"])
 def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
     root = tmp_path / "agent"
     control = build_fixture(root)
     user = control.register("operator")["user"]
     context_mode = mode if mode in ("default", "bcg_no_retrieval") else "bcg"
-    run = control.create_run(request_config(profile="gpt6-luna", mode=context_mode), user)
+    run = control.create_run(request_config(profile="gpt6-luna", mode=context_mode, task_state=mode == "task_state"), user)
     if mode == "default":
         # Default must work without the construction profile or Graph dependencies.
         (root / "tools/case_study_studio/profiles/graph.yaml").unlink()
@@ -128,7 +128,7 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         agent = yaml.safe_load((directory / "agent.yaml").read_text())
         assert agent["agent"]["context_mode"] == "default" and "bcg" not in agent["agent"]
         assert agent["llm"]["extra_body"]["reasoning_effort"] == "low"
-    elif mode in {"success", "legacy_no_judge", "bcg_no_retrieval"}:
+    elif mode in {"success", "legacy_no_judge", "bcg_no_retrieval", "task_state"}:
         assert row["status"] == "finished"
         assert len(preflights) == 1
         assert len(children) == (2 if mode == "legacy_no_judge" else 3)
@@ -140,6 +140,8 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         graph = yaml.safe_load((directory / "graph.yaml").read_text())
         agent = yaml.safe_load((directory / "agent.yaml").read_text())
         assert graph["models"]["graph"]["reasoning_effort"] == "none"
+        assert bool((graph.get("pipeline", {}).get("task_state") or {}).get("enabled")) == (mode == "task_state")
+        assert agent["agent"]["bcg"].get("task_state_enabled", False) == (mode == "task_state")
         assert agent["agent"]["context_mode"] == context_mode and batch["mode"] == context_mode
         if mode == "bcg_no_retrieval":
             assert agent["agent"]["bcg"]["retrieval"] == "all"

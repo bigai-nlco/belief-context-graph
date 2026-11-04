@@ -317,6 +317,19 @@ def test_report_scores_do_not_change_annotation_status(control: Control) -> None
     assert control.detail(1)["tasks"][0]["annotatable"]  # Judge failure is not Agent failure.
 
 
+def test_task_state_opt_in_is_saved_and_rejected_for_default(control: Control) -> None:
+    user = control.register("task-operator")["user"]
+    assert control.settings()["task_state_supported"]
+    assert not control.detail(1)["task_state"]
+    for mode in ("bcg", "bcg_no_retrieval"):
+        run = control.create_run(request_config(mode=mode, task_state=True), user)
+        assert run["task_state"]
+        assert json.loads(control.row(run["id"])["config"])["task_state"] is True
+    for mode, flag in (("default", True), ("bcg", "true"), ("bcg", 1)):
+        with pytest.raises(APIError):
+            control.create_run(request_config(mode=mode, task_state=flag), user)
+
+
 def test_signed_in_reviewers_can_start_and_cancel(control: Control) -> None:
     user = control.register("operator")["user"]
     assert control.settings()["launch_requires_admin"] is False

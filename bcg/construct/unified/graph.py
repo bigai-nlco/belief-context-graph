@@ -35,6 +35,8 @@ class BeliefGraph:
     def __init__(
         self,
         confidence_config: dict[str, Any] | None = None,
+        *,
+        task_state_enabled: bool = False,
     ) -> None:
         # Keep the historical attribute name so merge.py and callers that expect
         # graph.beliefs continue to work. Values can now be belief or decision nodes.
@@ -47,6 +49,7 @@ class BeliefGraph:
         self._next_evidence_id = 0
         self._next_relation_id = 0
         self.confidence_config = normalize_confidence_config(confidence_config)
+        self.task_state_enabled = task_state_enabled
 
     # -- ids / nodes -------------------------------------------------------
     @property
@@ -250,6 +253,10 @@ class BeliefGraph:
         }
         if extra:
             d.update(extra)
+        if self.task_state_enabled:
+            from .task_state import build_task_state
+
+            d["task_state"] = build_task_state(d)
         return d
 
     def save_snapshot(self, path: Any, extra: dict[str, Any] | None = None) -> None:

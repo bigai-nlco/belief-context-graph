@@ -141,6 +141,9 @@ def main() -> None:
             if mode == "bcg_no_retrieval":
                 profile["agent"]["bcg"]["retrieval"] = "all"
             graph_profile = yaml.safe_load((args.root / "tools/case_study_studio/profiles/graph.yaml").read_text())
+            if config.get("task_state"):
+                profile["agent"]["bcg"]["task_state_enabled"] = True
+                graph_profile.setdefault("pipeline", {})["task_state"] = {"enabled": True}
             embedding = values.get("BCG_EMBEDDING_MODEL") or str(Path.home() / "PLM/all-MiniLM-L6-v2")
             if Path(embedding).is_dir():
                 graph_profile["models"]["embedding"]["model"] = embedding

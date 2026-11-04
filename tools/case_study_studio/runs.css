@@ -253,3 +253,4 @@
 .run-heading .version-note,.run-heading .version-warning{margin:10px 0 0;font-size:11px;line-height:1.7}
 .run-heading .version-warning{color:#85551d}
 @media(max-width:680px){.version-body dl>div{grid-template-columns:minmax(0,1fr);gap:3px}.version-branch{flex-basis:100%;padding-left:19px}}
+.task-state-setting>span{display:flex;align-items:center;gap:8px}.task-state-setting input{width:16px;height:16px;margin:0;flex:none;accent-color:var(--red)}.task-state-setting small{display:block;margin:8px 0 0 24px;color:var(--muted);line-height:1.7}

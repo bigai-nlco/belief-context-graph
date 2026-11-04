@@ -147,6 +147,8 @@ class BCGSettings:
     # (completed actions / findings / relations), "split_confidence" (split
     # with plain-language support labels) or "v0" (legacy beliefs list).
     render_style: str = "split"
+    task_state_enabled: bool = False
+    task_state_chars: int = 1800
 
     @property
     def graph_budget(self) -> int | None:
@@ -184,6 +186,8 @@ class BCGSettings:
             tonggraph_graph=str(cfg.get("tonggraph_graph", os.environ.get("TONGGRAPH_GRAPH", cls.tonggraph_graph))),
             tonggraph_timeout=float(cfg.get("tonggraph_timeout", os.environ.get("TONGGRAPH_TIMEOUT", cls.tonggraph_timeout))),
             render_style=str(cfg.get("render_style", os.environ.get("BCG_RENDER_STYLE", cls.render_style))).strip().lower(),
+            task_state_enabled=cfg.get("task_state_enabled", False),
+            task_state_chars=int(cfg.get("task_state_chars", 1800)),
         )
         url = urlsplit(value.url)
         if (
@@ -204,6 +208,8 @@ class BCGSettings:
             raise ValueError("BCG_GRAPH_CHARS must be >= 512 and BCG_GRAPH_TIMEOUT positive")
         if value.render_style not in RENDER_STYLES:
             raise ValueError("BCG_RENDER_STYLE must be split, split_confidence or v0")
+        if type(value.task_state_enabled) is not bool or value.task_state_chars < 256:
+            raise ValueError("task_state_enabled must be boolean; task_state_chars must be >= 256")
         if value.retrieval not in {"focused", "confidence_pcst", "query_pcst", "all"}:
             raise ValueError("BCG_RETRIEVAL must be focused, confidence_pcst, query_pcst or all")
         if value.retrieval == "all":
@@ -389,6 +395,7 @@ class BCGMemory:
         keys = (
             "problem_id", "nodes", "all_nodes", "beliefs", "decisions", "relations",
             "n_turns_ingested", "token_usage", "finalized",
+            "task_state",
         )
         event = {
             "problem_id": self.problem_id,
@@ -494,11 +501,23 @@ class BCGMemory:
                     event["retained_indices"] = plan.retained_indices
                     event["messages_after"] = len(result)
                 if plan.evicted_steps:
+                    task_block, task_nodes, task_edges, task_ids = "", [], [], []
+                    if self.settings.task_state_enabled:
+                        from bcg.construct.unified.task_state import render_task_state
+
+                        task_budget = (None if self.settings.graph_budget is None else
+                                       min(self.settings.task_state_chars, max(0, self.settings.graph_chars - 513)))
+                        task_block, task_nodes, task_edges, task_ids = render_task_state(self.snapshot, task_budget)
+                        event["task_state"] = {"available": "task_state" in self.snapshot,
+                                               "task_ids": task_ids, "source_node_ids": task_nodes,
+                                               "chars": len(task_block)}
+                    reserved = len(task_block) + 1 if task_block else 0
+                    selection_budget = self.settings.graph_chars - reserved
                     if self.settings.retrieval == "all":
                         selection = full_graph_selection(self.snapshot)
                     elif self.settings.retrieval == "focused":
                         selection = await self.backend.select(
-                            self.problem_id, plan.query, plan.question, self.settings.graph_chars,
+                            self.problem_id, plan.query, plan.question, selection_budget,
                         )
                     else:
                         from .pcst import PCSTSelector, retrieval_focus
@@ -507,14 +526,18 @@ class BCGMemory:
                             self._pcst_selector = PCSTSelector(self.settings, self.render_style)
                         selection = await asyncio.to_thread(
                             self._pcst_selector.select, self.snapshot, plan.question,
-                            retrieval_focus(messages), self.settings.graph_chars,
+                            retrieval_focus(messages), selection_budget,
                         )
                     event["selector_result"] = copy.deepcopy(selection)
                     graph, node_ids, relation_ids = render_graph(
-                        self.snapshot, selection, self.settings.graph_budget,
+                        self.snapshot, selection, None if self.settings.graph_budget is None else selection_budget,
                         strict=self.settings.retrieval != "focused",
                         style=self.render_style,
                     )
+                    if task_block:
+                        graph = graph.replace("<belief_graph>\n", "<belief_graph>\n" + task_block + "\n", 1)
+                        node_ids = sorted(set(node_ids) | set(task_nodes))
+                        relation_ids = sorted(set(relation_ids) | set(task_edges))
                     system_memory = self.context_guide + "\n\n" + graph
                     result = _with_system_memory(plan.retained, system_memory)
                     event.update(
