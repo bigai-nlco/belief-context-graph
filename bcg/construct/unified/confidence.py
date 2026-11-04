@@ -64,6 +64,9 @@ from bcg.core.confidence import (  # noqa: F401 - compat re-exports for legacy i
 # hard rule table so no model-supplied confidence number is accepted.
 SOURCE_RELIABILITY: dict[str, float] = dict(SOURCE_RELIABILITY)
 
+# Discount evidence updates to limit overconfidence without labels.
+EVIDENCE_LOG_ODDS_WEIGHT = 0.25
+
 
 def normalize_confidence_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
     """Return normalized confidence settings used by relation propagation."""
@@ -123,19 +126,11 @@ def relation_propagation_config(
 
 
 def evidence_contribution(evidence: dict[str, Any]) -> float:
-    """Return the log-likelihood-ratio contribution of one support observation.
-
-    The role and stance signals are treated as an estimated probability that
-    this observation is reliable. Under the symmetric-noise assumption, the
-    likelihood ratio for a positive observation is q / (1 - q), so confidence
-    updates add logit(q) in log-odds space. Independent evidence is deduplicated
-    before this function is used.
-    """
+    """Compute a discounted log-odds term for one additional observation."""
     role = _role_from_record(evidence)
     stance = evidence.get("stance") or "asserted"
-    quality = (source_reliability(role) + stance_quality(stance)) / 2.0
-    return logit(quality)
-
+    q = (source_reliability(role) + stance_quality(stance)) / 2.0
+    return EVIDENCE_LOG_ODDS_WEIGHT * logit(q)
 
 # =============================================================
 # Posterior helpers
