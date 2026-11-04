@@ -18,12 +18,13 @@ from tools.case_study_studio.tests.test_control import build_fixture, request_co
 
 
 @pytest.mark.parametrize("mode", ["success", "bad_preflight", "cancel", "missing_key", "legacy_benchmark",
-                                 "judge_error", "judge_partial", "judge_cancel", "legacy_no_judge", "default"])
+                                 "judge_error", "judge_partial", "judge_cancel", "legacy_no_judge", "default", "bcg_no_retrieval"])
 def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
     root = tmp_path / "agent"
     control = build_fixture(root)
     user = control.register("operator")["user"]
-    run = control.create_run(request_config(profile="gpt6-luna", mode="default" if mode == "default" else "bcg"), user)
+    context_mode = mode if mode in ("default", "bcg_no_retrieval") else "bcg"
+    run = control.create_run(request_config(profile="gpt6-luna", mode=context_mode), user)
     if mode == "default":
         # Default must work without the construction profile or Graph dependencies.
         (root / "tools/case_study_studio/profiles/graph.yaml").unlink()
@@ -127,19 +128,23 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         agent = yaml.safe_load((directory / "agent.yaml").read_text())
         assert agent["agent"]["context_mode"] == "default" and "bcg" not in agent["agent"]
         assert agent["llm"]["extra_body"]["reasoning_effort"] == "low"
-    elif mode in {"success", "legacy_no_judge"}:
+    elif mode in {"success", "legacy_no_judge", "bcg_no_retrieval"}:
         assert row["status"] == "finished"
         assert len(preflights) == 1
-        assert len(children) == (3 if mode == "success" else 2)
+        assert len(children) == (2 if mode == "legacy_no_judge" else 3)
         assert all(child.stopped or child.returncode is not None for _, child in children)
-        if mode == "success":
+        if mode != "legacy_no_judge":
             assert batch["judge"]["finished_at"] and batch["exit_codes"]["drb2_judge"] == 0
             assert batch["judge"]["model"] == "gpt-6-luna"
             assert batch["judge"]["reasoning_effort"] == "high"
         graph = yaml.safe_load((directory / "graph.yaml").read_text())
         agent = yaml.safe_load((directory / "agent.yaml").read_text())
         assert graph["models"]["graph"]["reasoning_effort"] == "none"
-        assert agent["agent"]["context_mode"] == "bcg" and batch["mode"] == "bcg"
+        assert agent["agent"]["context_mode"] == context_mode and batch["mode"] == context_mode
+        if mode == "bcg_no_retrieval":
+            assert agent["agent"]["bcg"]["retrieval"] == "all"
+            assert batch["code_version"]["graph_sha256"]
+        assert agent["agent"]["bcg"]["recent_turns"] == 2
         assert graph["models"]["graph"]["api_key_env"] == "LITELLM_OPENAI_API_KEY"
         assert "bcg/construct/unified/stream.py" in batch["source_sha256"]
         assert agent["llm"]["extra_body"]["reasoning_effort"] == "low"

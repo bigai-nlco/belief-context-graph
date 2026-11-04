@@ -196,6 +196,8 @@ to persist node vectors and reuse them after restarting the Agent.
 
 Older steps leave the model context only after the Graph server acknowledges them. If Graph writing or selection fails, the Agent preserves the original context and records a fallback. Seeing an answer alone does not prove Graph memory was used; inspect the BCG request records when checking an integration.
 
+For a retrieval ablation, select **BCG w/o Retrieval** in the Studio launch dialog, or set `agent.context_mode: bcg_no_retrieval` in a single-agent profile. This keeps the same Graph Construction, user inputs, two recent completed steps, system guidance, rendering style, tools and Judge. Once older steps are evicted, each request includes **all nodes and relations in the acknowledged Graph snapshot**, without retrieval, relevance/confidence filtering or the `BCG_GRAPH_CHARS` cap. Request logs record `retrieval_strategy: all` and `graph_chars_budget: null`. Retrieval embedding calls are skipped; Graph Construction's own models are unchanged. Large graphs can exceed the Agent model's context limit; this mode does not silently trim them or add compaction. The existing BCG and Default modes are unchanged.
+
 Interactive runs save records under the workspace selected by `--cwd`:
 
 ```text

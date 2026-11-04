@@ -23,7 +23,7 @@ from frontier_agent.core.tool import Tool, tool
 
 from .client import GraphBackend, GraphError, HttpGraphBackend
 from .messages import Projection, UnsupportedHistory, partition, xml_json
-from .rendering import RENDER_STYLES, _nodes, render_graph
+from .rendering import RENDER_STYLES, _nodes, full_graph_selection, render_graph
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +148,11 @@ class BCGSettings:
     # with plain-language support labels) or "v0" (legacy beliefs list).
     render_style: str = "split"
 
+    @property
+    def graph_budget(self) -> int | None:
+        """No implicit character cap when the whole graph is requested."""
+        return None if self.retrieval == "all" else self.graph_chars
+
     @classmethod
     def from_agent(cls, agent: dict[str, Any]) -> BCGSettings:
         cfg = agent.get("bcg") or {}
@@ -159,7 +164,10 @@ class BCGSettings:
             graph_chars=int(cfg.get("graph_chars", os.environ.get("BCG_GRAPH_CHARS", 6_600))),
             timeout=float(cfg.get("timeout", os.environ.get("BCG_GRAPH_TIMEOUT", 120))),
             api_key=str(cfg.get("api_key") or os.environ.get("BCG_GRAPH_API_KEY") or ""),
-            retrieval=str(cfg.get("retrieval", os.environ.get("BCG_RETRIEVAL", cls.retrieval))),
+            # A named ablation must not silently inherit retrieval from a
+            # baseline profile or the server's environment.
+            retrieval=("all" if agent.get("context_mode") == "bcg_no_retrieval"
+                       else str(cfg.get("retrieval", os.environ.get("BCG_RETRIEVAL", cls.retrieval)))),
             pcst_edge_cost=float(cfg.get("pcst_edge_cost", os.environ.get("BCG_PCST_EDGE_COST", 0.2))),
             pcst_confidence_floor=float(cfg.get("pcst_confidence_floor", os.environ.get("BCG_PCST_CONFIDENCE_FLOOR", 0.2))),
             embedding_model=str(cfg.get("embedding_model", os.environ.get("BCG_RETRIEVAL_EMBEDDING_MODEL", cls.embedding_model))),
@@ -191,12 +199,16 @@ class BCGSettings:
             )
         if value.recent_turns < 0:
             raise ValueError("BCG_RECENT_TURNS must be non-negative")
-        if value.graph_chars < 512 or not math.isfinite(value.timeout) or value.timeout <= 0:
+        if ((value.retrieval != "all" and value.graph_chars < 512)
+                or not math.isfinite(value.timeout) or value.timeout <= 0):
             raise ValueError("BCG_GRAPH_CHARS must be >= 512 and BCG_GRAPH_TIMEOUT positive")
         if value.render_style not in RENDER_STYLES:
             raise ValueError("BCG_RENDER_STYLE must be split, split_confidence or v0")
-        if value.retrieval not in {"focused", "confidence_pcst", "query_pcst"}:
-            raise ValueError("BCG_RETRIEVAL must be focused, confidence_pcst or query_pcst")
+        if value.retrieval not in {"focused", "confidence_pcst", "query_pcst", "all"}:
+            raise ValueError("BCG_RETRIEVAL must be focused, confidence_pcst, query_pcst or all")
+        if value.retrieval == "all":
+            # No retrieval embeddings, vector store or PCST solver is used.
+            return value
         if not math.isfinite(value.pcst_edge_cost) or value.pcst_edge_cost <= 0:
             raise ValueError("BCG_PCST_EDGE_COST must be positive and finite")
         if not math.isfinite(value.pcst_confidence_floor) or not 0 <= value.pcst_confidence_floor <= 1:
@@ -473,7 +485,7 @@ class BCGMemory:
                 event["graph_turns_written"] = await self._ingest(plan.turns)
                 event["problem_id"] = self.problem_id
                 event["graph_n_turns_ingested"] = self.snapshot.get("n_turns_ingested")
-                event["graph_chars_budget"] = self.settings.graph_chars
+                event["graph_chars_budget"] = self.settings.graph_budget
                 if not plan.evicted_steps:
                     # A specialized projector can isolate a new sub-agent job
                     # from prior session assignments even before any NEW step
@@ -482,7 +494,9 @@ class BCGMemory:
                     event["retained_indices"] = plan.retained_indices
                     event["messages_after"] = len(result)
                 if plan.evicted_steps:
-                    if self.settings.retrieval == "focused":
+                    if self.settings.retrieval == "all":
+                        selection = full_graph_selection(self.snapshot)
+                    elif self.settings.retrieval == "focused":
                         selection = await self.backend.select(
                             self.problem_id, plan.query, plan.question, self.settings.graph_chars,
                         )
@@ -497,7 +511,7 @@ class BCGMemory:
                         )
                     event["selector_result"] = copy.deepcopy(selection)
                     graph, node_ids, relation_ids = render_graph(
-                        self.snapshot, selection, self.settings.graph_chars,
+                        self.snapshot, selection, self.settings.graph_budget,
                         strict=self.settings.retrieval != "focused",
                         style=self.render_style,
                     )

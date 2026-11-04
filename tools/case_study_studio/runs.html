@@ -54,7 +54,7 @@
       <div class="launch-grid launch-name-fields">
         <label class="field"><span>测试名称</span><input name="title" required maxlength="100" autocomplete="off"></label>
         <label class="field"><span>Agent 模型</span><select name="profile" id="launch-profile"></select></label>
-        <label class="field"><span>上下文模式</span><select name="mode" id="launch-mode"><option value="bcg">BCG · 最近两轮 + Belief Graph</option><option value="default" disabled>Default · 完整对话上下文，不使用 BCG</option></select></label>
+        <label class="field"><span>上下文模式</span><select name="mode" id="launch-mode"><option value="bcg">BCG · 最近两轮 + Belief Graph</option><option value="bcg_no_retrieval" disabled>BCG w/o Retrieval · 最近两轮 + 全部图节点和边</option><option value="default" disabled>Default · 完整对话上下文，不使用 BCG</option></select></label>
       </div>
       <div class="graph-setting" id="launch-context-info">单 Agent BCG · 最近 2 轮 · Graph 6,600 字符<br>建图：gpt-6-luna / none · LiteLLM<br>报告生成后自动进行 LLM Judge 评分</div>
       <section class="task-picker" id="launch-task-picker" aria-labelledby="task-picker-heading">

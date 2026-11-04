@@ -82,7 +82,7 @@ def main() -> None:
                 "studio_run_number": control.label(args.run_id), "requested_ids": config["tasks"],
                 "agent": {"model": config["agent_model"]},
                 "graph": ({"enabled": True, "model": "gpt-6-luna", "reasoning_effort": "none", "provider": "litellm"}
-                          if mode == "bcg" else {"enabled": False}),
+                          if mode != "default" else {"enabled": False}),
                 "exit_codes": {}, "notes": "Report generation status is not an official quality score."}
 
     def save() -> None:
@@ -105,7 +105,7 @@ def main() -> None:
         # submitted or when its page is viewed. Persist before any model calls.
         metadata["code_version"], metadata["source_sha256"] = capture_version(args.root, mode)
         save()
-        if mode not in ("bcg", "default"):
+        if mode not in ("bcg", "bcg_no_retrieval", "default"):
             raise RuntimeError("不支持的 Agent context mode")
         if set(config.get("tasks", {})) != {"drb2"}:
             raise RuntimeError("共享页面仅支持 DeepResearch Bench II，旧批次未启动；已有结果和标注保留")
@@ -137,7 +137,9 @@ def main() -> None:
         profile["agent"]["context_mode"] = mode
         graph_endpoint: tuple[str, int] | None = None
         # Profile files contain references to env keys, never resolved credentials.
-        if mode == "bcg":
+        if mode != "default":
+            if mode == "bcg_no_retrieval":
+                profile["agent"]["bcg"]["retrieval"] = "all"
             graph_profile = yaml.safe_load((args.root / "tools/case_study_studio/profiles/graph.yaml").read_text())
             embedding = values.get("BCG_EMBEDDING_MODEL") or str(Path.home() / "PLM/all-MiniLM-L6-v2")
             if Path(embedding).is_dir():

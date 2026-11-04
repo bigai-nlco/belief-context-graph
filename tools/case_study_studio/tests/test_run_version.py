@@ -66,6 +66,9 @@ def test_untracked_graph_and_lock_changes_are_distinguishable(checkout: Path) ->
     default, files = run_version.capture_version(checkout, "default")
     assert default["graph_sha256"] is None
     assert not any(name.startswith("bcg/") for name in files)
+    full, files = run_version.capture_version(checkout, "bcg_no_retrieval")
+    assert full["graph_sha256"] == locked["graph_sha256"]
+    assert "bcg/new_module.py" in files
 
 
 def test_detached_head_and_nested_non_checkout(checkout: Path) -> None:

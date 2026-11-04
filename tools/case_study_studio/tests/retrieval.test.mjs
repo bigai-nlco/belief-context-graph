@@ -104,6 +104,19 @@ test('unscored calls and confidence-only retrieval do not claim missing query sc
   assert.match(renderRetrieval(load([a]),{...DEFAULT_VIEW}),/不适用/);
 });
 
+test('full-graph ablation shows an uncapped graph rather than missing retrieval scores',()=>{
+  const a={...audit(),retrieval_strategy:'all',graph_chars_budget:null,selected_node_ids:[1,2,3],selected_relation_ids:[8,9],
+    selector_result:{strategy:'all',node_ids:[1,2,3],relation_ids:[8,9]}};
+  const c=load([a]),html=renderRetrieval(c,{...DEFAULT_VIEW});
+  assert.match(html,/BCG w\/o Retrieval/);
+  assert.match(html,/跳过检索与候选评分/);
+  assert.match(html,/无上限/);
+  assert.doesNotMatch(html,/旧记录未保存全部候选评分/);
+  assert.equal((html.match(/class="retrieval-node is-selected/g)||[]).length,3);
+  assert.equal((html.match(/class="retrieval-edge is-selected/g)||[]).length,2);
+  assert(retrievalRows(retrievalSnapshot(c,c.contexts[0]).graph,c.contexts[0]).every(row=>row.scoringSkipped));
+});
+
 test('highlight uses actual injected IDs rather than an attempted selection on fallback',()=>{
   const a={...audit(),selected_node_ids:[],selected_relation_ids:[],fallback:'selection_exceeds_render_budget'};
   a.selector_result.node_ids=[1,2];a.selector_result.relation_ids=[8];

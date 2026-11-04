@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {benchmarkLabel,remoteLocation,caseLink,defaultRunTitle,bindAIAnnotation,saveSharedCase,taskAnnotationStatus,canAnnotateTask,annotationProgress,reportScoreLabel,runDisplayStatus,runScoreSummary} from '../shared.mjs';
+import {benchmarkLabel,contextModeLabel,remoteLocation,caseLink,defaultRunTitle,bindAIAnnotation,saveSharedCase,taskAnnotationStatus,canAnnotateTask,annotationProgress,reportScoreLabel,runDisplayStatus,runScoreSummary} from '../shared.mjs';
+
+test('full-graph ablation is displayed separately from BCG and Default',()=>{
+  assert.equal(contextModeLabel('bcg'),'BCG');
+  assert.equal(contextModeLabel('bcg_no_retrieval'),'BCG w/o Retrieval');
+  assert.equal(contextModeLabel('default'),'Default');
+  assert.equal(contextModeLabel(undefined),'BCG');
+});
 
 test('run total sums only recorded Judge scores, with zero distinct from unscored',()=>{
   const scored=official_score=>({scoring_status:'official_protocol_scored',official_score});

@@ -1,4 +1,4 @@
-import {api, storedToken, storeToken, logout, caseLink, benchmarkLabel, defaultRunTitle, taskAnnotationStatus, canAnnotateTask, annotationProgress, reportScoreLabel, runDisplayStatus, runScoreSummary} from './shared.mjs';
+import {api, storedToken, storeToken, logout, caseLink, benchmarkLabel, contextModeLabel, defaultRunTitle, taskAnnotationStatus, canAnnotateTask, annotationProgress, reportScoreLabel, runDisplayStatus, runScoreSummary} from './shared.mjs';
 import {mountTaskPicker} from './task-picker.mjs';
 import {mountScoreDetails} from './score-details.mjs';
 import {renderVersion, versionLabel} from './run-version.mjs';
@@ -84,7 +84,7 @@ function renderLive(parent,html,{reset=false}={}){
   else patchLiveChildren(parent,template.content);
 }
 function renderList(runs){
-  renderLive($('#run-list'),runs.length?runs.map(run=>`<button class="run-item ${run.id===selected?'selected':''}" data-run="${run.id}" data-live-key="run-${run.id}"><div><strong>${escape(run.number)}</strong>${badge(runDisplayStatus(run))}</div><p class="run-name">${escape(run.title)}</p><div><small>${run.mode==='default'?'Default':'BCG'} · ${run.ended} / ${run.total} 已结束</small><small>${run.reports} 份报告</small></div><small class="run-version-label">${escape(versionLabel(run))}</small></button>`).join(''):'<p class="muted">暂无测试。点击右上角启动测试。</p>');
+  renderLive($('#run-list'),runs.length?runs.map(run=>`<button class="run-item ${run.id===selected?'selected':''}" data-run="${run.id}" data-live-key="run-${run.id}"><div><strong>${escape(run.number)}</strong>${badge(runDisplayStatus(run))}</div><p class="run-name">${escape(run.title)}</p><div><small>${escape(contextModeLabel(run.mode))} · ${run.ended} / ${run.total} 已结束</small><small>${run.reports} 份报告</small></div><small class="run-version-label">${escape(versionLabel(run))}</small></button>`).join(''):'<p class="muted">暂无测试。点击右上角启动测试。</p>');
 }
 function renderRun(run){
   const current=$('#run-content');
@@ -101,7 +101,7 @@ function renderRun(run){
       <h1>${escape(run.title)}</h1>
       <div class="run-heading-actions"><a class="button" href="./annotation-stats.html?run=${run.id}">标注统计</a>${badge(runDisplayStatus(run))}${run.managed&&['queued','starting','running'].includes(run.status)?`<button class="button" id="stop-run" data-run-id="${run.id}" ${run.cancel_requested?'disabled':''}>${run.cancel_requested?'正在停止…':'停止测试'}</button>`:''}</div>
     </div>
-    <p>模式：${run.mode==='default'?'Default':'BCG'} · Agent：${escape(run.agent||'待启动')} · Graph：${run.mode==='default'?'不启用':escape(run.graph)} · 并发 ${run.workers||'—'}<br>启动时间：${time(run.started_at||run.created_at)}${run.finished_at?` · 结束：${time(run.finished_at)}`:''}</p>
+    <p>模式：${escape(contextModeLabel(run.mode))} · Agent：${escape(run.agent||'待启动')} · Graph：${run.mode==='default'?'不启用':escape(run.graph)} · 并发 ${run.workers||'—'}<br>启动时间：${time(run.started_at||run.created_at)}${run.finished_at?` · 结束：${time(run.finished_at)}`:''}</p>
     ${run.judge?.enabled?`<p>Report 评分：${run.tasks.filter(t=>t.scoring_status==='official_protocol_scored').length} / ${run.tasks.filter(t=>t.status==='completed').length} 份报告${run.judge.model?` · Judge ${escape(run.judge.model)}`:''}</p>`:''}
     ${renderVersion(run)}
     </section>
@@ -216,7 +216,9 @@ $('#launch-profile').addEventListener('change',()=>{const profile=settings.profi
 $('#launch-mode').addEventListener('change',()=>{
   $('#launch-context-info').innerHTML=$('#launch-mode').value==='default'
     ?'单 Agent Default · 按顺序保留系统提示、用户输入、Assistant 回复和工具结果<br>不建图、不注入 Graph、不按最近两轮裁剪；仍受模型上下文长度限制<br>报告生成后自动进行同一套 LLM Judge 评分'
-    :'单 Agent BCG · 最近 2 轮 · Graph 6,600 字符<br>建图：gpt-6-luna / none · LiteLLM<br>报告生成后自动进行 LLM Judge 评分';
+    :$('#launch-mode').value==='bcg_no_retrieval'
+      ?'单 Agent BCG w/o Retrieval · 最近 2 轮 · 永久保留用户输入<br>注入当前 Graph 的全部节点和边，不检索、不按 6,600 字符裁剪；仍受模型上下文长度限制<br>建图：gpt-6-luna / none · LiteLLM · 报告生成后自动进行同一套 LLM Judge 评分'
+      :'单 Agent BCG · 最近 2 轮 · Graph 6,600 字符<br>建图：gpt-6-luna / none · LiteLLM<br>报告生成后自动进行 LLM Judge 评分';
 });
 $('#launch-form').addEventListener('submit',async event=>{
   event.preventDefault();const button=event.submitter;button.disabled=true;$('#launch-error').textContent='';
@@ -237,7 +239,7 @@ $('#cancel-form').addEventListener('submit',async event=>{
 });
 try{
   settings=await api('settings');
-  $('#launch-mode option[value="default"]').disabled=!settings.context_modes?.includes('default');
+  for(const option of $('#launch-mode').options)option.disabled=!settings.context_modes?.includes(option.value);
   taskPicker=mountTaskPicker($('#launch-task-picker'),{
     defaults:settings.default_tasks.drb2,limit:settings.max_tasks,catalog:settings.task_catalog?.drb2,
   });

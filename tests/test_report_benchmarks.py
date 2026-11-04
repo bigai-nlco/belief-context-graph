@@ -712,6 +712,66 @@ async def test_default_report_mode_needs_no_graph_and_records_zero_graph_usage(d
         run_reports.build_config(args, tasks)
 
 
+@pytest.mark.asyncio
+async def test_full_graph_report_mode_keeps_health_usage_and_export(datasets, tmp_path, monkeypatch):
+    profile = _write(tmp_path / "full-graph.yaml", "llm:\n  model: offline-fixture\nagent:\n  context_mode: bcg_no_retrieval\n  bcg:\n    url: http://graph.test\n    retrieval: query_pcst\n    graph_chars: 6600\n")
+    args = run_reports.parser().parse_args([
+        "run", "drb2", "--data-root", str(datasets), "--pipeline", "stateful-react-agent",
+        "--profile", str(profile), "--out", str(tmp_path / "full-graph-out"),
+    ])
+    tasks = run_reports.load_tasks(args)
+    config = run_reports.build_config(args, tasks)
+    assert config["mode"] == "bcg_no_retrieval" and config["graph_url"] == "http://graph.test"
+    assert config["recent_turns"] == 2 and config["graph_chars"] is None
+    requests = []
+    client = httpx.AsyncClient
+
+    def health(request):
+        requests.append(str(request.url))
+        return httpx.Response(200, json={"status": "ok"})
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: client(transport=httpx.MockTransport(health), **kwargs))
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def run(self, instruction, **kwargs):
+            assert kwargs["meta"]["profile_overrides"]["agent"]["context_mode"] == "bcg_no_retrieval"
+            return {"final_answer": "# Report\nEvidence-based answer.\n## References\nhttps://example.org/source"}
+
+    async def worker(task_id, actual, output, sem):
+        task = next(task for task in tasks if task.task_id == task_id)
+        trial = output / "trials" / task_id
+        _jsonl(trial / "agent/trajectories/react_agent.jsonl", [
+            {"t": "llm", "usage": {"prompt_tokens": 100, "completion_tokens": 20}},
+        ])
+        _write(trial / "agent/bcg/state.json", json.dumps({"problem_id": task_id, "snapshot": {
+            "nodes": [{"id": 1, "belief": "Recorded fact"}], "relations": [],
+            "token_usage": {"llm_totals": {"input_tokens": 30, "output_tokens": 10, "total_tokens": 40}},
+        }}))
+        await run_reports.execute_task(task, actual, trial, session_factory=Session)
+
+    monkeypatch.setattr(run_reports, "run_worker", worker)
+    await run_reports.run(args, tasks)
+    assert requests == ["http://graph.test/health"]
+    from workflows._shared.case_study import CASE_NAME, read_bundle
+
+    for task in tasks:
+        trial = args.out / "trials" / task.task_id
+        result = json.loads((trial / "result.json").read_text())
+        assert result["mode"] == "bcg_no_retrieval" and result["graph_records"] == "agent/"
+        assert result["usage"]["graph"]["total_tokens"] == 40
+        assert result["usage"]["combined"]["total_tokens"] == 160
+        assert read_bundle(trial / CASE_NAME)["cases"][0]["mode"] == "bcg_no_retrieval"
+    args.pipeline = "agent_team"
+    with pytest.raises(ValueError, match="only by stateful-react-agent"):
+        run_reports.build_config(args, tasks)
+
+
 @pytest.mark.parametrize("graph_usage", [
     {"input_tokens": 30, "output_tokens": 10},
     {"totals": {"input_tokens": 30, "output_tokens": 10}},

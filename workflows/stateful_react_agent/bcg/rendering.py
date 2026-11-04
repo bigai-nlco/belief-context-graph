@@ -107,6 +107,8 @@ def action_line(node: dict[str, Any], info: dict[str, Any] | None = None) -> str
     if info["blocked"]:
         return f"- [B{node['id']}] {tool} returned a blocked source"
     content = node.get("belief") or node.get("decision")
+    if not isinstance(content, str) or not content:
+        raise GraphError("selected_node_has_no_text")
     return f"- [B{node['id']}] {escape(content, quote=False)}"
 
 
@@ -218,6 +220,21 @@ def _nodes(snapshot: dict[str, Any]) -> dict[int, dict[str, Any]]:
     }
 
 
+def full_graph_selection(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Include the entire acknowledged snapshot, without ranking or filtering."""
+    relations = snapshot.get("relations", [])
+    if not isinstance(relations, list) or any(
+        not isinstance(edge, dict) or type(edge.get("id")) is not int for edge in relations
+    ):
+        raise GraphError("invalid_graph_relations")
+    return {
+        "strategy": "all",
+        "problem_id": snapshot.get("problem_id"),
+        "node_ids": sorted(_nodes(snapshot)),
+        "relation_ids": sorted(edge["id"] for edge in relations),
+    }
+
+
 def _finding_order(ids: list[int], selection: dict[str, Any]) -> list[int]:
     """Most relevant first: PCST prizes when present, else the selector's order."""
     order = list(dict.fromkeys(ids))
@@ -234,12 +251,12 @@ def _finding_order(ids: list[int], selection: dict[str, Any]) -> list[int]:
 def render_graph(
     snapshot: dict[str, Any],
     selection: dict[str, Any],
-    budget: int,
+    budget: int | None,
     *,
     strict: bool = False,
     style: str = "v0",
 ) -> tuple[str, list[int], list[int]]:
-    """Bound the block without truncating beliefs or inventing relation edges."""
+    """Render real nodes/edges; None disables the cap for full-graph injection."""
     if style not in RENDER_STYLES:
         raise GraphError("invalid_render_style")
     ids, relation_ids = selection.get("node_ids"), selection.get("relation_ids")
@@ -250,7 +267,8 @@ def render_graph(
     ):
         raise GraphError("invalid_selection_ids")
     nodes = _nodes(snapshot)
-    if not set(ids) <= nodes.keys():
+    selected_nodes = set(ids)
+    if not selected_nodes <= nodes.keys():
         raise GraphError("selected_node_missing")
     relations = snapshot.get("relations", [])
     if not isinstance(relations, list):
@@ -261,8 +279,8 @@ def render_graph(
     for relation_id in relation_ids:
         edge = edges[relation_id]
         if (
-            edge.get("from_id") not in ids
-            or edge.get("to_id") not in ids
+            edge.get("from_id") not in selected_nodes
+            or edge.get("to_id") not in selected_nodes
             or edge.get("type") not in {"depends_on", "supplements", "contradicts"}
         ):
             raise GraphError("invalid_selected_relation")
@@ -326,6 +344,9 @@ def render_graph(
         block = block_split
         # Trimming drops the least relevant node, whatever the display order.
         kept = list(order)
+    if budget is None:
+        text, chosen = block(kept)
+        return text, sorted(kept), chosen
     while kept:
         text, chosen = block(kept)
         if len(text) <= budget:

@@ -7,6 +7,7 @@ export const storedToken = () => {try {return localStorage.getItem(TOKEN_KEY) ||
 export function storeToken(token) {localStorage.setItem(TOKEN_KEY, token);}
 export function logout() {localStorage.removeItem(TOKEN_KEY);}
 export const benchmarkLabel = id => id === 'drb2' ? 'DeepResearch Bench II' : id;
+export const contextModeLabel = mode => ({bcg:'BCG',bcg_no_retrieval:'BCG w/o Retrieval',default:'Default'}[mode] || mode || 'BCG');
 export const canAnnotateTask = task => task?.status === 'completed' && task.annotatable === true;
 export const runDisplayStatus = run => run.status === 'running' && run.phase === 'judging' ? 'judging' : run.status;
 export function reportScoreLabel(task) {

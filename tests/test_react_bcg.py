@@ -587,7 +587,7 @@ def test_real_agent_loop_four_tool_steps_then_answer(tmp_path):
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("mode", [None, "bcg", "default"])
+@pytest.mark.parametrize("mode", [None, "bcg", "bcg_no_retrieval", "default"])
 def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode):
     # This test exercises the legacy server selector; query-PCST has its own
     # model-boundary tests with a deterministic embedding provider.
@@ -694,6 +694,10 @@ def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode)
     assert len(provider.inputs[-1]) == 6
     assert result["bcg"]["fallback"] is None
     assert result["bcg"]["evicted_steps"] == 2
+    if mode == "bcg_no_retrieval":
+        assert result["bcg"]["retrieval_strategy"] == "all"
+        assert result["bcg"]["graph_chars_budget"] is None
+        assert not graph.selections
     checkpoint = json.loads((tmp_path / "trial/agent/bcg/state.json").read_text())
     assert checkpoint["acknowledged"][-1]["content"] == result["final_answer"]
     assert (

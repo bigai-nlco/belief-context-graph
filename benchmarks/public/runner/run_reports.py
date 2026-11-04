@@ -268,7 +268,7 @@ async def execute_task(
         "answer_status": state.get("answer_status"),
         "report": "report.md",
         "tool_trace": "tools.jsonl",
-        "graph_records": "agent/" if config.get("mode", "bcg") == "bcg" else None,
+        "graph_records": "agent/" if config.get("mode", "bcg") != "default" else None,
     }
     write_json(trial / "result.json", result)
     from workflows._shared.case_study import try_export_case
@@ -698,9 +698,9 @@ def build_config(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> dict[s
     resolved = resolve_profile(args.pipeline, args.profile)
     agent = resolved.get("agent") or {}
     mode = resolve_context_mode(agent)
-    if mode == "default" and args.pipeline != "stateful-react-agent":
-        raise ValueError("Default context mode is supported only by stateful-react-agent")
-    settings = BCGSettings.from_agent(agent) if mode == "bcg" else None
+    if mode != "bcg" and args.pipeline != "stateful-react-agent":
+        raise ValueError("Default and BCG w/o Retrieval context modes are supported only by stateful-react-agent")
+    settings = BCGSettings.from_agent(agent) if mode != "default" else None
     profile = Path(args.profile)
     # Only non-secret model identifiers are persisted; never keys or full env.
     model = (resolved.get("llm") or {}).get("model", "")
@@ -723,7 +723,7 @@ def build_config(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> dict[s
         "agent_model": model,
         "graph_url": settings.url if settings else None,
         "recent_turns": settings.recent_turns if settings else None,
-        "graph_chars": settings.graph_chars if settings else 0,
+        "graph_chars": settings.graph_budget if settings else 0,
         "cross_graph_chars": (resolved.get("agent", {}).get("bcg") or {}).get(
             "cross_graph_chars", 2000
         ),
@@ -795,7 +795,7 @@ async def run(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> None:
         await asyncio.to_thread(try_export_batch, output, task_ids=config["task_ids"])
         print(json.dumps(summarize(output, config["task_ids"]), ensure_ascii=False, indent=2))
         return
-    if config["mode"] == "bcg":
+    if config["mode"] != "default":
         # Health only: Default does not depend on any Graph service.
         import httpx
 

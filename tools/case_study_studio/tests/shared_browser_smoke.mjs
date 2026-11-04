@@ -321,7 +321,7 @@ try{
   assert.equal((await api('settings')).launch_requires_admin,false);
   assert.equal(await evaluate('document.querySelector("#launch-form [name=drb2]").type'),'hidden');
   const launchSettings=await api('settings');
-  assert.deepEqual(launchSettings.context_modes,['bcg','default']);
+  assert.deepEqual(launchSettings.context_modes,['bcg','bcg_no_retrieval','default']);
   assert.equal(await evaluate('document.querySelector("#launch-mode").value'),'bcg','existing launch defaults to BCG');
   assert.equal(await evaluate('document.querySelector("#launch-mode option[value=default]").disabled'),false);
   await evaluate('document.querySelector("#launch-mode").value="default";document.querySelector("#launch-mode").dispatchEvent(new Event("change",{bubbles:true}))');
@@ -329,6 +329,17 @@ try{
   await click('[data-close=launch-dialog]');await click('#launch-button');
   assert.equal(await evaluate('document.querySelector("#launch-mode").value'),'default','reopening preserves the selected context mode');
   await shot('launch-default-mode.png');
+  assert.equal(await evaluate('document.querySelector("#launch-mode option[value=bcg_no_retrieval]").disabled'),false);
+  await evaluate('document.querySelector("#launch-mode").value="bcg_no_retrieval";document.querySelector("#launch-mode").dispatchEvent(new Event("change",{bubbles:true}))');
+  assert(await evaluate('document.querySelector("#launch-context-info").textContent.includes("全部节点和边")'));
+  assert(await evaluate('document.querySelector("#launch-context-info").textContent.includes("不按 6,600 字符裁剪")'));
+  for(const width of [1440,430,320]){
+    await command('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:false});
+    assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'full-graph mode dialog does not overflow');
+    assert(await evaluate('document.querySelector("#launch-dialog").scrollWidth<=document.querySelector("#launch-dialog").clientWidth+1'),'full-graph mode option fits dialog');
+    await shot('launch-no-retrieval-'+width+'.png');
+  }
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await evaluate('document.querySelector("#launch-mode").value="bcg";document.querySelector("#launch-mode").dispatchEvent(new Event("change",{bubbles:true}))');
   assert(await evaluate('document.querySelector("#launch-context-info").textContent.includes("Graph 6,600 字符")'));
   assert.equal(await evaluate('document.querySelector("#launch-form [name=drb2]").value'),launchSettings.default_tasks.drb2.join(','),'launch form uses the server default task list');
@@ -463,6 +474,23 @@ try{
   assert.equal(await evaluate('document.querySelectorAll("#cancel-form [name=admin]").length'),0);
   await shot('cancel-dialog.png');await click('#cancel-form [type=submit]');
   await until(async()=> (await api('runs/2')).status==='cancelled','cancel queue');
+  await click('#launch-button');
+  await evaluate('document.querySelector("#launch-mode").value="bcg_no_retrieval";document.querySelector("#launch-mode").dispatchEvent(new Event("change",{bubbles:true}))');
+  await click('#launch-form [type=submit]');
+  await until(()=>evaluate('document.querySelector(".run-heading .eyebrow")?.textContent==="RUN-0003"'),'queued full-graph batch');
+  const fullGraphRun=await api('runs/3');
+  assert.equal(fullGraphRun.mode,'bcg_no_retrieval');
+  assert.equal(fullGraphRun.graph,'gpt-6-luna');
+  assert.equal(fullGraphRun.judge.enabled,true);
+  assert(await evaluate('document.querySelector(".run-heading").textContent.includes("模式：BCG w/o Retrieval")'));
+  assert(await evaluate('document.querySelector(".run-item.selected").textContent.includes("BCG w/o Retrieval")'));
+  for(const width of [1440,430,320]){
+    await command('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:false});
+    assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'long mode name does not widen run list');
+    await shot('run-no-retrieval-'+width+'.png');
+  }
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+  await api('runs/3/cancel',aliceToken,'POST',{});
   await navigate('/?run=1');await until(()=>evaluate('!!document.querySelector(".run-table a")'),'historical results');
   // Hold only the synthetic evidence response to inspect the real loading screen.
   let heldEvidence;

@@ -4,7 +4,7 @@ import {sha256Hex} from './browser_crypto.mjs';
 export const REAL_DEMO_ID = 'europa-clipper-juice-20261020';
 
 export function demoLabel(c) {
-  return c.demoKind === 'real' ? '真实运行 Demo' : c.demo ? '虚构教学示例' : c.mode || '待分析';
+  return c.demoKind === 'real' ? '真实运行 Demo' : c.demo ? '虚构教学示例' : c.mode === 'bcg_no_retrieval' ? 'BCG w/o Retrieval' : c.mode || '待分析';
 }
 
 export async function buildDemoCase(bundle) {

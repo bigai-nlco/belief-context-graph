@@ -152,7 +152,7 @@ class Control:
             {"id": key, **{k: v for k, v in value.items() if k != "source"}}
             for key, value in self.profiles().items()
             if safe_child(self.root, value["source"]).is_file()],
-            "default_tasks": DEFAULT_IDS, "context_modes": ["bcg", "default"],
+            "default_tasks": DEFAULT_IDS, "context_modes": ["bcg", "bcg_no_retrieval", "default"],
             "graph_model": "gpt-6-luna", "graph_effort": "none",
             "max_tasks": MAX_TASKS, "poll_seconds": 3, "launch_requires_admin": False,
             "task_catalog": {"drb2": self.task_catalog()}}
@@ -326,7 +326,7 @@ class Control:
             "started_at": row["started_at"] or batch.get("started_at"),
             "finished_at": row["finished_at"] or batch.get("finished_at"),
             "agent": batch.get("agent", {}).get("model") or config.get("agent_model", ""),
-            "graph": (batch.get("graph", {}).get("model") or "gpt-6-luna") if mode == "bcg" else None,
+            "graph": (batch.get("graph", {}).get("model") or "gpt-6-luna") if mode != "default" else None,
             "workers": batch.get("workers") or config.get("workers"),
             "phase": batch.get("phase"),
             "judge": batch.get("judge", {"enabled": bool(config.get("judge_reports"))}),
@@ -469,8 +469,8 @@ class Control:
 
     def create_run(self, data: dict, user: dict) -> dict:
         mode = data.get("mode", "bcg")
-        if mode not in ("bcg", "default"):
-            raise APIError(400, "请选择 BCG 或 Default 模式")
+        if mode not in ("bcg", "bcg_no_retrieval", "default"):
+            raise APIError(400, "请选择 BCG、BCG w/o Retrieval 或 Default 模式")
         profile_id = data.get("profile")
         profile = self.profiles().get(profile_id) if isinstance(profile_id, str) else None
         if not profile or not safe_child(self.root, profile["source"]).is_file():

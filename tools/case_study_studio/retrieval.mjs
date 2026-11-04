@@ -54,7 +54,7 @@ export function retrievalRows(graph, ctx) {
       prize: recordedPrize ?? replay?.prize,
       relevanceOrigin: finite(recorded?.relevance) ? 'recorded' : finite(replay?.relevance) ? 'replay' : 'missing',
       prizeOrigin: finite(recordedPrize) ? 'recorded' : finite(replay?.prize) ? 'replay' : 'missing',
-      scoringSkipped: !selection.strategy && !selection.node_scores && !ctx.nodeIds.length && !ctx.fallback,
+      scoringSkipped: selection.strategy === 'all' || (!selection.strategy && !selection.node_scores && !ctx.nodeIds.length && !ctx.fallback),
       relevanceApplicable: selection.strategy !== 'confidence_pcst'};
   }).sort((a, b) => Number(b.selected) - Number(a.selected) || (b.prize ?? -1) - (a.prize ?? -1) || a.node.id - b.node.id);
 }
@@ -146,6 +146,7 @@ export function renderRetrieval(c, state) {
   const rows=retrievalRows(graph,ctx), active=rows.find(r=>String(r.node.id)===state.retrievalNode) || rows[0];
   state.retrievalNode=active?String(active.node.id):'';
   const budget=ctx.raw.graph_chars_budget ?? selection.graph_chars_budget;
+  const noRetrieval=(selection.strategy || ctx.raw.retrieval_strategy)==='all';
   const embedding=selection.embedding || {}, cache=embedding.persistent_cache || {};
   const file=c.files.find(f=>f.id===ctx.fileId)?.path || '';
   const filter=(state.retrievalQuery || '').toLowerCase();
@@ -153,12 +154,12 @@ export function renderRetrieval(c, state) {
   const metric=(label,value)=>`<div><dt>${label}</dt><dd>${esc(value)}</dd></div>`;
   const notices={missing:'缺少对应时刻的已确认快照，不使用最终图代替。', ambiguous:'同一调用对应多份不同快照，无法确定当时图。', mismatch:'快照缺少审计中选中的节点或关系，请核对文件是否来自同次运行。'};
   return `<section class="retrieval-view" data-copy-lock>
-    <div class="retrieval-heading"><div><span class="eyebrow">RETRIEVAL INSPECTOR</span><h3>沿轨迹查看每次选图</h3><p>完整图、实际注入子图与当轮评分。</p></div><span class="retrieval-badge">${esc(selection.strategy || ctx.raw.retrieval_strategy || '旧版检索')}</span></div>
+    <div class="retrieval-heading"><div><span class="eyebrow">RETRIEVAL INSPECTOR</span><h3>沿轨迹查看每次选图</h3><p>完整图、实际注入子图与当轮评分。</p></div><span class="retrieval-badge">${esc(noRetrieval?'BCG w/o Retrieval':selection.strategy || ctx.raw.retrieval_strategy || '旧版检索')}</span></div>
     <nav class="retrieval-navigation" aria-label="逐轮选图切换"><button class="button" data-retrieval-step="-1" ${index===0?'disabled':''}>← 上一轮</button><label>模型调用<select id="retrieval-round">${rounds.map((r,i)=>`<option value="${esc(r.id)}" ${r.id===ctx.id?'selected':''}>${i+1}. call ${esc(r.call)} · ${esc(r.graphId || c.files.find(f=>f.id===r.fileId)?.path || '')}</option>`).join('')}</select></label><button class="button" data-retrieval-step="1" ${index===rounds.length-1?'disabled':''}>下一轮 →</button></nav>
     <p class="retrieval-provenance">${index+1} / ${rounds.length} 次调用 · ${esc(file)} · Graph 已确认 turns：${esc(graph?.nTurns ?? ctx.raw.graph_n_turns_ingested ?? '未记录')}</p>
     ${ctx.fallback?`<p class="notice amber">本轮回退到原始上下文：${esc(ctx.fallback)}。下方高亮以实际注入 ID 为准。</p>`:!ctx.nodeIds.length?'<p class="notice">本轮未注入子图，可能尚未发生历史裁剪。</p>':''}
-    ${selection.score_replay?`<p class="retrieval-legacy">已补算 ${Object.keys(selection.score_replay.node_scores || {}).length} 个候选节点的评分，标记为“补算”。选点、边、子图收益和注入文本仍为原始记录。${selection.score_replay.comparison?.matches_within_tolerance===false?' 补算 prize 与部分原记录有差异，不能当作历史原值。':''}</p>`:selection.strategy&&!selection.node_scores?'<p class="retrieval-legacy">旧记录未保存全部候选评分。缺失值显示“未记录”，不会重新计算后冒充当时结果。</p>':!selection.strategy?'<p class="retrieval-legacy">本轮没有评分记录；未发生检索的调用显示“未计算”。</p>':''}
-    <dl class="retrieval-metrics">${metric('完整图',graph?`${graph.nodes.length} 点 / ${graph.relations.length} 边`:'快照未匹配')}${metric('实际选中',`${ctx.nodeIds.length} 点 / ${ctx.relationIds.length} 边`)}${metric('子图收益',fmt(selection.objective))}${metric('图字符 / 上限',`${fmt(ctx.raw.graph_chars)} / ${fmt(budget)}`)}${metric('每条边成本',fmt(selection.parameters?.edge_cost))}${metric('上下文准备（秒）',fmt(finite(ctx.raw.duration_ms) ? ctx.raw.duration_ms / 1000 : null))}</dl>
+    ${noRetrieval?'<p class="retrieval-legacy">全图注入模式：跳过检索与候选评分，不按字符预算筛选节点和边。</p>':selection.score_replay?`<p class="retrieval-legacy">已补算 ${Object.keys(selection.score_replay.node_scores || {}).length} 个候选节点的评分，标记为“补算”。选点、边、子图收益和注入文本仍为原始记录。${selection.score_replay.comparison?.matches_within_tolerance===false?' 补算 prize 与部分原记录有差异，不能当作历史原值。':''}</p>`:selection.strategy&&!selection.node_scores?'<p class="retrieval-legacy">旧记录未保存全部候选评分。缺失值显示“未记录”，不会重新计算后冒充当时结果。</p>':!selection.strategy?'<p class="retrieval-legacy">本轮没有评分记录；未发生检索的调用显示“未计算”。</p>':''}
+    <dl class="retrieval-metrics">${metric('完整图',graph?`${graph.nodes.length} 点 / ${graph.relations.length} 边`:'快照未匹配')}${metric('实际选中',`${ctx.nodeIds.length} 点 / ${ctx.relationIds.length} 边`)}${metric('子图收益',fmt(selection.objective))}${metric('图字符 / 上限',`${fmt(ctx.raw.graph_chars)} / ${noRetrieval?'无上限':fmt(budget)}`)}${metric('每条边成本',fmt(selection.parameters?.edge_cost))}${metric('上下文准备（秒）',fmt(finite(ctx.raw.duration_ms) ? ctx.raw.duration_ms / 1000 : null))}</dl>
     <details class="retrieval-calculation"><summary>查看计算参数、问题与向量缓存</summary><p>query_pcst：prize = relevance × [ε + (1 − ε) × confidence]；子图收益 = 节点奖励之和 − 边成本 × 所选边数。值来自该轮审计。</p><dl class="retrieval-metrics">${metric('ε',fmt(selection.parameters?.confidence_floor))}${metric('求解次数',fmt(selection.solver_calls))}${metric('长度惩罚',fmt(selection.size_penalty))}${metric('裁掉叶子',fmt(selection.leaves_pruned))}${metric('读回缓存文本',fmt(cache.loaded_texts))}${metric('新编码节点分块',fmt(embedding.new_node_chunks_encoded))}</dl><strong>问题</strong><pre>${esc(selection.query?.question || '未记录')}</pre><strong>当前焦点</strong><pre>${esc(selection.query?.focus || '未记录 / 使用原问题')}</pre><details><summary>原始选图审计</summary><pre>${esc(JSON.stringify(ctx.raw,null,2))}</pre></details></details>
     ${graph?`<div class="retrieval-controls"><div role="group" aria-label="图显示范围"><button class="button ${state.retrievalScope!=='selected'?'primary':''}" data-retrieval-scope="all">完整图 + 高亮选点</button><button class="button ${state.retrievalScope==='selected'?'primary':''}" data-retrieval-scope="selected">只看选中子图</button></div><label><input id="retrieval-labels" type="checkbox" ${state.retrievalLabels==='on'?'checked':''}> 在图上显示正文摘要</label></div>
     <div class="retrieval-legend"><span class="selected">● 已注入</span><span>○ 未选中</span><span class="active">◎ 当前查看</span><span>悬停读正文 · 点击看详情 · 拖动平移</span></div>

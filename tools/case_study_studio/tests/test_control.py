@@ -295,6 +295,11 @@ def test_context_mode_is_validated_saved_and_displayed(control: Control) -> None
         with pytest.raises(APIError, match="模式"):
             control.create_run(request_config(mode=mode), user)
     assert control.create_run(request_config(), user)["mode"] == "bcg"
+    result = control.create_run(request_config(mode="bcg_no_retrieval"), user)
+    assert result["mode"] == "bcg_no_retrieval" and result["graph"] == "gpt-6-luna"
+    assert json.loads(control.row(result["id"])["config"])["mode"] == "bcg_no_retrieval"
+    assert result["judge"]["enabled"]
+    assert control.settings()["context_modes"] == ["bcg", "bcg_no_retrieval", "default"]
 
 
 def test_report_scores_do_not_change_annotation_status(control: Control) -> None:
