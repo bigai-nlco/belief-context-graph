@@ -65,10 +65,10 @@ def main() -> None:
             ) if getattr(args, key) is not None},
         }})
         started = time.monotonic()
-        selection = PCSTSelector(settings).select(snapshot, question, focus, args.budget)
+        selection = PCSTSelector(settings, settings.render_style).select(snapshot, question, focus, args.budget)
         selection["elapsed_seconds"] = time.monotonic() - started
         selection["rendered_context"] = (
-            render_graph(snapshot, selection, args.budget, strict=True)[0]
+            render_graph(snapshot, selection, args.budget, strict=True, style=settings.render_style)[0]
             if selection["node_ids"] else ""
         )
         output["selections"].append(selection)

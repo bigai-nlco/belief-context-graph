@@ -137,8 +137,29 @@ def test_query_prizes_apply_confidence_floor_and_keep_bridge(solver, monkeypatch
     assert result["node_scores"]["10"]["relevance"] == 1.0
     assert result["node_scores"]["10"]["confidence"] == 0.0
     assert result["node_scores"]["10"]["confidence_factor"] == pytest.approx(0.2)
+    assert result["node_scores"]["20"]["graph_contribution"] == pytest.approx(0.5)
+    assert result["node_scores"]["20"]["contribution_factor"] == pytest.approx(1.5)
     assert result["node_scores"]["40"]["prize"] == 0.0  # Rejected nodes remain auditable.
     assert set(result["node_scores"]) == {"10", "20", "30", "40"}
+
+
+def test_relevant_dependent_claim_rewards_its_premise(monkeypatch):
+    monkeypatch.setattr(
+        pcst,
+        "_encoder",
+        lambda *_: SimpleNamespace(
+            score=lambda *_: ([0.8, 0.4, 0.0, 0.0], {"model": "fake"})
+        ),
+    )
+    snapshot = graph()
+    scores = pcst.PCSTSelector(BCGSettings()).score_nodes(
+        snapshot, "q", "f"
+    )["node_scores"]
+    # Node 10 depends on node 20; node 20 earns node 10's share of all
+    # non-pinned task relevance (0.8 / (0.8 + 0.4)).
+    assert scores["20"]["graph_contribution"] == pytest.approx(2 / 3)
+    assert scores["10"]["graph_contribution"] == 0.0
+    assert scores["20"]["prize"] > 0.0
 
 
 def test_confidence_mode_does_not_load_encoder(solver, monkeypatch):

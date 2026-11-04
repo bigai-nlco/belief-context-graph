@@ -22,7 +22,7 @@ from frontier_agent.core.messages import Message
 from .client import GraphError
 from .embeddings import RemoteRelevance
 from .messages import assistant_text, tool_calls
-from .rendering import GRAPH_OVERHEAD, _nodes, node_line, relation_line, render_graph
+from .rendering import _nodes, graph_overhead, relation_line, render_graph, styled_node_line
 from .vector_store import TongGraphVectorStore
 
 if TYPE_CHECKING:
@@ -60,6 +60,46 @@ def _confidence(node: dict[str, Any]) -> float:
     if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value):
         return 0.5
     return max(0.0, min(1.0, float(value)))
+
+
+def _dependency_contribution(
+    nodes: dict[int, dict[str, Any]],
+    relations: list[dict[str, Any]],
+    relevance: dict[int, float],
+) -> dict[int, float]:
+    """Share of relevant downstream claims that depend on each node.
+
+    This is task-specific retrieval value, not a factual confidence update.
+    ``A depends_on B`` means B contributes to A, so A's relevance rewards B.
+    Normalizing by total relevance keeps this feature bounded in [0, 1].
+    """
+    def is_pinned(node: dict[str, Any]) -> bool:
+        source = node.get("source")
+        return isinstance(source, dict) and source.get("turn_id") in {0, 1}
+
+    denominator = sum(
+        max(0.0, float(relevance.get(node_id, 0.0)))
+        for node_id, node in nodes.items()
+        if not is_pinned(node)
+    )
+    contribution = {node_id: 0.0 for node_id in nodes}
+    if denominator <= 0.0:
+        return contribution
+    for relation in relations:
+        if relation.get("type") != "depends_on":
+            continue
+        try:
+            dependent_id = int(relation.get("from_id"))
+            premise_id = int(relation.get("to_id"))
+        except (TypeError, ValueError):
+            continue
+        dependent = nodes.get(dependent_id)
+        if dependent is None or premise_id not in nodes or is_pinned(dependent):
+            continue
+        contribution[premise_id] += max(
+            0.0, float(relevance.get(dependent_id, 0.0))
+        ) / denominator
+    return {node_id: min(1.0, value) for node_id, value in contribution.items()}
 
 
 class LocalRelevance:
@@ -176,6 +216,7 @@ def _encoder(settings: BCGSettings) -> LocalRelevance | RemoteRelevance:
 
 def select_prized_tree(
     snapshot: dict[str, Any], prizes: dict[int, float], budget: int, *, edge_cost: float = 0.2,
+    style: str = "v0",
 ) -> dict[str, Any]:
     """Return one connected tree within the *rendered* budget, or no selection.
 
@@ -188,10 +229,13 @@ def select_prized_tree(
     if not math.isfinite(edge_cost) or edge_cost <= 0:
         raise GraphError("invalid_pcst_edge_cost")
     nodes = _nodes(snapshot)
-    node_chars = {i: len(node_line(n)) + 1 for i, n in nodes.items()}
+    # Costs use the exact line format of the active render style, so the
+    # strict render below never disagrees with the solver's budget.
+    overhead = graph_overhead(style)
+    node_chars = {i: len(styled_node_line(n, style)) + 1 for i, n in nodes.items()}
     # A whole node larger than the budget cannot participate in any feasible
     # output. This is a size feasibility check, never a confidence threshold.
-    ids = sorted(i for i in nodes if GRAPH_OVERHEAD + node_chars[i] <= budget)
+    ids = sorted(i for i in nodes if overhead + node_chars[i] <= budget)
     rewards = {i: float(prizes.get(i, 0.0)) for i in ids}
     if any(not math.isfinite(p) or p < 0 for p in rewards.values()):
         raise GraphError("invalid_pcst_prize")
@@ -235,7 +279,7 @@ def select_prized_tree(
     index = {i: j for j, i in enumerate(ids)}
     best_id = max(ids, key=lambda i: (rewards[i], -node_chars[i], -i))
     best_nodes, best_edges = {best_id}, set()
-    best_key = (rewards[best_id], -(GRAPH_OVERHEAD + node_chars[best_id]))
+    best_key = (rewards[best_id], -(overhead + node_chars[best_id]))
     best_penalty, best_pruned = 0.0, 0
     solver_calls = 0
     if edges:
@@ -278,7 +322,7 @@ def select_prized_tree(
                     pending.extend(adjacency[i])
             if visited != kept or len(kept_edges) != len(kept) - 1:
                 raise GraphError("invalid_pcst_tree")
-            size = GRAPH_OVERHEAD + sum(node_chars[i] for i in kept) + sum(edge_chars[k] for k in kept_edges)
+            size = overhead + sum(node_chars[i] for i in kept) + sum(edge_chars[k] for k in kept_edges)
             pruned = 0
             while size > budget and len(kept) > 1:
                 leaves = [i for i in kept if len(adjacency[i]) == 1]
@@ -310,14 +354,15 @@ def select_prized_tree(
         solver_calls=solver_calls,
         selected_prizes={str(i): rewards[i] for i in sorted(best_nodes)},
     )
-    rendered, _, _ = render_graph(snapshot, result, budget, strict=True)
+    rendered, _, _ = render_graph(snapshot, result, budget, strict=True, style=style)
     result["rendered_chars"] = len(rendered)
     return result
 
 
 class PCSTSelector:
-    def __init__(self, settings: BCGSettings) -> None:
+    def __init__(self, settings: BCGSettings, style: str = "v0") -> None:
         self.settings = settings
+        self.style = style
 
     def persist_snapshot(self, snapshot: dict[str, Any]) -> dict[str, Any]:
         encoder = _encoder(self.settings)
@@ -343,9 +388,18 @@ class PCSTSelector:
             )
             relevance = dict(zip(nodes, scores, strict=True))
             floor = settings.pcst_confidence_floor
-            prizes = {i: relevance[i] * (floor + (1 - floor) * _confidence(n)) for i, n in nodes.items()}
+            contribution = _dependency_contribution(
+                nodes, snapshot.get("relations") or [], relevance
+            )
+            prizes = {
+                i: relevance[i]
+                * (floor + (1 - floor) * _confidence(node))
+                * (1.0 + contribution[i])
+                for i, node in nodes.items()
+            }
         elif settings.retrieval == "confidence_pcst":
             prizes = {i: _confidence(n) for i, n in nodes.items()}
+            contribution = {i: 0.0 for i in nodes}
         else:
             raise GraphError("invalid_pcst_strategy")
         # Pinned initial-user beliefs can bridge, but receive no reward for
@@ -369,10 +423,15 @@ class PCSTSelector:
                     settings.pcst_confidence_floor + (1 - settings.pcst_confidence_floor) * _confidence(node)
                     if settings.retrieval == "query_pcst" else None
                 ),
+                "graph_contribution": contribution.get(i, 0.0),
+                "contribution_factor": 1.0 + contribution.get(i, 0.0),
                 "prize": prizes[i],
                 "pinned_input": isinstance(node.get("source"), dict) and node["source"].get("turn_id") in {0, 1},
-                "rendered_chars": GRAPH_OVERHEAD + len(node_line(node)) + 1,
-                "feasible": GRAPH_OVERHEAD + len(node_line(node)) + 1 <= budget if budget is not None else None,
+                "rendered_chars": graph_overhead(self.style) + len(styled_node_line(node, self.style)) + 1,
+                "feasible": (
+                    graph_overhead(self.style) + len(styled_node_line(node, self.style)) + 1 <= budget
+                    if budget is not None else None
+                ),
             } for i, node in nodes.items()},
         )
 
@@ -381,6 +440,8 @@ class PCSTSelector:
     ) -> dict[str, Any]:
         audit = self.score_nodes(snapshot, question, focus, budget)
         prizes = {int(i): score["prize"] for i, score in audit["node_scores"].items()}
-        selection = select_prized_tree(snapshot, prizes, budget, edge_cost=self.settings.pcst_edge_cost)
+        selection = select_prized_tree(
+            snapshot, prizes, budget, edge_cost=self.settings.pcst_edge_cost, style=self.style,
+        )
         selection.update(audit)
         return selection

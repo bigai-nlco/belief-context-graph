@@ -127,11 +127,14 @@ query 模式：
 ```text
 relevance(v) = 0.5 × max_cosine(question_chunks, belief_chunks)
              + 0.5 × max_cosine(focus_chunks, belief_chunks)
-prize(v) = relevance(v) × [ε + (1 − ε) × clamp(confidence(v), 0, 1)]
+support_factor(v) = ε + (1 − ε) × clamp(confidence(v), 0, 1)
+contribution(v) = relevant dependent claims of v / all relevant claims
+prize(v) = relevance(v) × support_factor(v) × (1 + contribution(v))
 ```
 
-余弦相似度的负值截为 0。缺失或非有限的 confidence 按 0.5 处理。
-这是上下文选择价值，不是重新估计真实性。`ε=0.2`、`edge_cost=0.2` 是初始参数，尚未调优。
+余弦相似度的负值截为 0。`A depends_on B` 时，A 对任务越相关，B 的 contribution 越高；只计依赖关系，不把 supplements/contradicts 当作支持。贡献按所有非初始用户输入的相关度之和归一化并截在 [0, 1]，所以贡献因子在 [1, 2]。初始用户输入仍然奖励为 0。
+
+缺失或非有限的 confidence 按 0.5 处理。`confidence` 是图中已有的来源/stance/证据支持指标；`relevance` 和 `contribution` 是每次请求重新计算的检索价值，分开记录在 selector audit 中，不回写图节点的 confidence。PCST 选取价值是任务效用，不能解释成事实正确概率。`ε=0.2`、`edge_cost=0.2` 仍是初始参数，尚未调优。
 
 `question` 来自用户输入；`focus` 来自最近一次助手的搜索参数与可读意图，不拼接工具结果正文。
 最多取四个去重搜索参数，每个 400 字符，再取最近助手意图的末尾 1,200 字符。

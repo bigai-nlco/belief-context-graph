@@ -914,6 +914,7 @@ async def react_agent_node(state: dict[str, Any], ctx: NodeContext) -> dict[str,
     if bcg_settings is not None:
         memory = BCGMemory(
             bcg_settings, bcg_dir, str(metadata.get("session_id") or ctx.task_id),
+            render_style=bcg_settings.render_style,
         )
         if not direct:
             tools.append(memory.recovery_tool())
