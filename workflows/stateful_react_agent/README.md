@@ -41,18 +41,6 @@ processing, repetition guards, model context-size limits and turn/time limits
 still apply. This mode adds no automatic history compaction. Tools, sandboxing,
 Agent model settings and report judging otherwise remain the same.
 
-When `agent.max_len` is configured, Default also uses the loop's existing
-context-overflow guard after each tool batch. It projects the next request using
-the last reported input/output usage, new tool results, an estimation margin and
-`llm.max_tokens` reserved for output. On reaching the limit, it stops research
-with `context_limit_reached` and runs the existing bounded final-answer recovery.
-For the Studio Qwen profile, the window is 49,152 tokens and the output reserve
-is 8,192. This is a graceful budget stop, not ongoing history compaction or a
-switch to BCG. The check is deliberately not applied to BCG's full audit history,
-which is larger than the actual projected model input. Unexpected provider
-failures still remain failures even if recovery produces a partial report;
-`result.json` records the returned error and `llm_error_reason`.
-
 To select it outside Studio, add this key to a copy of your existing ReAct YAML
 profile while preserving its other settings:
 
