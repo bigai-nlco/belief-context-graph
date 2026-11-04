@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import pytest
@@ -237,3 +238,12 @@ def test_unified_prior_uses_distinct_role_and_stance_components() -> None:
         for role in ("user", "tool", "assistant")
         for stance in ("asserted", "recalled", "judged", "speculated")
     }) > 8
+
+
+def test_unified_independent_support_uses_log_likelihood_ratio() -> None:
+    evidence = {"role": "tool", "stance": "asserted"}
+    expected_quality = (0.80 + 0.75) / 2
+
+    assert unified_confidence.evidence_contribution(evidence) == pytest.approx(
+        math.log(expected_quality / (1 - expected_quality))
+    )

@@ -123,10 +123,18 @@ def relation_propagation_config(
 
 
 def evidence_contribution(evidence: dict[str, Any]) -> float:
-    """Compute one additional evidence term: w_i * evidence_i."""
+    """Return the log-likelihood-ratio contribution of one support observation.
+
+    The role and stance signals are treated as an estimated probability that
+    this observation is reliable. Under the symmetric-noise assumption, the
+    likelihood ratio for a positive observation is q / (1 - q), so confidence
+    updates add logit(q) in log-odds space. Independent evidence is deduplicated
+    before this function is used.
+    """
     role = _role_from_record(evidence)
     stance = evidence.get("stance") or "asserted"
-    return source_reliability(role) * stance_quality(stance)
+    quality = (source_reliability(role) + stance_quality(stance)) / 2.0
+    return logit(quality)
 
 
 # =============================================================
