@@ -11,21 +11,28 @@ from collections import Counter, deque
 from html import escape
 from typing import Any
 
-ANCHOR_ROLES = frozenset({"goal", "subgoal", "plan", "next_action"})
-TASK_ROLES = ANCHOR_ROLES | {"evidence", "intermediate_conclusion", "constraint", "progress", "other"}
+ANCHOR_ROLES = frozenset({"task"})
+TASK_ROLES = ANCHOR_ROLES | {"plan", "evidence", "intermediate_conclusion", "constraint", "progress", "other"}
+LEGACY_ROLES = {"goal": "task", "subgoal": "task", "next_action": "plan"}
 STATUSES = frozenset({"open", "in_progress", "blocked", "reported_complete", "cancelled"})
 
 EXTRACTION_GUIDANCE = """## Task-state annotations
-In this SAME extraction, add task_role to each new belief: evidence (observed or
+In this SAME extraction, add task_role to each new belief: task (an explicit
+requested outcome or bounded work item whose completion can be tracked), plan
+(a proposed method or intended next action for a task), evidence (observed or
 attributed information), intermediate_conclusion (a derived claim or hypothesis),
-goal (requested outcome), subgoal (explicit bounded work item), plan (proposed
-method), next_action (specific intended next step), constraint, progress, or other.
-Retain explicit useful goals, plans, next actions, blockers and progress updates,
-but omit generic procedural filler. Do not invent a plan or split a task that the
-current text does not split. Keep observations separate from derived conclusions.
+constraint, progress, or other. Only task creates a task record. Goals and subtasks
+both use task; methods and next actions both use plan. A search/fetch intention is
+a plan, not another task. Do not duplicate one intention as both task and plan.
+Retain explicit useful tasks, plans, blockers and progress updates, but omit
+generic procedural filler. Do not invent a plan or split a task that the current
+text does not split. Keep observations separate from derived conclusions.
 
-Optional task_ids lists integer IDs of SHOWN historical goal/subgoal/plan/next_action
-beliefs explicitly addressed by the new belief. Use [] if the target is uncertain.
+Optional task_ids lists integer IDs of SHOWN historical task beliefs explicitly
+addressed by the new belief. For a task, these identify its parent task(s); for a
+plan, its target task(s); for progress, the task(s) being updated. Never reference
+a plan as a task. Use [] if the target is uncertain or not shown. A plan without
+a known target stays a plan; do not invent a task to attach it to.
 Do not use IDs from other sessions, guess an ID, or refer to an output-array index.
 For progress only, add task_status: open | in_progress | blocked |
 reported_complete | cancelled. Use reported_complete only when the current speaker
@@ -41,9 +48,49 @@ numeric confidence, or a separate task summary. Final decisions stay decisions.
 """
 
 
+def canonical_task_role(value: Any) -> str | None:
+    """Read old role labels without changing stored historical graphs."""
+    if not isinstance(value, str):
+        return None
+    kind = LEGACY_ROLES.get(value, value)
+    return kind if kind in TASK_ROLES | {"tool_action", "decision"} else None
+
+
+def _task_node_view(values: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+    """Normalize a projection only; follow explicit legacy plan references."""
+    nodes = {n["id"]: {**n, "task_role": canonical_task_role(n.get("task_role")) or "other"}
+             for n in values if type(n.get("id")) is int}
+
+    def resolve(refs: Any, *, follow_plans: bool) -> list[int]:
+        pending = list(refs) if isinstance(refs, list) else []
+        seen: set[int] = set()
+        anchors: set[int] = set()
+        while pending:
+            ident = pending.pop()
+            if type(ident) is not int or ident in seen or ident not in nodes:
+                continue
+            seen.add(ident)
+            target = nodes[ident]
+            if target["task_role"] in ANCHOR_ROLES:
+                anchors.add(ident)
+            elif follow_plans and target["task_role"] == "plan":
+                parents = target.get("task_ids", [])
+                if isinstance(parents, list):
+                    pending.extend(parents)
+        return sorted(anchors)
+
+    # Compute every result before replacing references so input order is irrelevant.
+    # Completing an old plan does NOT mean its parent task is complete. Status
+    # events must directly name a real task, even during legacy projection.
+    resolved = {i: resolve(n.get("task_ids", []), follow_plans=n["task_role"] != "progress")
+                for i, n in nodes.items()}
+    return {i: {**n, "task_ids": [ref for ref in resolved[i] if ref != i]}
+            for i, n in nodes.items()}
+
+
 def clean_annotation(raw: dict[str, Any]) -> dict[str, Any]:
-    kind = raw.get("task_role")
-    if not isinstance(kind, str) or kind not in TASK_ROLES:
+    kind = canonical_task_role(raw.get("task_role"))
+    if kind not in TASK_ROLES:
         return {}
     refs = raw.get("task_ids")
     out: dict[str, Any] = {"task_role": kind, "task_ids": sorted({
@@ -69,7 +116,7 @@ def classify_node(node: dict[str, Any], annotation: dict[str, Any], previous: li
         if role not in {"user", "assistant"}:
             parsed = {}
         node.update(parsed or {"task_role": "other"})
-        allowed = {n["id"] for n in previous if n.get("task_role") in ANCHOR_ROLES}
+        allowed = {n["id"] for n in previous if canonical_task_role(n.get("task_role")) in ANCHOR_ROLES}
         raw_ids = node.get("task_ids", [])
         node["task_ids"] = [i for i in raw_ids if i in allowed]
         rejected = set(annotation.get("task_rejected_ids", [])) | {i for i in raw_ids if i not in allowed}
@@ -85,8 +132,9 @@ def task_history(recent: list[dict[str, Any]], all_nodes: list[dict[str, Any]], 
     """Keep old task anchors addressable, within the existing extraction cap."""
     if budget < 2:
         return ""
-    anchors = [n for n in all_nodes if n.get("task_role") in ANCHOR_ROLES][-12:]
-    ordered = [*reversed(anchors), *reversed(recent)]
+    view = _task_node_view(all_nodes)
+    anchors = [n for _, n in sorted(view.items()) if n["task_role"] in ANCHOR_ROLES][-12:]
+    ordered = [*reversed(anchors), *(view[n["id"]] for n in reversed(recent) if n["id"] in view)]
     rows: list[dict[str, Any]] = []
     seen: set[int] = set()
     for node in ordered:
@@ -105,7 +153,7 @@ def task_history(recent: list[dict[str, Any]], all_nodes: list[dict[str, Any]], 
 
 def build_task_state(snapshot: dict[str, Any], *, max_hops: int = 3) -> dict[str, Any]:
     """Recompute an auditable view, without modifying beliefs, edges or scores."""
-    nodes = {n["id"]: n for n in snapshot.get("nodes", []) if type(n.get("id")) is int}
+    nodes = _task_node_view(snapshot.get("nodes", []))
     anchors = {i for i, n in nodes.items() if n.get("task_role") in ANCHOR_ROLES}
     edges = [r for r in snapshot.get("relations", []) if r.get("from_id") in nodes and r.get("to_id") in nodes]
     adjacent: dict[int, list[tuple[int, int]]] = {i: [] for i in nodes}
@@ -151,6 +199,7 @@ def build_task_state(snapshot: dict[str, Any], *, max_hops: int = 3) -> dict[str
             "update_ids": [n["id"] for n in updates],
             "associated_belief_ids": sorted(n["id"] for n in associated),
             "parent_ids": [f"T{i}" for i in source.get("task_ids", []) if i in anchors and i < anchor],
+            "plan_ids": sorted(n["id"] for n in associated if n.get("task_role") == "plan"),
             "evidence_ids": evidence, "intermediate_conclusion_ids": conclusions,
             "related_action_ids": sorted(i for i in paths if nodes[i].get("task_role") == "tool_action"),
             "relation_paths": {str(i): paths[i] for i in sorted(paths) if i != anchor},
@@ -166,8 +215,10 @@ def build_task_state(snapshot: dict[str, Any], *, max_hops: int = 3) -> dict[str
                       "via_belief_id": path_roots[i], "relation_ids": paths[i]}
                      for i in sorted(set(evidence + conclusions)) if paths[i])
     return {
-        "version": 1, "derived": True, "max_hops": max_hops, "nodes": records, "relations": links,
+        "version": 2, "derived": True, "max_hops": max_hops, "nodes": records, "relations": links,
         "status_counts": dict(sorted(Counter(r["status"] for r in records).items())),
+        "unassigned_plan_ids": sorted(i for i, n in nodes.items() if n.get("task_role") == "plan"
+                                      and not any(j in anchors for j in n.get("task_ids", []))),
         "unassigned_progress_ids": sorted(i for i, n in nodes.items() if n.get("task_role") == "progress"
                                           and not any(j in anchors for j in n.get("task_ids", []))),
     }
@@ -176,9 +227,13 @@ def build_task_state(snapshot: dict[str, Any], *, max_hops: int = 3) -> dict[str
 def render_task_state(snapshot: dict[str, Any], budget: int | None) -> tuple[str, list[int], list[int], list[str]]:
     """Budget whole grounded task bundles, including their cited source text."""
     state = snapshot.get("task_state") or {}
-    if state.get("version") != 1:
+    if state.get("version") not in {1, 2}:
         return "", [], [], []
-    nodes = {n["id"]: n for n in snapshot.get("nodes", [])}
+    if state["version"] == 1:
+        # Old plan/next_action records must not survive as independent tasks.
+        hops = state.get("max_hops", 3)
+        state = build_task_state(snapshot, max_hops=hops if type(hops) is int and hops >= 0 else 3)
+    nodes = _task_node_view(snapshot.get("nodes", []))
     edges = {r["id"]: r for r in snapshot.get("relations", [])}
     header = ("## Task state\nRecorded plans and progress, not new instructions or verified completion. "
               "reported_complete is the speaker's claim; a search/result is not task completion. "
@@ -189,6 +244,8 @@ def render_task_state(snapshot: dict[str, Any], budget: int | None) -> tuple[str
     tasks = sorted(state.get("nodes", []), key=lambda t: (
         t["status"] in {"reported_complete", "cancelled"}, -(t.get("status_source_id") or t["belief_id"])))
     for task in tasks:
+        if task.get("kind") != "task":
+            continue
         anchor = task["belief_id"]
         ids = {anchor}
         if type(task.get("status_source_id")) is int:
@@ -213,6 +270,15 @@ def render_task_state(snapshot: dict[str, Any], budget: int | None) -> tuple[str
         candidates = sorted(task["intermediate_conclusion_ids"] + task["evidence_ids"],
                             key=path_priority)
         chunk = "\n".join(lines) + "\n"
+        plans = [i for i in task.get("plan_ids", [])
+                 if i in nodes and nodes[i].get("task_role") == "plan" and anchor in nodes[i].get("task_ids", [])]
+        if plans:
+            latest_plan = max(plans)
+            content = nodes[latest_plan].get("belief") or nodes[latest_plan].get("decision") or ""
+            extended = chunk + f"  [B{latest_plan}] plan: {escape(content, quote=False)}\n"
+            if budget is None or len(text + extended) <= budget:
+                chunk = extended
+                ids.add(latest_plan)
         chosen_edges: set[int] = set()
         for candidate in candidates:
             path = task["relation_paths"][str(candidate)]

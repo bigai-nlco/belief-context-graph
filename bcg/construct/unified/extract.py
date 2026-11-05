@@ -1448,7 +1448,7 @@ def extract_nodes(
         ordinal += 1
 
     if task_state_enabled:
-        from .task_state import ANCHOR_ROLES
+        from .task_state import ANCHOR_ROLES, canonical_task_role
 
         try:
             shown = json.loads(graph_nodes_str) if graph_nodes_str else []
@@ -1457,7 +1457,7 @@ def extract_nodes(
         if not isinstance(shown, list):
             shown = []
         allowed = {n["id"] for n in shown if isinstance(n, dict)
-                   and type(n.get("id")) is int and n.get("task_role") in ANCHOR_ROLES}
+                   and type(n.get("id")) is int and canonical_task_role(n.get("task_role")) in ANCHOR_ROLES}
         for node in out_nodes:
             refs = node.get("task_ids", [])
             node["task_rejected_ids"] = [i for i in refs if i not in allowed]

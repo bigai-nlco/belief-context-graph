@@ -13,7 +13,9 @@ from bcg.construct.unified import extract, stream
 from bcg.construct.unified.graph import BeliefGraph
 from bcg.construct.unified.prompts import build_node_extraction_prompt
 from bcg.construct.unified.task_state import (
+    EXTRACTION_GUIDANCE,
     build_task_state,
+    canonical_task_role,
     classify_legacy_snapshot,
     classify_node,
     clean_annotation,
@@ -33,11 +35,11 @@ def node(i, kind="other", text="A source-grounded claim.", **extra):
 
 def snapshot():
     value = {"nodes": [
-        node(0, "goal", "Compare two licensing schemes.", role="user"),
-        node(1, "subgoal", "Verify the operating license.", task_ids=[0]),
+        node(0, "task", "Compare two licensing schemes.", role="user"),
+        node(1, "task", "Verify the operating license.", task_ids=[0]),
         node(2, "evidence", "The source describes a pilot, not an operating license.", role="tool"),
         node(3, "intermediate_conclusion", "Pilot status does not establish licensed operation.", task_ids=[1]),
-        node(4, "next_action", "Fetch the licensing authority's original notice.", task_ids=[1]),
+        node(4, "plan", "Fetch the licensing authority's original notice.", task_ids=[1]),
         node(5, "tool_action", "The assistant is using web_search to find the license."),
         node(6, "progress", "License verification is blocked until the notice is available.",
              task_ids=[1], task_status="blocked"),
@@ -55,7 +57,7 @@ def test_annotations_reject_invalid_types_and_non_anchor_references():
     raw = {"task_role": "progress", "task_ids": [0, 0, 1, True, "0", -1], "task_status": "reported_complete"}
     assert clean_annotation(raw)["task_ids"] == [0, 1]
     value = node(8)
-    classify_node(value, raw, [node(0, "goal"), node(1, "evidence")])
+    classify_node(value, raw, [node(0, "task"), node(1, "evidence")])
     assert value["task_ids"] == [0] and value["task_rejected_ids"] == [1]
     assert value["confidence"] == .8 and value["task_annotation_source"] == "graph_model"
     assert "task_status" not in clean_annotation({"task_role": "plan", "task_status": "reported_complete"})
@@ -67,20 +69,20 @@ def test_annotations_reject_invalid_types_and_non_anchor_references():
 ])
 def test_model_cannot_reclassify_tool_results_or_calls_as_progress(role, method, expected):
     value = node(9, role=role, extraction_method=method)
-    classify_node(value, {"task_role": "progress", "task_ids": [0], "task_status": "reported_complete"}, [node(0, "goal")])
+    classify_node(value, {"task_role": "progress", "task_ids": [0], "task_status": "reported_complete"}, [node(0, "task")])
     assert value["task_role"] == expected and "task_status" not in value
 
 
 def test_missing_source_and_unassigned_progress_never_complete_a_task():
     value = node(8, supporting_excerpts=[])
-    classify_node(value, {"task_role": "goal"}, [])
+    classify_node(value, {"task_role": "task"}, [])
     assert value["task_role"] == "other"
     original = snapshot()
     original["nodes"] += [node(10, "progress", task_status="reported_complete"),
                           node(11, "decision", node_type="decision")]
     state = build_task_state(original)
     assert state["unassigned_progress_ids"] == [10]
-    assert {n["id"]: n["status"] for n in state["nodes"]} == {"T0": "open", "T1": "blocked", "T4": "open"}
+    assert {n["id"]: n["status"] for n in state["nodes"]} == {"T0": "open", "T1": "blocked"}
 
 
 def test_rebuild_keeps_real_chain_provenance_and_confidence_unchanged():
@@ -90,6 +92,8 @@ def test_rebuild_keeps_real_chain_provenance_and_confidence_unchanged():
     assert original == before
     task = next(t for t in state["nodes"] if t["id"] == "T1")
     assert task["parent_ids"] == ["T0"]
+    assert task["kind"] == "task" and task["plan_ids"] == [4]
+    assert state["version"] == 2
     assert task["status_source_id"] == 6 and task["status_provenance"] == "assistant_report"
     assert task["evidence_ids"] == [2] and task["intermediate_conclusion_ids"] == [3]
     assert task["relation_paths"]["2"] == [0] and task["path_roots"]["2"] == 3
@@ -111,7 +115,7 @@ def test_connected_components_are_not_automatically_tasks_and_traversal_is_bound
     value["relations"].append({"id": 30, "from_id": 3, "to_id": 10, "type": "supplements"})
     value["relations"].append({"id": 31, "from_id": 11, "to_id": 3, "type": "supplements"})
     state = build_task_state(value, max_hops=2)
-    assert len(state["nodes"]) == 3
+    assert len(state["nodes"]) == 2
     assert all(len(p) <= 2 for t in state["nodes"] for p in t["relation_paths"].values())
     assert 29 not in state["nodes"][1]["evidence_ids"]
 
@@ -125,7 +129,8 @@ def test_render_is_bounded_whole_bundles_and_cites_only_real_sources(budget):
     assert set(ids) <= {n["id"] for n in value["nodes"]}
     assert set(edges) <= {r["id"] for r in value["relations"]}
     if budget is None:
-        assert set(tasks) == {"T0", "T1", "T4"}
+        assert set(tasks) == {"T0", "T1"}
+        assert "[B4] plan:" in text and "[T4]" not in text
         assert "[B3] depends_on [B2]" in text
         assert "explicit task reference, not a factual edge" in text
     assert render_task_state({}, budget) == ("", [], [], [])
@@ -136,7 +141,7 @@ def test_task_history_keeps_old_anchors_inside_cap_without_edges():
     history_text = task_history(value["nodes"][-2:], value["nodes"], 1200)
     rows = json.loads(history_text)
     assert len(history_text) <= 1200 and [n["id"] for n in rows] == sorted(n["id"] for n in rows)
-    assert any(n["id"] == 1 and n["task_role"] == "subgoal" for n in rows)
+    assert any(n["id"] == 1 and n["task_role"] == "task" for n in rows)
     assert all("confidence" not in n and "relations" not in n for n in rows)
     assert task_history([], [], 0) == ""
 
@@ -149,7 +154,7 @@ def test_extraction_reuses_one_model_call_and_rejects_unshown_task_ids(monkeypat
             "entities": [], "supporting_sentence_indices": [0], "task_role": "progress",
             "task_ids": [0, 1234], "task_status": "blocked"}], "decisions": []})
     monkeypatch.setattr(extract.llm, "call_model", respond)
-    displayed = task_history([], [node(0, "goal")], 12000)
+    displayed = task_history([], [node(0, "task"), node(1, "plan", task_ids=[0])], 12000)
     result = extract.extract_nodes(None, "fixture", role="assistant", mode="sentence",
         sentences=["Verification is blocked."], graph_nodes_str=displayed, task_state_enabled=True)
     assert len(calls) == 1 and "## Task-state annotations" in calls[0]
@@ -169,7 +174,7 @@ def test_stream_and_sdk_keep_task_state_in_snapshots(tmp_path, monkeypatch):
         calls.append(prompt)
         text = "Compare A and B." if len(calls) == 1 else "The comparison is blocked."
         return json.dumps({"beliefs": [{"belief": text, "stance": "asserted", "entities": [],
-            "supporting_sentence_indices": [0], "task_role": "goal" if len(calls) == 1 else "progress",
+            "supporting_sentence_indices": [0], "task_role": "task" if len(calls) == 1 else "progress",
             "task_ids": [] if len(calls) == 1 else [0], "task_status": "blocked"}]})
     monkeypatch.setattr(extract.llm, "call_model", respond)
     monkeypatch.setattr(stream, "extract_layered_relations", lambda *a, **kw: {"relations": []})
@@ -184,7 +189,7 @@ def test_stream_and_sdk_keep_task_state_in_snapshots(tmp_path, monkeypatch):
     graph = _bcg_from_construct(native, sessions=[], metadata={})
     result = _memory_document(graph, native=native, run_id="task", trajectory=[], options_dict={}, metadata={}, engine="unified")
     assert result["task_state"] == native["task_state"]
-    assert result["nodes"][0]["task_role"] == "goal"
+    assert result["nodes"][0]["task_role"] == "task"
     builder.finalize()
     assert json.loads((tmp_path / "final_graph.json").read_text())["task_state"] == native["task_state"]
     assert "task_state" not in BeliefGraph().snapshot()
@@ -248,7 +253,7 @@ def test_legacy_replay_is_explicit_labelled_and_does_not_mutate_source():
             n.pop(key, None)
     old.pop("task_state")
     before = copy.deepcopy(old)
-    replay = classify_legacy_snapshot(old, {0: {"task_role": "goal"}})
+    replay = classify_legacy_snapshot(old, {0: {"task_role": "task"}})
     assert old == before and len(replay["task_state"]["nodes"]) == 1
     assert replay["nodes"][0]["task_annotation_source"] == "offline_explicit_label"
 
@@ -257,14 +262,19 @@ def test_excerpt_without_source_match_cannot_create_task(tmp_path):
     builder = stream.StreamingBeliefBuilder(client=None, model="fixture", item_id="excerpt",
         out_dir=tmp_path, options=stream.StreamOptions(task_state_enabled=True, evidence_mode="excerpt"))
     cleaned = {"belief": "Do something absent from the source.", "stance": "asserted",
-               "task_role": "goal", "supporting_excerpts": ["This text was not said."]}
+               "task_role": "task", "supporting_excerpts": ["This text was not said."]}
     evidence = builder._evidence_for(cleaned, "Unrelated source.", {}, "excerpt", "assistant")
     result = builder._make_node(cleaned, {}, evidence, "assistant")
     assert result["task_role"] == "other"
     assert not builder.graph.snapshot()["task_state"]["nodes"]
 
 
-def test_task_sources_are_not_lost_to_incremental_merge(tmp_path, monkeypatch):
+@pytest.mark.parametrize("task_role,source", [
+    ("task", "Verify the operating license."),
+    ("plan", "Search the licensing authority's registry."),
+    ("progress", "License verification is blocked."),
+])
+def test_task_sources_are_not_lost_to_incremental_merge(tmp_path, monkeypatch, task_role, source):
     from types import SimpleNamespace
 
     excluded = []
@@ -274,12 +284,12 @@ def test_task_sources_are_not_lost_to_incremental_merge(tmp_path, monkeypatch):
 
     monkeypatch.setattr(stream, "run_merge_pass", fake_merge)
     monkeypatch.setattr(stream, "extract_nodes", lambda *a, **kw: {"nodes": [
-        {"tmp_id": "n0", "belief": "An explicit goal.", "stance": "asserted",
-         "supporting_sentence_indices": [0], "task_role": "goal"}]})
+        {"tmp_id": "n0", "belief": source, "stance": "asserted",
+         "supporting_sentence_indices": [0], "task_role": task_role}]})
     builder = stream.StreamingBeliefBuilder(client=None, model="fixture", item_id="merge",
         out_dir=tmp_path, options=stream.StreamOptions(task_state_enabled=True),
         embedder=SimpleNamespace(set_log_path=lambda _: None))
-    builder.ingest_turn("user", "An explicit goal.")
+    builder.ingest_turn("user", source)
     assert excluded == [{0}]
 
 
@@ -300,7 +310,7 @@ def test_replay_command_artifacts_and_non_overwrite(tmp_path):
     source = tmp_path / "state.json"
     labels = tmp_path / "labels.json"
     source.write_text(json.dumps({"snapshot": snapshot()}))
-    labels.write_text(json.dumps({0: {"task_role": "goal"}}))
+    labels.write_text(json.dumps({0: {"task_role": "task"}}))
     original = source.read_bytes()
     summary = replay(source, labels, tmp_path / "output")
     assert summary["model_calls"] == 0 and summary["automatic_labelling_evaluated"] is False
@@ -308,3 +318,95 @@ def test_replay_command_artifacts_and_non_overwrite(tmp_path):
     assert (tmp_path / "output/task-context.md").is_file()
     with pytest.raises(FileExistsError):
         replay(source, labels, tmp_path / "output")
+
+
+@pytest.mark.parametrize("legacy,current", [("goal", "task"), ("subgoal", "task"), ("next_action", "plan")])
+def test_legacy_role_aliases_are_read_as_current_roles(legacy, current):
+    assert canonical_task_role(legacy) == current
+    assert clean_annotation({"task_role": legacy})["task_role"] == current
+    value = node(1)
+    classify_node(value, {"task_role": legacy, "task_ids": [0]}, [node(0, "goal")])
+    assert value["task_role"] == current and value["task_ids"] == [0]
+
+
+def test_only_tasks_become_records_and_unassigned_plans_stay_beliefs():
+    value = snapshot()
+    value["nodes"].append(node(7, "plan", "Try a different search query."))
+    value["nodes"].append(node(8, "next_action", "Fetch a different page."))
+    before = copy.deepcopy(value)
+    state = build_task_state(value)
+    assert {n["id"] for n in state["nodes"]} == {"T0", "T1"}
+    assert state["unassigned_plan_ids"] == [7, 8]
+    assert value == before
+    assert all(link["from_id"] not in {"T4", "T7", "T8"} for link in state["relations"])
+
+
+def test_latest_explicit_plan_is_rendered_under_task_with_budget():
+    value = snapshot()
+    value["nodes"].append(node(7, "plan", "Use the regulator's registry instead.", task_ids=[1]))
+    value["task_state"] = build_task_state(value)
+    text, ids, _, tasks = render_task_state(value, None)
+    assert value["task_state"]["nodes"][1]["plan_ids"] == [4, 7]
+    assert "[B7] plan: Use the regulator's registry instead." in text
+    assert 7 in ids and "T7" not in tasks and "[B4] plan:" not in text
+    value["nodes"][-1]["belief"] = "Oversized plan. " * 1000
+    text, ids, _, tasks = render_task_state(value, 1800)
+    assert len(text) <= 1800 and "T1" in tasks and 7 not in ids
+    assert "[B6] progress:" in text
+
+
+def test_plan_only_history_does_not_create_tasks_or_injected_task_state():
+    value = {"nodes": [node(0, "plan"), node(1, "next_action")], "relations": []}
+    value["task_state"] = build_task_state(value)
+    assert value["task_state"]["nodes"] == []
+    assert value["task_state"]["unassigned_plan_ids"] == [0, 1]
+    assert render_task_state(value, None) == ("", [], [], [])
+
+
+def test_legacy_projection_keeps_hierarchy_without_promoting_plan_completion():
+    value = {"nodes": [
+        node(0, "goal"), node(1, "subgoal", task_ids=[0]),
+        node(2, "plan", task_ids=[1]), node(3, "next_action", task_ids=[2]),
+        node(4, "progress", task_ids=[3], task_status="reported_complete"),
+        node(5, "plan", task_ids=[6]), node(6, "next_action", task_ids=[5]),
+    ], "relations": [], "task_state": {"version": 1, "nodes": [{"id": "T3", "kind": "next_action"}]}}
+    before = copy.deepcopy(value)
+    state = build_task_state(value)
+    task = state["nodes"][1]
+    assert task["parent_ids"] == ["T0"] and task["plan_ids"] == [2, 3]
+    assert task["status"] == "open" and task["status_source_id"] is None
+    assert state["unassigned_progress_ids"] == [4]
+    assert state["unassigned_plan_ids"] == [5, 6]
+    text, _, _, tasks = render_task_state(value, None)
+    assert set(tasks) == {"T0", "T1"} and "[B3] plan:" in text
+    assert "next_action" not in text and "subgoal" not in text
+    assert value == before
+
+
+def test_history_prioritizes_tasks_not_recent_plans_and_normalizes_labels():
+    values = [node(0, "goal"), node(1, "subgoal", task_ids=[0])]
+    values += [node(i, "next_action", task_ids=[1]) for i in range(2, 42)]
+    before = copy.deepcopy(values)
+    history = json.loads(task_history(values[-2:], values, 12000))
+    assert [row["id"] for row in history] == [0, 1, 40, 41]
+    assert [row["task_role"] for row in history] == ["task", "task", "plan", "plan"]
+    assert values == before
+
+
+def test_new_extraction_can_reference_shown_tasks_but_never_plans(monkeypatch):
+    calls = []
+    def respond(client, model, prompt, **kwargs):
+        calls.append(prompt)
+        return json.dumps({"beliefs": [{"belief": "The work is blocked.", "stance": "asserted",
+            "entities": [], "supporting_sentence_indices": [0], "task_role": "progress",
+            "task_ids": [0, 1, 2], "task_status": "blocked"}]})
+    monkeypatch.setattr(extract.llm, "call_model", respond)
+    shown = json.dumps([node(0, "goal"), node(1, "plan", task_ids=[0]), node(2, "next_action", task_ids=[0])])
+    out = extract.extract_nodes(None, "fixture", role="assistant", mode="sentence",
+        sentences=["The work is blocked."], graph_nodes_str=shown, task_state_enabled=True)
+    assert len(calls) == 1
+    assert out["nodes"][0]["task_ids"] == [0]
+    assert out["nodes"][0]["task_rejected_ids"] == [1, 2]
+    assert "Only task creates a task record." in EXTRACTION_GUIDANCE
+    assert "Never reference\na plan as a task." in EXTRACTION_GUIDANCE
+    assert "goal/subgoal/plan/next_action" not in EXTRACTION_GUIDANCE

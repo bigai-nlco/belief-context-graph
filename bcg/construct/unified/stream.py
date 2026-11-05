@@ -1137,12 +1137,12 @@ class StreamingBeliefBuilder:
                 in {"rule_tool_call", "rule_tool_result"}
             }
             if opt.task_state_enabled:
-                from .task_state import ANCHOR_ROLES
+                from .task_state import ANCHOR_ROLES, canonical_task_role
 
-                # Task anchors and status events are an append-only workflow
+                # Tasks, recorded plans and status events are an append-only workflow
                 # ledger; semantic dedup must not erase an earlier state.
                 decision_ids |= {node["id"] for node in self.graph.active()
-                                 if node.get("task_role") in ANCHOR_ROLES | {"progress"}
+                                 if canonical_task_role(node.get("task_role")) in ANCHOR_ROLES | {"plan", "progress"}
                                  or node.get("task_ids")}
             inc = run_merge_pass(
                 graph=self.graph,

@@ -13,8 +13,8 @@
                               │ 显式 task_ids
                               ▼
                  Task-state skeleton
-          goal → subgoal → plan / next_action
-                   ↑ progress 记录
+             task → task（父子任务）
+              ↑ plan / progress 等关联记录
                               │
              与真实来源和关系链一起注入 system
 ```
@@ -25,21 +25,21 @@
 |---|---|---|
 | `task_role: evidence` | Tool Result 由代码标记；User/Assistant 由原有抽点模型分类 | 观察或有来源的信息，不等于已核实事实 |
 | `intermediate_conclusion` | 原有 Assistant 抽点调用 | 对证据的判断、推导或假设，保留原来的 stance 和 confidence |
-| `goal` / `subgoal` | 原有 User/Assistant 抽点调用 | 明确提出的目标或工作项，不凭连通分量臆造子任务 |
-| `plan` / `next_action` | 原有 Assistant 抽点调用 | 明确表达的方法或下一步，不是代码给 Agent 新下达的指令 |
+| `task` | 原有 User/Assistant 抽点调用 | 明确提出、可以跟踪完成情况的目标或工作项。总目标和子任务使用同一类别，通过 `task_ids` 表示父任务 |
+| `plan` | 原有 User/Assistant 抽点调用 | 明确表达的方法或具体下一步，通过 `task_ids` 关联任务，不生成独立任务记录 |
 | `progress` | 原有 User/Assistant 抽点调用 | 明确报告的进度、阻塞、完成或取消 |
 | `constraint` / `other` | 原有抽点调用 | 约束或不属于上述分类的信息 |
 | `tool_action` / `decision` | 原有工具调用规则 / decision 类型 | 已发出的调用 / 最终选择，不自动代表子任务完成 |
 
-这些是原有 belief 的分类字段，不替换原来的 `node_type`。程序同时生成独立的 `snapshot.task_state`，其中任务记录 ID 为 `T<anchor belief ID>`，原始图 ID 仍为整数，展示为 `B<id>`。
+这些是原有 belief 的分类字段，不替换原来的 `node_type`。模型使用 7 个语义类别，`tool_action` 和 `decision` 仍由代码识别。程序同时生成独立的 `snapshot.task_state`（版本 2），只有 `task` 生成任务记录。其 ID 为 `T<task belief ID>`，原始图 ID 仍为整数，展示为 `B<id>`。例如 B42 表示待完成的工作，T42 跟踪它的状态；B45 可以作为它的计划保留，但不再建立 T45。
 
 ## 每次更新
 
 1. 原有 User/Assistant 抽点请求增加 `task_role`，必要时增加 `task_ids` 和 `task_status`。工具调用仍按规则生成；多个 Tool Result 仍使用现有批量抽点策略，不增加独立的分类请求。
-2. 模型只能引用这次 Prompt 实际展示的历史任务 anchor ID。代码拒绝不在窗口中、不是任务 anchor 或没有可靠原文定位的引用/分类。不能引用本次输出尚未分配的 ID；同一次抽取发现的子目标暂时独立保留，后续明确关联时再接入。
-3. 抽点历史优先保留最近 12 个任务 anchor，再加入原来的近期节点，整个历史部分仍受 `context_chars` 限制（当前配置为 12,000）。因此较早的目标在最近原文已淘汰后仍可被后续结论引用。
-4. 按 anchor 建立任务记录。它引用原始文本、父任务、明确关联的 belief、历史状态更新和最近一次状态来源。anchor、进度记录和明确关联任务的 belief 不参与增量合并，避免任务 ID 或状态时间线被去重吞掉；其他节点仍走原有合并逻辑。
-5. 从任务 anchor 和显式关联的结论/进度出发，在真实 `depends_on`、`supplements` 边上最多寻找 3 跳相关信息，不跨过另一个任务 anchor。检索时可以双向走边，但展示始终保留原始方向。相关不代表逻辑蕴含，更不代表任务已完成。
+2. 模型只能引用这次 Prompt 实际展示的历史 `task` 节点 ID，不能把计划当作任务引用。对 `task`，`task_ids` 表示父任务；对 `plan`，表示该计划服务的任务；对 `progress`，表示被更新的任务。代码拒绝不在窗口中、不是任务或没有可靠原文定位的引用/分类。不能引用本次输出尚未分配的 ID；同一次抽取发现的任务暂时独立保留，尚无可靠引用的计划也保持未关联，不猜测归属。
+3. 抽点历史优先保留最近 12 个 `task` 节点，再加入原来的近期节点，计划不占这 12 个任务名额。整个历史部分仍受 `context_chars` 限制（当前配置为 12,000）。
+4. 只按 `task` 建立任务记录。它引用原始文本、父任务、明确关联的 belief、`plan_ids`、历史状态更新和最近一次状态来源。任务、计划、进度记录和明确关联任务的 belief 不参与增量合并，避免来源 ID 或状态时间线被去重吞掉；其他节点仍走原有合并逻辑。
+5. 从任务和显式关联的计划、结论、进度等 belief 出发，在真实 `depends_on`、`supplements` 边上最多寻找 3 跳相关信息，不跨过另一个任务。检索时可以双向走边，但展示始终保留原始方向。相关不代表逻辑蕴含，更不代表任务已完成。
 6. 相关区域存在 `contradicts` 时标记 `needs_review`。原来的 confidence 公式、数值和传播实现不变；任务层不生成另一套置信度，也不把 workflow 链接送入 confidence propagation。
 7. 每次 acknowledged snapshot 和最终图都附带 `task_state`。SDK 的 memory 导出保留分类和任务层。状态可随图重建，不需要另一个数据库或模型维护隐藏状态。
 
@@ -49,32 +49,39 @@
 
 `reported_complete` 只表示 User/Assistant 声称完成，必须有对应原文和任务引用。搜索有结果、执行过工具、高 confidence 或写出了最终报告都不会自动触发完成。后续报告可以重新打开或阻塞同一任务，旧的更新 ID 仍保留。找不到可靠目标的进度记录进入 `unassigned_progress_ids`，不会据此关闭任何任务。
 
+计划不再拥有独立任务状态。没有明确任务引用的计划进入 `unassigned_plan_ids`，仍保存在原图中，不根据内容相似度强行挂到某个任务。
+
 任务层有 `described_by`、`part_of`、`updated_by`、`addresses`、`related_via_graph` 这几种链接，只存在于 `task_state.relations`。它们用于工作流追溯，不进入原图的事实关系集合。
 
 ## Agent 如何使用
 
-用户输入、最近两轮、淘汰后建图时机、工具与 Agent 调用方式不变。原本应该注入 Graph 时，在 `<belief_graph>` 内加入一个 `## Task state` 小节。它优先保留未完成任务和近期更新，连同来源文本，尽量附上一条真实的 Evidence–Conclusion 关系链。关系链不完整时不会补造边。
+用户输入、最近两轮、淘汰后建图时机、工具与 Agent 调用方式不变。原本应该注入 Graph 时，在 `<belief_graph>` 内加入一个 `## Task state` 小节。它优先保留未完成任务和近期更新，必带任务原文及最新状态来源。在预算允许时，加入该任务最新一条明确关联的计划，再尽量附上一条真实的 Evidence–Conclusion 关系链。计划显示在任务下面，不单独占据一个 T 记录。关系链不完整时不会补造边。
 
 普通 BCG 中任务小节默认最多占 1,800 字符，从原有 6,600 字符 Graph 总预算中扣除，剩余部分继续使用原有 retrieval。按完整任务包取舍，放不下时跳过该包，不截断节点正文。所有实际注入的源节点/边 ID 都进入 `requests.jsonl` 的选择记录。
 
-BCG w/o Retrieval 中不设上述字符上限，仍放入完整原图，附上完整任务层。Default 不启用这个扩展，也不更改其 Prompt 或 context 行为。
+BCG w/o Retrieval 中不设上述字符上限，仍放入完整原图，附上所有有效任务记录；每项仍采用任务、状态、最新关联计划和一条关系路径的展示方式，不展开所有计划和状态历史。Default 不启用这个扩展，也不更改其 Prompt 或 context 行为。
 
 示意（非实验结果）：
 
 ```text
 ## Task state
-- [T1] subgoal | blocked
-  [B1] subgoal: Verify the operating license.
+- [T1] task | blocked
+  [B1] task: Verify the operating license.
   [B6] progress: License verification is blocked until the notice is available.
+  [B4] plan: Fetch the licensing authority's original notice.
   [B3] intermediate_conclusion: Pilot status does not establish licensed operation.
   [B2] evidence: The source describes a pilot, not an operating license.
   [B3] addresses [T1] (explicit task reference, not a factual edge)
   [B3] depends_on [B2]: distinguish pilot from operation
-- [T4] next_action | open
-  [B4] next_action: Fetch the licensing authority's original notice.
 ```
 
 目标是让 Agent 看到“还缺什么、已有判断依赖什么、下一步先前打算核实什么”。它仍自行决定下一次调用，不强制执行 task node，也不通过额外 Agent 回合制定计划。
+
+## 旧记录兼容
+
+读取旧标签时，`goal` 和 `subgoal` 映射为 `task`，`next_action` 映射为 `plan`。版本 1 的任务层由原始节点和边重新投影为版本 2，旧计划不再生成 T 记录。旧计划之间的已有 `task_ids` 链可以追溯到真实任务；无法追溯的计划保持未关联。仅引用旧计划的进度不会转为父任务的状态更新，避免把“某次搜索完成”误当作“整个任务完成”。
+
+兼容处理不修改磁盘上的历史图、节点、边或 confidence。文档中历史实验的实际注入原文仍保留旧标签，并标明为旧版记录；新版展示示意或离线投影不冒充新的实际运行结果。
 
 ## 启用
 
