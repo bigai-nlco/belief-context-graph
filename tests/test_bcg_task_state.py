@@ -136,6 +136,57 @@ def test_render_is_bounded_whole_bundles_and_cites_only_real_sources(budget):
     assert render_task_state({}, budget) == ("", [], [], [])
 
 
+@pytest.mark.parametrize("status,phrase", [
+    ("open", "reported open."),
+    ("in_progress", "reported in progress."),
+    ("blocked", "reported blocked."),
+    ("reported_complete", "reported complete (not verified)."),
+    ("cancelled", "reported cancelled."),
+])
+def test_render_explains_reported_status_and_keeps_original_sources(status, phrase):
+    value = snapshot()
+    value["nodes"][-1]["task_status"] = status
+    value["task_state"] = build_task_state(value)
+    before = copy.deepcopy(value)
+    text, ids, edges, tasks = render_task_state(value, None)
+    assert f"- [T1] source: [B1] | status: {phrase}" in text
+    assert "- [T0] source: [B0] | status: unknown (no progress reported)." in text
+    assert "[T...] tracks task belief [B...];" in text
+    assert "progress rows give reported, not verified, status." in text
+    assert "Missing progress means unknown, not unstarted." in text
+    assert "Plans are intent, not execution/evidence." in text
+    assert "Paths do not prove completion." in text
+    assert "task |" not in text
+    assert value == before, "rendering must not rewrite status, beliefs, edges or confidence"
+    assert {0, 1, 2, 3, 4, 6} <= set(ids) and set(tasks) == {"T0", "T1"}
+    assert edges == [0]
+    for i in ids:
+        original = next(n for n in value["nodes"] if n["id"] == i)
+        assert original["belief"] in text
+
+
+def test_render_reports_conflicts_without_overriding_claimed_completion():
+    value = snapshot()
+    value["nodes"][-1]["task_status"] = "reported_complete"
+    value["relations"].append({"id": 9, "from_id": 2, "to_id": 3, "type": "contradicts"})
+    value["task_state"] = build_task_state(value)
+    text, *_ = render_task_state(value, None)
+    assert "[T1] source: [B1] | status: reported complete (not verified). Conflicting evidence: review." in text
+
+
+def test_natural_state_budget_keeps_whole_task_and_status_sources():
+    value = snapshot()
+    # One task, no optional path or plan, makes the exact-fit boundary deterministic.
+    value["nodes"] = [value["nodes"][1], value["nodes"][6]]
+    value["relations"] = []
+    value["task_state"] = build_task_state(value)
+    text, ids, edges, tasks = render_task_state(value, None)
+    # The renderer budgets a trailing newline before stripping it for the prompt.
+    assert render_task_state(value, len(text) + 1) == (text, ids, edges, tasks)
+    assert render_task_state(value, len(text)) == ("", [], [], [])
+    assert ids == [1, 6] and tasks == ["T1"] and not edges
+
+
 def test_task_history_keeps_old_anchors_inside_cap_without_edges():
     value = snapshot()
     history_text = task_history(value["nodes"][-2:], value["nodes"], 1200)

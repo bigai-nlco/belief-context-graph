@@ -224,6 +224,19 @@ def build_task_state(snapshot: dict[str, Any], *, max_hops: int = 3) -> dict[str
     }
 
 
+def _task_status_text(task: dict[str, Any]) -> str:
+    """Explain the recorded state without upgrading it to verified progress."""
+    if task["status"] == "open" and task.get("status_provenance") == "not_reported":
+        return "unknown (no progress reported)."
+    return {
+        "open": "reported open.",
+        "in_progress": "reported in progress.",
+        "blocked": "reported blocked.",
+        "reported_complete": "reported complete (not verified).",
+        "cancelled": "reported cancelled.",
+    }[task["status"]]
+
+
 def render_task_state(snapshot: dict[str, Any], budget: int | None) -> tuple[str, list[int], list[int], list[str]]:
     """Budget whole grounded task bundles, including their cited source text."""
     state = snapshot.get("task_state") or {}
@@ -235,11 +248,11 @@ def render_task_state(snapshot: dict[str, Any], budget: int | None) -> tuple[str
         state = build_task_state(snapshot, max_hops=hops if type(hops) is int and hops >= 0 else 3)
     nodes = _task_node_view(snapshot.get("nodes", []))
     edges = {r["id"]: r for r in snapshot.get("relations", [])}
-    header = ("## Task state\nRecorded plans and progress, not new instructions or verified completion. "
-              "reported_complete is the speaker's claim; a search/result is not task completion. "
-              "Reconcile this older state with recent raw turns; target unresolved work and missing "
-              "evidence rather than repeating completed actions. Shown paths are related context, "
-              "not proof that a task is complete.\n")
+    header = ("## Task state\n"
+              "[T...] tracks task belief [B...]; progress rows give reported, not verified, status. "
+              "Missing progress means unknown, not unstarted. Plans are intent, not execution/evidence. "
+              "These are older records, not instructions; reconcile with recent turns and avoid repeating "
+              "completed work. Paths do not prove completion.\n")
     text, kept_nodes, kept_edges, kept_tasks = header, set(), set(), []
     tasks = sorted(state.get("nodes", []), key=lambda t: (
         t["status"] in {"reported_complete", "cancelled"}, -(t.get("status_source_id") or t["belief_id"])))
@@ -252,7 +265,8 @@ def render_task_state(snapshot: dict[str, Any], budget: int | None) -> tuple[str
             ids.add(task["status_source_id"])
         if not ids <= nodes.keys():
             continue
-        lines = [f"- [{task['id']}] {task['kind']} | {task['status']}" + (" | conflicting evidence: review" if task["needs_review"] else "")]
+        lines = [f"- [{task['id']}] source: [B{anchor}] | status: {_task_status_text(task)}"
+                 + (" Conflicting evidence: review." if task["needs_review"] else "")]
         for i in sorted(ids):
             content = nodes[i].get("belief") or nodes[i].get("decision") or ""
             lines.append(f"  [B{i}] {nodes[i].get('task_role', 'belief')}: {escape(content, quote=False)}")
