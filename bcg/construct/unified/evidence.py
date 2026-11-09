@@ -13,7 +13,7 @@ BeliefGraph as evidence nodes:
       "end":   178,
       "match": "exact" | "normalized" | "fuzzy" | "not_found",
       "via":   "llm_excerpt" | "split_sentence",
-      "stance": "asserted" | "recalled" | "speculated" | "judged",
+      "stance": one of the seven BRACE-inspired certainty labels,
       "role": "user" | "assistant" | "tool",
       "source": {"turn_id": 0, ...}
     }
@@ -36,12 +36,11 @@ FUZZY_MIN_RATIO = 0.6  # matched chars must cover >= 60% of the excerpt
 FUZZY_MAX_SPAN_FACTOR = 2.0  # located span must stay near the excerpt length
 FUZZY_MAX_SPAN_SLACK = 80
 
-VALID_STANCES = {"asserted", "recalled", "speculated", "judged"}
+from bcg.core.confidence import VALID_STANCES, _norm_stance
 
 
 def clean_stance(stance: Any) -> str:
-    s = str(stance or "asserted").strip().lower()
-    return s if s in VALID_STANCES else "asserted"
+    return _norm_stance(stance)
 
 
 def locate_excerpt(excerpt: str, content: str) -> tuple[int | None, int | None, str]:
@@ -124,7 +123,7 @@ def evidence_from_excerpt(
     turn_content: str,
     source: dict[str, Any],
     *,
-    stance: str = "asserted",
+    stance: str = "unknown",
     role: str = "unknown",
 ) -> dict[str, Any]:
     """Locate one LLM excerpt inside the turn content and build the record.
@@ -163,7 +162,7 @@ def evidence_from_sentence(
     turn_content: str,
     source: dict[str, Any],
     *,
-    stance: str = "asserted",
+    stance: str = "unknown",
     role: str = "unknown",
 ) -> dict[str, Any]:
     """Evidence for a whole sentence (offsets are exact by construction)."""

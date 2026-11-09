@@ -35,8 +35,13 @@ evidence_function = next(
 )
 math_namespace = {
     "_role_from_record": lambda record: record.get("role", ""),
-    "source_reliability": lambda role: {"tool": 0.80, "assistant": 0.65}.get(role, 0.55),
-    "stance_quality": lambda stance: {"asserted": 0.75}.get(stance, 0.35),
+    "initial_confidence": lambda role, stance, coefficient: (
+        0.5 if stance == "unknown" else round(
+            (coefficient if coefficient is not None else {"tool": 0.60, "assistant": 0.72}.get(role, 0.95))
+            * {"confirmed": 0.94}[stance], 3
+        )
+    ),
+    "EVIDENCE_LOG_ODDS_WEIGHT": 0.25,
     "logit": lambda p: math.log(p / (1.0 - p)),
 }
 exec(
@@ -44,7 +49,7 @@ exec(
     math_namespace,
 )
 contribution = math_namespace["evidence_contribution"]
-expected = math.log(0.775 / 0.225)
-assert math.isclose(contribution({"role": "tool", "stance": "asserted"}), expected)
-assert math.isclose(contribution({"role": "assistant", "stance": "speculated"}), 0.0)
-print("PASS: relevance affects selection only; Unified evidence adds log-likelihood ratios")
+expected = 0.25 * math.log(0.564 / 0.436)
+assert math.isclose(contribution({"role": "tool", "stance": "confirmed"}), expected)
+assert math.isclose(contribution({"role": "assistant", "stance": "unknown"}), 0.0)
+print("PASS: relevance affects selection only; Unified evidence uses discounted role × stance log odds")

@@ -126,11 +126,17 @@ def relation_propagation_config(
 
 
 def evidence_contribution(evidence: dict[str, Any]) -> float:
-    """Compute a discounted log-odds term for one additional observation."""
+    """Use the same role × stance × source policy as the initial prior.
+
+    The independent observation's log-odds is discounted to avoid treating a
+    repeated web claim as a full independent verification. A low-quality
+    duplicate is not counterevidence: it contributes zero rather than reducing
+    the canonical belief. Explicit counterevidence uses a contradiction edge.
+    """
     role = _role_from_record(evidence)
-    stance = evidence.get("stance") or "asserted"
-    q = (source_reliability(role) + stance_quality(stance)) / 2.0
-    return EVIDENCE_LOG_ODDS_WEIGHT * logit(q)
+    stance = evidence.get("stance") or "unknown"
+    q = initial_confidence(role, stance, evidence.get("source_coefficient"))
+    return max(0.0, EVIDENCE_LOG_ODDS_WEIGHT * logit(q))
 
 # =============================================================
 # Posterior helpers

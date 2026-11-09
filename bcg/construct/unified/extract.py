@@ -39,7 +39,7 @@ from .prompts import (
     format_sentences_for_prompt,
 )
 
-VALID_STANCES = {"asserted", "recalled", "speculated", "judged"}
+from bcg.core.confidence import VALID_STANCES, _norm_stance
 VALID_RELATION_TYPES = {"depends_on", "supplements", "contradicts"}
 
 
@@ -54,8 +54,14 @@ def _clean_str(v: Any) -> str | None:
 
 
 def _clean_stance(value: Any) -> str:
-    stance = str(value or "").strip().lower()
-    return stance if stance in VALID_STANCES else "asserted"
+    return _norm_stance(value)
+
+
+def _attach_source_rank(node: dict[str, Any], raw: dict[str, Any], items: list[dict[str, Any]]) -> None:
+    """Accept a model-selected rank only if it uniquely exists in this result."""
+    rank = raw.get("source_rank")
+    if type(rank) is int and sum(item.get("rank") == rank for item in items) == 1:
+        node["source_rank"] = rank
 
 
 def _clean_entities(value: Any) -> list[str]:
@@ -206,7 +212,7 @@ def _attach_and_complete_tool_call_nodes(
             "tmp_id": f"n{ordinal}",
             "node_type": "belief",
             "belief": rule_tool_call_belief(call),
-            "stance": "asserted",
+            "stance": "confirmed",
             "entities": [call.name],
             "tool_name": call.name,
             "tool_arguments": dict(call.arguments),
@@ -254,7 +260,7 @@ def _rule_extract_tool_call_nodes(
             "tmp_id": f"n{index}",
             "node_type": "belief",
             "belief": rule_tool_call_belief(call),
-            "stance": "asserted",
+            "stance": "confirmed",
             "entities": [call.name],
             "tool_name": call.name,
             "tool_arguments": dict(call.arguments),
@@ -327,7 +333,7 @@ def extract_rule_tool_result_nodes(
             "tmp_id": f"n{index}",
             "node_type": "belief",
             "belief": belief,
-            "stance": "recalled",
+            "stance": "possible",
             "entities": entities,
             "tool_name": parsed.tool_name,
             "tool_result_count": len(parsed.results),
@@ -415,9 +421,10 @@ Rules:
   claim such as "a tower" or combine claims from different results.
 - Skip irrelevant results and do not infer facts that the title/snippet does not state.
 - Prefer answer-relevant facts that prevent repeating this search.
-- For each fact, classify stance as asserted, recalled, speculated, or judged.
+- For each fact, classify stance as confirmed, almost_certain, probable, possible, unlikely, doubtful, or unknown.
+- Give the single supporting search result's integer rank as source_rank; do not combine results.
 - For each fact, list only specific salient entities explicitly present in it.
-- JSON only: {{"beliefs":[{{"belief":"...","stance":"asserted","entities":["..."]}}]}}.
+- JSON only: {{"beliefs":[{{"belief":"...","stance":"possible","entities":["..."],"source_rank":1}}]}}.
 
 Results:
 {json.dumps(prompt_items, ensure_ascii=False)}
@@ -457,6 +464,7 @@ Results:
             or 0,
             "extraction_method": "compact_llm_tool_result",
         }
+        _attach_source_rank(node, raw_node, result_items)
         if rule_node.get("tool_call_id"):
             node["tool_call_id"] = str(rule_node["tool_call_id"])
         node["tool_result_index"] = int(rule_node.get("tool_result_index") or 0)
@@ -555,9 +563,10 @@ Rules:
 - Skip irrelevant results and do not infer facts the title/snippet does not state.
 - Prefer answer-relevant facts that prevent repeating the corresponding search.
 - Return every input item_index exactly once, even when its beliefs list is empty.
-- For every fact, classify stance as asserted, recalled, speculated, or judged,
+- For every fact, classify stance as confirmed, almost_certain, probable, possible, unlikely, doubtful, or unknown,
   and list only specific salient entities explicitly present in that fact.
-- JSON only: {{"items":[{{"item_index":0,"beliefs":[{{"belief":"...","stance":"asserted","entities":["..."]}}]}}]}}.
+- For each fact, provide its single supporting result's integer source_rank.
+- JSON only: {{"items":[{{"item_index":0,"beliefs":[{{"belief":"...","stance":"possible","entities":["..."],"source_rank":1}}]}}]}}.
 
 Items:
 {json.dumps(candidates, ensure_ascii=False)}
@@ -627,6 +636,7 @@ Items:
                 or 0,
                 "extraction_method": "compact_llm_tool_result",
             }
+            _attach_source_rank(node, raw_node, result_items)
             if rule_node.get("tool_call_id"):
                 node["tool_call_id"] = str(rule_node["tool_call_id"])
             node["tool_result_index"] = int(
@@ -856,6 +866,7 @@ def extract_assistant_tool_result_nodes_batch(
                 ),
                 "tool_result_fact_index": len(nodes),
             }
+            _attach_source_rank(node, raw_node, result_items)
             if rule_node.get("tool_call_id"):
                 node["tool_call_id"] = str(rule_node["tool_call_id"])
             if mode == "excerpt":

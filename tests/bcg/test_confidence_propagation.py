@@ -228,21 +228,18 @@ def test_hybrid_source_type_takes_precedence_over_flat_role() -> None:
 
 
 def test_unified_prior_uses_distinct_role_and_stance_components() -> None:
-    # This is a transparent rule prior, not a calibrated factual probability.
-    assert initial_confidence("user", "asserted") == pytest.approx(0.800)
-    assert initial_confidence("tool", "recalled") == pytest.approx(0.725)
-    assert initial_confidence("assistant", "asserted") == pytest.approx(0.700)
-    assert initial_confidence("assistant", "speculated") == pytest.approx(0.500)
-    assert len({
-        initial_confidence(role, stance)
-        for role in ("user", "tool", "assistant")
-        for stance in ("asserted", "recalled", "judged", "speculated")
-    }) > 8
+    # Provisional BCG anchors; the paper's verbal labels are not calibrated here.
+    assert initial_confidence("user", "confirmed") == pytest.approx(0.893)
+    assert initial_confidence("tool", "probable") == pytest.approx(0.444)
+    assert initial_confidence("assistant", "possible") == pytest.approx(0.432)
+    assert initial_confidence("tool", "confirmed", 0.42) == pytest.approx(0.395)
+    assert initial_confidence("user", "unknown") == pytest.approx(0.500)
+    assert initial_confidence("tool", "asserted") == initial_confidence("tool", "probable")
 
 
 def test_unified_independent_support_uses_discounted_log_likelihood_ratio() -> None:
-    evidence = {"role": "tool", "stance": "asserted"}
-    expected_quality = (0.80 + 0.75) / 2
+    evidence = {"role": "tool", "stance": "confirmed", "source_coefficient": 0.88}
+    expected_quality = 0.827
 
     assert unified_confidence.evidence_contribution(evidence) == pytest.approx(
     unified_confidence.EVIDENCE_LOG_ODDS_WEIGHT
