@@ -162,45 +162,20 @@ def _normalized_evidence_content(record: dict[str, Any]) -> str:
 # behavior (no model-supplied confidence is accepted).
 # ---------------------------------------------------------------------------
 
-# BRACE supplies an *ordinal* seven-word vocabulary, not empirically calibrated
-# probabilities for BCG. These conservative, provisional anchors are BCG policy.
-# Unknown means absence of evidence (neutral), not evidence that a claim is false.
-STANCE_QUALITY = {
-    "confirmed": 0.94,
-    "almost_certain": 0.86,
-    "probable": 0.74,
-    "possible": 0.60,
-    "unlikely": 0.35,
-    "doubtful": 0.20,
-    "unknown": 0.50,
-}
-VALID_STANCES = set(STANCE_QUALITY)
-LEGACY_STANCES = {
-    "asserted": "probable",   # direct assertion is not independent verification
-    "recalled": "possible",
-    "judged": "probable",
-    "speculated": "possible",
-}
-SOURCE_RELIABILITY = {"user": 0.95, "tool": 0.60, "assistant": 0.72}
-BASE_CONFIDENCE = {
-    (role, stance): round(multiplier * score, 3) if stance != "unknown" else 0.5
-    for role, multiplier in SOURCE_RELIABILITY.items()
-    for stance, score in STANCE_QUALITY.items()
-}
+VALID_STANCES = frozenset({
+    "confirmed", "almost_certain", "probable", "possible", "unlikely",
+    "doubtful", "unknown",
+})
 
-DEFAULT_RELATION_WEIGHT = 0.5
-DEFAULT_INPUT_CONFIDENCE_THRESHOLD = 0.8
-DEFAULT_PROPAGATION_MIN_CONFIDENCE_DELTA = 0.001
-MAX_PROPAGATION_ITERATIONS = 3
 
-DEFAULT_CONFIDENCE_CONFIG: dict[str, Any] = {
-    "relation_propagation": {
-        "default_relation_weight": DEFAULT_RELATION_WEIGHT,
-        "input_confidence_threshold": DEFAULT_INPUT_CONFIDENCE_THRESHOLD,
-        "min_confidence_delta": DEFAULT_PROPAGATION_MIN_CONFIDENCE_DELTA,
-        "max_iterations": MAX_PROPAGATION_ITERATIONS,
-    }
-}
+def _confidence_policy(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Resolve configured policy; the YAML layers own every numeric prior."""
+    if config is not None:
+        return config
+    from bcg.config.loader import load_settings
+
+    settings, _ = load_settings()
+    return settings.pipeline.confidence.model_dump(exclude_none=True)
 
 
 def _norm_role(role: Any) -> str:
@@ -210,7 +185,6 @@ def _norm_role(role: Any) -> str:
 
 def _norm_stance(stance: Any) -> str:
     stance_s = str(stance or "unknown").strip().lower().replace(" ", "_")
-    stance_s = LEGACY_STANCES.get(stance_s, stance_s)
     return stance_s if stance_s in VALID_STANCES else "unknown"
 
 
@@ -221,28 +195,31 @@ def _as_float(value: Any, default: float) -> float:
         return float(default)
 
 
-def initial_confidence(role: str, stance: str, source_coefficient: float | None = None) -> float:
+def initial_confidence(role: str, stance: str, source_coefficient: float | None = None,
+                       config: dict[str, Any] | None = None) -> float:
+    policy = _confidence_policy(config)
     role = _norm_role(role)
     stance = _norm_stance(stance)
-    # Absence of evidence is neutral, not evidence against the proposition.
+    anchors = policy["stance_quality"]
     if stance == "unknown":
-        return 0.5
-    coefficient = SOURCE_RELIABILITY.get(role, 0.50)
+        return float(anchors["unknown"])
+    coefficient = policy["source_reliability"].get(role, policy["default_source_reliability"])
     if role == "tool" and source_coefficient is not None:
         coefficient = max(0.0, min(1.0, float(source_coefficient)))
-    return round(coefficient * STANCE_QUALITY[stance], 3)
+    return round(coefficient * anchors[stance], 3)
 
 
-def source_reliability(role: str) -> float:
-    return SOURCE_RELIABILITY.get(_norm_role(role), 0.50)
+def source_reliability(role: str, config: dict[str, Any] | None = None) -> float:
+    policy = _confidence_policy(config)
+    return policy["source_reliability"].get(_norm_role(role), policy["default_source_reliability"])
 
 
-def stance_quality(stance: str) -> float:
+def stance_quality(stance: str, config: dict[str, Any] | None = None) -> float:
     """Return the hard-rule evidence quality for a stance.
     If a role is available, use the same (role, stance) table as priors.  When
     the role is unknown, fall back to a role-neutral stance ordering.
     """
-    return STANCE_QUALITY[_norm_stance(stance)]
+    return _confidence_policy(config)["stance_quality"][_norm_stance(stance)]
 
 
 def _role_from_record(record: dict[str, Any]) -> str:
@@ -251,11 +228,12 @@ def _role_from_record(record: dict[str, Any]) -> str:
     return str(record.get("role") or src.get("role") or src.get("type") or "")
 
 
-def init_belief_confidence(belief: dict[str, Any]) -> dict[str, Any]:
+def init_belief_confidence(belief: dict[str, Any],
+                           config: dict[str, Any] | None = None) -> dict[str, Any]:
     """Initialise flat confidence fields on a freshly created belief/decision."""
     role = _role_from_record(belief)
     stance = belief.get("stance", "unknown")
-    conf = initial_confidence(role, stance, belief.get("source_coefficient"))
+    conf = initial_confidence(role, stance, belief.get("source_coefficient"), config)
 
     belief["initial_confidence"] = conf
     belief["evidence_confidence"] = 0.0
@@ -273,16 +251,8 @@ def init_belief_confidence(belief: dict[str, Any]) -> dict[str, Any]:
 
 
 __all__ = [
-    "BASE_CONFIDENCE",
     "CONF_CEIL",
     "CONF_FLOOR",
-    "DEFAULT_CONFIDENCE_CONFIG",
-    "DEFAULT_INPUT_CONFIDENCE_THRESHOLD",
-    "DEFAULT_PROPAGATION_MIN_CONFIDENCE_DELTA",
-    "DEFAULT_RELATION_WEIGHT",
-    "MAX_PROPAGATION_ITERATIONS",
-    "SOURCE_RELIABILITY",
-    "STANCE_QUALITY",
     "VALID_STANCES",
     "clamp_confidence",
     "init_belief_confidence",

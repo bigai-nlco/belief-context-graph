@@ -414,7 +414,7 @@ def _bcg_from_construct(
             node_type="decision" if node_type == "decision" else "belief",
             belief=text,
             decision=str(node.get("decision")) if node.get("decision") else None,
-            stance=node.get("stance") or "asserted",
+            stance=node.get("stance") or "unknown",
             layer="io" if role in {"user", "tool", "function"} else "reasoning",
             role=role,
             entities=list(node.get("entities") or []),

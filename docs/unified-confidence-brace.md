@@ -2,7 +2,7 @@
 
 ## Execution plan
 
-1. Change the Unified extractor to BRACE's seven verbal labels. Preserve the old four names as **input aliases only** for historical serialized data; new prompts emit the new labels.
+1. Change the Unified extractor to seven verbal labels. The old four names are not aliases; unsupported values normalize to `unknown`.
 2. Compute the initial prior from a stance anchor multiplied by the message role or the attributed Tool Result source coefficient. Keep `unknown` neutral at 0.5. This is an explicit BCG adaptation, not a probability table copied from BRACE.
 3. Apply the same mapping to *independent later* evidence and discount its log odds by 0.25. Creation-time provenance does not increase confidence. Keep the existing relation propagation policy unchanged so the change can be isolated in evaluation.
 4. Attribute search claims by model-selected `source_rank` validated against the parser's result list. Resolve `web_fetch` from its unique `Source:` URL. Keep mixed and missing provenance in a conservative fallback; record category, host, URL, rank, and coefficient on the node and evidence.
@@ -26,7 +26,11 @@ The source role multiplier is user=0.95, assistant=0.72, tool fallback=0.60. A s
 
 BRACE supplies an ordinal verbal vocabulary and illustrates nominal probabilities (confirmed ~1, probable ~0.75, possible ~0.5, doubtful ~0.25, unknown ~0). It does **not** establish the above BCG mapping. Here `unknown` is neutral because the user's intended meaning is absence of evidence, not a false claim. The mapping is consequently not strictly ordinal at the final two levels. Do not describe these scores as empirically calibrated likelihoods until a claim-level validation study has been done.
 
-Legacy read aliases: asserted→probable, recalled→possible, judged→probable, speculated→possible. This is an imperfect migration; historical graphs retain their stored confidence and are not automatically rescored.
+Unified does not load the DeBERTa zero-shot classifier listed under `pipeline.stance` in the example configuration. That block serves the Hybrid backend. Unified asks the configured Graph model to supply the seven-label stance. Historical graph exports are not rescored on read.
+
+## Active configuration
+
+`bcg/config/defaults.yaml` defines the shipped values. To customize, copy `bcg/config/config.example.yaml` to `<project>/bcg.yaml` and edit `pipeline.confidence.stance_quality`, `source_reliability`, `source_coefficients`, `source_domains`, or `evidence_log_odds_weight`. The file can also be selected with `BCG_CONFIG=/path/to/bcg.yaml` or `--config /path/to/bcg.yaml`; the explicit CLI file has the highest priority. `.env` holds API secrets, not confidence policy. No mapping values are declared in the Unified confidence or URL-policy modules. The older Hybrid confidence fields in the example remain specific to Hybrid.
 
 ## Propagation boundary after lowering priors
 
@@ -41,7 +45,7 @@ Before expanding DRB2 tools, measure failures by category. Highest-priority cand
 ## Commands
 
 ```bash
-# From this repository root; checks use only Python standard library.
+# From this repository root; checks need installed project dependencies but no API key.
 python -m compileall -q bcg/core/confidence.py bcg/core/graph.py bcg/construct/unified
 python scripts/check_unified_confidence_policy.py
 python scripts/check_unified_confidence_policy.py --case-study /path/to/bcg-case-study-3.json /path/to/bcg-case-study-4.json

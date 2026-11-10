@@ -12,35 +12,15 @@ from urllib.parse import urlsplit
 
 from .._shared.tool_results import extract_tool_results
 
-COEFFICIENTS = {
-    "primary_official": 0.88,
-    "scholarly_publisher": 0.78,
-    "encyclopedia": 0.68,
-    "general_web": 0.58,
-    "community": 0.42,
-    "tabloid_or_entertainment": 0.38,
-    "mixed_or_unattributed": 0.50,
-}
-
-PRIMARY_DOMAINS = {
-    "cboe.com", "sec.gov", "fred.stlouisfed.org", "unesco.org",
-    "openai.com", "who.int", "cdc.gov", "data.gov", "worldbank.org",
-}
-SCHOLARLY_DOMAINS = {
-    "pubmed.ncbi.nlm.nih.gov", "pmc.ncbi.nlm.nih.gov", "arxiv.org",
-    "journals.plos.org", "sciencedirect.com", "link.springer.com",
-    "tandfonline.com", "dl.acm.org", "mdpi.com",
-}
-ENCYCLOPEDIA_DOMAINS = {"wikipedia.org", "britannica.com", "investopedia.com"}
-COMMUNITY_DOMAINS = {"reddit.com", "quora.com", "researchgate.net"}
-TABLOID_DOMAINS = {"tmz.com", "pagesix.com", "perezhilton.com"}
-
-
 def _matches(host: str, domains: set[str]) -> bool:
     return any(host == domain or host.endswith("." + domain) for domain in domains)
 
 
-def classify_url(url: str) -> tuple[str, str | None]:
+def classify_url(url: str, config: dict[str, Any] | None = None) -> tuple[str, str | None]:
+    if config is None:
+        from .confidence import normalize_confidence_config
+        config = normalize_confidence_config()
+    domains = config["source_domains"]
     try:
         parsed = urlsplit(url)
         host = (parsed.hostname or "").lower().rstrip(".")
@@ -48,15 +28,15 @@ def classify_url(url: str) -> tuple[str, str | None]:
         host = ""
     if not host or parsed.scheme not in {"http", "https"}:
         return "mixed_or_unattributed", None
-    if _matches(host, PRIMARY_DOMAINS):
+    if _matches(host, set(domains["primary_official"])):
         return "primary_official", host
-    if _matches(host, SCHOLARLY_DOMAINS):
+    if _matches(host, set(domains["scholarly_publisher"])):
         return "scholarly_publisher", host
-    if _matches(host, ENCYCLOPEDIA_DOMAINS):
+    if _matches(host, set(domains["encyclopedia"])):
         return "encyclopedia", host
-    if _matches(host, COMMUNITY_DOMAINS):
+    if _matches(host, set(domains["community"])):
         return "community", host
-    if _matches(host, TABLOID_DOMAINS):
+    if _matches(host, set(domains["tabloid_or_entertainment"])):
         return "tabloid_or_entertainment", host
     return "general_web", host
 
@@ -64,8 +44,13 @@ def classify_url(url: str) -> tuple[str, str | None]:
 def tool_source_metadata(
     node: dict[str, Any], evidence: list[dict[str, Any]] | None = None,
     raw_content: str = "",
+    config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Resolve one fact's declared result rank, never guess from a mixed list."""
+    if config is None:
+        from .confidence import normalize_confidence_config
+        config = normalize_confidence_config()
+    coefficients = config["source_coefficients"]
     items = node.get("tool_result_items") or []
     rank = node.get("source_rank")
     matches = [item for item in items if isinstance(item, dict) and item.get("rank") == rank]
@@ -92,17 +77,17 @@ def tool_source_metadata(
                 )
         if len(source_urls) == 1:
             url = next(iter(source_urls))
-            category, host = classify_url(url)
+            category, host = classify_url(url, config)
             if host:
                 return {"source_category": category,
-                        "source_coefficient": COEFFICIENTS[category],
+                        "source_coefficient": coefficients[category],
                         "source_url": url, "source_host": host}
         return {"source_category": "mixed_or_unattributed",
-                "source_coefficient": COEFFICIENTS["mixed_or_unattributed"]}
+                "source_coefficient": coefficients["mixed_or_unattributed"]}
     url = matches[0].get("url")
-    category, host = classify_url(url if isinstance(url, str) else "")
+    category, host = classify_url(url if isinstance(url, str) else "", config)
     result: dict[str, Any] = {"source_category": category,
-                              "source_coefficient": COEFFICIENTS[category],
+                              "source_coefficient": coefficients[category],
                               "source_rank": rank}
     if host:
         result.update(source_url=url, source_host=host)

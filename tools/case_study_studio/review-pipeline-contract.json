@@ -2,10 +2,10 @@
   "format": "bcg-review-method-contract",
   "version": 1,
   "prompt_version": "bcg-agent-use-review-v3",
-  "source_fingerprint": "e26b716bb92792365cc55c7496a40e0488f610fd18fb77c8b4f8e60d7e7af84d",
+  "source_fingerprint": "911a8c033857583a9a67cd289003eaee0ed45d3eca53a41db698a1be6a8d7160",
   "source_files": {
     "tools/case_study_studio/review_queue.py": "dc96e7b1dc1db22b5a517a2fac1d7e4f4480e5d8b6c534df63d27dcef7441bcd",
-    "tools/case_study_studio/control.py": "25b19a1d6b95515ccb5d719dcf0d60385feb59373190bf3cfde66fab782ae9cd",
+    "tools/case_study_studio/control.py": "7fe9aba91d54023390b76187682e48528a403d821a73f7eb448f01bca4ab88da",
     "tools/ai_review/evidence.py": "df24af9e517b060f2896e889d082f59de7e25f6ae38d49c6955a654d2906effe",
     "tools/ai_review/prompts.py": "680fb904aff68cb1375f9f797ae9233684e917d1e5a9a85819270d97882f62ee",
     "tools/ai_review/client.py": "a896538b71c48aec3f6656d5158c7c1d42155e6e75c1965491a5dce5e95b5d55",

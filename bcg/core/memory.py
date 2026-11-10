@@ -41,7 +41,7 @@ class BCGMemory:
         observed_at: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> MemoryObservation:
-        """Observe one already-formed evidence episode as an asserted belief."""
+        """Observe one already-formed evidence episode as a probable belief."""
 
         graph = self._graph()
         source = BeliefSource(
@@ -55,7 +55,7 @@ class BCGMemory:
             "id": graph.allocate_belief_id(),
             "belief": content,
             "node_type": "belief",
-            "stance": "asserted",
+            "stance": "probable",
             "role": source.role,
             "layer": "io",
             "source": source.model_dump(mode="json"),
@@ -77,7 +77,7 @@ class BCGMemory:
                 "observed_at": observed_at,
             },
         }
-        init_belief_confidence(belief_dict)
+        init_belief_confidence(belief_dict, self.confidence_config)
         belief = BeliefPayload.model_validate(belief_dict)
         graph.add_belief(belief)
         return MemoryObservation(belief=belief, graph=graph)

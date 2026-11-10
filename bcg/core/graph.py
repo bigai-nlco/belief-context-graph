@@ -25,7 +25,7 @@ from bcg.core.utils import get_random_uuid, utc_now
 BeliefLayer = Literal["io", "reasoning"]
 BeliefStance = Literal[
     "confirmed", "almost_certain", "probable", "possible", "unlikely",
-    "doubtful", "unknown", "asserted", "recalled", "speculated", "judged",
+    "doubtful", "unknown",
 ]
 RelationType = Literal[
     "depends_on",
@@ -136,7 +136,7 @@ class BeliefPayload(BaseModel):
     tool_call_index: int | None = None
     tool_call_id: str | None = None
     extraction_method: str | None = None
-    stance: BeliefStance = "asserted"
+    stance: BeliefStance = "probable"
     layer: BeliefLayer
     role: str | None = None
     entities: list[str] = Field(default_factory=list)

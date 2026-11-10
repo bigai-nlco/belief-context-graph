@@ -228,13 +228,17 @@ def test_hybrid_source_type_takes_precedence_over_flat_role() -> None:
 
 
 def test_unified_prior_uses_distinct_role_and_stance_components() -> None:
+    from bcg.config.loader import defaults_dict
+
     # Provisional BCG anchors; the paper's verbal labels are not calibrated here.
-    assert initial_confidence("user", "confirmed") == pytest.approx(0.893)
-    assert initial_confidence("tool", "probable") == pytest.approx(0.444)
-    assert initial_confidence("assistant", "possible") == pytest.approx(0.432)
-    assert initial_confidence("tool", "confirmed", 0.42) == pytest.approx(0.395)
-    assert initial_confidence("user", "unknown") == pytest.approx(0.500)
-    assert initial_confidence("tool", "asserted") == initial_confidence("tool", "probable")
+    # Pin packaged defaults instead of inheriting local user/project overrides.
+    config = defaults_dict()["pipeline"]["confidence"]
+    assert initial_confidence("user", "confirmed", config=config) == pytest.approx(0.893)
+    assert initial_confidence("tool", "probable", config=config) == pytest.approx(0.444)
+    assert initial_confidence("assistant", "possible", config=config) == pytest.approx(0.432)
+    assert initial_confidence("tool", "confirmed", 0.42, config=config) == pytest.approx(0.395)
+    assert initial_confidence("user", "unknown", config=config) == pytest.approx(0.500)
+    assert initial_confidence("tool", "asserted", config=config) == initial_confidence("tool", "unknown", config=config)
 
 
 def test_unified_independent_support_uses_discounted_log_likelihood_ratio() -> None:
@@ -242,6 +246,6 @@ def test_unified_independent_support_uses_discounted_log_likelihood_ratio() -> N
     expected_quality = 0.827
 
     assert unified_confidence.evidence_contribution(evidence) == pytest.approx(
-    unified_confidence.EVIDENCE_LOG_ODDS_WEIGHT
+    unified_confidence.normalize_confidence_config()["evidence_log_odds_weight"]
     * math.log(expected_quality / (1 - expected_quality))
 )
