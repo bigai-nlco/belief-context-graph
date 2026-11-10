@@ -190,7 +190,7 @@ class Control:
     def scan(self) -> None:
         candidates = []
         for path in self.results.glob("*/batch.json"):
-            if path.is_symlink() or not path.resolve().is_relative_to(self.results.resolve()):
+            if path.parent.name.startswith(".") or path.is_symlink() or not path.resolve().is_relative_to(self.results.resolve()):
                 continue
             data = read_json(path)
             if not any((path.parent / name / "run.json").is_file() for name in DEFAULT_IDS):
@@ -199,6 +199,9 @@ class Control:
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             for created, folder in sorted(candidates):
+                # Deletion may have completed while scan was waiting for the DB.
+                if not (folder / "batch.json").is_file():
+                    continue
                 source = str(folder.relative_to(self.results))
                 # INSERT OR IGNORE advances SQLite AUTOINCREMENT even on duplicates.
                 # Polling must not consume run numbers.
@@ -276,6 +279,9 @@ class Control:
             reviews = [dict(x) for x in db.execute(
                 "SELECT r.benchmark,r.task_id,r.user_id,r.revision,r.annotation,r.updated_at,u.name "
                 "FROM reviews r JOIN users u ON u.id=r.user_id WHERE r.run_id=?", (run_id,))]
+            summary_statuses = [x[0] for x in db.execute("SELECT status FROM run_summaries WHERE run_id=?", (run_id,))]
+        from tools.case_study_studio.run_deletion import blocked_reason
+        deletion_reason = blocked_reason(status, [x["status"] for x in ai_reviews.values()], summary_statuses)
         tasks = []
         for benchmark in DEFAULT_IDS:
             run = read_json(root / benchmark / "run.json")
@@ -322,7 +328,7 @@ class Control:
         ended = sum(t["status"] in TERMINAL for t in tasks)
         return {"id": run_id, "number": self.label(run_id), "title": row["title"], "status": status,
             "mode": mode,
-            "task_state": bool(config.get("task_state", False)),
+            "task_state": bool(batch.get("config", {}).get("task_state", config.get("task_state", False))),
             "code_version": public_version(batch.get("code_version")),
             "managed": bool(row["managed"]), "created_at": row["created_at"],
             "started_at": row["started_at"] or batch.get("started_at"),
@@ -333,6 +339,7 @@ class Control:
             "phase": batch.get("phase"),
             "judge": batch.get("judge", {"enabled": bool(config.get("judge_reports"))}),
             "owner": row["owner"], "error": row["error"], "cancel_requested": bool(row["cancel"]),
+            "can_delete": not deletion_reason, "delete_blocked_reason": deletion_reason,
             "tasks": tasks, "total": len(tasks), "ended": ended,
             "reports": sum(t["report"] for t in tasks),
             "failed": sum(t["status"] in TERMINAL and t["status"] != "completed" for t in tasks),
@@ -344,9 +351,21 @@ class Control:
             ids = [x[0] for x in db.execute("SELECT id FROM runs ORDER BY id DESC")]
         # Previously registered DRBench-only runs keep their IDs and annotations
         # in the database, but no longer appear as empty runs in the Studio.
-        details = (self.detail(i, user) for i in ids)
-        return [{k: v for k, v in item.items() if k != "tasks"}
-                for item in details if item["tasks"]]
+        runs = []
+        for run_id in ids:
+            try:
+                item = self.detail(run_id, user)
+            except APIError as exc:
+                if exc.status == 404:  # Deleted by another viewer during polling.
+                    continue
+                raise
+            if item["tasks"]:
+                runs.append({k: v for k, v in item.items() if k != "tasks"})
+        return runs
+
+    def delete_run(self, run_id: int, user: dict, confirmation: object) -> dict:
+        from tools.case_study_studio.run_deletion import delete_run
+        return delete_run(self, run_id, user, confirmation)
 
     def task(self, run_id: int, benchmark: str, task_id: str) -> tuple[Path, dict]:
         item = next((x for x in self.detail(run_id)["tasks"]
@@ -404,6 +423,7 @@ class Control:
         # Freeze one evidence revision for all reviewers. Never rewrite cited records.
         target = safe_child(self.state, "evidence", str(run_id), benchmark, task_id + ".json.gz")
         with self.lock:
+            self.row(run_id)  # Do not recreate evidence after a concurrent deletion.
             if not target.exists():
                 target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
                 original = trial / "case-study.json.gz"
@@ -476,6 +496,8 @@ class Control:
         task_state = data.get("task_state", False)
         if type(task_state) is not bool or (mode == "default" and task_state):
             raise APIError(400, "任务状态维护仅适用于 BCG 模式，开关必须是布尔值")
+        if mode == "bcg":
+            task_state = True
         profile_id = data.get("profile")
         profile = self.profiles().get(profile_id) if isinstance(profile_id, str) else None
         if not profile or not safe_child(self.root, profile["source"]).is_file():
@@ -505,7 +527,7 @@ class Control:
                   "mode": mode, "task_state": task_state, "tasks": tasks, "workers": workers,
                   "pipeline": "stateful-react-agent", "judge_reports": True}
         for key, default, minimum, maximum in (("timeout", 3600, 60, 14400),
-                ("max_turns", 200, 1, 300), ("search_calls", 0, 0, 2000), ("fetch_calls", 0, 0, 2000)):
+                ("max_turns", 200, 1, 300), ("search_calls", 50, 0, 2000), ("fetch_calls", 50, 0, 2000)):
             value = data.get(key, default)
             if type(value) is not int or not minimum <= value <= maximum:
                 raise APIError(400, f"{key} 的范围为 {minimum}–{maximum}")

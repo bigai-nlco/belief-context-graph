@@ -648,7 +648,7 @@ async def react_agent_node(state: dict[str, Any], ctx: NodeContext) -> dict[str,
     history_policy = resolve_history_policy(agent_cfg)
     max_input_tokens = int(agent_cfg.get("max_input_tokens", 0) or 0)
     context_mode = resolve_context_mode(agent_cfg)
-    bcg_settings = BCGSettings.from_agent(agent_cfg) if context_mode != "default" else None
+    bcg_settings = BCGSettings.from_react_agent(agent_cfg) if context_mode != "default" else None
     max_len = int(agent_cfg.get("max_len", 0) or 0)
     # See the sibling call in agent_team: the sglang doctor covers the compose
     # path only, and nothing checked the values the loop is actually built from.

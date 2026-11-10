@@ -185,8 +185,11 @@ def test_default_settings_and_all_builtin_profiles(monkeypatch, tmp_path):
     assert BCGSettings.from_agent({}).retrieval == "query_pcst"
     for loader in (react_profile.load_react_profile, team_profile.load_swarm_profile):
         for name in ("simple", "benchmark", "tui"):
-            settings = BCGSettings.from_agent(loader(name)["agent"])
-            assert settings.retrieval == "query_pcst"
+            single = loader is react_profile.load_react_profile
+            factory = BCGSettings.from_react_agent if single else BCGSettings.from_agent
+            settings = factory(loader(name)["agent"])
+            assert settings.retrieval == ("recent_steps" if single else "query_pcst")
+            assert settings.task_state_enabled is single
             assert settings.embedding_provider == "openai"
             assert settings.embedding_url == "http://10.1.100.76:8016/v1/embeddings"
 

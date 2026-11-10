@@ -317,10 +317,12 @@ def test_report_scores_do_not_change_annotation_status(control: Control) -> None
     assert control.detail(1)["tasks"][0]["annotatable"]  # Judge failure is not Agent failure.
 
 
-def test_task_state_opt_in_is_saved_and_rejected_for_default(control: Control) -> None:
+def test_bcg_task_state_default_and_full_graph_opt_in_are_saved(control: Control) -> None:
     user = control.register("task-operator")["user"]
     assert control.settings()["task_state_supported"]
     assert not control.detail(1)["task_state"]
+    run = control.create_run(request_config(mode="bcg"), user)
+    assert run["task_state"] is True
     for mode in ("bcg", "bcg_no_retrieval"):
         run = control.create_run(request_config(mode=mode, task_state=True), user)
         assert run["task_state"]
@@ -328,6 +330,22 @@ def test_task_state_opt_in_is_saved_and_rejected_for_default(control: Control) -
     for mode, flag in (("default", True), ("bcg", "true"), ("bcg", 1)):
         with pytest.raises(APIError):
             control.create_run(request_config(mode=mode, task_state=flag), user)
+
+
+@pytest.mark.parametrize("overrides, expected", [
+    ({}, (50, 50)),
+    ({"search_calls": 0, "fetch_calls": 0}, (0, 0)),
+    ({"search_calls": 25, "fetch_calls": 75}, (25, 75)),
+])
+def test_search_fetch_defaults_and_explicit_overrides(control: Control, overrides: dict, expected: tuple) -> None:
+    user = control.register("budget-operator")["user"]
+    run = control.create_run(request_config(**overrides), user)
+    before = control.row(run["id"])["config"]
+    saved = json.loads(before)
+    assert (saved["search_calls"], saved["fetch_calls"]) == expected
+    # Restarting the Studio must not rewrite existing launch settings.
+    reopened = Control(control.root, control.state)
+    assert reopened.row(run["id"])["config"] == before
 
 
 def test_signed_in_reviewers_can_start_and_cancel(control: Control) -> None:

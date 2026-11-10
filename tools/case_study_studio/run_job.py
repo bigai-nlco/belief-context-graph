@@ -75,6 +75,9 @@ def main() -> None:
     row = control.row(args.run_id)
     config = json.loads(row["config"])
     mode = config.get("mode", "bcg")
+    if mode == "bcg":
+        # Queued runs may have been submitted before the new context policy.
+        config["task_state"] = True
     root = control.directory(row)
     graph = runner = None
     interrupted = False
@@ -140,10 +143,13 @@ def main() -> None:
         if mode != "default":
             if mode == "bcg_no_retrieval":
                 profile["agent"]["bcg"]["retrieval"] = "all"
+            else:
+                profile["agent"]["bcg"]["retrieval"] = "recent_steps"
+                profile["agent"]["bcg"].setdefault("graph_recent_turns", 3)
             graph_profile = yaml.safe_load((args.root / "tools/case_study_studio/profiles/graph.yaml").read_text())
-            if config.get("task_state"):
-                profile["agent"]["bcg"]["task_state_enabled"] = True
-                graph_profile.setdefault("pipeline", {})["task_state"] = {"enabled": True}
+            task_state = bool(config.get("task_state"))
+            profile["agent"]["bcg"]["task_state_enabled"] = task_state
+            graph_profile.setdefault("pipeline", {})["task_state"] = {"enabled": task_state}
             embedding = values.get("BCG_EMBEDDING_MODEL") or str(Path.home() / "PLM/all-MiniLM-L6-v2")
             if Path(embedding).is_dir():
                 graph_profile["models"]["embedding"]["model"] = embedding

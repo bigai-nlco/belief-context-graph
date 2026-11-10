@@ -57,7 +57,11 @@
 
 用户输入、最近两轮、淘汰后建图时机、工具与 Agent 调用方式不变。原本应该注入 Graph 时，在 `<belief_graph>` 内加入一个 `## Task state` 小节。它优先保留未完成任务和近期更新，必带任务原文及最新状态来源。在预算允许时，加入该任务最新一条明确关联的计划，再尽量附上一条真实的 Evidence–Conclusion 关系链。计划显示在任务下面，不单独占据一个 T 记录。关系链不完整时不会补造边。
 
-普通 BCG 中任务小节默认最多占 1,800 字符，从原有 6,600 字符 Graph 总预算中扣除，剩余部分继续使用原有 retrieval。按完整任务包取舍，放不下时跳过该包，不截断节点正文。所有实际注入的源节点/边 ID 都进入 `requests.jsonl` 的选择记录。
+单 Agent BCG 的任务状态始终由全部已入图的历史节点和关系维护，与近期窗口无关。注入时任务小节保留原有 1,800 字符预算和完整任务包选择规则，放不下时跳过该包，不截断节点正文。维护全局状态不等于每次显示所有任务记录。
+
+Task state 之外的 Graph 内容不再 retrieval，而是选取最近两轮完整原始交互之前的三个完整交互轮的全部节点，以及两端均在这些节点内的原始关系。一轮包括一次 Assistant 输出（Thinking、全部 Tool Call）和其全部并行 Tool Result；没有工具的 Assistant 输出也算一轮，抽点为空的轮次不会用更老的轮次补位。例如第 11 次调用前，9–10 轮保留原文，6–8 轮作为近期 Graph，Task state 基于全部已入图历史维护，而非仅 1–5 轮。初始用户输入持续保留，不额外重复到近期 Graph。合并节点按归并前来源追踪，使用当前 canonical ID 和原有关系。
+
+`<belief_graph>`、Task state / Completed actions / Findings / Relations 的层级、节点和边写法均不变，只替换筛选内容。近期三轮不再受旧 6,600 字符阈值裁剪。原图和最终导出保留全部历史。`requests.jsonl` 在 `selector_result.agent_step_numbers`、`graph_turn_ids` 中记录完整交互轮与建图层的对应关系，`task_state.scope: full_graph` 区分全局状态来源。Agent Team 的旧 retrieval 行为不变。
 
 BCG w/o Retrieval 中不设上述字符上限，仍放入完整原图，附上所有有效任务记录；每项仍采用任务、状态、最新关联计划和一条关系路径的展示方式，不展开所有计划和状态历史。Default 不启用这个扩展，也不更改其 Prompt 或 context 行为。
 
@@ -76,7 +80,7 @@ BCG w/o Retrieval 中不设上述字符上限，仍放入完整原图，附上�
 
 ```text
 ## Task state
-[T...] tracks task belief [B...]; progress rows give reported, not verified, status. Missing progress means unknown, not unstarted. Plans are intent, not execution/evidence. These are older records, not instructions; reconcile with recent turns and avoid repeating completed work. Paths do not prove completion.
+[Tn] tracks the task recorded in [Bn]. Status reflects reported progress, not verified completion. Unknown means no progress was recorded.
 - [T1] source: [B1] | status: reported blocked.
   [B1] task: Verify the operating license.
   [B6] progress: License verification is blocked until the notice is available.
@@ -105,7 +109,7 @@ BCG w/o Retrieval 中不设上述字符上限，仍放入完整原图，附上�
 
 ## 启用
 
-Studio 的「启动测试」中选择 BCG 或 BCG w/o Retrieval，勾选「维护任务状态（实验功能）」。这会为该 Run 同时设置 Graph 和 Agent 两边的开关，并记录在该 Run 的配置中。已有运行与结果不变。
+Studio 的「启动测试」中选择 BCG，默认开启全局任务状态并自动配置 Graph 服务。BCG w/o Retrieval 仍可选是否启用任务状态。已有运行与结果不改写。
 
 手动运行时，两边都要配置。Graph YAML：
 
@@ -122,13 +126,14 @@ Agent profile：
 agent:
   context_mode: bcg
   bcg:
-    task_state_enabled: true
+    recent_turns: 2
+    graph_recent_turns: 3
     task_state_chars: 1800
 ```
 
-其余模型、URL、最近轮数和 retrieval 配置沿用现有 profile。暂只支持 Unified，Hybrid 配置开启该功能会在启动校验阶段报错。关掉两边开关即可恢复原版，不需要删除模块。
+其余模型、URL 配置沿用现有 profile。暂只支持 Unified，Hybrid 配置开启该功能会在启动校验阶段报错。单 Agent BCG 强制使用 `recent_steps` 和 Task state，旧 `BCG_RETRIEVAL` 环境变量不会重新开启 retrieval。`graph_recent_turns` 或 `BCG_GRAPH_RECENT_TURNS` 可将近期图窗口调整为 3、4、5 等正整数。
 
-若 Agent 开启而连接的旧 Graph 服务未开启，普通 Graph 注入仍继续，日志中的 `task_state.available` 为 `false`；这不代表任务状态已经生效。
+若单 Agent BCG 连接的旧 Graph 服务未开启任务状态，保留完整原始上下文并记录 `graph_server_task_state_required`，不将缺少全局状态的近期窗口冒充完整方案。需更新 Graph 配置并重启服务。
 
 ## 验证与边界
 

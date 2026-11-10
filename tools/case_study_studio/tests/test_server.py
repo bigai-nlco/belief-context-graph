@@ -68,6 +68,11 @@ class ServerTests(unittest.TestCase):
         self.assertIn('确认停止', html)
         self.assertIn('id="identity-form"', html)
 
+    def test_launch_form_search_and_fetch_defaults_are_fifty(self) -> None:
+        html = (ROOT / "runs.html").read_text()
+        for field in ("search_calls", "fetch_calls"):
+            self.assertIn(f'name="{field}" type="number" required min="0" max="2000" value="50"', html)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -700,7 +700,8 @@ def build_config(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> dict[s
     mode = resolve_context_mode(agent)
     if mode != "bcg" and args.pipeline != "stateful-react-agent":
         raise ValueError("Default and BCG w/o Retrieval context modes are supported only by stateful-react-agent")
-    settings = BCGSettings.from_agent(agent) if mode != "default" else None
+    settings_factory = BCGSettings.from_react_agent if args.pipeline == "stateful-react-agent" else BCGSettings.from_agent
+    settings = settings_factory(agent) if mode != "default" else None
     profile = Path(args.profile)
     # Only non-secret model identifiers are persisted; never keys or full env.
     model = (resolved.get("llm") or {}).get("model", "")
@@ -723,6 +724,10 @@ def build_config(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> dict[s
         "agent_model": model,
         "graph_url": settings.url if settings else None,
         "recent_turns": settings.recent_turns if settings else None,
+        "graph_selection": settings.retrieval if settings else None,
+        "graph_recent_turns": settings.graph_recent_turns if settings and settings.retrieval == "recent_steps" else None,
+        "task_state_enabled": settings.task_state_enabled if settings else False,
+        "task_state_chars": settings.task_state_budget if settings and settings.task_state_enabled else None,
         "graph_chars": settings.graph_budget if settings else 0,
         "cross_graph_chars": (resolved.get("agent", {}).get("bcg") or {}).get(
             "cross_graph_chars", 2000
@@ -801,7 +806,8 @@ async def run(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> None:
 
         from workflows.stateful_react_agent.bcg.runtime import BCGSettings
 
-        settings = BCGSettings.from_agent(
+        settings_factory = BCGSettings.from_react_agent if args.pipeline == "stateful-react-agent" else BCGSettings.from_agent
+        settings = settings_factory(
             resolve_profile(args.pipeline, args.profile).get("agent") or {}
         )
         headers = {"Authorization": f"Bearer {settings.api_key}"} if settings.api_key else {}

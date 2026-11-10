@@ -966,7 +966,7 @@ async def test_report_reaches_real_bcg_nodes_and_team_specialists(
 
     from collections import Counter
 
-    provider, graph = Provider(), Graph()
+    provider, graph = Provider(), Graph(task_state=True)
     monkeypatch.setenv("SANDBOX_BACKEND", "native")
     for directory in ("workspace", "outputs", "inputs"):
         (tmp_path / directory).mkdir()
@@ -1043,7 +1043,7 @@ def test_cli_subprocess_end_to_end_without_paid_apis(datasets, tmp_path):
     """Actual CLI -> subprocess -> BenchmarkSession -> BCG ReAct -> local HTTP doubles."""
     from test_team_bcg import Graph, call
 
-    graph = Graph()
+    graph = Graph(task_state=True)
     calls = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -1175,6 +1175,9 @@ agent:
     try:
         completed = subprocess.run(command, env=env, text=True, capture_output=True, timeout=45)
         assert completed.returncode == 0, completed.stdout + completed.stderr
+        config = json.loads((output / "run.json").read_text())
+        assert config["graph_selection"] == "recent_steps" and config["graph_recent_turns"] == 3
+        assert config["task_state_enabled"] is True and config["recent_turns"] == 2
         record = json.loads((output / "trials/DR0001/result.json").read_text())
         log = (output / "trials/DR0001/agent.log").read_text()
         assert record["status"] == "completed", log

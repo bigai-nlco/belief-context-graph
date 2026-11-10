@@ -16,6 +16,8 @@ models:
     device: cpu
     batch_size: 8
 pipeline:
+  task_state:
+    enabled: true
   runtime:
     context_chars: 12000
     extraction_history_turns: 2

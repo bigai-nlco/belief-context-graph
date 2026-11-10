@@ -47,10 +47,11 @@ def history(n=4, question="Find the date"):
 class Graph:
     """Deterministic extraction double with real source/call-id contracts."""
 
-    def __init__(self):
+    def __init__(self, *, task_state=False):
         self.turns = {}
         self.closed = False
         self.fail = False
+        self.task_state = task_state
 
     def snapshot(self, pid):
         turns = self.turns[pid]
@@ -89,13 +90,20 @@ class Graph:
                     "note": "Offline test relation",
                 }
             )
-        return {
+        snapshot = {
             "problem_id": pid,
             "n_turns_ingested": len(turns),
             "nodes": nodes,
             "relations": relations,
             "token_usage": {"total_tokens": len(turns) * 10},
         }
+        if self.task_state:
+            from bcg.construct.unified.task_state import build_task_state
+
+            if nodes:
+                nodes[0].update(task_role="task", task_ids=[], role="user")
+            snapshot["task_state"] = build_task_state(snapshot)
+        return snapshot
 
     async def push(self, pid, turns):
         if self.fail:

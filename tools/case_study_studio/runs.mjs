@@ -12,6 +12,7 @@ Object.assign(names,{judging:'报告评分中',finished_with_judge_errors:'已�
 const badge=status=>`<span class="run-status ${escape(status)}">${escape(names[status]||status)}</span>`;
 let user=null,settings=null,selected=Number(new URLSearchParams(location.search).get('run'))||0,refreshTask=null,cancelTarget=0,noticeTimer,refreshFeedbackTimer;
 let suggestedRunTitle='';
+let deleteTarget=null,deletingRun=false;
 let taskPicker=null;
 const pendingReviews=new Set();
 const scoreDetails=mountScoreDetails($('#score-dialog'));
@@ -84,7 +85,7 @@ function renderLive(parent,html,{reset=false}={}){
   else patchLiveChildren(parent,template.content);
 }
 function renderList(runs){
-  renderLive($('#run-list'),runs.length?runs.map(run=>`<button class="run-item ${run.id===selected?'selected':''}" data-run="${run.id}" data-live-key="run-${run.id}"><div><strong>${escape(run.number)}</strong>${badge(runDisplayStatus(run))}</div><p class="run-name">${escape(run.title)}</p><div><small>${escape(contextModeLabel(run.mode))} · ${run.ended} / ${run.total} 已结束</small><small>${run.reports} 份报告</small></div><small class="run-version-label">${escape(versionLabel(run))}</small></button>`).join(''):'<p class="muted">暂无测试。点击右上角启动测试。</p>');
+  renderLive($('#run-list'),runs.length?runs.map(run=>`<button class="run-item ${run.id===selected?'selected':''}" data-run="${run.id}" data-live-key="run-${run.id}"><div><strong>${escape(run.number)}</strong>${badge(runDisplayStatus(run))}</div><p class="run-name">${escape(run.title)}</p><small class="run-mode-label">${escape(contextModeLabel(run.mode,run.task_state))}</small><div><small>${run.ended} / ${run.total} 已结束</small><small>${run.reports} 份报告</small></div><small class="run-version-label">${escape(versionLabel(run))}</small></button>`).join(''):'<p class="muted">暂无测试。点击右上角启动测试。</p>');
 }
 function renderRun(run){
   const current=$('#run-content');
@@ -99,9 +100,9 @@ function renderRun(run){
     <span class="eyebrow">${escape(run.number)}</span>
     <div class="run-heading-row">
       <h1>${escape(run.title)}</h1>
-      <div class="run-heading-actions"><a class="button" href="./annotation-stats.html?run=${run.id}">标注统计</a>${badge(runDisplayStatus(run))}${run.managed&&['queued','starting','running'].includes(run.status)?`<button class="button" id="stop-run" data-run-id="${run.id}" ${run.cancel_requested?'disabled':''}>${run.cancel_requested?'正在停止…':'停止测试'}</button>`:''}</div>
+      <div class="run-heading-actions"><a class="button" href="./annotation-stats.html?run=${run.id}">标注统计</a>${badge(runDisplayStatus(run))}${run.managed&&['queued','starting','running'].includes(run.status)?`<button class="button" id="stop-run" data-run-id="${run.id}" ${run.cancel_requested?'disabled':''}>${run.cancel_requested?'正在停止…':'停止测试'}</button>`:''}<button type="button" class="button delete-run" id="delete-run" data-run-id="${run.id}" data-run-number="${escape(run.number)}" ${run.can_delete?'':'disabled'} title="${escape(run.delete_blocked_reason||'删除该运行及其结果和标注')}">删除运行</button></div>
     </div>
-    <p>模式：${escape(contextModeLabel(run.mode))}${run.task_state?' + 任务状态':''} · Agent：${escape(run.agent||'待启动')} · Graph：${run.mode==='default'?'不启用':escape(run.graph)} · 并发 ${run.workers||'—'}<br>启动时间：${time(run.started_at||run.created_at)}${run.finished_at?` · 结束：${time(run.finished_at)}`:''}</p>
+    <p>模式：${escape(contextModeLabel(run.mode,run.task_state))} · Agent：${escape(run.agent||'待启动')} · Graph：${run.mode==='default'?'不启用':escape(run.graph)} · 并发 ${run.workers||'—'}<br>启动时间：${time(run.started_at||run.created_at)}${run.finished_at?` · 结束：${time(run.finished_at)}`:''}</p>
     ${run.judge?.enabled?`<p>Report 评分：${run.tasks.filter(t=>t.scoring_status==='official_protocol_scored').length} / ${run.tasks.filter(t=>t.status==='completed').length} 份报告${run.judge.model?` · Judge ${escape(run.judge.model)}`:''}</p>`:''}
     ${renderVersion(run)}
     </section>
@@ -126,14 +127,17 @@ function renderRun(run){
   current.dataset.liveRun=String(run.id);
 }
 function refresh(){
-  if(!user)return Promise.resolve(false);
+  if(!user||deletingRun)return Promise.resolve(false);
   // A manual click can join an in-flight automatic refresh instead of reporting
   // success before the outstanding request has actually finished.
   if(refreshTask)return refreshTask;
   refreshTask=(async()=>{
   try{
     const {runs}=await api('runs');
-    if(!runs.some(r=>r.id===selected))selected=runs[0]?.id||0;
+    if(!runs.some(r=>r.id===selected)){
+      selected=runs[0]?.id||0;
+      history.replaceState(null,'',selected?'?run='+selected:location.pathname);
+    }
     renderList(runs);
     if(selected)renderRun(await api(`runs/${selected}`));
     else $('#run-content').innerHTML='<section class="run-heading"><div><span class="eyebrow">BCG DEEP RESEARCH</span><h1>启动测试，直接查看与标注</h1><p>同一个运行编号下查看任务进度、最终报告、运行轨迹和 Belief Graph。</p></div></section>';
@@ -164,6 +168,14 @@ async function manualRefresh(){
   refreshFeedbackTimer=setTimeout(()=>setState('idle'),1600);
 }
 document.addEventListener('click',async event=>{
+  const remove=event.target.closest('#delete-run');
+  if(remove&&!remove.disabled){
+    deleteTarget={id:Number(remove.dataset.runId),number:remove.dataset.runNumber};
+    $('#delete-form').reset();$('#delete-error').textContent='';$('#delete-submit').disabled=true;
+    $('#delete-number').textContent=deleteTarget.number;
+    $('#delete-confirmation').placeholder=deleteTarget.number;
+    $('#delete-dialog').showModal();$('#delete-confirmation').focus();return;
+  }
   const stop=event.target.closest('#stop-run');
   if(stop&&!stop.disabled){cancelTarget=Number(stop.dataset.runId);$('#cancel-error').textContent='';$('#cancel-dialog').showModal();return;}
   const score=event.target.closest('[data-score-task]');
@@ -214,13 +226,15 @@ $('#launch-button').addEventListener('click',()=>{
 });
 $('#launch-profile').addEventListener('change',()=>{const profile=settings.profiles.find(p=>p.id===$('#launch-profile').value);$('#launch-form').elements.workers.max=profile.max_workers;$('#launch-form').elements.workers.value=Math.min(Number($('#launch-form').elements.workers.value),profile.max_workers);});
 $('#launch-mode').addEventListener('change',()=>{
-  $('#launch-task-state').disabled=$('#launch-mode').value==='default'||!settings?.task_state_supported;
-  if($('#launch-task-state').disabled)$('#launch-task-state').checked=false;
+  const mode=$('#launch-mode').value;
+  $('#launch-task-state').disabled=mode!=='bcg_no_retrieval'||!settings?.task_state_supported;
+  if(mode==='bcg')$('#launch-task-state').checked=true;
+  else if($('#launch-task-state').disabled)$('#launch-task-state').checked=false;
   $('#launch-context-info').innerHTML=$('#launch-mode').value==='default'
     ?'单 Agent Default · 按顺序保留系统提示、用户输入、Assistant 回复和工具结果<br>不建图、不注入 Graph、不按最近两轮裁剪；仍受模型上下文长度限制<br>报告生成后自动进行同一套 LLM Judge 评分'
     :$('#launch-mode').value==='bcg_no_retrieval'
       ?'单 Agent BCG w/o Retrieval · 最近 2 轮 · 永久保留用户输入<br>注入当前 Graph 的全部节点和边，不检索、不按 6,600 字符裁剪；仍受模型上下文长度限制<br>建图：gpt-6-luna / none · LiteLLM · 报告生成后自动进行同一套 LLM Judge 评分'
-      :'单 Agent BCG · 最近 2 轮 · Graph 6,600 字符<br>建图：gpt-6-luna / none · LiteLLM<br>报告生成后自动进行 LLM Judge 评分';
+      :'单 Agent BCG · 永久保留用户输入 · 最近 2 轮完整交互<br>Task state 基于全图维护；近期 Graph 展示这 2 轮之前的 3 轮节点及其内部关系，不做 retrieval<br>建图：gpt-6-luna / none · LiteLLM · 报告生成后自动进行 LLM Judge 评分';
 });
 $('#launch-form').addEventListener('submit',async event=>{
   event.preventDefault();const button=event.submitter;button.disabled=true;$('#launch-error').textContent='';
@@ -229,7 +243,7 @@ $('#launch-form').addEventListener('submit',async event=>{
     if(!taskPicker)throw new Error('题目选择器尚未加载，请稍后再试。');
     const ids=taskPicker.value();
     const tasks={drb2:ids};
-    const body={title:form.get('title'),profile:form.get('profile'),mode:form.get('mode'),tasks,task_state:form.has('task_state')};
+    const body={title:form.get('title'),profile:form.get('profile'),mode:form.get('mode'),tasks,task_state:form.get('mode')==='bcg'||form.has('task_state')};
     for(const key of ['workers','timeout','max_turns','search_calls','fetch_calls'])body[key]=Number(form.get(key));
     const run=await api('runs',{method:'POST',body});selected=run.id;history.replaceState(null,'','?run='+selected);event.target.elements.title.value='';suggestedRunTitle='';$('#launch-dialog').close();notice(`${run.number} 已加入队列`);await refresh();
   }catch(error){$('#launch-error').textContent=error.message;}finally{button.disabled=false;}
@@ -238,6 +252,33 @@ $('#cancel-form').addEventListener('submit',async event=>{
   event.preventDefault();event.submitter.disabled=true;$('#cancel-error').textContent='';
   try{await api(`runs/${cancelTarget}/cancel`,{method:'POST',body:{}});event.target.reset();$('#cancel-dialog').close();notice('已请求停止；正在保留记录并关闭本次专用 Graph 服务');await refresh();}
   catch(error){$('#cancel-error').textContent=error.message;}finally{event.submitter.disabled=false;}
+});
+$('#delete-confirmation').addEventListener('input',()=>{
+  $('#delete-submit').disabled=deletingRun||$('#delete-confirmation').value.trim()!==deleteTarget?.number;
+});
+$('#delete-dialog').addEventListener('cancel',event=>{if(deletingRun)event.preventDefault();});
+$('#delete-form').addEventListener('submit',async event=>{
+  event.preventDefault();
+  if(!deleteTarget||deletingRun||$('#delete-confirmation').value.trim()!==deleteTarget.number)return;
+  const target={...deleteTarget},button=$('#delete-submit');
+  deletingRun=true;button.disabled=true;button.textContent='正在删除…';$('#delete-error').textContent='';
+  $('#delete-form').setAttribute('aria-busy','true');
+  for(const close of $('#delete-form').querySelectorAll('[data-close]'))close.disabled=true;
+  try{
+    // Let any poll finish before deleting, so a stale response cannot restore it.
+    if(refreshTask)await refreshTask;
+    const result=await api(`runs/${target.id}`,{method:'DELETE',body:{confirmation:target.number}});
+    if(selected===target.id)selected=0;
+    deleteTarget=null;$('#delete-dialog').close();
+    notice(result.cleanup_pending?`${target.number} 已移除，部分文件清理失败，请联系维护者检查`:`${target.number} 及其结果、标注已删除`);
+  }catch(error){$('#delete-error').textContent=error.message;}
+  finally{
+    deletingRun=false;button.textContent='永久删除';
+    $('#delete-form').setAttribute('aria-busy','false');
+    for(const close of $('#delete-form').querySelectorAll('[data-close]'))close.disabled=false;
+    button.disabled=!deleteTarget||$('#delete-confirmation').value.trim()!==deleteTarget.number;
+    await refresh();
+  }
 });
 try{
   settings=await api('settings');

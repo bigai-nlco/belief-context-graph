@@ -589,8 +589,7 @@ def test_real_agent_loop_four_tool_steps_then_answer(tmp_path):
 
 @pytest.mark.parametrize("mode", [None, "bcg", "bcg_no_retrieval", "default"])
 def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode):
-    # This test exercises the legacy server selector; query-PCST has its own
-    # model-boundary tests with a deterministic embedding provider.
+    # A stale retrieval env must not override single-agent recent-step selection.
     monkeypatch.setenv("BCG_RETRIEVAL", "focused")
     from frontier_agent.core.runtime import registry
     from frontier_agent.core.runtime.resources.manager import ResourceManager
@@ -635,7 +634,17 @@ def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode)
         monkeypatch.setenv(f"FRONTIER_AGENT_{name.upper()}_DIR", str(directory))
     monkeypatch.setenv("SANDBOX_BACKEND", "native")
     provider = Provider()
-    graph = FakeGraph()
+
+    class TaskGraph(FakeGraph):
+        def snapshot(self, pid):
+            from bcg.construct.unified.task_state import build_task_state
+
+            value = super().snapshot(pid)
+            value["nodes"][0].update(task_role="task", task_ids=[], role="user")
+            value["task_state"] = build_task_state(value)
+            return value
+
+    graph = TaskGraph()
     profile = {
         "agent": {
             "main_max_turns": 20,
@@ -697,6 +706,11 @@ def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode)
     if mode == "bcg_no_retrieval":
         assert result["bcg"]["retrieval_strategy"] == "all"
         assert result["bcg"]["graph_chars_budget"] is None
+        assert not graph.selections
+    else:
+        assert result["bcg"]["retrieval_strategy"] == "recent_steps"
+        assert result["bcg"]["selector_result"]["agent_step_numbers"] == [1, 2]
+        assert result["bcg"]["task_state"]["scope"] == "full_graph"
         assert not graph.selections
     checkpoint = json.loads((tmp_path / "trial/agent/bcg/state.json").read_text())
     assert checkpoint["acknowledged"][-1]["content"] == result["final_answer"]

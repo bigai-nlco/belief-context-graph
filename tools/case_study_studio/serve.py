@@ -180,6 +180,11 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             if len(parts) == 3 and method == "GET":
                 return self._json(control.detail(run_id, user))
+            if len(parts) == 3 and method == "DELETE":
+                body = self._body()
+                if set(body) != {"confirmation"}:
+                    raise APIError(400, "删除请求需要运行编号确认，不接受文件路径")
+                return self._json(control.delete_run(run_id, user, body["confirmation"]))
             if parts[3:] == ["cancel"] and method == "POST":
                 self._body()
                 return self._json(control.cancel_run(run_id, user))
@@ -235,6 +240,9 @@ class Handler(SimpleHTTPRequestHandler):
         self._handle_api()
 
     def do_PUT(self) -> None:
+        self._handle_api()
+
+    def do_DELETE(self) -> None:
         self._handle_api()
 
     def end_headers(self) -> None:

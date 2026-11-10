@@ -9,6 +9,16 @@ test('full-graph ablation is displayed separately from BCG and Default',()=>{
   assert.equal(contextModeLabel(undefined),'BCG');
 });
 
+test('run mode labels consistently include enabled task state',()=>{
+  assert.equal(contextModeLabel('bcg',true),'BCG + 任务状态');
+  assert.equal(contextModeLabel('bcg_no_retrieval',true),'BCG w/o Retrieval + 任务状态');
+  assert.equal(contextModeLabel('bcg',false),'BCG');
+  assert.equal(contextModeLabel('bcg_no_retrieval',false),'BCG w/o Retrieval');
+  assert.equal(contextModeLabel('default',false),'Default');
+  assert.equal(contextModeLabel('default',true),'Default');
+  assert.equal(contextModeLabel('bcg',undefined),'BCG');
+});
+
 test('run total sums only recorded Judge scores, with zero distinct from unscored',()=>{
   const scored=official_score=>({scoring_status:'official_protocol_scored',official_score});
   assert.deepEqual(runScoreSummary([]),{scored:0,total:0,points:null,average:null});

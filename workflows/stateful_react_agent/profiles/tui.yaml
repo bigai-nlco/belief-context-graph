@@ -61,7 +61,8 @@ agent:
   thinking_format: tag
   thinking_in_history: true
   bcg:
-    retrieval: ${BCG_RETRIEVAL:-query_pcst}
+    retrieval: recent_steps
+    graph_recent_turns: ${BCG_GRAPH_RECENT_TURNS:-3}
     url: ${BCG_GRAPH_URL:-http://127.0.0.1:8850}
     recent_turns: ${BCG_RECENT_TURNS:-2}
     graph_chars: ${BCG_GRAPH_CHARS:-6600}

@@ -344,7 +344,8 @@ try{
   }
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await evaluate('document.querySelector("#launch-mode").value="bcg";document.querySelector("#launch-mode").dispatchEvent(new Event("change",{bubbles:true}))');
-  assert(await evaluate('document.querySelector("#launch-context-info").textContent.includes("Graph 6,600 字符")'));
+  assert(await evaluate('document.querySelector("#launch-context-info").textContent.includes("这 2 轮之前的 3 轮")'));
+  assert(await evaluate('document.querySelector("#launch-task-state").checked && document.querySelector("#launch-task-state").disabled'));
   assert.equal(await evaluate('document.querySelector("#launch-form [name=drb2]").value'),launchSettings.default_tasks.drb2.join(','),'launch form uses the server default task list');
   assert.equal(launchSettings.default_tasks.drb2.length,32);
   assert.equal(await evaluate('document.querySelector("#launch-max-tasks").textContent'),'32');
@@ -479,11 +480,15 @@ try{
   await until(async()=> (await api('runs/2')).status==='cancelled','cancel queue');
   await click('#launch-button');
   await evaluate('document.querySelector("#launch-mode").value="bcg_no_retrieval";document.querySelector("#launch-mode").dispatchEvent(new Event("change",{bubbles:true}))');
+  // Default clears the task-state switch; the all-graph mode remains opt-in.
+  assert(await evaluate('!document.querySelector("#launch-task-state").checked'));
+  await click('#launch-task-state');
   await click('#launch-form [type=submit]');
   await until(()=>evaluate('document.querySelector(".run-heading .eyebrow")?.textContent==="RUN-0003"'),'queued full-graph batch');
   const fullGraphRun=await api('runs/3');
   assert.equal(fullGraphRun.mode,'bcg_no_retrieval');
   assert.equal(fullGraphRun.task_state,true);
+  assert.equal(await evaluate('document.querySelector(".run-item.selected .run-mode-label").textContent'),'BCG w/o Retrieval + 任务状态');
   assert(await evaluate('document.querySelector(".run-heading").textContent.includes("任务状态")'));
   assert.equal(fullGraphRun.graph,'gpt-6-luna');
   assert.equal(fullGraphRun.judge.enabled,true);

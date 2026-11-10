@@ -70,7 +70,7 @@ The bundled profiles include Qwen-style `top_k` and `chat_template_kwargs` param
 
 ## 3. Start the BCG Graph server
 
-If you already have a compatible server, reuse it and set `BCG_GRAPH_URL` above to its address. The default `query_pcst` retrieval requires `POST /turns`, `GET /graph`, and acknowledged snapshots containing `n_turns_ingested`. It selects context locally using the configured embedding service. The legacy `focused` strategy additionally requires `POST /context-selection`.
+If you already have a compatible server, reuse it and set `BCG_GRAPH_URL` above to its address. Single-Agent BCG requires `POST /turns`, `GET /graph`, and acknowledged snapshots containing `n_turns_ingested` and `task_state`. Enable Unified task-state maintenance as shown below. Context selection uses complete interaction windows locally, without retrieval embeddings. Agent Team retains its separate PCST retrieval policy.
 
 Otherwise, use the bundled construction code in this same checkout. No second clone is required. Add the Graph model's key to the project-root `.env`, without replacing the Agent or search settings:
 
@@ -97,6 +97,10 @@ models:
     provider: local
     model: sentence-transformers/all-MiniLM-L6-v2
     device: cpu
+
+pipeline:
+  task_state:
+    enabled: true
 ```
 
 This example uses the `unified` backend with a hosted Graph model and local CPU embeddings. No local vLLM server is needed for this configuration. The embedding weights may download on first use; use a local model path if the server is offline. Adjust the Graph model's reasoning and output-token settings to what its endpoint supports. See [`bcg/config/config.example.yaml`](bcg/config/config.example.yaml) for the full configuration reference. The copied `hybrid` backend remains available; its local metadata models require separate model downloads, including `uv run --extra graph python -m spacy download en_core_web_sm` when using that spaCy model.
@@ -176,29 +180,23 @@ Use `--input /absolute/path/to/document.pdf` to attach a read-only document, and
 
 ## BCG settings and records
 
-Graph retrieval defaults to `BCG_RETRIEVAL=query_pcst`: it scores beliefs with
-the OpenAI-compatible embedding service at `http://10.1.100.76:8016/v1/embeddings`
-(model `sentence-transformers/all-MiniLM-L6-v2`), then selects a connected tree
-locally within the final rendered character budget. Configure the endpoint with
-`BCG_RETRIEVAL_EMBEDDING_URL`. PCST dependencies are included in the base install;
-no local model download is needed. Set `BCG_RETRIEVAL_EMBEDDING_STORE=tonggraph`
-and configure `TONGGRAPH_BASE_URL`, `TONGGRAPH_GRAPH`, and a writer `TONGGRAPH_TOKEN`
-to persist node vectors and reuse them after restarting the Agent.
-`confidence_pcst` and `focused` remain available. See the
-[PCST setup, algorithm and offline replay guide](docs/bcg-pcst-retrieval.md).
+Single-Agent BCG preserves every user input and the two most recent complete interactions verbatim. In the existing system-prompt Graph block, Task state is maintained from the **entire acknowledged historical graph**, while the other Graph sections contain all nodes from the **three complete interactions immediately before the retained two**, and all relations whose endpoints are both in those nodes. A complete interaction includes one Assistant output and all its parallel tool results. For example, before call 11, interactions 9–10 remain raw and interactions 6–8 provide the recent Graph; Task state uses all ingested history, not just interactions 1–5. Graph construction still runs only on eviction and at final export.
+
+The graph is not deleted or truncated. Only the injected node/edge selection changes; the existing tags, sections, node syntax and relation rendering are retained. Single-Agent BCG no longer uses PCST, embedding retrieval or the old 6,600-character cutoff for this recent window. Task-state rendering keeps its separate 1,800-character budget and whole-task selection rules. Large windows can still reach the model context limit; they are not silently trimmed. Agent Team and offline replay retain the [PCST retrieval settings](docs/bcg-pcst-retrieval.md).
 
 | Setting | Default | Meaning |
 |---|---:|---|
 | `BCG_RECENT_TURNS` | `2` | Complete recent assistant/tool steps kept verbatim, in addition to user inputs. Parallel tool results remain in the same step. |
-| `BCG_GRAPH_CHARS` | `6600` | Maximum rendered Graph content in system memory, excluding fixed guidance and original system instructions. |
+| `BCG_GRAPH_RECENT_TURNS` | `3` | Complete evicted interactions represented in single-Agent BCG, immediately before the retained raw steps. Profile override: `agent.bcg.graph_recent_turns`. |
+| `BCG_GRAPH_CHARS` | `6600` | Graph budget for Agent Team / legacy retrieval. Does not prune single-Agent BCG's recent window. |
 | `BCG_TEAM_CROSS_GRAPH_CHARS` | `2000` | Part of the Team's total Graph budget reserved for linked remote beliefs, not an additional budget. |
 | `BCG_GRAPH_TIMEOUT` | `120` | Timeout in seconds for Graph HTTP requests. |
 
 Older steps leave the model context only after the Graph server acknowledges them. If Graph writing or selection fails, the Agent preserves the original context and records a fallback. Seeing an answer alone does not prove Graph memory was used; inspect the BCG request records when checking an integration.
 
-For a retrieval ablation, select **BCG w/o Retrieval** in the Studio launch dialog, or set `agent.context_mode: bcg_no_retrieval` in a single-agent profile. This keeps the same Graph Construction, user inputs, two recent completed steps, system guidance, rendering style, tools and Judge. Once older steps are evicted, each request includes **all nodes and relations in the acknowledged Graph snapshot**, without retrieval, relevance/confidence filtering or the `BCG_GRAPH_CHARS` cap. Request logs record `retrieval_strategy: all` and `graph_chars_budget: null`. Retrieval embedding calls are skipped; Graph Construction's own models are unchanged. Large graphs can exceed the Agent model's context limit; this mode does not silently trim them or add compaction. The existing BCG and Default modes are unchanged.
+The separately named **BCG w/o Retrieval** mode (`agent.context_mode: bcg_no_retrieval`) still injects **all nodes and relations in the acknowledged Graph snapshot**, rather than the recent three-step window. Task state remains optional in that mode. Request logs record `retrieval_strategy: all` and `graph_chars_budget: null`. There is no retrieval or silent character trimming. Default still keeps ordinary conversation context without Graph construction or injection.
 
-**Experimental task-state maintenance:** enable “维护任务状态” in the Studio launch dialog to classify evidence, intermediate conclusions, goals, plans and progress within the existing Unified extraction calls. Code builds a source-linked task-state view and injects it within the existing Graph budget, without a separate planner call. It is off by default and does not change Default mode. See the [task-state design, configuration and replay guide](docs/bcg-task-state.md).
+**Global task-state maintenance:** single-Agent BCG enables it automatically; Studio starts its Graph server with the matching setting. A manually started server must enable `pipeline.task_state.enabled: true`. Classification reuses Unified extraction calls; there is no separate planner call. If the server lacks task state, the Agent retains full raw context and logs `graph_server_task_state_required` instead of silently dropping the global state. See the [task-state design, configuration and replay guide](docs/bcg-task-state.md).
 
 Interactive runs save records under the workspace selected by `--cwd`:
 

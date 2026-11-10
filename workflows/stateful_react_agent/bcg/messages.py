@@ -179,6 +179,9 @@ class Projection:
     question: str
     query: str
     evicted_steps: int
+    # Indices in `turns`, before runtime prepends its graph system marker.
+    # Keep empty-extraction and parallel-tool steps in the window as well.
+    evicted_step_turn_indices: list[list[int]] = field(default_factory=list)
 
 
 def partition(messages: list[Message], recent_turns: int) -> Projection:
@@ -246,7 +249,13 @@ def partition(messages: list[Message], recent_turns: int) -> Projection:
         (index, [{"role": "tool", "content": text}])
         for index, text in reports if index <= frontier
     )
-    turns = [turn for _, group in sorted(events) for turn in group]
+    turns = []
+    evicted_starts = {step.start for step in evicted}
+    step_turn_indices = []
+    for index, group in sorted(events):
+        if index in evicted_starts:
+            step_turn_indices.append(list(range(len(turns), len(turns) + len(group))))
+        turns.extend(group)
     question = "\n\n".join(text for _, text in users)
     query_parts = [users[-1][1]] if users else []
     query_parts.extend(text for index, text in reports if index > frontier)
@@ -261,4 +270,5 @@ def partition(messages: list[Message], recent_turns: int) -> Projection:
         question,
         "\n\n".join(query_parts)[-8_000:] or question[-8_000:],
         len(evicted),
+        step_turn_indices,
     )

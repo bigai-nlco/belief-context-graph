@@ -1,5 +1,7 @@
 # BCG 的 PCST retrieval
 
+以下说明适用于 Agent Team 和旧方案的离线回放。当前单 Agent BCG 使用全局 Task state + 最近两轮原文之前的三轮 Graph，不再使用此 retrieval 路径。见 [当前上下文方案](bcg-task-state.md#agent-如何使用)。
+
 BCG 现在提供三个可选策略：`focused`、`confidence_pcst`、`query_pcst`。
 默认使用 **`query_pcst`**，相关性向量来自配置的远程 embedding 服务。PCST 在 Agent 内对已确认的图快照运行，
 无需修改独立 Graph 服务；单 Agent 和 Team 每个成员的本地图都支持。

@@ -151,11 +151,14 @@ def test_render_explains_reported_status_and_keeps_original_sources(status, phra
     text, ids, edges, tasks = render_task_state(value, None)
     assert f"- [T1] source: [B1] | status: {phrase}" in text
     assert "- [T0] source: [B0] | status: unknown (no progress reported)." in text
-    assert "[T...] tracks task belief [B...];" in text
-    assert "progress rows give reported, not verified, status." in text
-    assert "Missing progress means unknown, not unstarted." in text
-    assert "Plans are intent, not execution/evidence." in text
-    assert "Paths do not prove completion." in text
+    assert text.splitlines()[:2] == [
+        "## Task state",
+        "[Tn] tracks the task recorded in [Bn]. Status reflects reported progress, "
+        "not verified completion. Unknown means no progress was recorded.",
+    ]
+    for repeated_guidance in ("Plans are intent", "These are older records",
+                              "avoid repeating completed work", "Paths do not prove completion"):
+        assert repeated_guidance not in text
     assert "task |" not in text
     assert value == before, "rendering must not rewrite status, beliefs, edges or confidence"
     assert {0, 1, 2, 3, 4, 6} <= set(ids) and set(tasks) == {"T0", "T1"}

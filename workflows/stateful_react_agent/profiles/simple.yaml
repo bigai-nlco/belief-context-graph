@@ -32,7 +32,8 @@ agent:
   # BCG settings are shared by all ReAct profiles. Graph model credentials
   # remain in the separately managed BCG graph server.
   bcg:
-    retrieval: ${BCG_RETRIEVAL:-query_pcst}
+    retrieval: recent_steps
+    graph_recent_turns: ${BCG_GRAPH_RECENT_TURNS:-3}
     url: ${BCG_GRAPH_URL:-http://127.0.0.1:8850}
     recent_turns: ${BCG_RECENT_TURNS:-2}
     graph_chars: ${BCG_GRAPH_CHARS:-6600}

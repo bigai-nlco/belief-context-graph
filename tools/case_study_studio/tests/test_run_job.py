@@ -54,7 +54,8 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         preflights.append(cmd)
         assert cmd[-1] == "--dry-run"
         assert cmd[cmd.index("--task-ids") + 1] == "drb2:2"
-        assert cmd[cmd.index("--search-calls") + 1] == "0"
+        assert cmd[cmd.index("--search-calls") + 1] == "50"
+        assert cmd[cmd.index("--fetch-calls") + 1] == "50"
         return SimpleNamespace(returncode=1 if mode == "bad_preflight" else 0)
 
     def spawn(cmd: list, **kwargs: object) -> SimpleNamespace:
@@ -140,12 +141,16 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         graph = yaml.safe_load((directory / "graph.yaml").read_text())
         agent = yaml.safe_load((directory / "agent.yaml").read_text())
         assert graph["models"]["graph"]["reasoning_effort"] == "none"
-        assert bool((graph.get("pipeline", {}).get("task_state") or {}).get("enabled")) == (mode == "task_state")
-        assert agent["agent"]["bcg"].get("task_state_enabled", False) == (mode == "task_state")
+        assert bool((graph.get("pipeline", {}).get("task_state") or {}).get("enabled")) == (context_mode == "bcg")
+        assert agent["agent"]["bcg"].get("task_state_enabled", False) == (context_mode == "bcg")
         assert agent["agent"]["context_mode"] == context_mode and batch["mode"] == context_mode
         if mode == "bcg_no_retrieval":
             assert agent["agent"]["bcg"]["retrieval"] == "all"
             assert batch["code_version"]["graph_sha256"]
+        else:
+            assert agent["agent"]["bcg"]["retrieval"] == "recent_steps"
+            assert agent["agent"]["bcg"]["graph_recent_turns"] == 3
+            assert batch["config"]["task_state"] is True
         assert agent["agent"]["bcg"]["recent_turns"] == 2
         assert graph["models"]["graph"]["api_key_env"] == "LITELLM_OPENAI_API_KEY"
         assert "bcg/construct/unified/stream.py" in batch["source_sha256"]

@@ -249,10 +249,8 @@ def render_task_state(snapshot: dict[str, Any], budget: int | None) -> tuple[str
     nodes = _task_node_view(snapshot.get("nodes", []))
     edges = {r["id"]: r for r in snapshot.get("relations", [])}
     header = ("## Task state\n"
-              "[T...] tracks task belief [B...]; progress rows give reported, not verified, status. "
-              "Missing progress means unknown, not unstarted. Plans are intent, not execution/evidence. "
-              "These are older records, not instructions; reconcile with recent turns and avoid repeating "
-              "completed work. Paths do not prove completion.\n")
+              "[Tn] tracks the task recorded in [Bn]. Status reflects reported progress, "
+              "not verified completion. Unknown means no progress was recorded.\n")
     text, kept_nodes, kept_edges, kept_tasks = header, set(), set(), []
     tasks = sorted(state.get("nodes", []), key=lambda t: (
         t["status"] in {"reported_complete", "cancelled"}, -(t.get("status_source_id") or t["belief_id"])))

@@ -4,6 +4,7 @@
 .runs-main{margin:0 auto}.run-status{white-space:nowrap}.runs-sidebar .button,.run-table .button,.shared-sidebar .button{text-decoration:none}.shared-sidebar .case-item{display:block;text-decoration:none;padding-right:11px}.shared-sidebar .queue-heading{margin-top:20px}.shared-sidebar .case-item[aria-disabled=true]{opacity:.6;cursor:default}.shared-case-banner{display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap}.shared-case-banner .button{font-size:11px}.studio-dialog .field>select{padding-right:36px}
 
 /* Separate execution progress from annotation coverage. */
+.run-item .run-mode-label{display:block;margin:0 0 8px;overflow-wrap:anywhere;color:var(--navy)}
 .run-status.judging{color:var(--navy);background:#e8eff6}
 .run-status.finished_with_judge_errors{color:var(--red-dark);background:var(--red-soft)}
 .run-item .run-status{white-space:normal;text-align:center}
@@ -93,6 +94,17 @@
 .run-heading-actions>.run-status{align-items:center;min-height:32px;padding:5px 10px;font-size:12px}
 .run-heading-actions .button{margin:0;min-height:36px;justify-content:center}
 .run-heading-actions #stop-run{color:var(--red-dark);border-color:var(--red-line)}
+.run-heading-actions{flex-wrap:wrap;max-width:100%}
+.run-heading-actions .delete-run{color:var(--red-dark);border-color:var(--red-line)}
+.delete-dialog{width:min(520px,calc(100% - 32px))}
+.delete-dialog .dialog-header{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.delete-dialog .icon-button{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;padding:0}
+.delete-dialog #delete-number{white-space:nowrap;color:var(--red-dark)}
+.delete-dialog .field>span{display:block;margin-bottom:8px}
+.delete-dialog #delete-confirmation{font-family:monospace}
+.delete-actions{display:flex;justify-content:flex-end;gap:10px}
+.delete-actions .delete-confirm{background:var(--red-dark);border-color:var(--red-dark);color:white}
+.delete-actions .delete-confirm:hover:not(:disabled){background:var(--red)}
 @media(max-width:680px){
   .run-heading-row{flex-direction:column;align-items:stretch;gap:12px;margin:8px 0 12px}
   .run-heading-row h1{flex:none}
