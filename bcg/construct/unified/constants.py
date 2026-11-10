@@ -22,7 +22,7 @@ TOOL_RESPONSE_RE = re.compile(r"<tool_response>(.*?)</tool_response>", re.DOTALL
 SENTENCE_END_RE = re.compile(r"[.!?。！？；;…]+['\"”’\)\]）】」』]*")
 MIN_SENTENCE_FRAGMENT_LEN = 4
 
-VALID_STANCES = {"asserted", "recalled", "speculated", "judged"}
+from bcg.core.confidence import VALID_STANCES
 SEGMENT_SOURCE_TYPES = {
     "user_input": "user_input",
     "tool_call": "tool_call",

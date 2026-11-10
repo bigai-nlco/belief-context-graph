@@ -70,6 +70,7 @@ from .graph import BeliefGraph
 from .llm import USAGE
 from .merge import run_merge_pass
 from .split import split_sentences
+from .source_policy import tool_source_metadata
 
 BELIEF_ROLES = {"user", "assistant", "tool"}
 
@@ -1079,16 +1080,19 @@ class StreamingBeliefBuilder:
 
         # Semantic nodes already carry stance and entities from the same graph
         # model response that extracted their text. Deterministic Tool Call nodes
-        # remain asserted and retain their code-owned exact tool-name entity.
+        # retain their code-owned exact tool-name entity.
         extracted_nodes = list(node_res.get("nodes", []))
         for node in extracted_nodes:
             if node.get("extraction_method") == "rule_tool_call":
                 node["stance_confidence"] = 1.0
                 node["stance_scores"] = {
-                    "asserted": 1.0,
-                    "recalled": 0.0,
-                    "judged": 0.0,
-                    "speculated": 0.0,
+                    "confirmed": 1.0,
+                    "almost_certain": 0.0,
+                    "probable": 0.0,
+                    "possible": 0.0,
+                    "unlikely": 0.0,
+                    "doubtful": 0.0,
+                    "unknown": 0.0,
                 }
                 node["stance_model"] = "rule_tool_call"
             else:
@@ -1100,7 +1104,7 @@ class StreamingBeliefBuilder:
         report["stance_classification"] = {
             "source": "graph_model",
             "model": self.model,
-            "stances": [node.get("stance", "asserted") for node in extracted_nodes],
+            "stances": [node.get("stance", "unknown") for node in extracted_nodes],
         }
 
         # ---- allocate ids + attach evidence (in output order, so n0<n1<… in id)
@@ -1109,7 +1113,7 @@ class StreamingBeliefBuilder:
         new_node_ids: set = set()
         for cb in extracted_nodes:
             evid = self._evidence_for(cb, content, src, opt.evidence_mode, role)
-            node = self._make_node(cb, src, evid, role)
+            node = self._make_node(cb, src, evid, role, content)
             tmp_to_gid[cb["tmp_id"]] = node["id"]
             new_nodes.append(node)
             new_node_ids.add(node["id"])
@@ -1992,7 +1996,7 @@ class StreamingBeliefBuilder:
         }
 
     def _evidence_for(self, cb, content, src, mode, role) -> list[dict[str, Any]]:
-        stance = cb.get("stance", "asserted")
+        stance = cb.get("stance", "unknown")
         if mode == "sentence":
             sents = getattr(self, "_last_sentences", []) or []
             idxs = cb.get("supporting_sentence_indices")
@@ -2116,8 +2120,11 @@ class StreamingBeliefBuilder:
         if not inserted:
             node[text_key] = text
 
-    def _make_node(self, cleaned, src, evid, role) -> dict[str, Any]:
+    def _make_node(self, cleaned, src, evid, role, content="") -> dict[str, Any]:
         node_type = cleaned.get("node_type", "belief")
+        source_meta = tool_source_metadata(cleaned, evid, content) if role == "tool" else {}
+        for ev in evid:
+            ev.update(source_meta)
         evidence_ids = [self.graph.add_evidence(ev) for ev in evid]
         primary_text_key = "decision" if node_type == "decision" else "belief"
         primary_text = cleaned.get(primary_text_key)
@@ -2140,6 +2147,7 @@ class StreamingBeliefBuilder:
             "evidence_ids": evidence_ids,
             "supporting_excerpts": [ev["text"] for ev in evid if ev.get("text")],
         }
+        node.update(source_meta)
         if cleaned.get("query"):
             node["tool_name"] = str(cleaned.get("tool_name") or "tool")
             node["query"] = str(cleaned["query"])

@@ -23,7 +23,10 @@ from bcg.core.confidence import (
 from bcg.core.utils import get_random_uuid, utc_now
 
 BeliefLayer = Literal["io", "reasoning"]
-BeliefStance = Literal["asserted", "recalled", "speculated", "judged"]
+BeliefStance = Literal[
+    "confirmed", "almost_certain", "probable", "possible", "unlikely",
+    "doubtful", "unknown", "asserted", "recalled", "speculated", "judged",
+]
 RelationType = Literal[
     "depends_on",
     "supplements",

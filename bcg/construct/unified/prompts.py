@@ -119,9 +119,13 @@ Rules:
 
 _STANCE_DEFINITION = """\
 ## Stance
-Choose one per belief or decision: asserted = direct statement; recalled = based
-on previous memory; speculated = uncertain possibility; judged = assessment,
-recommendation, or conclusion.
+Choose one per claim, independent of who spoke. confirmed = directly verified in
+this turn against primary evidence; almost_certain = previously verified and not
+contradicted; probable = strong inference with explicit premises; possible =
+plausible but unverified; unlikely = recently checked with little supporting
+evidence; doubtful = specific counterevidence exists; unknown = no usable evidence.
+A direct assertion is not automatically confirmed. A retrieved snippet is not
+independent verification. Use unknown for missing support, not for falsehood.
 """
 
 _COMPACT_BELIEF_DEFINITION = """\
@@ -175,9 +179,13 @@ self-contained. Do not emit the same final answer as both a belief and a decisio
 
 _USER_STANCE_DEFINITION = """\
 ## Stance
-Choose one per belief: asserted = direct statement; recalled = explicit memory;
-speculated = uncertain possibility; judged = assessment, recommendation, or
-conclusion.
+Choose one per claim, independently of the speaker: confirmed = directly
+observed or verified this turn; almost_certain = verified before, no contradiction;
+probable = strong inference from explicit premises; possible = plausible but not
+observed; unlikely = recently checked with little support; doubtful = contrary
+evidence exists; unknown = no evidence. A direct assertion alone is not confirmed.
+An explicitly stated user request or preference can be confirmed as a fact about
+the user's request or preference; this does not confirm external facts it mentions.
 """
 
 _USER_GUIDANCE = """\
@@ -324,7 +332,7 @@ _OUTPUT_FORMAT_EXCERPT = """\
     {
       "tmp_id": "n0",
       "belief": "<self-contained coherent belief>",
-      "stance": "asserted | recalled | speculated | judged",
+      "stance": "confirmed | almost_certain | probable | possible | unlikely | doubtful | unknown",
       "entities": ["<specific entity>", "..."],
       "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
     }
@@ -333,7 +341,7 @@ _OUTPUT_FORMAT_EXCERPT = """\
     {
       "tmp_id": "d0",
       "decision": "<final selected answer, especially content inside \\boxed{...}>",
-      "stance": "asserted | recalled | speculated | judged",
+      "stance": "confirmed | almost_certain | probable | possible | unlikely | doubtful | unknown",
       "entities": ["<specific entity>", "..."],
       "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
     }
@@ -351,7 +359,7 @@ _OUTPUT_FORMAT_SENTENCES = """\
     {
       "tmp_id": "n0",
       "belief": "<self-contained coherent belief>",
-      "stance": "asserted | recalled | speculated | judged",
+      "stance": "confirmed | almost_certain | probable | possible | unlikely | doubtful | unknown",
       "entities": ["<specific entity>", "..."],
       "supporting_sentence_indices": [0, 2]
     }
@@ -360,7 +368,7 @@ _OUTPUT_FORMAT_SENTENCES = """\
     {
       "tmp_id": "d0",
       "decision": "<final selected answer, especially content inside \\boxed{...}>",
-      "stance": "asserted | recalled | speculated | judged",
+      "stance": "confirmed | almost_certain | probable | possible | unlikely | doubtful | unknown",
       "entities": ["<specific entity>", "..."],
       "supporting_sentence_indices": [3]
     }
@@ -426,8 +434,7 @@ Write each belief in the third person about "The user" (or the named person/enti
 self-contained. Resolve pronouns using the existing graph context when unambiguous.
 
 Skip: pure greetings / pleasantries with no factual content; purely cosmetic formatting instructions unless they affect the task semantics.""",
-        'User statements are typically "asserted"; memories are "recalled" when phrased that way; '
-        'hedged guesses are "speculated".',
+        'An explicit user request or preference is observed as such; external facts asserted by the user are not independently verified.',
     ),
     "assistant": (
         "Extract coherent BELIEFS and DECISIONS from the ASSISTANT turn below. Preserve the "
@@ -444,8 +451,7 @@ substantive claim, hypothesis, dependency, or conclusion.
 Write each belief or decision in the third person about "The assistant", "The
 user", or a named subject. Resolve references from existing graph context only
 when unambiguous.""",
-        'Assistant claims and final answers are typically "asserted"; recommendations and evaluations '
-        'are "judged"; hedged possibilities ("might be", "could be") are "speculated".',
+        'Classify certainty from evidence; a final answer is not direct verification.',
     ),
     "tool": (
         "Extract coherent KEY BELIEFS from the TOOL output below (search results, retrieval, function return). "
@@ -460,8 +466,7 @@ This is the output returned by a tool / function call. Extract ONLY facts that:
 
 Do NOT extract: generic background unrelated to the task; navigation / "see also" / related links;
 boilerplate wrappers ("Execution output of […]:", "Your answer has been submitted"); tangential trivia.""",
-        'Tool outputs default to "asserted" — they report facts. Use "speculated"/"judged" only if the '
-        'tool itself hedges ("according to some sources…").',
+        'A retrieved snippet reports a source claim, not verified truth; assess explicit evidence.',
     ),
 }
 
@@ -557,7 +562,7 @@ _OUTPUT_FORMAT_EXCERPT_NODES = """\
   "beliefs": [
     {
       "belief": "<self-contained coherent belief>",
-      "stance": "asserted | recalled | speculated | judged",
+      "stance": "confirmed | almost_certain | probable | possible | unlikely | doubtful | unknown",
       "entities": ["<specific entity>", "..."],
       "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
     }
@@ -565,7 +570,7 @@ _OUTPUT_FORMAT_EXCERPT_NODES = """\
   "decisions": [
     {
       "decision": "<final selected answer, especially content inside \\boxed{...}>",
-      "stance": "asserted | recalled | speculated | judged",
+      "stance": "confirmed | almost_certain | probable | possible | unlikely | doubtful | unknown",
       "entities": ["<specific entity>", "..."],
       "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
     }
@@ -579,7 +584,7 @@ _OUTPUT_FORMAT_SENTENCES_NODES = """\
   "beliefs": [
     {
       "belief": "<self-contained coherent belief>",
-      "stance": "asserted | recalled | speculated | judged",
+      "stance": "confirmed | almost_certain | probable | possible | unlikely | doubtful | unknown",
       "entities": ["<specific entity>", "..."],
       "supporting_sentence_indices": [0, 2]
     }
@@ -587,7 +592,7 @@ _OUTPUT_FORMAT_SENTENCES_NODES = """\
   "decisions": [
     {
       "decision": "<final selected answer, especially content inside \\boxed{...}>",
-      "stance": "asserted | recalled | speculated | judged",
+      "stance": "confirmed | almost_certain | probable | possible | unlikely | doubtful | unknown",
       "entities": ["<specific entity>", "..."],
       "supporting_sentence_indices": [3]
     }
@@ -601,7 +606,7 @@ _OUTPUT_FORMAT_EXCERPT_USER_NODES = """\
   "beliefs": [
     {
       "belief": "<self-contained coherent belief>",
-      "stance": "asserted | recalled | speculated | judged",
+      "stance": "confirmed | almost_certain | probable | possible | unlikely | doubtful | unknown",
       "entities": ["<specific entity>", "..."],
       "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
     }
@@ -615,7 +620,7 @@ _OUTPUT_FORMAT_SENTENCES_USER_NODES = """\
   "beliefs": [
     {
       "belief": "<self-contained coherent belief>",
-      "stance": "asserted | recalled | speculated | judged",
+      "stance": "confirmed | almost_certain | probable | possible | unlikely | doubtful | unknown",
       "entities": ["<specific entity>", "..."],
       "supporting_sentence_indices": [0, 2]
     }
@@ -888,7 +893,7 @@ between item_index values.
     "beliefs": [
       {{
         "belief": "<self-contained Assistant belief>",
-        "stance": "asserted | recalled | speculated | judged",
+        "stance": "confirmed | almost_certain | probable | possible | unlikely | doubtful | unknown",
         "entities": ["<specific entity>", "..."],
         {evidence_field}
       }}
@@ -896,7 +901,7 @@ between item_index values.
     "decisions": [
       {{
         "decision": "<final selected answer only>",
-        "stance": "asserted | recalled | speculated | judged",
+        "stance": "confirmed | almost_certain | probable | possible | unlikely | doubtful | unknown",
         "entities": ["<specific entity>", "..."],
         {evidence_field}
       }}
@@ -907,8 +912,9 @@ between item_index values.
       "item_index": 0,
       "beliefs": [{{
         "belief": "<self-contained fact from this item only>",
-        "stance": "asserted | recalled | speculated | judged",
-        "entities": ["<specific entity>", "..."]
+        "stance": "confirmed | almost_certain | probable | possible | unlikely | doubtful | unknown",
+        "entities": ["<specific entity>", "..."],
+        "source_rank": 1
       }}]
     }}
   ]
@@ -918,7 +924,7 @@ Hard constraints:
 - Preserve named entities, numbers, dates, and quantities exactly.
 - Do not add outside knowledge.
 - Assistant evidence indices/excerpts may reference only the Assistant input.
-- Tool facts may use only their own item.
+- Tool facts may use only their own item; source_rank must identify exactly one result rank, or be null.
 - Return every Tool Result item_index exactly once, even with an empty beliefs list.
 - Empty Assistant beliefs/decisions are allowed.
 """
