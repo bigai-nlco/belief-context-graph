@@ -160,7 +160,18 @@ class ConfidenceSettings(_ForbidExtra):
     default_stance_quality: float | None = Field(default=None, ge=0.0, le=1.0)
     source_reliability: dict[str, float] | None = None
     stance_quality: dict[str, float] | None = None
+    evidence_log_odds_weight: float | None = Field(default=None, ge=0.0)
+    source_coefficients: dict[str, float] | None = None
+    source_domains: dict[str, list[str]] | None = None
     relation_propagation: RelationPropagationSettings | None = None
+
+    @model_validator(mode="after")
+    def _check_unified_policy(self) -> ConfidenceSettings:
+        for field in ("stance_quality", "source_reliability", "source_coefficients"):
+            values = getattr(self, field) or {}
+            if any(not 0.0 <= value <= 1.0 for value in values.values()):
+                raise ValueError(f"confidence.{field} values must be between 0 and 1")
+        return self
 
 
 class ChunkingSettings(_ForbidExtra):

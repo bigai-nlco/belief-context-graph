@@ -568,6 +568,7 @@ def _apply_merge_group(
         absorbed_ids=absorbed_ids,
         newest_id=newest_id,
         evidence_by_id=graph.evidence,
+        config=graph.confidence_config,
     )
     new_conf = float(canon.get("confidence") or 0.0)
 

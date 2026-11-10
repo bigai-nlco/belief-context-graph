@@ -38,8 +38,8 @@ models:
     trust_remote_code: true
     input_prefix: "Document: "
 
-# Graph construction pipeline settings. Unified reuses the local stance and
-# entity models below; hybrid additionally uses extractor/chunking/edge routing.
+# Graph construction pipeline settings. Unified obtains stance from the Graph
+# model's seven-label prompt. The local DeBERTa stance model below is Hybrid-only.
 pipeline:
   extractor:
     enabled: true
@@ -62,6 +62,7 @@ pipeline:
     node_cap_min: 1
     node_cap_max: 0
   stance:
+    # Hybrid backend only; Unified does not load this classifier.
     enabled: true
     model_path: /path/to/your/deberta-v3-large-zeroshot-v2.0
     device: cpu
@@ -121,16 +122,18 @@ pipeline:
     fallback_methods: [rules, pattern]
     patterns: []
   confidence:
+    # Unified uses stance_quality × source_reliability (tool results use
+    # source_coefficients instead of the generic tool multiplier).
     initial_method: weighted_average
     evidence_method: product
     source_weight: 0.5
     stance_weight: 0.5
-    default_source_reliability: 0.55
-    default_stance_quality: 0.65
+    default_source_reliability: 0.50
+    default_stance_quality: 0.50
     source_reliability:
-      user: 0.85
-      assistant: 0.65
-      tool: 0.8
+      user: 0.95
+      assistant: 0.72
+      tool: 0.60
       user_input: 0.85
       assistant_other: 0.65
       tool_call: 0.72
@@ -140,10 +143,28 @@ pipeline:
       manual: 0.86
       unknown: 0.55
     stance_quality:
-      asserted: 0.9
-      recalled: 0.72
-      judged: 0.65
-      speculated: 0.4
+      confirmed: 0.94
+      almost_certain: 0.86
+      probable: 0.74
+      possible: 0.60
+      unlikely: 0.35
+      doubtful: 0.20
+      unknown: 0.50
+    evidence_log_odds_weight: 0.25
+    source_coefficients:
+      primary_official: 0.88
+      scholarly_publisher: 0.78
+      encyclopedia: 0.68
+      general_web: 0.58
+      community: 0.42
+      tabloid_or_entertainment: 0.38
+      mixed_or_unattributed: 0.50
+    source_domains:
+      primary_official: [cboe.com, sec.gov, fred.stlouisfed.org, unesco.org, openai.com, who.int, cdc.gov, data.gov, worldbank.org]
+      scholarly_publisher: [pubmed.ncbi.nlm.nih.gov, pmc.ncbi.nlm.nih.gov, arxiv.org, journals.plos.org, sciencedirect.com, link.springer.com, tandfonline.com, dl.acm.org, mdpi.com]
+      encyclopedia: [wikipedia.org, britannica.com, investopedia.com]
+      community: [reddit.com, quora.com, researchgate.net]
+      tabloid_or_entertainment: [tmz.com, pagesix.com, perezhilton.com]
     relation_propagation:
       default_relation_weight: 0.5
       input_confidence_threshold: 0.8

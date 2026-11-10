@@ -28,17 +28,9 @@ import math
 from collections.abc import Iterable
 from typing import Any
 
-from bcg.core.confidence import (  # noqa: F401 - compat re-exports for legacy imports
-    BASE_CONFIDENCE,
+from bcg.core.confidence import (
     CONF_CEIL,
     CONF_FLOOR,
-    DEFAULT_CONFIDENCE_CONFIG,
-    DEFAULT_INPUT_CONFIDENCE_THRESHOLD,
-    DEFAULT_PROPAGATION_MIN_CONFIDENCE_DELTA,
-    DEFAULT_RELATION_WEIGHT,
-    MAX_PROPAGATION_ITERATIONS,
-    SOURCE_RELIABILITY,
-    STANCE_QUALITY,
     VALID_STANCES,
     _as_float,
     _norm_role,
@@ -59,26 +51,24 @@ from bcg.core.confidence import (  # noqa: F401 - compat re-exports for legacy i
 # =============================================================
 
 
-# Evidence aggregation is deliberately simple at this stage.  The source
-# component is a role-based reliability; the stance component reuses the same
-# hard rule table so no model-supplied confidence number is accepted.
-SOURCE_RELIABILITY: dict[str, float] = dict(SOURCE_RELIABILITY)
-
-# Discount evidence updates to limit overconfidence without labels.
-EVIDENCE_LOG_ODDS_WEIGHT = 0.25
-
-
 def normalize_confidence_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Return normalized confidence settings used by relation propagation."""
-    rel_defaults = DEFAULT_CONFIDENCE_CONFIG["relation_propagation"]
-    raw = config or {}
-    if not isinstance(raw, dict):
-        raw = {}
+    """Merge caller overrides with the configured YAML confidence policy."""
+    from bcg.config.loader import defaults_dict, load_settings
+
+    defaults = defaults_dict()["pipeline"]["confidence"]
+    raw = config if isinstance(config, dict) and config else (
+        load_settings()[0].pipeline.confidence.model_dump(exclude_none=True)
+    )
+    merged = dict(defaults)
+    for key in ("source_reliability", "stance_quality", "source_coefficients", "source_domains"):
+        merged[key] = {**defaults[key], **(raw.get(key) or {})}
+    for key in ("default_source_reliability", "evidence_log_odds_weight"):
+        merged[key] = raw.get(key, defaults[key])
+    rel_defaults = defaults["relation_propagation"]
     rel_raw = raw.get("relation_propagation") or {}
     if not isinstance(rel_raw, dict):
         rel_raw = {}
-    return {
-        "relation_propagation": {
+    merged["relation_propagation"] = {
             "default_relation_weight": min(
                 1.0,
                 max(
@@ -115,7 +105,7 @@ def normalize_confidence_config(config: dict[str, Any] | None = None) -> dict[st
                 ),
             ),
         }
-    }
+    return merged
 
 
 def relation_propagation_config(
@@ -125,7 +115,7 @@ def relation_propagation_config(
     return dict(normalize_confidence_config(config).get("relation_propagation") or {})
 
 
-def evidence_contribution(evidence: dict[str, Any]) -> float:
+def evidence_contribution(evidence: dict[str, Any], config: dict[str, Any] | None = None) -> float:
     """Use the same role × stance × source policy as the initial prior.
 
     The independent observation's log-odds is discounted to avoid treating a
@@ -135,8 +125,9 @@ def evidence_contribution(evidence: dict[str, Any]) -> float:
     """
     role = _role_from_record(evidence)
     stance = evidence.get("stance") or "unknown"
-    q = initial_confidence(role, stance, evidence.get("source_coefficient"))
-    return max(0.0, EVIDENCE_LOG_ODDS_WEIGHT * logit(q))
+    policy = normalize_confidence_config(config)
+    q = initial_confidence(role, stance, evidence.get("source_coefficient"), policy)
+    return max(0.0, policy["evidence_log_odds_weight"] * logit(q))
 
 # =============================================================
 # Posterior helpers
@@ -152,15 +143,17 @@ def recompute_node_confidence(node: dict[str, Any]) -> dict[str, Any]:
     return node
 
 
-def sum_evidence_contributions(evidence_records: Iterable[dict[str, Any]]) -> float:
+def sum_evidence_contributions(evidence_records: Iterable[dict[str, Any]],
+                               config: dict[str, Any] | None = None) -> float:
     return sum(
-        evidence_contribution(ev) for ev in evidence_records if isinstance(ev, dict)
+        evidence_contribution(ev, config) for ev in evidence_records if isinstance(ev, dict)
     )
 
 
 def additional_evidence_from_node(
     node: dict[str, Any],
     evidence_by_id: dict[int, dict[str, Any]],
+    config: dict[str, Any] | None = None,
 ) -> tuple[list[int], list[dict[str, Any]]]:
     """Return independently sourced evidence added after node creation.
 
@@ -208,7 +201,7 @@ def additional_evidence_from_node(
         out_records.append(ev)
     return select_independent_evidence(
         zip(out_ids, out_records, strict=False),
-        contribution=evidence_contribution,
+        contribution=lambda record: evidence_contribution(record, config),
     )
 
 
@@ -218,6 +211,7 @@ def recompute_evidence_confidence_from_node(
     *,
     record_history: bool = False,
     step: str = "evidence_recompute",
+    config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Synchronise evidence_confidence and confidence from evidence_ids.
 
@@ -228,8 +222,8 @@ def recompute_evidence_confidence_from_node(
     """
     old_conf = float(node.get("confidence") or 0.0)
     old_ev_score = float(node.get("evidence_confidence") or 0.0)
-    scored_ids, records = additional_evidence_from_node(node, evidence_by_id)
-    new_ev_score = round(sum_evidence_contributions(records), 6)
+    scored_ids, records = additional_evidence_from_node(node, evidence_by_id, config)
+    new_ev_score = round(sum_evidence_contributions(records, config), 6)
     node["evidence_confidence"] = new_ev_score
     recompute_node_confidence(node)
 
@@ -255,6 +249,7 @@ def record_evidence_merge_confidence(
     absorbed_ids: list[int],
     newest_id: int,
     evidence_by_id: dict[int, dict[str, Any]] | None = None,
+    config: dict[str, Any] | None = None,
 ) -> None:
     """Record posterior update caused by additional evidence during a merge.
 
@@ -268,18 +263,18 @@ def record_evidence_merge_confidence(
 
     if evidence_by_id is not None:
         scored_evidence_ids, scored_records = additional_evidence_from_node(
-            canonical, evidence_by_id
+            canonical, evidence_by_id, config
         )
-        new_ev_score = round(sum_evidence_contributions(scored_records), 6)
+        new_ev_score = round(sum_evidence_contributions(scored_records, config), 6)
     else:
         # Backward-compatible fallback for older callers. New merge code passes
         # evidence_by_id so this branch should rarely be used.
         scored_evidence_ids, scored_records = select_independent_evidence(
             zip(added_evidence_ids, added_evidence_records, strict=False),
-            contribution=evidence_contribution,
+            contribution=lambda record: evidence_contribution(record, config),
         )
         new_ev_score = round(
-            old_ev_score + sum_evidence_contributions(scored_records), 6
+            old_ev_score + sum_evidence_contributions(scored_records, config), 6
         )
 
     canonical["evidence_confidence"] = new_ev_score

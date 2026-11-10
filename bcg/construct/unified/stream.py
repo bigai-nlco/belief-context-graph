@@ -2098,7 +2098,9 @@ class StreamingBeliefBuilder:
 
     def _make_node(self, cleaned, src, evid, role, content="") -> dict[str, Any]:
         node_type = cleaned.get("node_type", "belief")
-        source_meta = tool_source_metadata(cleaned, evid, content) if role == "tool" else {}
+        source_meta = tool_source_metadata(
+            cleaned, evid, content, self.options.confidence_config
+        ) if role == "tool" else {}
         for ev in evid:
             ev.update(source_meta)
         evidence_ids = [self.graph.add_evidence(ev) for ev in evid]
@@ -2171,12 +2173,13 @@ class StreamingBeliefBuilder:
             )
         if node_type == "decision":
             node["decision_history"] = []
-        init_belief_confidence(node)
+        init_belief_confidence(node, self.options.confidence_config)
         recompute_evidence_confidence_from_node(
             node,
             self.graph.evidence,
             record_history=True,
             step="initial_evidence",
+            config=self.options.confidence_config,
         )
         self.graph.add_belief(node)
         return node
