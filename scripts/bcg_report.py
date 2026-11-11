@@ -898,6 +898,22 @@ def collect_trial(trial: Path) -> dict[str, Any]:
     bcg = collect_bcg(trial)
     rows = load_trajectory(trial)
     traj = collect_trajectory(trial, bcg["graph"], bcg.pop("shown_action_queries", None))
+    prepares = [
+        e for path in sorted(trial.rglob("requests.jsonl")) if "bcg_team" not in path.parts
+        for e in read_jsonl(path) if isinstance(e, dict) and "call" in e
+    ]
+    try:
+        attribution = attribute_repeats(trial, rows, prepares)
+    except Exception as exc:  # never let the attribution take the whole report down
+        print(f"warning: repeat attribution failed for {trial.name}: {exc!r}", file=sys.stderr)
+        attribution = {
+            "steps": 0, "graph_steps_aligned": 0, "steps_mapped_to_requests": 0, "repeats": [],
+            "repeat_categories": {}, "repeat_exact": 0, "repeat_near": 0, "unexpected_repeats": 0,
+            "unexpected_causes": {}, "reasoning_steps_with_graph": 0, "reasoning_uses_support": 0,
+            "reasoning_support_to_action": 0, "reasoning_cites_beliefs": 0,
+            "reasoning_uses_support_pct": 0.0, "reasoning_support_to_action_pct": 0.0,
+            "error": repr(exc),
+        }
     return {
         "task": trial.name,
         "path": str(trial),
@@ -911,6 +927,359 @@ def collect_trial(trial: Path) -> dict[str, Any]:
         "report": collect_report(trial, result),
         "trajectory": traj,
         "bcg": bcg,
+        "attribution": attribution,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Repeat attribution: why was a call repeated, given what the model saw?
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Data chain (all from files a run already writes):
+#   state.json acknowledged[i]   graph turn i. [0] preamble, [1] user, then one
+#                                assistant turn per step (thinking + <tool_call>
+#                                JSON with ids) and one tool turn per step.
+#   node.source.turn_id          the graph turn a node was extracted from.
+#   requests.jsonl prepare event the request that produced a step: which steps
+#                                were evicted, and the exact injected block.
+# For a repeat at step s of a call first made at step e we ask: was step e still
+# verbatim, and if not, which of its nodes were in the block, with what support.
+
+TOOL_CALL_BLOCK = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
+TOOL_RESULT_BLOCK = re.compile(r"<tool_result>\s*(\{.*?\})\s*</tool_result>", re.S)
+THINKING_BLOCK = re.compile(r"<thinking>\s*(.*?)\s*</thinking>", re.S)
+# A rendered node line: "- [B12] text (label)" or "- [B12] text (confidence 0.7)".
+SHOWN_LINE = re.compile(r"^- \[B(\d+)\] (.*?)(?: \(([^()]*)\))?\s*$")
+CONFIDENCE_VALUE = re.compile(r"^confidence (\d*\.?\d+)$")
+REPEAT_TOOLS = {"web_search", "search", "web_fetch", "fetch", "web_search_aligned", "web_fetch_aligned"}
+UNEXPECTED_CATEGORIES = {"shown_high", "action_only"}
+STRONG_LABELS = {"confirmed by several sources", "from the user", "one source, stated directly"}
+HIGH_CONFIDENCE = 0.75  # numeric layouts (v0/split); overridden by --high-confidence
+
+# Reasoning about support/reliability, including the split_confidence words.
+SUPPORT_CUES = re.compile(
+    CONFIDENCE_CUES.pattern
+    + r"|secondhand|single source|one source|stated directly|your own claim|inference"
+    r"|speculative|contested|confirmed by|not cross-checked|unverified|reliab"
+    r"|二手|单一来源|一个来源|未核实|未经证实|可靠性|推断|推测",
+    re.I,
+)
+# Doubt or a change of plan, i.e. reasoning that leads to a different next action.
+STRATEGY_CUES = re.compile(
+    ACTION_CUES.pattern
+    + r"|different (source|query|angle|approach)|another (source|approach|angle)|instead"
+    r"|switch (to|approach)|change (the )?(strategy|approach|query)|independent source"
+    r"|换(个|一种|一个)?(思路|策略|来源|关键词|角度)|改用|转而|另一个来源|独立来源|质疑",
+    re.I,
+)
+# The model says it knows it is repeating something.
+AWARE_REPEAT = re.compile(
+    r"\b(again|already (searched|looked|fetched|done)|previous(ly)? (search|query)|re-?search|re-?run)\b"
+    r"|再次|重新(搜索|检索|查)|之前(搜|查|检索)|已经(搜|查|检索)过",
+    re.I,
+)
+
+
+def call_target(call: dict[str, Any]) -> str:
+    args = call.get("arguments") or {}
+    for key in ("query", "q", "search_query", "url", "urls", "question"):
+        value = args.get(key)
+        if isinstance(value, str):
+            return normalize_query(value)
+        if isinstance(value, list) and value and all(isinstance(v, str) for v in value):
+            return normalize_query(" | ".join(value))
+    return canonical(args)
+
+
+def _json_or_none(text: str) -> Any:
+    try:
+        return json.loads(text)
+    except ValueError:
+        return None
+
+
+def graph_steps(acknowledged: list[Any]) -> list[dict[str, Any]]:
+    """Steps reconstructed from the acknowledged graph turns, in order."""
+    steps: list[dict[str, Any]] = []
+    for index, turn in enumerate(acknowledged):
+        if not isinstance(turn, dict):
+            continue
+        role, content = turn.get("role"), str(turn.get("content") or "")
+        if role == "assistant":
+            calls = [c for c in map(_json_or_none, TOOL_CALL_BLOCK.findall(content)) if isinstance(c, dict)]
+            text = TOOL_CALL_BLOCK.sub("", content)
+            steps.append({
+                "n": len(steps) + 1, "asst_turn": index, "tool_turn": None,
+                "calls": [{"id": c.get("id"), "name": c.get("name"), "arguments": c.get("arguments") or {}}
+                          for c in calls],
+                "results": {},
+                "thinking": "\n".join(THINKING_BLOCK.findall(text)),
+                "text": THINKING_BLOCK.sub("", text).strip(),
+            })
+        elif role == "tool" and steps and steps[-1]["tool_turn"] is None:
+            steps[-1]["tool_turn"] = index
+            for result in map(_json_or_none, TOOL_RESULT_BLOCK.findall(content)):
+                if isinstance(result, dict):
+                    steps[-1]["results"][result.get("tool_call_id")] = result
+    return steps
+
+
+def trajectory_steps(rows: list[Any]) -> list[dict[str, Any]]:
+    """Steps from the JSONL event stream (fallback for steps the graph never got)."""
+    out = []
+    for row in rows:
+        if isinstance(row, dict) and row.get("t") == "llm":
+            out.append({
+                "calls": [{"id": None, "name": c.get("name"), "arguments": c.get("args") or {}}
+                          for c in row.get("tool_calls") or [] if isinstance(c, dict)],
+                "thinking": str(row.get("thinking") or ""),
+                "text": str(row.get("content") or ""),
+            })
+    return out
+
+
+def merge_steps(graph: list[dict[str, Any]], traj: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """Graph steps first (they carry turn ids); align trajectory steps by call signature.
+
+    Returns the merged list and how many graph steps matched a trajectory step.
+    """
+    def sig(step: dict[str, Any]) -> list[str]:
+        return [canonical([c["name"], c["arguments"]]) for c in step["calls"]]
+
+    aligned, cursor = 0, 0
+    for step in graph:
+        for j in range(cursor, min(len(traj), cursor + 4)):
+            if sig(traj[j]) == sig(step):
+                aligned += 1
+                if not step["thinking"]:
+                    step["thinking"] = traj[j]["thinking"]
+                cursor = j + 1
+                break
+    merged = list(graph)
+    for extra in traj[cursor:] if graph else traj:
+        merged.append({**extra, "n": len(merged) + 1, "asst_turn": None, "tool_turn": None, "results": {}})
+    return merged, aligned
+
+
+def map_step_events(steps: list[dict[str, Any]], prepares: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+    """Step number -> the prepare event whose request produced that step."""
+    positions, acc = [], 0
+    for step in steps:
+        positions.append(acc)
+        acc += 1 + len(step["calls"])
+    by_before: dict[int, dict[str, Any]] = {}
+    for event in sorted(prepares, key=lambda e: e.get("call") or 0):
+        if isinstance(event.get("messages_before"), int):
+            by_before[event["messages_before"]] = event  # last one wins
+    offsets = Counter(mb - p for mb in by_before for p in positions if mb - p >= 1)
+    mapping: dict[int, dict[str, Any]] = {}
+    if offsets:
+        offset = offsets.most_common(1)[0][0]
+        for step, pos in zip(steps, positions, strict=True):
+            if pos + offset in by_before:
+                mapping[step["n"]] = by_before[pos + offset]
+    return mapping
+
+
+def shown_nodes(event: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    """Node id -> section, label/confidence exactly as the model saw them."""
+    out: dict[int, dict[str, Any]] = {}
+    section = "findings"
+    for line in (event.get("system_memory") or "").splitlines():
+        if line.startswith("## "):
+            section = "actions" if line.startswith("## Completed actions") else (
+                "relations" if line.startswith("## Relations") else "findings")
+            continue
+        if section == "relations":
+            continue
+        found = SHOWN_LINE.match(line)
+        if not found:
+            continue
+        tail = found.group(3)
+        value = CONFIDENCE_VALUE.match(tail or "")
+        out[int(found.group(1))] = {
+            "section": section,
+            "label": tail if tail and not value else None,
+            "confidence": float(value.group(1)) if value else None,
+        }
+    return out
+
+
+def is_strong(info: dict[str, Any]) -> bool:
+    if info.get("label"):
+        return info["label"] in STRONG_LABELS
+    return (info.get("confidence") or 0.0) >= HIGH_CONFIDENCE
+
+
+def load_graph_nodes(trial: Path) -> tuple[dict[int, dict[str, Any]], list[Any]]:
+    """Every node ever seen (merged-away ones included) and the acknowledged turns."""
+    nodes: dict[int, dict[str, Any]] = {}
+    acknowledged: list[Any] = []
+    for path in sorted(trial.rglob("graph_snapshots.jsonl")):
+        if "bcg_team" in path.parts:
+            continue
+        for event in read_jsonl(path):
+            snap = (event or {}).get("snapshot") or {}
+            for node in (snap.get("all_nodes") or []) + snapshot_nodes(snap):
+                if isinstance(node, dict) and type(node.get("id")) is int:
+                    nodes[node["id"]] = node
+    for path in sorted(trial.rglob("state.json")):
+        if "bcg_team" in path.parts:
+            continue
+        state = read_json(path) or {}
+        for node in snapshot_nodes(state.get("snapshot") or {}):
+            if type(node.get("id")) is int:
+                nodes[node["id"]] = node
+        if isinstance(state.get("acknowledged"), list) and len(state["acknowledged"]) > len(acknowledged):
+            acknowledged = state["acknowledged"]
+    return nodes, acknowledged
+
+
+def attribute_repeats(trial: Path, rows: list[Any], prepares: list[dict[str, Any]]) -> dict[str, Any]:
+    nodes, acknowledged = load_graph_nodes(trial)
+    steps, aligned = merge_steps(graph_steps(acknowledged), trajectory_steps(rows))
+    events = map_step_events(steps, prepares)
+    by_turn: dict[int, list[int]] = {}
+    for node_id, node in nodes.items():
+        turn = (node.get("source") or {}).get("turn_id")
+        if isinstance(turn, int):
+            by_turn.setdefault(turn, []).append(node_id)
+
+    def reasoning(step: dict[str, Any]) -> str:
+        return "\n".join(x for x in (step.get("thinking"), step.get("text")) if x)
+
+    # ── which calls repeat which ────────────────────────────────────────────
+    history: list[tuple[int, dict[str, Any], str, frozenset[str]]] = []
+    repeats: list[dict[str, Any]] = []
+    for step in steps:
+        for call in step["calls"]:
+            if call["name"] not in REPEAT_TOOLS:
+                continue
+            target = call_target(call)
+            tokens = query_tokens(target)
+            earlier, kind = None, None
+            for e_step, e_call, e_target, _e_tokens in reversed(history):
+                if e_call["name"] == call["name"] and e_target == target:
+                    earlier, kind = (e_step, e_call), "exact"
+                    break
+            if earlier is None and "search" in call["name"]:
+                scored = [
+                    (jaccard(tokens, e_tokens), e_step, e_call)
+                    for e_step, e_call, _e_target, e_tokens in history
+                    if e_call["name"] == call["name"] and e_step < step["n"]
+                ]
+                scored = [x for x in scored if x[0] >= NEAR_DUPLICATE_THRESHOLD]
+                if scored:
+                    best = max(scored, key=lambda x: (x[0], x[1]))
+                    earlier, kind = (best[1], best[2]), "near"
+            if earlier is not None:
+                repeats.append({"step": step["n"], "call": call, "target": target,
+                                "earlier_step": earlier[0], "earlier_call": earlier[1], "kind": kind})
+            history.append((step["n"], call, target, tokens))
+
+    # ── what the model saw when it repeated, and how it reasoned ────────────
+    out_rows: list[dict[str, Any]] = []
+    for item in repeats:
+        step = steps[item["step"] - 1]
+        early = steps[item["earlier_step"] - 1]
+        event = events.get(item["step"])
+        thought = reasoning(step)
+        early_turns = {t for t in (early["asst_turn"], early["tool_turn"]) if t is not None}
+        early_nodes = [i for t in early_turns for i in by_turn.get(t, [])]
+        early_actions = [i for i in early_nodes if is_listed_action(classify_node(nodes[i]))]
+        if len(early["calls"]) > 1:  # a parallel step: keep the action node for this query
+            matching = [
+                i for i in early_actions
+                if (m := QUERY_IN_NODE.search(node_text(nodes[i])))
+                and normalize_query(m.group(1).replace('\\"', '"')) == call_target(item["earlier_call"])
+            ]
+            early_actions = matching or early_actions
+        early_findings = [
+            i for i in by_turn.get(early["tool_turn"], []) if classify_node(nodes[i]) == "fact"
+        ] if early["tool_turn"] is not None else []
+        result = early["results"].get(item["earlier_call"].get("id")) or {}
+        failed = bool(result.get("is_error")) or bool(_BLOCKED_RE.search(str(result.get("content") or "")[:400]))
+        row: dict[str, Any] = {
+            "step": item["step"], "earlier_step": item["earlier_step"], "kind": item["kind"],
+            "tool": item["call"]["name"], "target": item["target"][:120],
+            "earlier_target": call_target(item["earlier_call"])[:120],
+            "graph_nodes_from_earlier": len(early_nodes),
+            "earlier_failed": failed,
+        }
+        if event is None:
+            row["category"] = "unmapped"
+        elif event.get("fallback") or item["earlier_step"] > (event.get("evicted_steps") or 0):
+            row["category"] = "verbatim"
+        else:
+            seen = shown_nodes(event)
+            shown_findings = {i: seen[i] for i in early_findings if i in seen}
+            shown_actions = [i for i in early_actions if i in seen]
+            strong = [i for i, info in shown_findings.items() if is_strong(info)]
+            row.update(
+                shown_findings={f"B{i}": info.get("label") or info.get("confidence")
+                                for i, info in shown_findings.items()},
+                shown_action=[f"B{i}" for i in shown_actions],
+            )
+            if strong:
+                row["category"] = "shown_high"
+            elif shown_findings:
+                row["category"] = "shown_low"
+            elif shown_actions:
+                row["category"] = "retry_after_failure" if failed else "action_only"
+            else:
+                row["category"] = "not_in_graph" if not early_nodes else "not_selected"
+            # Diagnosis, meaningful when the graph told it what it needed.
+            refs = {int(x) for x in BELIEF_REF.findall(thought)}
+            decisions = [i for i in seen if (nodes.get(i) or {}).get("node_type") == "decision"]
+            row.update(
+                uses_confidence=bool(SUPPORT_CUES.search(thought)),
+                changes_strategy=bool(STRATEGY_CUES.search(thought)),
+                cites_earlier=bool(refs & (set(shown_findings) | set(shown_actions))),
+                aware_of_repeat=bool(AWARE_REPEAT.search(thought)),
+                skeleton=bool(shown_actions or decisions),
+            )
+            if row["category"] in {"shown_high", "action_only"}:
+                causes = []
+                if not row["uses_confidence"]:
+                    causes.append("does_not_read_confidence")
+                if not row["skeleton"]:
+                    causes.append("no_task_skeleton")
+                if not causes and row["changes_strategy"] and row["aware_of_repeat"]:
+                    # It read the support level and chose to verify on purpose;
+                    # the problem is the near-identical query, not the reading.
+                    causes.append("deliberate_verification")
+                row["causes"] = causes or ["ignored_visible_evidence"]
+        row["expected"] = row["category"] in {"not_in_graph", "not_selected", "shown_low", "retry_after_failure"}
+        row["reasoning_excerpt"] = re.sub(r"\s+", " ", thought)[:300]
+        out_rows.append(row)
+
+    # ── does the model reason with support levels at all? (whole session) ──
+    with_graph = [
+        steps[n - 1] for n, e in events.items()
+        if not e.get("fallback") and (e.get("evicted_steps") or 0) > 0 and n <= len(steps)
+    ]
+    texts = [reasoning(s) for s in with_graph]
+    uses = [t for t in texts if SUPPORT_CUES.search(t)]
+    acts = [t for t in uses if STRATEGY_CUES.search(t)]
+    refs = [t for t in texts if BELIEF_REF.search(t)]
+    categories = Counter(r["category"] for r in out_rows)
+    causes = Counter(c for r in out_rows for c in r.get("causes", []))
+    return {
+        "steps": len(steps),
+        "graph_steps_aligned": aligned,
+        "steps_mapped_to_requests": len(events),
+        "repeats": out_rows,
+        "repeat_categories": dict(categories),
+        "repeat_exact": sum(1 for r in out_rows if r["kind"] == "exact"),
+        "repeat_near": sum(1 for r in out_rows if r["kind"] == "near"),
+        "unexpected_repeats": sum(1 for r in out_rows if r["category"] in UNEXPECTED_CATEGORIES),
+        "unexpected_causes": dict(causes),
+        "reasoning_steps_with_graph": len(texts),
+        "reasoning_uses_support": len(uses),
+        "reasoning_support_to_action": len(acts),
+        "reasoning_cites_beliefs": len(refs),
+        "reasoning_uses_support_pct": pct(len(uses), len(texts)),
+        "reasoning_support_to_action_pct": pct(len(acts), len(texts)),
     }
 
 
@@ -947,6 +1316,13 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
         label_counts.update(row["bcg"]["graph"].get("confidence_labels") or {})
         node_kinds.update(row["bcg"]["graph"]["node_kinds"])
         rel_types.update(row["bcg"]["graph"]["relation_types"])
+
+    repeat_categories: Counter = Counter()
+    repeat_causes: Counter = Counter()
+    for row in rows:
+        repeat_categories.update(row["attribution"]["repeat_categories"])
+        repeat_causes.update(row["attribution"]["unexpected_causes"])
+    reasoning_steps = total("attribution.reasoning_steps_with_graph")
 
     nodes_total = total("bcg.graph.nodes_total")
     graph_tokens = sum(
@@ -1011,6 +1387,14 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 len(r["trajectory"]["preventable_repeats"]) for r in rows
             ),
             "C_near_duplicate_pairs": int(total("trajectory.near_duplicate_pairs")),
+            "C_repeats_attributed": int(total("attribution.repeat_exact") + total("attribution.repeat_near")),
+            "C_repeat_categories": dict(repeat_categories),
+            "C_unexpected_repeats": int(total("attribution.unexpected_repeats")),
+            "C_unexpected_causes": dict(repeat_causes),
+            "B_reasoning_uses_support_pct": pct(total("attribution.reasoning_uses_support"), reasoning_steps),
+            "B_reasoning_support_to_action_pct": pct(
+                total("attribution.reasoning_support_to_action"), reasoning_steps
+            ),
             "C_query_coverage_pct": round(
                 statistics.fmean([r["trajectory"]["query_coverage_pct"] for r in rows] or [0]), 1
             ),
@@ -1376,6 +1760,75 @@ section is supposed to achieve.""",
                 args = canonical(sig["args"])[:70]
                 out.append(f"    x{sig['times']}  {sig['name']}  {args}")
 
+    # ── §6b repeat attribution ─────────────────────────────────────────────
+    out += section(
+        "6b",
+        "REPEAT ATTRIBUTION — what did the model see when it repeated a call?",
+        """WHAT: every search/fetch that repeats an earlier one (exact, or a search with
+content-word overlap >= the near-duplicate threshold), joined to the request
+that produced it: was the earlier step still verbatim, and if it had been
+evicted, which of its graph nodes were in the injected block and with what
+support (the label or number exactly as rendered on that call).
+  expected    not_in_graph   the earlier step produced no node at all
+              not_selected   it did, but none was in the block
+              shown_low      only weaker-than-threshold findings were shown
+              retry_after_failure  the earlier call failed or was blocked
+  UNEXPECTED  shown_high     a strongly supported finding from it was shown
+              action_only    "Completed actions" listed it, no finding shown
+  other       verbatim       the earlier result was still in the context
+                             verbatim (or a fallback kept all history): not a
+                             graph problem
+For the unexpected ones, the reasoning of that same step is checked:
+  does_not_read_confidence   no support/reliability language at all
+  no_task_skeleton           neither the earlier action nor any decision node
+                             was in the block, so nothing marked it as done
+  deliberate_verification    it talked about support, knew it was repeating and
+                             meant to verify: reading worked, the query did not
+                             change enough
+  ignored_visible_evidence   both were present and it repeated anyway
+The session-wide line below is the direct test of "reads confidence": among
+steps that had a graph in context, how often the reasoning talks about
+support, and how often that talk leads to doubt or a change of plan.""",
+        brief,
+    )
+    cats = c["C_repeat_categories"]
+    order = ["not_in_graph", "not_selected", "shown_low", "retry_after_failure",
+             "shown_high", "action_only", "verbatim", "unmapped"]
+    out += [
+        f"  repeats attributed     {c['C_repeats_attributed']}"
+        + (f"  (exact {one['attribution']['repeat_exact']} / near {one['attribution']['repeat_near']})" if one else ""),
+        "  by category            " + ("  ".join(f"{k}={cats[k]}" for k in order if cats.get(k)) or "none"),
+        f"  UNEXPECTED             {c['C_unexpected_repeats']}   <<< the metric",
+        f"  causes                 {c['C_unexpected_causes'] or '-'}",
+        f"  reasoning w/ graph     uses support language {c['B_reasoning_uses_support_pct']}%"
+        f"   -> doubt / change of plan {c['B_reasoning_support_to_action_pct']}%",
+    ]
+    if one:
+        a = one["attribution"]
+        out.append(
+            f"  alignment              {a['steps']} steps, {a['graph_steps_aligned']} matched to the "
+            f"trajectory, {a['steps_mapped_to_requests']} mapped to a request"
+        )
+        if a["steps"] and a["steps_mapped_to_requests"] < 0.8 * a["steps"]:
+            out.append("  !! many steps could not be matched to a request; categories are partial.")
+        if c["B_reasoning_uses_support_pct"] < 10 and a["reasoning_steps_with_graph"] >= 5:
+            out += [
+                "  !! the reasoning almost never mentions support or reliability while a",
+                "     graph is in context: evidence for 'does not read confidence'.",
+            ]
+        unexpected = [r for r in a["repeats"] if r["category"] in UNEXPECTED_CATEGORIES]
+        if unexpected and detail:
+            out += ["", "  unexpected repeats (use --dump-repeats for all):"]
+            for r in unexpected[:8]:
+                out += [
+                    f"    step {r['step']:>3} <- step {r['earlier_step']:<3} {r['kind']:<5} {r['category']:<12}"
+                    f" {r['tool']} \"{r['target'][:48]}\"",
+                    f"       shown findings {r.get('shown_findings') or '{}'}  action {r.get('shown_action') or []}",
+                    f"       causes {r.get('causes')}  support-talk={r.get('uses_confidence')}"
+                    f"  cites-earlier={r.get('cites_earlier')}  aware={r.get('aware_of_repeat')}",
+                    f"       | {r['reasoning_excerpt'][:150]}",
+                ]
+
     # ── §7 efficiency ───────────────────────────────────────────────────────
     e = agg["efficiency"]
     out += section(
@@ -1467,6 +1920,16 @@ length collapse has traded the answer for the metric.""",
             f"{c['C_preventable_repeats']} searches repeated a query the graph had "
             "recorded — a completed-actions section targets exactly this."
         )
+    if c["C_unexpected_causes"].get("does_not_read_confidence"):
+        todo.append(
+            f"{c['C_unexpected_causes']['does_not_read_confidence']} unexpected repeats came with no "
+            "support language in the reasoning: work on how confidence is presented/explained."
+        )
+    if c["C_unexpected_causes"].get("no_task_skeleton"):
+        todo.append(
+            f"{c['C_unexpected_causes']['no_task_skeleton']} unexpected repeats had a finding shown but "
+            "nothing marking the search as done: keep the action/decision skeleton in the block."
+        )
     if one and ((one["bcg"]["action_nodes_shown"] or {}).get("p50") or 0) <= 2 \
             and one["bcg"]["graph"]["node_kinds"].get("action", 0) > 6:
         todo.append(
@@ -1520,6 +1983,9 @@ COMPARE = [
     ("core.C_preventable_repeats", "C preventable repeats", "lower"),
     ("core.C_near_duplicate_pairs", "C near-duplicate pairs", "lower"),
     ("core.C_query_coverage_pct", "C query coverage %", "higher"),
+    ("core.C_unexpected_repeats", "C unexpected repeats", "lower"),
+    ("core.B_reasoning_uses_support_pct", "B reasoning uses support %", "higher"),
+    ("core.B_reasoning_support_to_action_pct", "B support -> action %", "higher"),
     ("efficiency.turns", "turns", "watch"),
     ("efficiency.tool_calls", "tool calls", "watch"),
     ("efficiency.agent_total_tokens", "agent tokens", "lower"),
@@ -1626,7 +2092,37 @@ def dump_queries(run_dir: Path, only: set[str] | None) -> str:
     return "\n".join(out) or "no searches found"
 
 
+def dump_repeats(run_dir: Path, only: set[str] | None) -> str:
+    out: list[str] = []
+    for trial in find_trials(run_dir):
+        if only and trial.name not in only:
+            continue
+        row = collect_trial(trial)
+        a = row["attribution"]
+        out += [BAR, f"task {trial.name}   repeats {len(a['repeats'])}   {a['repeat_categories']}", BAR]
+        for r in a["repeats"]:
+            flag = "UNEXPECTED" if r["category"] in UNEXPECTED_CATEGORIES else ""
+            out += [
+                "",
+                f"step {r['step']} <- step {r['earlier_step']}  {r['kind']}  {r['category']}  {flag}",
+                f"  now     {r['tool']} \"{r['target']}\"",
+                f"  earlier {r['tool']} \"{r['earlier_target']}\""
+                + ("  (failed/blocked)" if r["earlier_failed"] else ""),
+                f"  graph nodes from earlier step {r['graph_nodes_from_earlier']}"
+                f"   shown findings {r.get('shown_findings', '-')}   shown action {r.get('shown_action', '-')}",
+            ]
+            if "uses_confidence" in r:
+                out.append(
+                    f"  reasoning: support-talk={r['uses_confidence']} change-of-plan={r['changes_strategy']}"
+                    f" cites-earlier={r['cites_earlier']} aware={r['aware_of_repeat']}"
+                    f" skeleton={r['skeleton']}  causes={r.get('causes', '-')}"
+                )
+            out.append(f"  | {r['reasoning_excerpt']}")
+    return "\n".join(out) or "no trials"
+
+
 def main() -> None:
+    global HIGH_CONFIDENCE
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -1641,9 +2137,15 @@ def main() -> None:
                         help="print the injected block for this prepare call")
     parser.add_argument("--dump-queries", action="store_true",
                         help="print every search in order and what the graph recorded")
+    parser.add_argument("--dump-repeats", action="store_true",
+                        help="print every repeated call with what the model saw and its reasoning")
+    parser.add_argument("--high-confidence", type=float, default=HIGH_CONFIDENCE,
+                        help="numeric layouts: confidence at or above this counts as strong "
+                        f"(default {HIGH_CONFIDENCE}); split_confidence uses its labels")
     args = parser.parse_args()
 
     only = {t.strip() for t in args.tasks.split(",")} if args.tasks else None
+    HIGH_CONFIDENCE = args.high_confidence
 
     if args.dump_memory is not None:
         for run_dir in args.run_dirs:
@@ -1652,6 +2154,10 @@ def main() -> None:
     if args.dump_queries:
         for run_dir in args.run_dirs:
             print(dump_queries(run_dir, only))
+        return
+    if args.dump_repeats:
+        for run_dir in args.run_dirs:
+            print(dump_repeats(run_dir, only))
         return
 
     runs = [load_run(d, only) for d in args.run_dirs]
