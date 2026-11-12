@@ -208,70 +208,74 @@ def test_memory_defaults_to_legacy_layout_for_subclasses(tmp_path):
     assert memory.render_style == "v0" and memory.context_guide == CONTEXT_GUIDE
 
 
-# ── split_confidence: plain-language support labels ─────────────────────────
+# ── split_confidence: high / medium / low confidence tiers ─────────────────
 
 
-
-def node(role, stance, initial=0.7, confidence=None, **extra):
-    return {
-        "id": 1, "belief": "claim", "role": role, "stance": stance,
-        "initial_confidence": initial,
-        "confidence": initial if confidence is None else confidence, **extra,
-    }
+def node(confidence, **extra):
+    return {"id": 1, "belief": "claim", "confidence": confidence, **extra}
 
 
 @pytest.mark.parametrize(
-    ("role", "stance", "label"),
+    ("confidence", "label"),
     [
-        ("user", "asserted", "from the user"),
-        ("user", "speculated", "from the user"),
-        ("tool", "asserted", "one source, stated directly"),
-        ("tool", "recalled", "one source, secondhand"),
-        ("tool", "judged", "inference or opinion"),
-        ("tool", "speculated", "speculative"),
-        ("assistant", "asserted", "your own claim"),
-        ("assistant", "recalled", "your own claim"),
-        ("assistant", "judged", "inference or opinion"),
-        ("assistant", "speculated", "speculative"),
+        (0.999, "high confidence"),
+        (0.893, "high confidence"),   # user, confirmed
+        (0.733, "high confidence"),   # scholarly publisher, confirmed
+        (0.70, "high confidence"),    # inclusive boundary
+        (0.699, "medium confidence"),
+        (0.677, "medium confidence"),  # assistant, confirmed
+        (0.545, "medium confidence"),  # general web, confirmed
+        (0.50, "medium confidence"),   # inclusive boundary
+        (0.499, "low confidence"),
+        (0.429, "low confidence"),     # general web, probable
+        (0.3, "low confidence"),
+        (0.001, "low confidence"),
     ],
 )
-def test_label_follows_role_and_stance(role, stance, label):
-    assert confidence_label(node(role, stance)) == label
+def test_tier_follows_final_confidence(confidence, label):
+    assert confidence_label(node(confidence)) == label
 
 
-def test_posterior_shift_overrides_the_prior_label():
-    # Old and new prior tables both work: the label reads the shift, not the value.
-    assert confidence_label(node("tool", "asserted", 0.775, 0.863)) == "confirmed by several sources"
-    assert confidence_label(node("tool", "asserted", 0.88, 0.95)) == "confirmed by several sources"
-    assert confidence_label(node("tool", "asserted", 0.775, 0.792)) == "one source, stated directly"
-    assert confidence_label(node("tool", "recalled", 0.725, 0.55)) == "contested"
-    assert confidence_label(node("user", "asserted", 0.8, 0.3)) == "from the user"
+def test_tier_ignores_role_stance_and_prior():
+    # Only the propagated value counts; provenance no longer picks the label.
+    assert confidence_label(node(0.4, role="user", stance="confirmed")) == "low confidence"
+    assert confidence_label(node(0.8, role="assistant", stance="possible",
+                                 initial_confidence=0.43)) == "high confidence"
 
 
-def test_number_only_fallback_and_missing_data():
+def test_missing_or_invalid_confidence_has_no_tier():
     bare = {"id": 1, "belief": "claim"}
-    assert confidence_label({**bare, "confidence": 0.78}) == "one source, stated directly"
-    assert confidence_label({**bare, "confidence": 0.72}) == "one source, secondhand"
-    assert confidence_label({**bare, "confidence": 0.65}) == "inference or opinion"
-    assert confidence_label({**bare, "confidence": 0.4}) == "speculative"
     assert confidence_label(bare) is None
-    assert set(CONFIDENCE_LABELS) >= {
-        confidence_label(node(r, s)) for r in ("tool", "assistant") for s in ("asserted", "judged")
-    }
+    for bad in (None, True, "0.8", float("nan"), float("inf")):
+        assert confidence_label({**bare, "confidence": bad}) is None
+    assert CONFIDENCE_LABELS == ("high confidence", "medium confidence", "low confidence")
+
+
+def test_thresholds_can_be_overridden(monkeypatch):
+    monkeypatch.setenv("BCG_CONFIDENCE_HIGH", "0.8")
+    monkeypatch.setenv("BCG_CONFIDENCE_LOW", "0.6")
+    assert confidence_label(node(0.75)) == "medium confidence"
+    assert confidence_label(node(0.55)) == "low confidence"
+    monkeypatch.setenv("BCG_CONFIDENCE_LOW", "0.9")
+    with pytest.raises(ValueError):
+        confidence_label(node(0.75))
+    monkeypatch.setenv("BCG_RENDER_STYLE", "split_confidence")
+    with pytest.raises(ValueError):
+        BCGSettings.from_agent({})
 
 
 def labelled_snapshot():
     snap = snapshot()
     extra = {
-        21: {"role": "tool", "stance": "asserted", "initial_confidence": 0.775, "confidence": 0.863},
-        68: {"role": "tool", "stance": "recalled", "initial_confidence": 0.725, "confidence": 0.725},
-        40: {"role": "assistant", "stance": "asserted", "initial_confidence": 0.7, "confidence": 0.7},
+        21: {"role": "tool", "stance": "confirmed", "initial_confidence": 0.733, "confidence": 0.863},
+        68: {"role": "tool", "stance": "probable", "initial_confidence": 0.429, "confidence": 0.429},
+        40: {"role": "assistant", "stance": "confirmed", "initial_confidence": 0.677, "confidence": 0.677},
     }
     for n in snap["nodes"]:
         n.update(extra.get(n["id"], {}))
     snap["nodes"].append({
         "id": 90, "belief": "Statman's 30-stock figure is probably still valid.",
-        "role": "assistant", "stance": "judged", "initial_confidence": 0.6, "confidence": 0.6,
+        "role": "assistant", "stance": "probable", "initial_confidence": 0.533, "confidence": 0.533,
         "source": {"turn_id": 12},
     })
     return snap
@@ -282,8 +286,8 @@ def test_split_confidence_replaces_numbers_and_keeps_split_layout():
     selection = {"node_ids": [21, 40, 65, 68, 74, 90], "relation_ids": [1, 2]}
     text, ids, _ = render_graph(snap, selection, 6600, style="split_confidence")
     assert "confidence 0." not in text
-    assert "- [B21] Statman (1987) states at least 30 stocks for a borrowing investor. (confirmed by several sources)" in text
-    assert "(one source, secondhand)" in text and "(inference or opinion)" in text
+    assert "- [B21] Statman (1987) states at least 30 stocks for a borrowing investor. (high confidence)" in text
+    assert "(medium confidence)" in text and "(low confidence)" in text
     actions = text.split(SPLIT_ACTIONS_HEADER)[1].split("## Findings")[0]
     assert "(" not in actions.replace("(blocked source)", "")  # actions never carry a label
     split_text, _, _ = render_graph(snap, selection, 6600, style="split")

@@ -231,6 +231,6 @@ def test_support_label_guide_does_not_claim_a_source_count_audit(tmp_path):
     memory = BCGMemory(BCGSettings.from_react_agent({}), tmp_path, "labels",
                        backend=TaskGraph(), render_style="split_confidence")
     guide = " ".join(memory.context_guide.split())
-    assert "not verified truth or an audited count of independent sources" in guide
-    assert "verify source independence before claiming corroboration" in guide
+    assert "not verified truth or a count of independent sources" in guide
+    assert "Two findings from the same page are not independent corroboration." in guide
     assert "Strongest to weakest" not in guide

@@ -426,12 +426,12 @@ def analyse_graph(state_files: list[Path]) -> dict[str, Any]:
     value_counts = Counter(round(c, 3) for c in confidences)
     buckets = Counter()
     for conf in confidences:
-        if conf < 0.45:
-            buckets["low <0.45"] += 1
-        elif conf < 0.75:
-            buckets["mid 0.45-0.75"] += 1
+        if conf < 0.50:
+            buckets["low <0.50"] += 1
+        elif conf < 0.70:
+            buckets["mid 0.50-0.70"] += 1
         else:
-            buckets["high >=0.75"] += 1
+            buckets["high >=0.70"] += 1
 
     kinds = Counter(classify_node(n) for n in nodes)
     # What split_confidence would print for each finding (actions carry none).
@@ -693,7 +693,7 @@ def collect_trajectory(
     covered = sum(
         1
         for q in set(queries)
-        if any(jaccard(query_tokens(q), s) >= 0.75 for s in shown_tokens)
+        if any(jaccard(query_tokens(q), s) >= 0.70 for s in shown_tokens)
     )
     recorded = graph.get("recorded_queries") or {}
     preventable = {
@@ -953,13 +953,16 @@ SHOWN_LINE = re.compile(r"^- \[B(\d+)\] (.*?)(?: \(([^()]*)\))?\s*$")
 CONFIDENCE_VALUE = re.compile(r"^confidence (\d*\.?\d+)$")
 REPEAT_TOOLS = {"web_search", "search", "web_fetch", "fetch", "web_search_aligned", "web_fetch_aligned"}
 UNEXPECTED_CATEGORIES = {"shown_high", "action_only"}
-STRONG_LABELS = {"confirmed by several sources", "from the user", "one source, stated directly"}
-HIGH_CONFIDENCE = 0.75  # numeric layouts (v0/split); overridden by --high-confidence
+# Current split_confidence tier, plus the retired provenance labels so that
+# archived runs rendered with the old split_confidence are still read correctly.
+STRONG_LABELS = {"high confidence", "confirmed by several sources", "from the user",
+                 "one source, stated directly"}
+HIGH_CONFIDENCE = 0.70  # numeric layouts (v0/split); overridden by --high-confidence
 
 # Reasoning about support/reliability, including the split_confidence words.
 SUPPORT_CUES = re.compile(
     CONFIDENCE_CUES.pattern
-    + r"|secondhand|single source|one source|stated directly|your own claim|inference"
+    + r"|(high|medium|low) confidence|secondhand|single source|one source|stated directly|your own claim|inference"
     r"|speculative|contested|confirmed by|not cross-checked|unverified|reliab"
     r"|二手|单一来源|一个来源|未核实|未经证实|可靠性|推断|推测",
     re.I,
@@ -1361,7 +1364,7 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "confidence_distinct_values": max(
                 (r["bcg"]["graph"]["confidence_distinct_values"] for r in rows), default=0
             ),
-            "confidence_spread_pct_low": pct(conf_buckets.get("low <0.45", 0), nodes_total),
+            "confidence_spread_pct_low": pct(conf_buckets.get("low <0.50", 0), nodes_total),
             "source_coverage_pct": round(
                 statistics.fmean([r["bcg"]["graph"]["source_coverage_pct"] for r in rows] or [0]), 1
             ),
@@ -1545,7 +1548,7 @@ any rendering code.""",
     out.append("")
     if g["confidence_spread_pct_low"] < 20:
         out += [
-            f"  !! only {g['confidence_spread_pct_low']}% of beliefs sit below 0.45.",
+            f"  !! only {g['confidence_spread_pct_low']}% of beliefs sit below 0.50.",
             "     Goal B has almost no signal to work with, and a three-tier",
             "     rendering would leave one or two tiers empty. Raise the spread in",
             "     the extractor before investing in confidence-driven rendering.",

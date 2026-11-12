@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 from html import escape
 from typing import Any
@@ -112,25 +113,16 @@ def action_line(node: dict[str, Any], info: dict[str, Any] | None = None) -> str
     return f"- [B{node['id']}] {escape(content, quote=False)}"
 
 
-# split_confidence: the number is replaced by a plain-language statement of how
-# the claim is supported. The construction server derives confidence from WHO
-# said it (role) and HOW (stance), then moves it only when independent evidence
-# or relations push it; the label states exactly that, so it stays correct
-# whichever prior table the server uses. Ordered strongest to weakest.
-CONFIDENCE_LABELS = (
-    "confirmed by several sources",
-    "from the user",
-    "one source, stated directly",
-    "one source, secondhand",
-    "your own claim",
-    "inference or opinion",
-    "speculative",
-    "contested",
-)
-# Posterior vs. prior, in log-odds. A single merged excerpt or a weak relation
-# moves the value slightly; only a clear shift changes the label.
-CONFIRMED_LOGIT_GAIN = 0.25
-CONTESTED_LOGIT_LOSS = 0.25
+# split_confidence: the number is replaced by a three-tier label. The tier is
+# read from the final propagated confidence only (source/stance prior, plus
+# independent evidence and relation factors), so it stays consistent with
+# whatever prior table the construction server uses. Ordered strongest first.
+CONFIDENCE_LABELS = ("high confidence", "medium confidence", "low confidence")
+# Inclusive lower bounds. With the default priors: scholarly/official sources
+# stated as confirmed land in high; single general-web sources and the agent's
+# own inferences in medium; possible/doubtful claims and failed results in low.
+HIGH_CONFIDENCE_THRESHOLD = 0.70
+LOW_CONFIDENCE_THRESHOLD = 0.50
 
 
 def _number(value: Any) -> float | None:
@@ -139,45 +131,38 @@ def _number(value: Any) -> float | None:
     return None
 
 
-def _logit(p: float) -> float:
-    p = min(0.999, max(0.001, p))
-    return math.log(p / (1.0 - p))
+def confidence_thresholds() -> tuple[float, float]:
+    """(high, low) bounds; BCG_CONFIDENCE_HIGH / BCG_CONFIDENCE_LOW override."""
+    def read(name: str, default: float) -> float:
+        raw = os.environ.get(name, "").strip()
+        if not raw:
+            return default
+        try:
+            value = float(raw)
+        except ValueError as exc:
+            raise ValueError(f"{name} must be a number in [0, 1]") from exc
+        if not (math.isfinite(value) and 0.0 <= value <= 1.0):
+            raise ValueError(f"{name} must be a number in [0, 1]")
+        return value
+
+    high = read("BCG_CONFIDENCE_HIGH", HIGH_CONFIDENCE_THRESHOLD)
+    low = read("BCG_CONFIDENCE_LOW", LOW_CONFIDENCE_THRESHOLD)
+    if low > high:
+        raise ValueError("BCG_CONFIDENCE_LOW must not exceed BCG_CONFIDENCE_HIGH")
+    return high, low
 
 
 def confidence_label(node: dict[str, Any]) -> str | None:
-    """Plain-language support level for one finding, or None without data."""
+    """high/medium/low confidence for one finding, or None without a number."""
     confidence = _number(node.get("confidence"))
-    initial = _number(node.get("initial_confidence"))
-    role = str(node.get("role") or (node.get("source") or {}).get("role") or "").lower()
-    stance = str(node.get("stance") or "").lower()
-    if role == "user":
-        return "from the user"
-    if confidence is not None and initial is not None:
-        shift = _logit(confidence) - _logit(initial)
-        if shift <= -CONTESTED_LOGIT_LOSS:
-            return "contested"
-        if shift >= CONFIRMED_LOGIT_GAIN:
-            return "confirmed by several sources"
-    if stance == "speculated":
-        return "speculative"
-    if stance == "judged":
-        return "inference or opinion"
-    if role == "tool" and stance == "asserted":
-        return "one source, stated directly"
-    if role == "tool" and stance == "recalled":
-        return "one source, secondhand"
-    if role == "assistant" and stance in {"asserted", "recalled"}:
-        return "your own claim"
-    # Older graphs without role/stance: bucket the number itself.
     if confidence is None:
         return None
-    if confidence >= 0.76:
-        return "one source, stated directly"
-    if confidence >= 0.69:
-        return "one source, secondhand"
-    if confidence >= 0.6:
-        return "inference or opinion"
-    return "speculative"
+    high, low = confidence_thresholds()
+    if confidence >= high:
+        return "high confidence"
+    if confidence >= low:
+        return "medium confidence"
+    return "low confidence"
 
 
 def finding_line(node: dict[str, Any], style: str = "v0") -> str:

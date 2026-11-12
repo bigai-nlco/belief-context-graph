@@ -96,29 +96,26 @@ CONTEXT_GUIDE_SPLIT = f"""<belief_graph_guide>
 </belief_graph_guide>"""
 
 
-# Labels are renderer heuristics, not an independent source-count audit.
-# Keep the displayed labels intact while explaining what the code measures.
+# Tiers bucket the propagated confidence (rendering.confidence_label); the
+# numeric explanation is replaced, the shared sections stay as in split.
+_TIERED_CONFIDENCE_GUIDE = """Each finding carries a confidence tier: high, medium or low. Tiers bucket a
+score initialized from source and stance priors, then updated through evidence
+and relation propagation. They guide what to check, not verified truth or a
+count of independent sources:
+  high confidence   - strong source or direct observation, or reinforced by
+                      independent evidence
+  medium confidence - plausible but single-source, secondhand or inferred
+  low confidence    - weak or unattributed source, speculative, a failed result,
+                      or weakened by a conflicting finding
+Verify medium and low findings before relying on them in the answer. Two
+findings from the same page are not independent corroboration."""
+
 CONTEXT_GUIDE_SPLIT_CONFIDENCE = f"""<belief_graph_guide>
 {_HISTORY_SCOPE}
 
 {_SPLIT_SECTIONS}
-{_NUMERIC_CONFIDENCE_GUIDE}
+{_TIERED_CONFIDENCE_GUIDE}
 {_RELATION_GUIDE}
-
-Support labels summarize source, stance and propagated confidence. They are
-not verified truth or an audited count of independent sources:
-  confirmed by several sources - confidence increased through evidence/relations;
-                                 verify source independence before claiming corroboration
-  from the user                - a requirement or fact the user gave
-  one source, stated directly  - presented as a direct observation
-  one source, secondhand       - presented as recalled or secondhand information
-  your own claim               - you wrote it; the source behind it is unchecked
-  inference or opinion         - a judgment, not a reported fact
-  speculative                  - a guess
-  contested                    - confidence decreased; inspect the evidence
-
-Two findings from the same page are not independent corroboration. In the
-report, distinguish sourced observations from secondhand claims and inference.
 
 {_GRAPH_USE_GUIDE}
 </belief_graph_guide>"""
@@ -154,7 +151,7 @@ class BCGSettings:
     tonggraph_timeout: float = 30.0
     # Layout of the injected graph block for the single agent: "split"
     # (completed actions / findings / relations), "split_confidence" (split
-    # with plain-language support labels) or "v0" (legacy beliefs list).
+    # with high/medium/low confidence tiers) or "v0" (legacy beliefs list).
     render_style: str = "split"
     task_state_enabled: bool = False
     task_state_chars: int = 1800
@@ -243,6 +240,10 @@ class BCGSettings:
             raise ValueError("BCG_GRAPH_CHARS must be >= 512 and BCG_GRAPH_TIMEOUT positive")
         if value.render_style not in RENDER_STYLES:
             raise ValueError("BCG_RENDER_STYLE must be split, split_confidence or v0")
+        if value.render_style == "split_confidence":
+            from .rendering import confidence_thresholds
+
+            confidence_thresholds()  # fail fast on invalid BCG_CONFIDENCE_HIGH/LOW
         if type(value.task_state_enabled) is not bool or value.task_state_chars < 256:
             raise ValueError("task_state_enabled must be boolean; task_state_chars must be >= 256")
         if value.graph_recent_turns < 1:
