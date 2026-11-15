@@ -1204,6 +1204,8 @@ def attribute_repeats(trial: Path, rows: list[Any], prepares: list[dict[str, Any
         failed = bool(result.get("is_error")) or bool(_BLOCKED_RE.search(str(result.get("content") or "")[:400]))
         row: dict[str, Any] = {
             "step": item["step"], "earlier_step": item["earlier_step"], "kind": item["kind"],
+            "prepare_call": event.get("call") if event else None,
+            "earlier_prepare_call": events.get(item["earlier_step"], {}).get("call"),
             "tool": item["call"]["name"], "target": item["target"][:120],
             "earlier_target": call_target(item["earlier_call"])[:120],
             "graph_nodes_from_earlier": len(early_nodes),
@@ -1269,6 +1271,7 @@ def attribute_repeats(trial: Path, rows: list[Any], prepares: list[dict[str, Any
     causes = Counter(c for r in out_rows for c in r.get("causes", []))
     return {
         "steps": len(steps),
+        "repeat_step_calls": {n: e.get("call") for n, e in events.items()},
         "graph_steps_aligned": aligned,
         "steps_mapped_to_requests": len(events),
         "repeats": out_rows,
@@ -1807,6 +1810,29 @@ support, and how often that talk leads to doubt or a change of plan.""",
         f"   -> doubt / change of plan {c['B_reasoning_support_to_action_pct']}%",
     ]
     if one:
+        # Step numbers are agent steps; --dump-memory takes BCG prepare call numbers.
+        # Keep both so the exact injected context can be inspected without guessing.
+        a = one["attribution"]
+        step_calls = a.get("repeat_step_calls", {})
+        out += ["", "  repeat events by category (repeat step <- original step; step -> prepare CALL):"]
+        for category in order:
+            matching = [r for r in a["repeats"] if r["category"] == category]
+            if not matching:
+                continue
+            out.append(f"    {category:<20} ({len(matching)} repeats):")
+            for r in matching:
+                now, earlier = r["step"], r["earlier_step"]
+                out.append(
+                    f"      step {now} <- step {earlier} [{r['kind']}] "
+                    f"memory={step_calls.get(now, '?')} "
+                    f"original-memory={step_calls.get(earlier, '?')} "
+                    f"{r['tool']} {r['target'][:75]}"
+                )
+        out += [
+            "  Inspect model output/tool calls: --dump-step 11 and --dump-step 14",
+            "  Inspect graph before repeat: --dump-memory 14 (use memory=CALL, not step blindly).",
+        ]
+    if one:
         a = one["attribution"]
         out.append(
             f"  alignment              {a['steps']} steps, {a['graph_steps_aligned']} matched to the "
@@ -2095,6 +2121,47 @@ def dump_queries(run_dir: Path, only: set[str] | None) -> str:
     return "\n".join(out) or "no searches found"
 
 
+def dump_step(run_dir: Path, step_number: int, only: set[str] | None) -> str:
+    """Full model output and formal tool calls for an agent step, not a prepare call."""
+    out: list[str] = []
+    for trial in find_trials(run_dir):
+        if only and trial.name not in only:
+            continue
+        rows = load_trajectory(trial)
+        nodes, acknowledged = load_graph_nodes(trial)
+        steps, aligned = merge_steps(graph_steps(acknowledged), trajectory_steps(rows))
+        prepares = [
+            e for path in sorted(trial.rglob("requests.jsonl"))
+            if "bcg_team" not in path.parts
+            for e in read_jsonl(path) if isinstance(e, dict) and "call" in e
+        ]
+        events = map_step_events(steps, prepares)
+        if not 1 <= step_number <= len(steps):
+            out.append(f"task {trial.name}: step {step_number} not found (1..{len(steps)})")
+            continue
+        step = steps[step_number - 1]
+        event = events.get(step_number)
+        out += [BAR, f"task {trial.name} | agent step {step_number} | prepare call "
+                f"{event.get('call') if event else 'UNMAPPED'} | graph/trajectory aligned {aligned}/{len(steps)}", BAR,
+                "MODEL THINKING (as recorded; may be empty):",
+                step.get("thinking") or "(none recorded)",
+                "", "MODEL CONTENT (full):", step.get("text") or "(none recorded)",
+                "", "FORMAL TOOL CALLS (full arguments):"]
+        if not step.get("calls"):
+            out.append("(no tool calls)")
+        for i, call in enumerate(step.get("calls") or [], 1):
+            out.append(f"  {i}. {json.dumps(call, ensure_ascii=False, indent=2)}")
+        out += ["", "TOOL RESULTS (when recorded in graph acknowledged turns):"]
+        if not step.get("results"):
+            out.append("(not recorded or not aligned)")
+        else:
+            for cid, result in step["results"].items():
+                out.append(f"  {cid}: {json.dumps(result, ensure_ascii=False, indent=2)}")
+        out += ["", f"To see injected graph: --dump-memory {event.get('call')}"
+                if event else "No prepare event mapping available"]
+    return "\n".join(out) or "no matching trials"
+
+
 def dump_repeats(run_dir: Path, only: set[str] | None) -> str:
     out: list[str] = []
     for trial in find_trials(run_dir):
@@ -2140,6 +2207,8 @@ def main() -> None:
                         help="print the injected block for this prepare call")
     parser.add_argument("--dump-queries", action="store_true",
                         help="print every search in order and what the graph recorded")
+    parser.add_argument("--dump-step", type=int, metavar="STEP",
+                        help="print full model output and formal tool calls for an agent step")
     parser.add_argument("--dump-repeats", action="store_true",
                         help="print every repeated call with what the model saw and its reasoning")
     parser.add_argument("--high-confidence", type=float, default=HIGH_CONFIDENCE,
@@ -2150,6 +2219,10 @@ def main() -> None:
     only = {t.strip() for t in args.tasks.split(",")} if args.tasks else None
     HIGH_CONFIDENCE = args.high_confidence
 
+    if args.dump_step is not None:
+        for run_dir in args.run_dirs:
+            print(dump_step(run_dir, args.dump_step, only))
+        return
     if args.dump_memory is not None:
         for run_dir in args.run_dirs:
             print(dump_memory(run_dir, args.dump_memory, only))
