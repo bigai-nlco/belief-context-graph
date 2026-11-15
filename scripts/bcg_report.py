@@ -27,6 +27,8 @@ USAGE
     python scripts/bcg_report.py RUN_DIR --json out.json    # archive
     python scripts/bcg_report.py RUN_DIR --dump-memory 7    # injected block
     python scripts/bcg_report.py RUN_DIR --dump-queries     # search history
+    python scripts/bcg_report.py RUN_DIR --dump-step-with-memory 12   # graph vs reasoning
+    python scripts/bcg_report.py RUN_DIR --dump-confidence [--node 41] # confidence changes
 
 Layout is auto-detected, so both pipelines work:
     stateful-react-agent   trials/<id>/agent/bcg/        trajectory react_agent.*
@@ -52,6 +54,7 @@ from typing import Any
 CJK = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 LATIN_WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9'’\-]*")
 BELIEF_REF = re.compile(r"\[B(\d+)\]")
+TASK_REF = re.compile(r"\[T(\d+)\]")
 TEAM_REF = re.compile(r"\[(g_[0-9a-f]{6,}):B(\d+)\]")
 URL = re.compile(r"https?://[^\s<>()\[\]\"']+")
 DONE_LINE = re.compile(
@@ -914,6 +917,14 @@ def collect_trial(trial: Path) -> dict[str, Any]:
             "reasoning_uses_support_pct": 0.0, "reasoning_support_to_action_pct": 0.0,
             "error": repr(exc),
         }
+    try:
+        trace = confidence_trace(trial)
+    except Exception as exc:  # never let the trace take the whole report down
+        print(f"warning: confidence trace failed for {trial.name}: {exc!r}", file=sys.stderr)
+        trace = {"history_available": False, "snapshot_timing_available": False, "nodes_changed": 0,
+                 "raised": 0, "lowered": 0, "tier_changed": 0, "tier_changed_shown": 0,
+                 "tier_changed_cited": 0, "changes_by_cause": {}, "edge_effects": {}, "nodes": [],
+                 "error": repr(exc)}
     return {
         "task": trial.name,
         "path": str(trial),
@@ -928,6 +939,7 @@ def collect_trial(trial: Path) -> dict[str, Any]:
         "trajectory": traj,
         "bcg": bcg,
         "attribution": attribution,
+        "confidence_trace": trace,
     }
 
 
@@ -1035,10 +1047,26 @@ def trajectory_steps(rows: list[Any]) -> list[dict[str, Any]]:
             out.append({
                 "calls": [{"id": None, "name": c.get("name"), "arguments": c.get("args") or {}}
                           for c in row.get("tool_calls") or [] if isinstance(c, dict)],
-                "thinking": str(row.get("thinking") or ""),
+                "thinking": str(row.get("thinking") or "") or _thinking_from_blocks(row.get("thinking_blocks")),
                 "text": str(row.get("content") or ""),
             })
     return out
+
+
+def _thinking_from_blocks(blocks: Any) -> str:
+    """Readable text of native thinking / reasoning blocks (Anthropic, OpenAI Responses)."""
+    if not isinstance(blocks, list):
+        return ""
+    out: list[str] = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        if isinstance(block.get("thinking"), str) and block["thinking"].strip():
+            out.append(block["thinking"])
+        for part in block.get("summary") or []:
+            if isinstance(part, dict) and isinstance(part.get("text"), str) and part["text"].strip():
+                out.append(part["text"])
+    return "\n".join(out)
 
 
 def merge_steps(graph: list[dict[str, Any]], traj: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
@@ -1084,16 +1112,27 @@ def map_step_events(steps: list[dict[str, Any]], prepares: list[dict[str, Any]])
     return mapping
 
 
-def shown_nodes(event: dict[str, Any]) -> dict[int, dict[str, Any]]:
-    """Node id -> section, label/confidence exactly as the model saw them."""
+def shown_nodes(event: dict[str, Any], *, include_task: bool = False) -> dict[int, dict[str, Any]]:
+    """Node id -> section, label/confidence exactly as the model saw them.
+
+    Task-state anchors ("[T5] source: [B5]" and its indented "[B5] task: ...")
+    are reported with section "task" only when include_task is set, so the
+    repeat categories keep their original meaning.
+    """
     out: dict[int, dict[str, Any]] = {}
     section = "findings"
     for line in (event.get("system_memory") or "").splitlines():
         if line.startswith("## "):
             section = "actions" if line.startswith("## Completed actions") else (
-                "relations" if line.startswith("## Relations") else "findings")
+                "relations" if line.startswith("## Relations") else (
+                    "task" if line.startswith("## Task state") else "findings"))
             continue
         if section == "relations":
+            continue
+        if section == "task":
+            if include_task:
+                for ref in BELIEF_REF.findall(line):
+                    out.setdefault(int(ref), {"section": "task", "label": None, "confidence": None})
             continue
         found = SHOWN_LINE.match(line)
         if not found:
@@ -1404,6 +1443,19 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "C_query_coverage_pct": round(
                 statistics.fmean([r["trajectory"]["query_coverage_pct"] for r in rows] or [0]), 1
             ),
+        },
+        "confidence_dynamics": {
+            "tasks_with_history": sum(1 for r in rows if (r.get("confidence_trace") or {}).get("history_available")),
+            "nodes_changed": int(total("confidence_trace.nodes_changed")),
+            "raised": int(total("confidence_trace.raised")),
+            "lowered": int(total("confidence_trace.lowered")),
+            "tier_changed": int(total("confidence_trace.tier_changed")),
+            "tier_changed_shown": int(total("confidence_trace.tier_changed_shown")),
+            "tier_changed_cited": int(total("confidence_trace.tier_changed_cited")),
+            "changes_by_cause": dict(sum((Counter((r.get("confidence_trace") or {}).get("changes_by_cause") or {})
+                                          for r in rows), Counter()).most_common()),
+            "edge_effects": dict(sum((Counter((r.get("confidence_trace") or {}).get("edge_effects") or {})
+                                      for r in rows), Counter()).most_common()),
         },
         "efficiency": {
             "turns": int(total("log.turns")),
@@ -1858,6 +1910,38 @@ support, and how often that talk leads to doubt or a change of plan.""",
                     f"       | {r['reasoning_excerpt'][:150]}",
                 ]
 
+    # ── §6c confidence dynamics ─────────────────────────────────────────────
+    cd = agg["confidence_dynamics"]
+    out += section(
+        "6c",
+        "CONFIDENCE DYNAMICS — which beliefs moved, through which edges?",
+        """WHAT: nodes whose confidence changed after their initial prior, read from
+confidence_history. relation_propagation counts only the strongest supporting
+(depends_on) and the strongest contradicting edge; merge_evidence is a merged
+duplicate bringing new evidence. "tier changed" means the label the model sees
+under split_confidence* changed. shown/cited: the node reached the context after
+the change, and a later step's reasoning cited it.
+WHY: a tier that changes but is never shown, or shown but never cited, cannot
+affect behaviour B. Use --dump-confidence [--node N] for every edge.""",
+        brief,
+    )
+    if not cd["tasks_with_history"]:
+        out.append("  no confidence_history in the snapshots; nothing to trace.")
+    else:
+        out += [
+            f"  nodes changed          {cd['nodes_changed']}  (raised {cd['raised']}, lowered {cd['lowered']})",
+            f"  tier changed           {cd['tier_changed']}  -> shown after {cd['tier_changed_shown']}"
+            f"  -> cited after {cd['tier_changed_cited']}",
+            f"  changes by cause       {cd['changes_by_cause']}",
+            f"  counted edges          {cd['edge_effects']}",
+        ]
+        if one and detail:
+            crossed = [t for t in one["confidence_trace"]["nodes"] if t["tier_initial"] != t["tier_final"]]
+            if crossed:
+                out += ["", "  tier changes (latest 3 steps each; --dump-confidence for all):"]
+                for t in crossed[:6]:
+                    out += render_confidence_node(t, full=False)
+
     # ── §7 efficiency ───────────────────────────────────────────────────────
     e = agg["efficiency"]
     out += section(
@@ -1959,7 +2043,8 @@ length collapse has traded the answer for the metric.""",
             f"{c['C_unexpected_causes']['no_task_skeleton']} unexpected repeats had a finding shown but "
             "nothing marking the search as done: keep the action/decision skeleton in the block."
         )
-    if one and ((one["bcg"]["action_nodes_shown"] or {}).get("p50") or 0) <= 2 \
+    if one and not any("noactions" in t for t in tags) \
+            and ((one["bcg"]["action_nodes_shown"] or {}).get("p50") or 0) <= 2 \
             and one["bcg"]["graph"]["node_kinds"].get("action", 0) > 6:
         todo.append(
             "The graph holds many action nodes but only a couple reach the model. "
@@ -2162,6 +2247,378 @@ def dump_step(run_dir: Path, step_number: int, only: set[str] | None) -> str:
     return "\n".join(out) or "no matching trials"
 
 
+def _step_context(trial: Path) -> dict[str, Any]:
+    """Agent steps of one trial, aligned with the prepare event that produced each."""
+    rows = load_trajectory(trial)
+    nodes, acknowledged = load_graph_nodes(trial)
+    steps, aligned = merge_steps(graph_steps(acknowledged), trajectory_steps(rows))
+    prepares = [
+        e for path in sorted(trial.rglob("requests.jsonl"))
+        if "bcg_team" not in path.parts
+        for e in read_jsonl(path) if isinstance(e, dict) and "call" in e
+    ]
+    return {"rows": rows, "nodes": nodes, "steps": steps, "aligned": aligned,
+            "prepares": prepares, "events": map_step_events(steps, prepares)}
+
+
+def _reasoning_text(step: dict[str, Any]) -> str:
+    return "\n".join(x for x in (step.get("thinking"), step.get("text")) if x)
+
+
+def _tier_of(value: float | None) -> str | None:
+    """The tier split_confidence would print for this confidence value."""
+    if value is None:
+        return None
+    if confidence_label is not None:
+        try:
+            return confidence_label({"confidence": value})
+        except Exception:  # invalid env thresholds: fall back to the defaults
+            pass
+    return "high confidence" if value >= 0.70 else "medium confidence" if value >= 0.50 else "low confidence"
+
+
+def _shown_text(info: dict[str, Any] | None) -> str:
+    if not info:
+        return "not shown"
+    if info.get("section") == "actions":
+        return "shown as action"
+    if info.get("section") == "task":
+        return "shown in task state"
+    return info.get("label") or (f"confidence {info['confidence']}" if info.get("confidence") is not None
+                                 else "shown, no label")
+
+
+def _cue_snippets(text: str, limit: int = 6) -> list[str]:
+    windows: list[list[int]] = []
+    for match in SUPPORT_CUES.finditer(text):
+        start, end = max(0, match.start() - 60), min(len(text), match.end() + 60)
+        if windows and start <= windows[-1][1]:
+            windows[-1][1] = end  # overlapping cues share one snippet
+        else:
+            windows.append([start, end])
+    return [re.sub(r"\s+", " ", text[a:b]).strip() for a, b in windows[:limit]]
+
+
+def dump_step_with_memory(run_dir: Path, step_number: int, only: set[str] | None) -> str:
+    """The graph block a step was produced from, side by side with its reasoning.
+
+    Lines of the block whose node the reasoning cites are marked ">>". The
+    summary separates citations of shown nodes from citations of nodes the
+    model could only have seen in raw history, and lists the support language
+    the reasoning used, so one can judge whether confidence was read.
+    """
+    out: list[str] = []
+    for trial in find_trials(run_dir):
+        if only and trial.name not in only:
+            continue
+        ctx = _step_context(trial)
+        steps, events, nodes = ctx["steps"], ctx["events"], ctx["nodes"]
+        if not 1 <= step_number <= len(steps):
+            out.append(f"task {trial.name}: step {step_number} not found (1..{len(steps)})")
+            continue
+        step = steps[step_number - 1]
+        event = events.get(step_number) or {}
+        thought = _reasoning_text(step)
+        cited_b = {int(x) for x in BELIEF_REF.findall(thought)}
+        cited_t = {int(x) for x in TASK_REF.findall(thought)}
+        memory = event.get("system_memory") or ""
+        start = memory.find("<belief_graph>")
+        graph = memory[start:] if start >= 0 else ""
+        out += [BAR, f"task {trial.name} | agent step {step_number} | prepare call "
+                f"{event.get('call', 'UNMAPPED')} | render {event.get('render_style', '?')}"
+                f" | retrieval {event.get('retrieval_strategy', '?')}", BAR, ""]
+
+        # ── left: what the model was given ──
+        out.append(f"INJECTED GRAPH ({len(graph)} chars; guide {start if start >= 0 else 0} chars omitted, "
+                   f"see --dump-memory {event.get('call')}).  '>>' = cited in this step's reasoning")
+        if not graph:
+            reason = event.get("fallback") or ("no eviction yet" if event else "step not mapped to a request")
+            out.append(f"   (no graph in this request: {reason})")
+        for line in graph.splitlines():
+            refs = {int(x) for x in BELIEF_REF.findall(line)}
+            trefs = {int(x) for x in TASK_REF.findall(line)}
+            mark = ">>" if (refs & cited_b) or (trefs & cited_t) else "  "
+            out.append(f"{mark} {line}")
+
+        # ── right: what the model did with it ──
+        out += ["", "MODEL THINKING:", step.get("thinking") or "(none recorded — the provider did not "
+                "expose reasoning, or this step was not aligned)",
+                "", "MODEL CONTENT:", step.get("text") or "(none)", "", "TOOL CALLS:"]
+        for i, call in enumerate(step.get("calls") or [], 1):
+            out.append(f"  {i}. {call.get('name')} {json.dumps(call.get('arguments') or {}, ensure_ascii=False)}")
+        if not step.get("calls"):
+            out.append("  (none)")
+
+        # ── summary ──
+        seen = shown_nodes(event, include_task=True) if event else {}
+        tiers = Counter(_shown_text(info) for info in seen.values())
+        out += ["", "GRAPH USE IN THIS STEP:",
+                f"  shown nodes            {len(seen)}  {dict(tiers.most_common())}"]
+        cited_shown = sorted(i for i in cited_b if i in seen)
+        cited_hidden = sorted(i for i in cited_b if i not in seen)
+        out.append("  cited & shown          " + (", ".join(
+            f"B{i} ({_shown_text(seen[i])})" for i in cited_shown) or "-"))
+        out.append("  cited, not in block    " + (", ".join(
+            f"B{i}" + ("" if i in nodes else " (unknown id)") for i in cited_hidden) or "-"))
+        if cited_t:
+            out.append(f"  task refs cited        {', '.join(f'T{i}' for i in sorted(cited_t))}")
+        recovers = [c for c in step.get("calls") or [] if c.get("name") == "bcg_recover"]
+        for c in recovers:
+            bid = (c.get("arguments") or {}).get("belief_id")
+            info = seen.get(bid) if isinstance(bid, int) else None
+            out.append(f"  bcg_recover            B{bid} ({_shown_text(info)})")
+        snippets = _cue_snippets(thought)
+        out.append(f"  support language       {len(list(SUPPORT_CUES.finditer(thought)))} matches"
+                   + ("" if snippets else " — the reasoning never talks about reliability"))
+        out += [f"     … {s} …" for s in snippets]
+        shown_low = [i for i, info in seen.items()
+                     if info.get("label") in {"low confidence", "medium confidence"}]
+        if shown_low:
+            used = sorted(set(shown_low) & cited_b)
+            out.append(f"  medium/low shown       {len(shown_low)}, cited {len(used)}"
+                       + (f": {', '.join(f'B{i}' for i in used)}" if used else ""))
+        out.append("")
+    return "\n".join(out) or "no matching trials"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Confidence trace: which nodes changed confidence, through which edges
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Edge status: [new] / [was …] is what moved the value at that step;
+# [unchanged] edges were already counted and only explain the level.
+# Each node carries confidence_history written by the graph server:
+#   initial               P_prior from role x stance x source
+#   relation_propagation  factor from the strongest supporting and the strongest
+#                         contradicting edge (relation_contributions lists them)
+#   merge_evidence        a duplicate was merged in and brought new evidence
+#   evidence_recompute    independent evidence was recounted
+# graph_snapshots.jsonl tells when each history entry first appeared (prepare
+# call); requests.jsonl tells whether the node was shown afterwards and with
+# which tier, and the step reasoning whether it was cited afterwards.
+
+CONFIDENCE_MIN_DELTA = 0.001
+
+
+def _edge_text(contribution: dict[str, Any], relations: dict[int, dict[str, Any]]) -> str:
+    rel = relations.get(contribution.get("relation_id")) if isinstance(contribution.get("relation_id"), int) else None
+    kind = contribution.get("relation_type") or (rel or {}).get("type")
+    if rel:
+        frm, to = rel.get("from_id"), rel.get("to_id")
+    elif kind == "contradicts":
+        frm, to = contribution.get("input_id"), contribution.get("output_id")
+    else:
+        frm, to = contribution.get("output_id"), contribution.get("input_id")
+    note = f' "{rel["note"]}"' if rel and isinstance(rel.get("note"), str) and rel["note"] else ""
+    return f"R{contribution.get('relation_id')}: [B{frm}] {kind} [B{to}]{note}"
+
+
+def _describe_change(entry: dict[str, Any], previous_relation_entry: dict[str, Any] | None,
+                     nodes: dict[int, dict[str, Any]], relations: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    step = str(entry.get("step") or "?")
+    cause: dict[str, Any] = {"kind": step, "edges": [], "dropped_edges": [], "detail": ""}
+    if "relation_contributions" in entry:
+        cause["kind"] = "relation_propagation" if step == "?" else step
+        current = [c for c in entry.get("relation_contributions") or [] if isinstance(c, dict)]
+        before = {c.get("relation_id"): c.get("contribution")
+                  for c in (previous_relation_entry or {}).get("relation_contributions") or [] if isinstance(c, dict)}
+        for c in current:
+            inp = c.get("input_id")
+            rid = c.get("relation_id")
+            cause["edges"].append({
+                "relation_id": c.get("relation_id"), "type": c.get("relation_type"),
+                "edge": _edge_text(c, relations), "input": inp,
+                "input_text": node_text(nodes.get(inp) or {})[:100],
+                "input_confidence": c.get("input_confidence"), "weight": c.get("weight"),
+                "activation": c.get("activation_strength"), "contribution": c.get("contribution"),
+                "effect": "raise" if (c.get("contribution") or 0) > 0 else "lower",
+                # What moved this time: a newly counted edge, or one whose input moved.
+                "status": "new" if rid not in before else (
+                    "unchanged" if before[rid] == c.get("contribution") else f"was {before[rid]:+}"),
+            })
+        if previous_relation_entry is not None:
+            now = {c.get("relation_id") for c in current}
+            for c in previous_relation_entry.get("relation_contributions") or []:
+                if isinstance(c, dict) and c.get("relation_id") not in now:
+                    cause["dropped_edges"].append({
+                        "relation_id": c.get("relation_id"), "edge": _edge_text(c, relations),
+                        "contribution": c.get("contribution"),
+                    })
+        cause["detail"] = f"factor {entry.get('factor_confidence')} (Δ {entry.get('factor_delta')})"
+    elif step == "merge_evidence":
+        cause["detail"] = (f"merged duplicate B{entry.get('from_belief_id')} "
+                           f"(absorbed {entry.get('absorbed_belief_ids')}); evidence log-odds "
+                           f"Δ {entry.get('evidence_delta')} from evidence {entry.get('scored_evidence_ids')}")
+    elif "evidence" in step:
+        cause["detail"] = (f"evidence log-odds Δ {entry.get('evidence_delta')} "
+                           f"from evidence {entry.get('scored_evidence_ids')}")
+    else:
+        cause["detail"] = json.dumps({k: v for k, v in entry.items() if k not in {"value", "step"}},
+                                     ensure_ascii=False)[:200]
+    return cause
+
+
+def confidence_trace(trial: Path, ctx: dict[str, Any] | None = None) -> dict[str, Any]:
+    ctx = ctx or _step_context(trial)
+    nodes: dict[int, dict[str, Any]] = ctx["nodes"]
+    relations: dict[int, dict[str, Any]] = {}
+    first_seen: dict[tuple[int, int], Any] = {}
+    for path in sorted(trial.rglob("graph_snapshots.jsonl")):
+        if "bcg_team" in path.parts:
+            continue
+        for event in read_jsonl(path):
+            if not isinstance(event, dict):
+                continue
+            snap = event.get("snapshot") or {}
+            for rel in snap.get("relations") or []:
+                if isinstance(rel, dict) and type(rel.get("id")) is int:
+                    relations[rel["id"]] = rel
+            for node in (snap.get("all_nodes") or []) + snapshot_nodes(snap):
+                if isinstance(node, dict) and type(node.get("id")) is int:
+                    for k in range(len(node.get("confidence_history") or [])):
+                        first_seen.setdefault((node["id"], k), event.get("call"))
+    for path in sorted(trial.rglob("state.json")):
+        if "bcg_team" in path.parts:
+            continue
+        for rel in ((read_json(path) or {}).get("snapshot") or {}).get("relations") or []:
+            if isinstance(rel, dict) and type(rel.get("id")) is int:
+                relations.setdefault(rel["id"], rel)
+
+    prepares = sorted((e for e in ctx["prepares"] if e.get("system_memory")),
+                      key=lambda e: e.get("call") or 0)
+    shown_cache = {id(e): shown_nodes(e) for e in prepares}
+    step_calls = [(n, (ctx["events"].get(n) or {}).get("call"), _reasoning_text(s))
+                  for n, s in enumerate(ctx["steps"], 1)]
+
+    traced: list[dict[str, Any]] = []
+    for node_id in sorted(nodes):
+        node = nodes[node_id]
+        history = [h for h in node.get("confidence_history") or [] if isinstance(h, dict)]
+        changes: list[dict[str, Any]] = []
+        previous_value: float | None = None
+        previous_relation: dict[str, Any] | None = None
+        for k, entry in enumerate(history):
+            value = entry.get("value")
+            value = float(value) if isinstance(value, (int, float)) else None
+            if entry.get("step") == "initial" or previous_value is None or value is None:
+                previous_value = value if value is not None else previous_value
+                if "relation_contributions" in entry:
+                    previous_relation = entry
+                continue
+            delta = value - previous_value
+            if abs(delta) >= CONFIDENCE_MIN_DELTA:
+                cause = _describe_change(entry, previous_relation, nodes, relations)
+                changes.append({
+                    "index": k, "call": first_seen.get((node_id, k)), "iteration": entry.get("iteration"),
+                    "from": round(previous_value, 4), "to": round(value, 4), "delta": round(delta, 4),
+                    "tier_from": _tier_of(previous_value), "tier_to": _tier_of(value), **cause,
+                })
+            previous_value = value
+            if "relation_contributions" in entry:
+                previous_relation = entry
+        if not changes:
+            continue
+        start = next((float(h["value"]) for h in history if isinstance(h.get("value"), (int, float))), None)
+        final = float(node.get("confidence")) if isinstance(node.get("confidence"), (int, float)) else previous_value
+        # Visibility after the first change that crossed a tier (else the first change).
+        pivot = next((c for c in changes if c["tier_from"] != c["tier_to"]), changes[0])
+        since = pivot["call"] if pivot["call"] is not None else -1
+        shown_after = [(e.get("call"), shown_cache[id(e)].get(node_id)) for e in prepares
+                       if (e.get("call") or 0) >= since and node_id in shown_cache[id(e)]]
+        cited_after = [n for n, call, text in step_calls
+                       if call is not None and call >= since and node_id in {int(x) for x in BELIEF_REF.findall(text)}]
+        traced.append({
+            "node": node_id, "text": node_text(node)[:160], "kind": classify_node(node),
+            "initial": round(start, 4) if start is not None else None,
+            "final": round(final, 4) if final is not None else None,
+            "tier_initial": _tier_of(start), "tier_final": _tier_of(final),
+            "direction": "raised" if (final or 0) > (start or 0) else "lowered" if (final or 0) < (start or 0) else "flat",
+            "changes": changes,
+            "first_shown_after_change": ({"call": shown_after[0][0], "as": _shown_text(shown_after[0][1])}
+                                         if shown_after else None),
+            "times_shown_after_change": len(shown_after),
+            "cited_in_steps_after_change": cited_after,
+        })
+
+    by_cause: Counter = Counter(c["kind"] for t in traced for c in t["changes"])
+    edge_effects: Counter = Counter(
+        f"{e['type']}:{e['effect']}" for t in traced for c in t["changes"] for e in c["edges"])
+    crossed = [t for t in traced if t["tier_initial"] != t["tier_final"]]
+    return {
+        "history_available": any(n.get("confidence_history") for n in nodes.values()),
+        "snapshot_timing_available": bool(first_seen),
+        "nodes_changed": len(traced),
+        "raised": sum(1 for t in traced if t["direction"] == "raised"),
+        "lowered": sum(1 for t in traced if t["direction"] == "lowered"),
+        "tier_changed": len(crossed),
+        "tier_changed_shown": sum(1 for t in crossed if t["times_shown_after_change"]),
+        "tier_changed_cited": sum(1 for t in crossed if t["cited_in_steps_after_change"]),
+        "changes_by_cause": dict(by_cause.most_common()),
+        "edge_effects": dict(edge_effects.most_common()),
+        "nodes": traced,
+    }
+
+
+def render_confidence_node(t: dict[str, Any], *, full: bool = True) -> list[str]:
+    tier = (f"{t['tier_initial']} -> {t['tier_final']}" if t["tier_initial"] != t["tier_final"]
+            else f"stays {t['tier_final']}")
+    out = [f"  B{t['node']:<5} {t['initial']} -> {t['final']}  {t['direction']}, {tier}  [{t['kind']}]",
+           f"         {t['text'][:120]}"]
+    changes = t["changes"] if full else t["changes"][-3:]
+    for c in changes:
+        when = f"call {c['call']}" if c["call"] is not None else "call ?"
+        it = f" it{c['iteration']}" if c.get("iteration") else ""
+        cross = f"  ({c['tier_from']} -> {c['tier_to']})" if c["tier_from"] != c["tier_to"] else ""
+        out.append(f"         · {when}{it} {c['kind']}: {c['from']} -> {c['to']} ({c['delta']:+}){cross}")
+        for e in c["edges"]:
+            out.append(f"             {'+' if e['effect'] == 'raise' else '-'} {e['edge']}  input B{e['input']} "
+                       f"conf {e['input_confidence']} × weight {e['weight']} × act {e['activation']} "
+                       f"= {e['contribution']:+}  [{e.get('status', '?')}]")
+            if full and e["input_text"]:
+                out.append(f"                 B{e['input']}: {e['input_text']}")
+        for e in c["dropped_edges"]:
+            out.append(f"             ∅ {e['edge']} no longer counted (was {e['contribution']:+})")
+        if not c["edges"] and c["detail"]:
+            out.append(f"             {c['detail']}")
+    if not full and len(t["changes"]) > 3:
+        out.append(f"         … {len(t['changes']) - 3} earlier changes, see --dump-confidence")
+    seen = t["first_shown_after_change"]
+    out.append("         model: " + (f"first shown at call {seen['call']} as {seen['as']}, "
+                                     f"{t['times_shown_after_change']} times" if seen else "never shown after the change")
+               + (f"; cited in steps {t['cited_in_steps_after_change'][:8]}" if t["cited_in_steps_after_change"]
+                  else "; never cited after the change"))
+    return out
+
+
+def dump_confidence(run_dir: Path, only: set[str] | None, node: int | None = None) -> str:
+    out: list[str] = []
+    for trial in find_trials(run_dir):
+        if only and trial.name not in only:
+            continue
+        trace = confidence_trace(trial)
+        out += [BAR, f"task {trial.name} | confidence changes", BAR]
+        if not trace["history_available"]:
+            out.append("  no confidence_history in the snapshots (older graph server?)")
+            continue
+        if not trace["snapshot_timing_available"]:
+            out.append("  no graph_snapshots.jsonl: change timing (call) is unknown")
+        out += [
+            f"  nodes changed {trace['nodes_changed']} (raised {trace['raised']}, lowered {trace['lowered']}), "
+            f"tier changed {trace['tier_changed']} (shown after {trace['tier_changed_shown']}, "
+            f"cited after {trace['tier_changed_cited']})",
+            f"  changes by cause {trace['changes_by_cause']}",
+            f"  counted edges    {trace['edge_effects']}", "",
+        ]
+        items = [t for t in trace["nodes"] if node is None or t["node"] == node]
+        # Tier crossings first: those are the changes the model can actually see.
+        items.sort(key=lambda t: (t["tier_initial"] == t["tier_final"], -abs((t["final"] or 0) - (t["initial"] or 0))))
+        for t in items:
+            out += [*render_confidence_node(t), ""]
+        if node is not None and not items:
+            out.append(f"  B{node} never changed confidence")
+    return "\n".join(out) or "no matching trials"
+
+
 def dump_repeats(run_dir: Path, only: set[str] | None) -> str:
     out: list[str] = []
     for trial in find_trials(run_dir):
@@ -2209,6 +2666,12 @@ def main() -> None:
                         help="print every search in order and what the graph recorded")
     parser.add_argument("--dump-step", type=int, metavar="STEP",
                         help="print full model output and formal tool calls for an agent step")
+    parser.add_argument("--dump-step-with-memory", type=int, metavar="STEP",
+                        help="print the injected graph next to that step's reasoning, cited nodes marked")
+    parser.add_argument("--dump-confidence", action="store_true",
+                        help="print every node whose confidence changed and the edges that changed it")
+    parser.add_argument("--node", type=int, metavar="ID",
+                        help="with --dump-confidence: only this belief id")
     parser.add_argument("--dump-repeats", action="store_true",
                         help="print every repeated call with what the model saw and its reasoning")
     parser.add_argument("--high-confidence", type=float, default=HIGH_CONFIDENCE,
@@ -2222,6 +2685,14 @@ def main() -> None:
     if args.dump_step is not None:
         for run_dir in args.run_dirs:
             print(dump_step(run_dir, args.dump_step, only))
+        return
+    if args.dump_step_with_memory is not None:
+        for run_dir in args.run_dirs:
+            print(dump_step_with_memory(run_dir, args.dump_step_with_memory, only))
+        return
+    if args.dump_confidence:
+        for run_dir in args.run_dirs:
+            print(dump_confidence(run_dir, only, args.node))
         return
     if args.dump_memory is not None:
         for run_dir in args.run_dirs:

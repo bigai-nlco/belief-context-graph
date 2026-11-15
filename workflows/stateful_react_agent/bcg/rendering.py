@@ -10,8 +10,13 @@ from typing import Any
 
 from .client import GraphError
 
-RENDER_STYLES = ("v0", "split", "split_confidence")
-SPLIT_STYLES = frozenset({"split", "split_confidence"})
+RENDER_STYLES = ("v0", "split", "split_confidence", "split_confidence_noactions")
+SPLIT_STYLES = frozenset({"split", "split_confidence", "split_confidence_noactions"})
+# Styles whose findings carry the high/medium/low tier instead of a number.
+CONFIDENCE_STYLES = frozenset({"split_confidence", "split_confidence_noactions"})
+# Styles that show no "Completed actions" section. Action nodes are removed
+# before selection (findings_view) so their budget goes to findings/relations.
+NO_ACTION_STYLES = frozenset({"split_confidence_noactions"})
 
 GRAPH_OVERHEAD = len("<belief_graph>\n## Beliefs\n\n## Relations\n</belief_graph>")
 
@@ -24,7 +29,12 @@ SPLIT_GRAPH_OVERHEAD = len(
 )
 
 
+NO_ACTION_GRAPH_OVERHEAD = len("<belief_graph>\n## Findings\n\n## Relations\n</belief_graph>")
+
+
 def graph_overhead(style: str = "v0") -> int:
+    if style in NO_ACTION_STYLES:
+        return NO_ACTION_GRAPH_OVERHEAD
     return SPLIT_GRAPH_OVERHEAD if style in SPLIT_STYLES else GRAPH_OVERHEAD
 
 
@@ -166,8 +176,8 @@ def confidence_label(node: dict[str, Any]) -> str | None:
 
 
 def finding_line(node: dict[str, Any], style: str = "v0") -> str:
-    """A Findings / Beliefs line. Only split_confidence changes the suffix."""
-    if style != "split_confidence":
+    """A Findings / Beliefs line. Only confidence styles change the suffix."""
+    if style not in CONFIDENCE_STYLES:
         return node_line(node)
     content = node.get("belief") or node.get("decision")
     if not isinstance(content, str) or not content:
@@ -179,7 +189,7 @@ def finding_line(node: dict[str, Any], style: str = "v0") -> str:
 
 def styled_node_line(node: dict[str, Any], style: str = "v0") -> str:
     """The exact line a node occupies in the rendered block of this style."""
-    if style in SPLIT_STYLES and classify_node(node)["is_action"]:
+    if style in SPLIT_STYLES and style not in NO_ACTION_STYLES and classify_node(node)["is_action"]:
         return action_line(node)
     return finding_line(node, style)
 
@@ -218,6 +228,37 @@ def full_graph_selection(snapshot: dict[str, Any]) -> dict[str, Any]:
         "node_ids": sorted(_nodes(snapshot)),
         "relation_ids": sorted(edge["id"] for edge in relations),
     }
+
+
+def _is_action_node(node: dict[str, Any]) -> bool:
+    try:
+        return bool(classify_node(node)["is_action"])
+    except GraphError:
+        return False  # a node without text is left for render_graph to reject
+
+
+def findings_view(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Shallow copy of *snapshot* without action nodes or edges touching them.
+
+    Selectors run on this view for NO_ACTION_STYLES so that no budget is spent
+    on tool-call records. Node and relation ids are unchanged, so selections
+    remain valid against the full snapshot (recovery, task state, audit).
+    """
+    actions = {i for i, node in _nodes(snapshot).items() if _is_action_node(node)}
+    view = dict(snapshot)
+    if isinstance(snapshot.get("nodes"), list):
+        view["nodes"] = [n for n in snapshot["nodes"] if not (isinstance(n, dict) and n.get("id") in actions)]
+    else:
+        for key in ("beliefs", "decisions"):
+            if isinstance(snapshot.get(key), list):
+                view[key] = [n for n in snapshot[key] if not (isinstance(n, dict) and n.get("id") in actions)]
+    relations = snapshot.get("relations", [])
+    if isinstance(relations, list):
+        view["relations"] = [
+            r for r in relations
+            if not (isinstance(r, dict) and (r.get("from_id") in actions or r.get("to_id") in actions))
+        ]
+    return view
 
 
 def _finding_order(ids: list[int], selection: dict[str, Any]) -> list[int]:
@@ -302,6 +343,10 @@ def render_graph(
         kept = list(node_lines)
     else:
         info = {i: classify_node(nodes[i]) for i in node_lines}
+        if style in NO_ACTION_STYLES:
+            # A server-side selector (focused) may still offer action nodes.
+            for i in [i for i in node_lines if info[i]["is_action"]]:
+                del node_lines[i]
         finding_lines = {
             i: finding_line(nodes[i], style) for i in node_lines if not info[i]["is_action"]
         }

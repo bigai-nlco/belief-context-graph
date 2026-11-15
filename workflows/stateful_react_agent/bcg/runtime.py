@@ -23,7 +23,17 @@ from frontier_agent.core.tool import Tool, tool
 
 from .client import GraphBackend, GraphError, HttpGraphBackend
 from .messages import Projection, UnsupportedHistory, partition, xml_json
-from .rendering import RENDER_STYLES, _nodes, full_graph_selection, render_graph
+from .rendering import (
+    CONFIDENCE_STYLES,
+    NO_ACTION_STYLES,
+    RENDER_STYLES,
+    _nodes,
+    findings_view,
+    full_graph_selection,
+    render_graph,
+)
+
+_STYLE_ERROR = "must be one of " + ", ".join(RENDER_STYLES)
 
 logger = logging.getLogger(__name__)
 
@@ -120,9 +130,28 @@ CONTEXT_GUIDE_SPLIT_CONFIDENCE = f"""<belief_graph_guide>
 {_GRAPH_USE_GUIDE}
 </belief_graph_guide>"""
 
+# split_confidence_noactions: same tiers, no "Completed actions" section. Tool
+# calls are not listed; what they returned stays in Findings.
+_NOACTION_SECTIONS = """Sections. "Task state", when shown, tracks recorded goals, plans and progress.
+"Findings" are beliefs: self-contained claims or reasoning units, including what
+earlier tool calls returned, not verified facts. "Relations" link them. Tool calls
+themselves are not listed, so a missing finding does not mean a search was never
+run; check recent raw interactions or bcg_recover before repeating one."""
+
+CONTEXT_GUIDE_SPLIT_CONFIDENCE_NOACTIONS = f"""<belief_graph_guide>
+{_HISTORY_SCOPE}
+
+{_NOACTION_SECTIONS}
+{_TIERED_CONFIDENCE_GUIDE}
+{_RELATION_GUIDE}
+
+{_GRAPH_USE_GUIDE}
+</belief_graph_guide>"""
+
 GUIDE_BY_STYLE = {
     "split": CONTEXT_GUIDE_SPLIT,
     "split_confidence": CONTEXT_GUIDE_SPLIT_CONFIDENCE,
+    "split_confidence_noactions": CONTEXT_GUIDE_SPLIT_CONFIDENCE_NOACTIONS,
 }
 
 
@@ -151,7 +180,9 @@ class BCGSettings:
     tonggraph_timeout: float = 30.0
     # Layout of the injected graph block for the single agent: "split"
     # (completed actions / findings / relations), "split_confidence" (split
-    # with high/medium/low confidence tiers) or "v0" (legacy beliefs list).
+    # with high/medium/low confidence tiers), "split_confidence_noactions"
+    # (split_confidence without the Completed actions section) or "v0"
+    # (legacy beliefs list).
     render_style: str = "split"
     task_state_enabled: bool = False
     task_state_chars: int = 1800
@@ -239,8 +270,8 @@ class BCGSettings:
                 or not math.isfinite(value.timeout) or value.timeout <= 0):
             raise ValueError("BCG_GRAPH_CHARS must be >= 512 and BCG_GRAPH_TIMEOUT positive")
         if value.render_style not in RENDER_STYLES:
-            raise ValueError("BCG_RENDER_STYLE must be split, split_confidence or v0")
-        if value.render_style == "split_confidence":
+            raise ValueError("BCG_RENDER_STYLE " + _STYLE_ERROR)
+        if value.render_style in CONFIDENCE_STYLES:
             from .rendering import confidence_thresholds
 
             confidence_thresholds()  # fail fast on invalid BCG_CONFIDENCE_HIGH/LOW
@@ -350,7 +381,7 @@ class BCGMemory:
         render_style: str = "v0",
     ) -> None:
         if render_style not in RENDER_STYLES:
-            raise ValueError("render_style must be split, split_confidence or v0")
+            raise ValueError("render_style " + _STYLE_ERROR)
         self.settings = settings
         # Opt-in per instance: only the single-agent workflow passes a split
         # style; subclasses (agent_team) keep the legacy layout and own guide.
@@ -587,12 +618,16 @@ class BCGMemory:
                                                "chars": len(task_block)}
                     reserved = len(task_block) + 1 if task_block else 0
                     selection_budget = self.settings.graph_chars - reserved
+                    # Local selectors see no action nodes under NO_ACTION_STYLES,
+                    # so the whole budget goes to findings and relations.
+                    view = (findings_view(self.snapshot) if self.render_style in NO_ACTION_STYLES
+                            else self.snapshot)
                     if self.settings.retrieval == "recent_steps":
                         from .recent import recent_step_selection
 
-                        selection = recent_step_selection(self.snapshot, plan, self.settings.graph_recent_turns)
+                        selection = recent_step_selection(view, plan, self.settings.graph_recent_turns)
                     elif self.settings.retrieval == "all":
-                        selection = full_graph_selection(self.snapshot)
+                        selection = full_graph_selection(view)
                     elif self.settings.retrieval == "focused":
                         selection = await self.backend.select(
                             self.problem_id, plan.query, plan.question, selection_budget,
@@ -603,7 +638,7 @@ class BCGMemory:
                         if self._pcst_selector is None:
                             self._pcst_selector = PCSTSelector(self.settings, self.render_style)
                         selection = await asyncio.to_thread(
-                            self._pcst_selector.select, self.snapshot, plan.question,
+                            self._pcst_selector.select, view, plan.question,
                             retrieval_focus(messages), selection_budget,
                         )
                     event["selector_result"] = copy.deepcopy(selection)

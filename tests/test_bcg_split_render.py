@@ -315,3 +315,68 @@ def test_split_confidence_setting_and_guide(tmp_path, monkeypatch):
     assert memory.context_guide == CONTEXT_GUIDE_SPLIT_CONFIDENCE
     for label in CONFIDENCE_LABELS:
         assert label in CONTEXT_GUIDE_SPLIT_CONFIDENCE
+
+
+# ── split_confidence_noactions ───────────────────────────────────────────────
+
+NOACT = "split_confidence_noactions"
+
+
+def test_noactions_renders_findings_and_relations_only():
+    from workflows.stateful_react_agent.bcg.rendering import NO_ACTION_GRAPH_OVERHEAD
+
+    snap = labelled_snapshot()
+    # A server-side selector may still offer action nodes; they are dropped.
+    selection = {"node_ids": [21, 40, 65, 68, 74, 90], "relation_ids": [1, 2]}
+    text, ids, rels = render_graph(snap, selection, 6600, style=NOACT)
+    assert SPLIT_ACTIONS_HEADER not in text
+    assert ids == [21, 68, 90]
+    assert rels == [2]  # edge 1 touched action node 65
+    assert "(high confidence)" in text and "confidence 0." not in text
+    conf_text, _, _ = render_graph(snap, selection, 6600, style="split_confidence")
+    assert text.split("## Findings")[1] != ""  # same findings lines as split_confidence
+    for line in text.split("## Findings")[1].split("## Relations")[0].strip().splitlines():
+        assert line in conf_text
+    nodes = {n["id"]: n for n in snap["nodes"]}
+    assert len(text) == NO_ACTION_GRAPH_OVERHEAD + sum(len(styled_node_line(nodes[i], NOACT)) + 1 for i in ids) \
+        + sum(len(line) + 1 for line in text.split("## Relations\n")[1].splitlines()[:-1])
+
+
+def test_findings_view_removes_actions_and_their_edges_keeping_ids():
+    from workflows.stateful_react_agent.bcg.rendering import _nodes, findings_view
+
+    snap = labelled_snapshot()
+    before = copy.deepcopy(snap)
+    view = findings_view(snap)
+    assert sorted(_nodes(view)) == [21, 68, 90]
+    assert [r["id"] for r in view["relations"]] == [2]
+    assert snap == before  # the real snapshot is untouched
+    legacy = {"beliefs": snap["nodes"], "decisions": [], "relations": snap["relations"]}
+    assert sorted(_nodes(findings_view(legacy))) == [21, 68, 90]
+
+
+def test_pcst_noactions_spends_budget_on_findings_only():
+    pytest.importorskip("pcst_fast")
+    from workflows.stateful_react_agent.bcg.rendering import NO_ACTION_GRAPH_OVERHEAD, findings_view
+
+    view = findings_view(labelled_snapshot())
+    prizes = {68: 0.8, 21: 0.6, 90: 0.5}
+    full = pcst.select_prized_tree(view, prizes, 6600, style=NOACT)
+    assert set(full["node_ids"]) <= {21, 68, 90}
+    for budget in range(NO_ACTION_GRAPH_OVERHEAD, full["rendered_chars"] + 40):
+        selection = pcst.select_prized_tree(view, prizes, budget, style=NOACT)
+        if selection["node_ids"]:
+            text, _, _ = render_graph(view, selection, budget, strict=True, style=NOACT)
+            assert len(text) <= budget
+
+
+def test_noactions_setting_and_guide(tmp_path, monkeypatch):
+    from workflows.stateful_react_agent.bcg.runtime import CONTEXT_GUIDE_SPLIT_CONFIDENCE_NOACTIONS
+
+    monkeypatch.setenv("BCG_RENDER_STYLE", NOACT)
+    assert BCGSettings.from_agent({}).render_style == NOACT
+    memory = BCGMemory(BCGSettings(), tmp_path, "s", backend=FakeGraph(), render_style=NOACT)
+    assert memory.context_guide == CONTEXT_GUIDE_SPLIT_CONFIDENCE_NOACTIONS
+    assert "Completed actions" not in CONTEXT_GUIDE_SPLIT_CONFIDENCE_NOACTIONS
+    for label in CONFIDENCE_LABELS:
+        assert label in CONTEXT_GUIDE_SPLIT_CONFIDENCE_NOACTIONS

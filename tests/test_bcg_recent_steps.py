@@ -106,7 +106,7 @@ def test_recent_merged_members_use_active_canonical_node():
     assert snapshot == before
 
 
-@pytest.mark.parametrize("style", ["v0", "split", "split_confidence"])
+@pytest.mark.parametrize("style", ["v0", "split", "split_confidence", "split_confidence_noactions"])
 @pytest.mark.asyncio
 async def test_global_state_uses_whole_graph_and_injection_format_is_unchanged(tmp_path, style):
     settings = BCGSettings.from_react_agent({"bcg": {"url": "http://unused"}})
@@ -191,7 +191,7 @@ def test_startup_uses_available_steps_without_inventing_history(count):
     assert selection["agent_step_numbers"] == list(range(1, max(0, count - 2) + 1))
 
 
-@pytest.mark.parametrize("style", ["v0", "split", "split_confidence"])
+@pytest.mark.parametrize("style", ["v0", "split", "split_confidence", "split_confidence_noactions"])
 @pytest.mark.parametrize("raw_steps,graph_steps", [(2, 3), (1, 5), (0, 4)])
 def test_guide_matches_scope_and_grounded_next_action_policy(tmp_path, style, raw_steps, graph_steps):
     settings = BCGSettings.from_react_agent({"bcg": {
@@ -220,7 +220,10 @@ def test_guide_matches_scope_and_grounded_next_action_policy(tmp_path, style, ra
     assert "recoverable failure" in guide and "Empty results do not disprove a claim" in guide
     assert "when needed detail is missing, not for every figure" in guide
     assert "recorded message or tool-result batch, not fresh verification" in guide
-    if style != "v0":
+    if style == "split_confidence_noactions":
+        assert "Completed actions" not in guide
+        assert "themselves are not listed" in guide
+    elif style != "v0":
         assert '"Completed actions" records attempted tools' in guide
         assert "not verified success" in guide and "allowing necessary verification" in guide
     # Constructing guidance neither runs a model nor alters the graph.
