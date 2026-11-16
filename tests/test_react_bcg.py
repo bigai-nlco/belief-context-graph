@@ -703,20 +703,22 @@ def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode,
     assert len(result["session_messages"]) == 11
     assert len(provider.inputs) == 5
     assert result["context_mode"] == (mode or "bcg")
+    # Report tools must not add an execution-state block or stagnation reminder
+    # to either context mode's model request.
+    assert "<research_execution_state>" not in str(provider.inputs)
+    assert "consecutive tool-result rounds" not in str(provider.inputs)
+    assert "<research_execution_state>" not in str(result["session_messages"])
+    assert "<research_execution_state>" not in str(graph.pushes)
+    assert not (tmp_path / "research_context.jsonl").exists()
     if report_tools:
         assert "READ-ONLY approved source text" in provider.inputs[0][0]["content"]
-        assert all("<research_execution_state>" in r[0]["content"] for r in provider.inputs)
-        assert all("<research_execution_state>" not in str(m) for m in result["session_messages"])
-        assert "<research_execution_state>" not in str(graph.pushes)
-        assert (tmp_path / "research_context.jsonl").is_file()
         assert "pip install" not in provider.inputs[0][0]["content"]
         assert {e["tool"] for e in policy.trace} == {"read_source"}
-    else:
-        assert "<research_execution_state>" not in str(provider.inputs)
     if mode == "default":
         assert [len(request) for request in provider.inputs] == [2, 4, 6, 8, 10]
         for request in provider.inputs:
             assert request[0]["role"] == "system"
+            assert request[0] == provider.inputs[0][0]
             assert request[1] == {"role": "user", "content": "Find the answer"}
             assert "<belief_graph>" not in str(request)
             assert "<context_blocks_guide>" not in str(request)

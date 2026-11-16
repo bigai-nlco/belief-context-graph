@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
-import hashlib
 import json
 import os
 from contextlib import contextmanager
@@ -70,16 +69,6 @@ def report_prompt() -> str:
     return policy.prompt if policy is not None else ""
 
 
-def bind_report_client(client):
-    """Expose the same deterministic execution record in Default and BCG."""
-    policy = _CURRENT.get()
-    if policy is None or not policy.web:
-        return client
-    from benchmarks.public.reports.execution_state import ReportContextClient
-
-    return ReportContextClient(client, policy)
-
-
 def report_filesystem_note() -> str:
     """Override general write/download guidance only for offline DRB2 tools."""
     policy = _CURRENT.get()
@@ -117,7 +106,6 @@ class ReportPolicy:
         self.workspace = workspace.resolve()
         self.trace_path = trace_path
         self.trace: list[dict[str, Any]] = []
-        self._returned_outputs: set[str] = set()
         self.blocklist = drb2.blocklist_payload(task) if task.benchmark == drb2.NAME else {}
         # None is unlimited; finite budgets may reach zero and must stay exhausted.
         self.search_remaining: int | None = search_calls if search_calls else None
@@ -209,7 +197,6 @@ class ReportPolicy:
         new_chars: int | None = None, outcome: str | None = None,
     ) -> str:
         event = {"tool": name, "args": args, "result": result, "ok": ok}
-        fingerprint = hashlib.sha256((name + "\n" + result).encode()).hexdigest()
         if outcome is None:
             if not ok:
                 outcome = "unavailable"
@@ -218,9 +205,8 @@ class ReportPolicy:
             elif new_chars is not None:
                 outcome = "new_text" if new_chars else "no_new_text"
             else:
-                outcome = "new_output" if fingerprint not in self._returned_outputs and result.strip() else "repeated_output"
-        self._returned_outputs.add(fingerprint)
-        event.update(outcome=outcome, fresh_output=outcome in {"new_text", "new_output"})
+                outcome = "returned"
+        event["outcome"] = outcome
         if new_chars is not None:
             event["new_chars"] = new_chars
         if name == "web_fetch":

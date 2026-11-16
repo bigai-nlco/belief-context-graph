@@ -157,11 +157,11 @@ async def test_runtime_keyword_default_line_count_and_exhausted_tools_stay_avail
     assert "L2 column" in result and "Search mode: any" in result
     result = await tools["read_source"].ainvoke({"source_id": "S1", "start_line": 3, "line_count": 1})
     assert "L3: next" in result and "L4: last" not in result
-    assert p.trace[-1]["fresh_output"]
+    assert p.trace[-1]["new_chars"] == len("next")
     for _ in range(2):
         assert "Search budget exhausted" in await tools["web_search"].ainvoke({"q": "another query"})
         assert "Fetch budget exhausted" in await tools["web_fetch"].ainvoke({"url": "https://example.org/a"})
-    assert all(e["outcome"] == "budget_exhausted" and not e["fresh_output"] for e in p.trace[-4:])
+    assert all(e["outcome"] == "budget_exhausted" and not e["ok"] for e in p.trace[-4:])
     assert set(tools_for(p)) == TOOLS
     assert p.search_remaining == p.fetch_remaining == 0
 

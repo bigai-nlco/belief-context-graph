@@ -46,7 +46,6 @@ sandbox/
     index.json          # Source IDs, URLs, titles, hashes and partial-text flags
     access.json         # Returned character spans, recent reads and source queries
 tools.jsonl
-research_context.jsonl # Execution-state block actually added to each Agent request
 ```
 
 - Source cache: at most 200 versions, 2,000,000 characters per source and 20,000,000 characters in total. Sources truncated by retrieval or cache limits are explicitly marked partial; reading the cache does not fetch missing content.
@@ -71,18 +70,16 @@ From the repository root, using the prepared environment:
 ```bash
 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 RUN_REPORT_SANDBOX_TESTS=1 \
   .venv/bin/python -m pytest tests/test_report_research_tools.py \
-  tests/test_report_execution_state.py tests/test_react_bcg.py tests/test_bcg_task_state.py -q
+  tests/test_react_bcg.py tests/test_bcg_task_state.py -q
 ```
 
 These tests use mocked source retrieval and a fake Agent/Graph backend, plus real Bubblewrap executions. They need no API key and incur no model/search charges. They cover source pagination, citation identity, blocked-source rejection, cross-call files, calculations, task isolation, read-only sources, hidden credentials and host processes, blocked network access, output/timeout limits, cancellation cleanup and production Default/BCG tool registration. They are capability/regression tests, not benchmark accuracy measurements.
 
-## Execution records and BCG task coverage
+## Source access records and BCG task coverage
 
-The single-Agent DRB2 harness appends a bounded `<research_execution_state>` block to the first system message in both Default and BCG. It lists remaining quotas, recent tool outcomes, available source IDs, returned character counts and recent read ranges. The complete access ledger is also available read-only at `/sources/access.json`. Records count only text actually returned by source previews/read/find, not entire documents fetched into the cache. They cannot observe what the Agent understood or which portions Python read internally.
+The access ledger is available read-only at `/sources/access.json`. Source tool responses include their own access and pagination information. Records count only text actually returned by source previews/read/find, not entire documents fetched into the cache. They cannot observe what the Agent understood or which portions Python read internally.
 
-After six consecutive tool-result rounds without new successful output, an advisory asks the Agent to reconsider outstanding requirements, recover relevant evidence, change the evidence route or synthesize with explicit gaps. Identical output, tool errors and zero new cached-source characters are mechanical signals, not a semantic quality judgment. Retries without tool results do not advance this counter. A new successful output clears it.
-
-This block is added after BCG projection. It never enters belief extraction or persistent conversation history. No extra model calls, dynamically disabled tools, new stop conditions or changes to existing search/fetch/turn limits are introduced. Default retains its full chronological history. BCG retains its existing user inputs, recent raw interactions, preceding graph-turn window, rendering style and confidence propagation. The existing final-turn policy is unchanged.
+No automatic execution-state block or consecutive-no-output reminder is added to either mode's system prompt. No extra model calls, dynamically disabled tools, new stop conditions or changes to existing search/fetch/turn limits are introduced. Default retains its full chronological history. BCG retains its existing user inputs, recent raw interactions, preceding graph-turn window, rendering style and confidence propagation. The existing final-turn policy is unchanged.
 
 BCG task-state extraction, within the existing model call, now explicitly preserves separately checkable requested outcomes and substantive missing evidence. It must not invent tasks or infer completion from a search, report or confidence. Task-state rendering allocates its existing budget to task/status records first, then real evidence paths, then recorded plans. It never edits stored beliefs or their confidence. This favors global requirement coverage; when the budget is tight, fewer optional evidence paths may fit. The recent belief graph is still injected separately in its original format.
 
@@ -99,4 +96,4 @@ Baseline code checkpoint: `711b052`. The local replay used the 120 original `fin
 
 For example, the original query `exclusion error exclusion targeting` had no exact phrase match in S6; keyword mode finds 99 matching lines and paginates them. More matches do not establish relevance or answer quality. The updated task-state excerpt retains the original program-analysis, failure-categorization and summary-table requirements instead of spending that space on one task's optional plan/path. No historical node is relabelled by this replay.
 
-These checks establish tool behavior and context coverage only. The revised task extraction prompt has schema/grounding contract tests, not a live quality ablation. A subsequent paired Default/BCG run on identical tasks/model/budgets is needed to measure report scores, iterations and token cost. Both arms must use these shared tool and execution-record changes; old Default results alone would not be a fair control.
+These checks establish tool behavior and context coverage only. The revised task extraction prompt has schema/grounding contract tests, not a live quality ablation. A subsequent paired Default/BCG run on identical tasks/model/budgets is needed to measure report scores, iterations and token cost. Both arms must use these shared tool improvements; old Default results alone would not be a fair control.
