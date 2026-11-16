@@ -79,6 +79,11 @@ def render_system_prompt_notes(
     tool_names: list[str] | tuple[str, ...],
 ) -> str:
     """Return static filesystem/chart guidance plus discovered toolchains."""
+    from benchmarks.public.reports.runtime import report_filesystem_note
+
+    report_note = report_filesystem_note()
+    if report_note:
+        return report_note
     filesystem_note = SANDBOX_FS_NOTE
     project = os.environ.get("FRONTIER_AGENT_PROJECT_DIR", "").strip()
     if sandbox_mode == "native":

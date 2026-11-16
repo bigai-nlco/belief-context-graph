@@ -588,13 +588,24 @@ def test_real_agent_loop_four_tool_steps_then_answer(tmp_path):
 
 
 @pytest.mark.parametrize("mode", [None, "bcg", "bcg_no_retrieval", "default"])
-def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode):
+@pytest.mark.parametrize("report_tools", [False, True])
+def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode, report_tools):
     # A stale retrieval env must not override single-agent recent-step selection.
     monkeypatch.setenv("BCG_RETRIEVAL", "focused")
+    from contextlib import nullcontext
+
+    from benchmarks.public.reports import drb2
+    from benchmarks.public.reports.models import BenchmarkTask
+    from benchmarks.public.reports.runtime import ReportPolicy, report_policy
     from frontier_agent.core.runtime import registry
     from frontier_agent.core.runtime.resources.manager import ResourceManager
     from workflows.stateful_react_agent.bcg import runtime
     from workflows.stateful_react_agent.nodes import main_agent
+
+    policy = ReportPolicy(BenchmarkTask(drb2.NAME, "smoke", "Find the answer"),
+                          tmp_path / "workspace", tmp_path / "tools.jsonl") if report_tools else None
+    if policy is not None:
+        policy.sources.add("https://example.org/report", "\n".join(f"Recorded fact {n}." for n in range(1, 5)))
 
     @tool
     async def lookup(query: str) -> str:
@@ -612,6 +623,10 @@ def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode)
             n = len(self.inputs)
             names = [t["function"]["name"] for t in kwargs.get("tools") or []]
             assert ("bcg_recover" in names) == (mode != "default")
+            if report_tools:
+                assert set(names) - {"bcg_recover"} == {
+                    "web_search", "web_fetch", "read_source", "find_in_source", "run_python_code",
+                }
             if n <= 4:
                 return LLMResponse(
                     content=f"Checking evidence {n}",
@@ -620,8 +635,8 @@ def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode)
                             "id": f"c{n}",
                             "type": "function",
                             "function": {
-                                "name": "lookup",
-                                "arguments": json.dumps({"query": f"fact {n}"}),
+                                "name": "read_source" if report_tools else "lookup",
+                                "arguments": json.dumps({"source_id": "S1", "start_line": n, "end_line": n} if report_tools else {"query": f"fact {n}"}),
                             },
                         }
                     ],
@@ -630,7 +645,7 @@ def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode)
 
     for name in ("workspace", "outputs", "inputs"):
         directory = tmp_path / name
-        directory.mkdir()
+        directory.mkdir(exist_ok=True)
         monkeypatch.setenv(f"FRONTIER_AGENT_{name.upper()}_DIR", str(directory))
     monkeypatch.setenv("SANDBOX_BACKEND", "native")
     provider = Provider()
@@ -670,16 +685,17 @@ def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode)
     try:
         registry.clear()
         registry.register(ResourceManager, ResourceManager(provider, {"lookup": lookup}))
-        result = asyncio.run(
-            main_agent.react_agent_node(
-                {
-                    "original_question": "Find the answer",
-                    "language": "en",
-                    "metadata": {"_trial_dir": str(tmp_path / "trial")},
-                },
-                SimpleNamespace(task_id="production-bcg-smoke"),
+        with report_policy(policy) if policy is not None else nullcontext():
+            result = asyncio.run(
+                main_agent.react_agent_node(
+                    {
+                        "original_question": "Find the answer",
+                        "language": "en",
+                        "metadata": {"_trial_dir": str(tmp_path / "trial")},
+                    },
+                    SimpleNamespace(task_id="production-bcg-smoke"),
+                )
             )
-        )
     finally:
         registry.restore(saved)
     assert result["answer_status"] == "complete"
@@ -687,6 +703,10 @@ def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode)
     assert len(result["session_messages"]) == 11
     assert len(provider.inputs) == 5
     assert result["context_mode"] == (mode or "bcg")
+    if report_tools:
+        assert "READ-ONLY approved source text" in provider.inputs[0][0]["content"]
+        assert "pip install" not in provider.inputs[0][0]["content"]
+        assert {e["tool"] for e in policy.trace} == {"read_source"}
     if mode == "default":
         assert [len(request) for request in provider.inputs] == [2, 4, 6, 8, 10]
         for request in provider.inputs:

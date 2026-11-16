@@ -942,7 +942,7 @@ def _extra_tool_root_bind_args() -> list[str]:
     return args
 
 
-def _bwrap_base_args() -> list[str]:
+def _bwrap_base_args(*, strict_isolation: bool = False) -> list[str]:
     """Build conservative bubblewrap args for the current host."""
     args: list[str] = [
         "--unshare-user",
@@ -951,7 +951,7 @@ def _bwrap_base_args() -> list[str]:
     ]
     # A PID namespace is only usable together with a fresh procfs (see the
     # /proc note at the end of this function), so the two move together.
-    if _sandbox_profile() == _PROFILE_SERVICE:
+    if strict_isolation or _sandbox_profile() == _PROFILE_SERVICE:
         args.insert(1, "--unshare-pid")
     # Hard network isolation for sandboxed bash/python (web_search/web_fetch run
     # in-harness, not here, so the agent's search tools are unaffected). This is
@@ -960,13 +960,25 @@ def _bwrap_base_args() -> list[str]:
     # outer container that rejects net-namespace creation can fall back —
     # ``_bwrap_base_args`` feeds ``bwrap_available()``'s probe, so a rejected
     # ``--unshare-net`` would otherwise disable bwrap entirely.
-    if os.environ.get("SANDBOX_UNSHARE_NET", "1").strip().lower() not in ("0", "false", "no"):
+    if strict_isolation or os.environ.get("SANDBOX_UNSHARE_NET", "1").strip().lower() not in ("0", "false", "no"):
         args.append("--unshare-net")
     for path in _BWRAP_SYSTEM_PATHS:
+        if strict_isolation and path == "/etc":
+            # Do not expose service settings or credentials in /etc. The
+            # dynamic linker and timezone files are sufficient for offline
+            # Python; the general sandbox keeps its existing system mounts.
+            args.extend(["--dir", "/etc"])
+            for runtime_file in ("/etc/ld.so.cache", "/etc/localtime"):
+                if Path(runtime_file).exists():
+                    args.extend(["--ro-bind", runtime_file, runtime_file])
+            continue
         if Path(path).exists():
             args.extend(["--ro-bind", path, path])
     args.extend(_interpreter_bind_args())
-    args.extend(_extra_tool_root_bind_args())
+    if not strict_isolation:
+        args.extend(_extra_tool_root_bind_args())
+    else:
+        args.extend(["--unshare-uts", "--new-session", "--cap-drop", "ALL"])
     # The tool user's overlay venv sits outside the system paths above, so bind
     # it too — otherwise PATH names a directory absent from the jail and
     # ``python3`` silently resolves to a different interpreter than in container
@@ -978,7 +990,7 @@ def _bwrap_base_args() -> list[str]:
     # possible and must land somewhere writable; ``_build_tool_env``'s
     # ``overlay_writable=False`` points pip at the workspace HOME instead.
     overlay = _tool_overlay_venv(os.environ)
-    if overlay:
+    if overlay and not strict_isolation:
         args.extend(["--ro-bind", overlay, overlay])
     # ── /proc, and why it differs by profile ─────────────────────────────
     #
@@ -1008,7 +1020,7 @@ def _bwrap_base_args() -> list[str]:
     # The cost is real and worth stating: without a PID namespace a command
     # that backgrounds a process can leave it running after the command's
     # timeout, because killing the sandbox no longer tears down a namespace.
-    if _sandbox_profile() == _PROFILE_SERVICE:
+    if strict_isolation or _sandbox_profile() == _PROFILE_SERVICE:
         args.extend(["--proc", "/proc"])
     else:
         args.extend(["--ro-bind", "/proc", "/proc"])
@@ -1058,10 +1070,15 @@ class _BwrapCommands:
         chdir: str,
         *,
         mem_limit_mb: int | None = None,
+        strict_isolation: bool = False,
     ) -> None:
         self._bind_args = bind_args
         self._chdir = chdir
         self._mem_limit_mb = mem_limit_mb
+        self._strict_isolation = strict_isolation
+        self._strict_lock = threading.Lock()
+        self._strict_pids: set[int] = set()
+        self._strict_closed = False
 
     def run(self, command: str, timeout: int = 60,
             input: str | None = None, allow_net: bool = False,
@@ -1077,14 +1094,14 @@ class _BwrapCommands:
         # Most commands retain the isolated network namespace. Callers that
         # intentionally provide a network-backed capability (read_file OCR,
         # controlled downloads, or bash research) opt in explicitly.
-        base_args = _bwrap_base_args()
-        if allow_net:
+        base_args = _bwrap_base_args(strict_isolation=True) if self._strict_isolation else _bwrap_base_args()
+        if allow_net and not self._strict_isolation:
             base_args = [a for a in base_args if a != "--unshare-net"]
         argv = [
             _BWRAP_PATH,
             *base_args,
             *self._bind_args,
-            *_spill_mount_args(),
+            *([] if self._strict_isolation else _spill_mount_args()),
             "--chdir",
             self._chdir,
             "--",
@@ -1096,6 +1113,8 @@ class _BwrapCommands:
             "-c",
             capped,
         ]
+        if self._strict_isolation:
+            return self._run_strict(argv, command, timeout, input, mem_limit_mb)
         try:
             result = subprocess.run(
                 argv,
@@ -1121,6 +1140,63 @@ class _BwrapCommands:
             raise TimeoutError(f"Command timed out after {timeout}s") from exc
         except Exception as e:
             return _CommandResult(stderr=str(e), exit_code=1)
+
+    def _run_strict(
+        self, argv: list[str], command: str, timeout: int, input: str | None,
+        mem_limit_mb: int,
+    ) -> _CommandResult:
+        """Benchmark exec: fresh PID/net namespaces, no host credentials, bounded output.
+
+        Deliberately ignores deployment environment allowlists and network opt-ins.
+        No fallback to host execution if any required namespace cannot be created.
+        Limits apply per process/file; this is not an aggregate disk/cgroup quota.
+        """
+        limits = (
+            f"ulimit -S -H -v {max(1, mem_limit_mb) * 1024} && "
+            "ulimit -S -H -f 32768 && ulimit -S -H -n 128 && "
+            f"ulimit -S -H -u 256 && ulimit -S -H -t {max(1, timeout)} && "
+        )
+        argv[-1] = limits + command
+        env = {
+            "PATH": f"{sys.prefix}/bin:{sys.base_prefix}/bin:/usr/bin:/bin",
+            "HOME": "/workspace", "TMPDIR": "/tmp", "LANG": "C.UTF-8",
+            "MPLCONFIGDIR": "/tmp/matplotlib", "PYTHONNOUSERSITE": "1",
+            **_THREAD_CAP_ENV,
+        }
+        with self._strict_lock:
+            if self._strict_closed:
+                raise SandboxUnavailableError("Benchmark execution was cancelled.")
+            proc = subprocess.Popen(
+                argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, encoding="utf-8", errors="replace", env=env, start_new_session=True,
+            )
+            self._strict_pids.add(proc.pid)
+        try:
+            stdout, stderr = _stream_capped(
+                proc, input=input, timeout=timeout, max_output_chars=20_000,
+            )
+            return _CommandResult(stdout=stdout, stderr=stderr, exit_code=proc.returncode)
+        except subprocess.TimeoutExpired as exc:
+            raise TimeoutError(f"Command timed out after {timeout}s") from exc
+        finally:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait(timeout=5)
+            with self._strict_lock:
+                self._strict_pids.discard(proc.pid)
+            for stream in (proc.stdin, proc.stdout, proc.stderr):
+                if stream is not None:
+                    stream.close()
+
+    def close_strict(self) -> None:
+        """Cancel in-flight strict commands as well as future threaded writes."""
+        if not self._strict_isolation:
+            return
+        with self._strict_lock:
+            self._strict_closed = True
+            for pid in self._strict_pids:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(pid, signal.SIGKILL)
 
 
 class _BwrapFiles:
@@ -1156,6 +1232,9 @@ class BwrapSandbox:
         mem_limit_mb: optional per-command virtual-memory ceiling. The generic
             model-code fallback passes the tighter worker-local limit; callers
             that omit it retain the larger file-processing limit.
+        strict_isolation: use fresh PID/network namespaces, a minimal environment,
+            capped output and resource limits, without network/host-environment
+            opt-ins. Benchmark Python uses this mode.
     """
 
     def __init__(
@@ -1164,6 +1243,7 @@ class BwrapSandbox:
         workspace: str | Path | None = None,
         binds: tuple[tuple[str, str, bool], ...] = (),
         mem_limit_mb: int | None = None,
+        strict_isolation: bool = False,
     ) -> None:
         if not bwrap_available():
             raise SandboxUnavailableError(
@@ -1219,6 +1299,7 @@ class BwrapSandbox:
         self._tmpdir = str(tmp_path)
         self.commands = _BwrapCommands(
             bind_args, "/workspace", mem_limit_mb=mem_limit_mb,
+            strict_isolation=strict_isolation,
         )
         self.files = _BwrapFiles(self.commands)
         self.sandbox_id = f"bwrap-{workspace_path.name}"
@@ -1226,6 +1307,7 @@ class BwrapSandbox:
 
     def kill(self) -> None:
         """Clean up sandbox-owned temporary directories."""
+        self.commands.close_strict()
         with contextlib.suppress(Exception):
             shutil.rmtree(self._tmpdir, ignore_errors=True)
         if self._owns_workspace:
@@ -1280,6 +1362,7 @@ def _release_pipe(sel: selectors.BaseSelector, fileobj: Any) -> None:
 
 def _stream_capped(
     proc: subprocess.Popen, *, input: str | None, timeout: float,
+    max_output_chars: int | None = None,
 ) -> tuple[str, str]:
     """``Popen.communicate`` with a retention cap instead of unbounded buffering.
 
@@ -1319,7 +1402,7 @@ def _stream_capped(
         stdout, stderr = proc.communicate(input=input, timeout=timeout)
         return stdout or "", stderr or ""
 
-    cap = _output_cap_bytes()
+    cap = _output_cap_bytes() if max_output_chars is None else max_output_chars
     sinks = {"stdout": _CappedSink(cap), "stderr": _CappedSink(cap)}
     names: dict[Any, str] = {}
     decoders: dict[Any, io.IncrementalNewlineDecoder] = {}

@@ -21,6 +21,7 @@ import httpx
 
 from benchmarks.public.reports import drb2, drbench
 from benchmarks.public.reports.models import BenchmarkTask
+from benchmarks.public.reports.sources import SourceStore
 from frontier_agent.core.tool import Tool, tool
 from plugins.tools._bounded_fetch import (
     binary_content_type,
@@ -68,6 +69,22 @@ def report_prompt() -> str:
     return policy.prompt if policy is not None else ""
 
 
+def report_filesystem_note() -> str:
+    """Override general write/download guidance only for offline DRB2 tools."""
+    policy = _CURRENT.get()
+    if policy is None or not policy.web:
+        return ""
+    return (
+        "\n\nRESEARCH FILESYSTEM: run_python_code executes offline in /workspace. "
+        "This task's scratch files persist there between calls. /sources is READ-ONLY "
+        "approved source text from web_fetch, with source metadata in /sources/index.json. "
+        "Use only already-installed Python libraries; package installation, network access "
+        "and host files are unavailable. Retrieve public sources through the supplied "
+        "web tools. Return the complete Markdown report as your final response; "
+        "do not substitute a file path."
+    )
+
+
 class ReportPolicy:
     def __init__(
         self,
@@ -104,6 +121,12 @@ class ReportPolicy:
         self.allowed_files = {
             path.resolve() for path in self.workspace.rglob("*") if path.is_file()
         }
+        self.sources = SourceStore(self.workspace.with_name(self.workspace.name + "-sources")) if self.web else None
+        self.python = None
+        if self.sources is not None:
+            from benchmarks.public.reports.python_exec import ReportPython
+
+            self.python = ReportPython(self.workspace, self.sources.root)
 
     @property
     def prompt(self) -> str:
@@ -121,7 +144,15 @@ class ReportPolicy:
                 " Use web_search and web_fetch to read primary sources, cross-check key "
                 "figures and cite URLs. Some sources are blocked for this task; use other "
                 "sources instead of circumventing blocks. Search and fetch budgets are "
-                "shared across the whole team. Shell, downloads and local files are unavailable."
+                "shared across the whole team. web_fetch saves approved source text and returns "
+                "a source_id. Use find_in_source for literal text lookup and read_source for "
+                "numbered excerpts or continuation; neither makes a network request. Cite the "
+                "original URL, not source_id or local paths. run_python_code calculates and "
+                "processes data offline: /sources/<source_id>.txt is read-only; /workspace "
+                "holds this task's persistent scratch files. Python cannot access the network, "
+                "download files, or read host files or evaluation data; no standalone shell "
+                "tool is supplied. "
+                "Return the report in your final response, not only as a saved file."
             )
         return common + (
             " This is DRBench local-file L1 evaluation, not the full service environment. "
@@ -269,15 +300,67 @@ class ReportPolicy:
 
         @tool
         async def web_fetch(url: str | list[str]) -> str:
-            """Read public web sources through the configured fetch backend, subject to task restrictions."""
+            """Fetch approved web sources. Returns source_id and a preview; use read_source/find_in_source for the cached text."""
             urls = [url] if isinstance(url, str) else url
             results = await asyncio.gather(*(self.fetch_one(value) for value in urls[:20]))
             return "\n\n".join(results)
 
-        bound = [web_search, web_fetch] if self.web else [read_file, glob_search, grep_search]
+        @tool
+        async def read_source(
+            source_id: str, start_line: int = 1, end_line: int = 0, start_column: int = 0,
+        ) -> str:
+            """Read cached source text without fetching again. Lines start at 1; end_line is inclusive (0: next 100 lines). Up to 400 lines/20000 chars. start_column continues a long line at a 0-based offset. Use a source_id returned by web_fetch, not a URL/path."""
+            args = {"source_id": source_id, "start_line": start_line,
+                    "end_line": end_line, "start_column": start_column}
+            try:
+                assert self.sources is not None
+                result = self.sources.read(**args)
+                return self._record("read_source", args, result)
+            except ValueError as exc:
+                return self._record("read_source", args, f"Error: {exc}", ok=False)
+
+        @tool
+        async def find_in_source(
+            source_id: str, query: str, start_line: int = 1, max_matches: int = 10,
+        ) -> str:
+            """Find a literal case-insensitive phrase in one cached source. Returns matching lines, column offsets and excerpts. No network or model call. Use read_source for surrounding context; advance start_line for more matches."""
+            args = {"source_id": source_id, "query": query,
+                    "start_line": start_line, "max_matches": max_matches}
+            try:
+                assert self.sources is not None
+                result = self.sources.find(**args)
+                return self._record("find_in_source", args, result)
+            except ValueError as exc:
+                return self._record("find_in_source", args, f"Error: {exc}", ok=False)
+
+        @tool
+        async def run_python_code(code: str, timeout: int = 0) -> str:
+            """Execute Python offline in this task's isolated sandbox. Use print() for results. Read approved sources at /sources/<source_id>.txt; write scratch files under /workspace (persistent across calls). No network, API keys, host files or other tasks. Standard library and installed packages only. timeout: seconds, default 60, maximum 120. Output is bounded; finish the report in your final response."""
+            assert self.python is not None
+            result = await self.python.run(code, timeout)
+            return self._record("run_python_code", {"code": code, "timeout": timeout}, result,
+                                ok=not result.startswith(("Error:", "[exit code")))
+
+        bound = [web_search, web_fetch, read_source, find_in_source] if self.web else [read_file, glob_search, grep_search]
         for entry in bound:
             entry.metadata.update(is_read_only=True, concurrency_safe=True)
+        if self.web:
+            run_python_code.metadata.update(is_read_only=False, concurrency_safe=False)
+            bound.append(run_python_code)
         return [*allowed, *bound]
+
+    def _cache_source(
+        self, requested_url: str, url: str, text: str, *, title: str = "",
+        truncated: bool = False, http_status: int = 200,
+    ) -> str:
+        """Apply restrictions to ALL cached content, not merely the displayed prefix."""
+        assert self.sources is not None
+        if self.blocked(url) or self.blocked(text) or self.blocked(title):
+            return self._record("web_fetch", {"url": requested_url}, _BLOCKED, ok=False,
+                                http_status=http_status)
+        source = self.sources.add(url, text, title=title, truncated=truncated)
+        return self._record("web_fetch", {"url": requested_url},
+                            self.sources.preview(source, self.fetch_chars), http_status=http_status)
 
     async def _fetch_serper(self, url: str) -> str:
         """Use a trusted Scrape proxy; inspect its entire payload before returning text.
@@ -347,11 +430,9 @@ class ReportPolicy:
                     "Fetch unavailable (Serper returned no readable page content).",
                     ok=False, http_status=response.status_code,
                 )
-            result = f"Source: {url}\n{content[:self.fetch_chars]}"
-            if len(content) > self.fetch_chars:
-                result += "\n[Source truncated at the configured limit.]"
-            return self._record(
-                "web_fetch", {"url": url}, result, http_status=response.status_code,
+            title = metadata.get("title") if isinstance(metadata, dict) else ""
+            return self._cache_source(
+                url, url, content, title=str(title or ""), http_status=response.status_code,
             )
 
     async def fetch_one(self, url: str) -> str:
@@ -415,11 +496,8 @@ class ReportPolicy:
                                 )
                         if self.blocked(text):
                             return self._record("web_fetch", {"url": url}, _BLOCKED, ok=False)
-                        result = f"Source: {current}\n{text[: self.fetch_chars]}"
-                        if truncated or len(text) > self.fetch_chars:
-                            result += "\n[Source truncated at the configured limit.]"
-                        return self._record(
-                            "web_fetch", {"url": url}, result, http_status=response.status_code,
+                        return self._cache_source(
+                            url, current, text, truncated=truncated, http_status=response.status_code,
                         )
                 raise ValueError("Too many redirects.")
         except httpx.HTTPStatusError as exc:

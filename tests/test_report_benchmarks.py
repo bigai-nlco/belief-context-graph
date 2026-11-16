@@ -341,7 +341,7 @@ async def test_policy_inherits_to_children_but_does_not_leak_to_other_tasks(data
 
     files, web = await asyncio.gather(parent(file_policy), parent(web_policy))
     assert files == {"read_file", "grep_search", "glob_search"}
-    assert web == {"web_search", "web_fetch"}
+    assert web == {"web_search", "web_fetch", "read_source", "find_in_source", "run_python_code"}
     assert bind_report_tools([bash]) == [bash]
 
 

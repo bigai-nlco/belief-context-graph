@@ -7,6 +7,7 @@ import logging
 import re
 import uuid
 from pathlib import Path
+from typing import Any
 
 from frontier_agent.core.tool import tool
 from frontier_agent.infra.usage_meter import record_api_request
@@ -334,6 +335,16 @@ async def run_python_code(code: str, timeout: int = 0) -> str:
     Returns:
         stdout + stderr from the execution, or an error message.
     """
+    return await execute_python_code(code, timeout)
+
+
+async def execute_python_code(
+    code: str, timeout: int = 0, *, sandbox: Any = None, allow_net: bool = True,
+) -> str:
+    """Shared executor; trusted callers may supply a stricter task sandbox.
+
+    These parameters are intentionally absent from the model-facing tool schema.
+    """
     if not code or not code.strip():
         return "Error: empty code provided."
 
@@ -364,7 +375,8 @@ async def run_python_code(code: str, timeout: int = 0) -> str:
         )
 
     try:
-        sandbox = await aget_sandbox()
+        if sandbox is None:
+            sandbox = await aget_sandbox()
     except RuntimeError as exc:
         return f"Error: sandbox unavailable — {exc}"
 
@@ -385,8 +397,9 @@ async def run_python_code(code: str, timeout: int = 0) -> str:
     base_exec_cmd = f"python3 {filename}"
     # Add the per-exec memory cap + single-thread math-lib env so a buffered
     # parse fails inside the sandbox instead of OOM-killing its environment.
+    prefix = remote_exec_prefix() if allow_net else ""
     exec_cmd = (
-        f"{remote_exec_prefix()}{net_guard_env}{_OFFLINE_DOWNLOAD_ENV}"
+        f"{prefix}{net_guard_env}{_OFFLINE_DOWNLOAD_ENV}"
         f"timeout -s KILL {timeout}s {base_exec_cmd}"
     )
     cmd_timeout = timeout + 30  # let the inner OS timeout fire first
@@ -406,14 +419,10 @@ async def run_python_code(code: str, timeout: int = 0) -> str:
             record_api_request("e2b")
         result = await arun_sandbox_cmd(
             sandbox, exec_cmd, timeout=cmd_timeout,
-            # Match ``bash``: both run model-authored code, so denying the
-            # network here while allowing it there only means the same snippet
-            # succeeds under ``bash -c 'python3 …'`` and fails via this tool —
-            # an asymmetry with no security value and a hard-to-place error.
-            # The bound is the socket cap injected above, not the namespace;
-            # on E2B/CurrentSandbox this path already had network anyway, so
-            # only the bwrap backend changes.
-            allow_net=True,
+            # The general tool retains bash-compatible network behavior.
+            # Benchmark callers explicitly disable it and enforce an offline
+            # namespace in their strict sandbox, beyond the socket byte cap.
+            allow_net=allow_net,
         )
     except TimeoutError:
         return f"Error: execution timed out after {timeout}s."

@@ -38,9 +38,9 @@ The default edge threshold remains strictly greater than 0.8. A directly confirm
 
 ## Tool availability in DRB2
 
-The official benchmark specifies report tasks and scoring, not one fixed agent-facing tool set. The BCG report runner's `ReportPolicy.bind` **replaces** the workflow profile's tool list. For DRB2, the actual tools are guarded `web_search`, `web_fetch` plus orchestration tools; shell, arbitrary Python, downloads, and local files are intentionally unavailable. DRBench, a different benchmark, receives restricted staged-file reading tools. The ordinary stateful ReAct profile has more tools, but it does not describe DRB2's effective tool set.
+The official benchmark specifies report tasks and scoring, not one fixed agent-facing tool set. The BCG report runner's `ReportPolicy.bind` **replaces** the workflow profile's tool list. For DRB2, Default and BCG both receive guarded `web_search`, `web_fetch`, cached-source `read_source` / `find_in_source`, and offline, task-isolated `run_python_code`, plus applicable orchestration tools. BCG also keeps its recovery tool. Shell tools, unrestricted network access and host-file access are unavailable. DRBench, a different benchmark, receives restricted staged-file reading tools. The ordinary stateful ReAct profile has more tools, but it does not describe DRB2's effective tool set.
 
-Before expanding DRB2 tools, measure failures by category. Highest-priority candidate is guarded PDF/table extraction for primary source documents, and a bounded statistics tool if tasks need recomputation. Add these only inside `ReportPolicy.bind`, preserving the benchmark's URL/DOI/title blocks, per-task budgets and trace logging; adding a name to the generic profile would not expose it in DRB2 and could bypass source restrictions. Compare with the old tool set in a separate result directory.
+These research tools are bound inside `ReportPolicy.bind`, preserving the benchmark's URL/DOI/title blocks, per-task budgets and trace logging; adding a name to the generic profile alone would not expose it in DRB2. See [tool behavior, limits and sandbox tests](report-research-tools.md). Compare experiments using different tool sets in separate result directories.
 
 ## Commands
 
