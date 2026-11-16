@@ -796,7 +796,7 @@ async def react_agent_node(state: dict[str, Any], ctx: NodeContext) -> dict[str,
         _tools_for_stateful_react(resource_mgr, agent_cfg),
         agent_cfg,
     )
-    from benchmarks.public.reports.runtime import bind_report_tools
+    from benchmarks.public.reports.runtime import bind_report_client, bind_report_tools
 
     tools = bind_report_tools(tools)
     # Direct-inference mode: drop all tools so the model answers in one turn.
@@ -910,7 +910,7 @@ async def react_agent_node(state: dict[str, Any], ctx: NodeContext) -> dict[str,
         else task_record_dir / "bcg"
     )
     memory = None
-    request_llm = llm
+    request_llm = bind_report_client(llm)
     if bcg_settings is not None:
         memory = BCGMemory(
             bcg_settings, bcg_dir, str(metadata.get("session_id") or ctx.task_id),
@@ -919,7 +919,7 @@ async def react_agent_node(state: dict[str, Any], ctx: NodeContext) -> dict[str,
         if not direct:
             tools.append(memory.recovery_tool())
             tool_names.append("bcg_recover")
-        request_llm = BCGClient(llm, memory)
+        request_llm = BCGClient(request_llm, memory)
 
     event_store = registry.get_optional(EventStore)
     model_name = extract_model_name(llm)

@@ -25,8 +25,15 @@ constraint, progress, or other. Only task creates a task record. Goals and subta
 both use task; methods and next actions both use plan. A search/fetch intention is
 a plan, not another task. Do not duplicate one intention as both task and plan.
 Retain explicit useful tasks, plans, blockers and progress updates, but omit
-generic procedural filler. Do not invent a plan or split a task that the current
-text does not split. Keep observations separate from derived conclusions.
+generic procedural filler. When the user explicitly requests separately checkable
+outcomes for named subjects, retain those outcomes as distinct, self-contained
+task beliefs rather than merging all subjects into one large task. Preserve each
+outcome's scope and constraints. Do not invent subtasks or methods not stated in
+the current turn. Keep observations separate from derived conclusions.
+For a plan or blocker, preserve the specific missing evidence or unresolved
+question and the target task when explicit. Generic intentions to keep searching
+are not progress. A tool failure records a failed attempt, not completion or
+absence of the sought fact.
 
 Optional task_ids lists integer IDs of SHOWN historical task beliefs explicitly
 addressed by the new belief. For a task, these identify its parent task(s); for a
@@ -238,7 +245,7 @@ def _task_status_text(task: dict[str, Any]) -> str:
 
 
 def render_task_state(snapshot: dict[str, Any], budget: int | None) -> tuple[str, list[int], list[int], list[str]]:
-    """Budget whole grounded task bundles, including their cited source text."""
+    """Task/status coverage first, then evidence paths, then recorded plans."""
     state = snapshot.get("task_state") or {}
     if state.get("version") not in {1, 2}:
         return "", [], [], []
@@ -254,6 +261,7 @@ def render_task_state(snapshot: dict[str, Any], budget: int | None) -> tuple[str
     text, kept_nodes, kept_edges, kept_tasks = header, set(), set(), []
     tasks = sorted(state.get("nodes", []), key=lambda t: (
         t["status"] in {"reported_complete", "cancelled"}, -(t.get("status_source_id") or t["belief_id"])))
+    bundles = []
     for task in tasks:
         if task.get("kind") != "task":
             continue
@@ -268,6 +276,18 @@ def render_task_state(snapshot: dict[str, Any], budget: int | None) -> tuple[str
         for i in sorted(ids):
             content = nodes[i].get("belief") or nodes[i].get("decision") or ""
             lines.append(f"  [B{i}] {nodes[i].get('task_role', 'belief')}: {escape(content, quote=False)}")
+        chunk = "\n".join(lines) + "\n"
+        if budget is not None and len(text + chunk) > budget:
+            continue
+        text += chunk
+        bundles.append({"task": task, "ids": ids, "text": chunk})
+        kept_nodes.update(ids)
+        kept_tasks.append(task["id"])
+
+    # No optional path or plan may crowd out another fitting task/status record.
+    for bundle in bundles:
+        task, ids = bundle["task"], bundle["ids"]
+        anchor = task["belief_id"]
         # Prefer a real evidence -> conclusion chain. Traversal may be in either
         # direction, but rendered edges always retain the graph's own direction.
         def path_priority(i: int, task: dict[str, Any] = task, anchor: int = anchor) -> tuple[int, int, int]:
@@ -281,16 +301,6 @@ def render_task_state(snapshot: dict[str, Any], budget: int | None) -> tuple[str
 
         candidates = sorted(task["intermediate_conclusion_ids"] + task["evidence_ids"],
                             key=path_priority)
-        chunk = "\n".join(lines) + "\n"
-        plans = [i for i in task.get("plan_ids", [])
-                 if i in nodes and nodes[i].get("task_role") == "plan" and anchor in nodes[i].get("task_ids", [])]
-        if plans:
-            latest_plan = max(plans)
-            content = nodes[latest_plan].get("belief") or nodes[latest_plan].get("decision") or ""
-            extended = chunk + f"  [B{latest_plan}] plan: {escape(content, quote=False)}\n"
-            if budget is None or len(text + extended) <= budget:
-                chunk = extended
-                ids.add(latest_plan)
         chosen_edges: set[int] = set()
         for candidate in candidates:
             path = task["relation_paths"][str(candidate)]
@@ -302,20 +312,31 @@ def render_task_state(snapshot: dict[str, Any], budget: int | None) -> tuple[str
             if root != anchor:
                 extras.append(f"  [B{root}] addresses [{task['id']}] (explicit task reference, not a factual edge)")
             extras += [f"  [B{edges[r]['from_id']}] {edges[r]['type']} [B{edges[r]['to_id']}]: {escape(str(edges[r].get('note') or ''), quote=False)}" for r in path]
-            extended = chunk + "\n".join(extras) + "\n"
-            if budget is None or len(text + extended) <= budget:
-                chunk = extended
+            extra_text = "\n".join(extras) + "\n"
+            if budget is None or len(text + extra_text) <= budget:
+                text += extra_text
+                bundle["text"] += extra_text
                 ids.update(extra_ids)
                 chosen_edges.update(path)
                 break
-        if budget is not None and len(text + chunk) > budget:
-            continue
-        text += chunk
         kept_nodes.update(ids)
         kept_edges.update(chosen_edges)
-        kept_tasks.append(task["id"])
+    for bundle in bundles:
+        task = bundle["task"]
+        anchor = task["belief_id"]
+        plans = [i for i in task.get("plan_ids", [])
+                 if i in nodes and nodes[i].get("task_role") == "plan" and anchor in nodes[i].get("task_ids", [])]
+        if plans:
+            latest_plan = max(plans)
+            content = nodes[latest_plan].get("belief") or nodes[latest_plan].get("decision") or ""
+            extra_text = f"  [B{latest_plan}] plan: {escape(content, quote=False)}\n"
+            if budget is None or len(text + extra_text) <= budget:
+                text += extra_text
+                bundle["text"] += extra_text
+                kept_nodes.add(latest_plan)
     if not kept_tasks:
         return "", [], [], []
+    text = header + "".join(b["text"] for b in bundles)
     return text.rstrip(), sorted(kept_nodes), sorted(kept_edges), kept_tasks
 
 

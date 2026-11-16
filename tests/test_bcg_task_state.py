@@ -409,6 +409,21 @@ def test_latest_explicit_plan_is_rendered_under_task_with_budget():
     assert "[B6] progress:" in text
 
 
+def test_task_coverage_precedes_optional_detail_and_evidence_precedes_plan():
+    value = snapshot()
+    for i in range(10, 14):
+        value["nodes"].append(node(i, "task", f"Review the explicitly requested program {i}.", role="user"))
+    value["nodes"][4]["belief"] = "A long recorded plan. " * 35
+    value["task_state"] = build_task_state(value)
+    before = copy.deepcopy(value)
+    text, ids, edges, tasks = render_task_state(value, 1800)
+    assert set(tasks) == {"T0", "T1", "T10", "T11", "T12", "T13"}
+    assert "[B3] depends_on [B2]" in text
+    assert 4 not in ids  # Optional long plan cannot displace a task or evidence chain.
+    assert edges == [0] and len(text) <= 1800
+    assert value == before
+
+
 def test_plan_only_history_does_not_create_tasks_or_injected_task_state():
     value = {"nodes": [node(0, "plan"), node(1, "next_action")], "relations": []}
     value["task_state"] = build_task_state(value)

@@ -705,8 +705,14 @@ def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode,
     assert result["context_mode"] == (mode or "bcg")
     if report_tools:
         assert "READ-ONLY approved source text" in provider.inputs[0][0]["content"]
+        assert all("<research_execution_state>" in r[0]["content"] for r in provider.inputs)
+        assert all("<research_execution_state>" not in str(m) for m in result["session_messages"])
+        assert "<research_execution_state>" not in str(graph.pushes)
+        assert (tmp_path / "research_context.jsonl").is_file()
         assert "pip install" not in provider.inputs[0][0]["content"]
         assert {e["tool"] for e in policy.trace} == {"read_source"}
+    else:
+        assert "<research_execution_state>" not in str(provider.inputs)
     if mode == "default":
         assert [len(request) for request in provider.inputs] == [2, 4, 6, 8, 10]
         for request in provider.inputs:

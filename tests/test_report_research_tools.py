@@ -97,6 +97,75 @@ def test_find_pagination_and_boundaries(tmp_path):
         store.find(item.source_id, "")
 
 
+def test_keyword_modes_rank_and_page_without_skipping_earlier_lines(tmp_path):
+    store = SourceStore(tmp_path)
+    source = store.add("https://example.org/a", "targeting alone\nBISP\nBISP targeting\nBISP exclusion\n")
+    assert "No matching" in store.find(source.source_id, "BISP targeting exclusion")
+    page1 = store.find(source.source_id, "BISP targeting exclusion", match_mode="any", max_matches=2)
+    assert "L3 column" in page1 and "L4 column" in page1 and "offset=2" in page1
+    page2 = store.find(source.source_id, "BISP targeting exclusion", match_mode="any", max_matches=2, offset=2)
+    assert "L1 column" in page2 and "L2 column" in page2 and "searched before" in page2
+    both = store.find(source.source_id, ["BISP", "targeting"], match_mode="all")
+    assert "L3 column" in both and "L1 column" not in both
+    assert "No matching" in store.find(source.source_id, ["BISP targeting", "exclusion"], match_mode="all")
+    assert "L3 column" in store.find(source.source_id, ["BISP targeting", "exclusion"], match_mode="any")
+    for kwargs in ({"offset": -1}, {"match_mode": "regex"}, {"query": [" "]}, {"query": ["x"] * 17}):
+        args = {"query": "BISP", "match_mode": "any", **kwargs}
+        # Duplicate terms are safely deduplicated; 17 distinct terms are rejected.
+        if isinstance(args["query"], list) and len(args["query"]) == 17:
+            args["query"] = [str(i) for i in range(17)]
+        with pytest.raises(ValueError):
+            store.find(source.source_id, **args)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r", "\u2028"])
+def test_access_tracks_only_returned_text_and_correct_newline_offsets(tmp_path, newline):
+    store = SourceStore(tmp_path)
+    source = store.add("https://example.org/a", newline.join(["first", "second", "third"]))
+    store.preview(source, 5 + len(newline) + 2)
+    before = store.seen_chars
+    store.read(source.source_id, 2, 2)
+    assert store.seen_chars - before == 4
+    assert "0 newly returned characters" in store.read(source.source_id, 2, 2)
+    before = store.seen_chars
+    store.find(source.source_id, "second")
+    assert store.seen_chars == before
+    ledger = json.loads((store.root / "access.json").read_text())
+    assert ledger[0]["returned_chars"] == store.seen_chars
+    assert ledger[0]["recent_reads"][-1]["new_chars"] == 0
+    assert ledger[0]["recent_queries"][-1]["matches"] == 1
+
+
+def test_long_line_access_counts_only_displayed_characters(tmp_path):
+    store = SourceStore(tmp_path)
+    source = store.add("https://example.org/a", "a" * 40_000 + "needle")
+    store.read(source.source_id, 1, 1)
+    assert store.seen_chars < sources.MAX_READ_CHARS
+    assert "0 newly returned characters" in store.read(source.source_id, 1, 1)
+    before = store.seen_chars
+    store.find(source.source_id, "needle")
+    assert 0 < store.seen_chars - before < 1000
+
+
+@pytest.mark.asyncio
+async def test_runtime_keyword_default_line_count_and_exhausted_tools_stay_available(tmp_path):
+    p = policy(tmp_path)
+    p.search_remaining = p.fetch_remaining = 0
+    p.sources.add("https://example.org/a", "heading\nBISP evidence\nnext\nlast")
+    tools = tools_for(p)
+    result = await tools["find_in_source"].ainvoke({"source_id": "S1", "query": "BISP exclusion"})
+    assert "L2 column" in result and "Search mode: any" in result
+    result = await tools["read_source"].ainvoke({"source_id": "S1", "start_line": 3, "line_count": 1})
+    assert "L3: next" in result and "L4: last" not in result
+    assert p.trace[-1]["fresh_output"]
+    for _ in range(2):
+        assert "Search budget exhausted" in await tools["web_search"].ainvoke({"q": "another query"})
+        assert "Fetch budget exhausted" in await tools["web_fetch"].ainvoke({"url": "https://example.org/a"})
+    assert all(e["outcome"] == "budget_exhausted" and not e["fresh_output"] for e in p.trace[-4:])
+    assert set(tools_for(p)) == TOOLS
+    assert p.search_remaining == p.fetch_remaining == 0
+
+
 @pytest.mark.asyncio
 async def test_fetch_cache_read_find_share_policy_without_network_replay(tmp_path, monkeypatch):
     calls = []

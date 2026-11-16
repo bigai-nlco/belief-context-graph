@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
+import hashlib
 import json
 import os
 from contextlib import contextmanager
@@ -69,6 +70,16 @@ def report_prompt() -> str:
     return policy.prompt if policy is not None else ""
 
 
+def bind_report_client(client):
+    """Expose the same deterministic execution record in Default and BCG."""
+    policy = _CURRENT.get()
+    if policy is None or not policy.web:
+        return client
+    from benchmarks.public.reports.execution_state import ReportContextClient
+
+    return ReportContextClient(client, policy)
+
+
 def report_filesystem_note() -> str:
     """Override general write/download guidance only for offline DRB2 tools."""
     policy = _CURRENT.get()
@@ -106,6 +117,7 @@ class ReportPolicy:
         self.workspace = workspace.resolve()
         self.trace_path = trace_path
         self.trace: list[dict[str, Any]] = []
+        self._returned_outputs: set[str] = set()
         self.blocklist = drb2.blocklist_payload(task) if task.benchmark == drb2.NAME else {}
         # None is unlimited; finite budgets may reach zero and must stay exhausted.
         self.search_remaining: int | None = search_calls if search_calls else None
@@ -145,7 +157,7 @@ class ReportPolicy:
                 "figures and cite URLs. Some sources are blocked for this task; use other "
                 "sources instead of circumventing blocks. Search and fetch budgets are "
                 "shared across the whole team. web_fetch saves approved source text and returns "
-                "a source_id. Use find_in_source for literal text lookup and read_source for "
+                "a source_id. Use find_in_source with any/all keywords or an exact phrase, and read_source for "
                 "numbered excerpts or continuation; neither makes a network request. Cite the "
                 "original URL, not source_id or local paths. run_python_code calculates and "
                 "processes data offline: /sources/<source_id>.txt is read-only; /workspace "
@@ -194,8 +206,23 @@ class ReportPolicy:
     def _record(
         self, name: str, args: dict[str, Any], result: str, *, ok: bool = True,
         http_status: int | None = None,
+        new_chars: int | None = None, outcome: str | None = None,
     ) -> str:
         event = {"tool": name, "args": args, "result": result, "ok": ok}
+        fingerprint = hashlib.sha256((name + "\n" + result).encode()).hexdigest()
+        if outcome is None:
+            if not ok:
+                outcome = "unavailable"
+            elif result.startswith("No results found"):
+                outcome = "no_match"
+            elif new_chars is not None:
+                outcome = "new_text" if new_chars else "no_new_text"
+            else:
+                outcome = "new_output" if fingerprint not in self._returned_outputs and result.strip() else "repeated_output"
+        self._returned_outputs.add(fingerprint)
+        event.update(outcome=outcome, fresh_output=outcome in {"new_text", "new_output"})
+        if new_chars is not None:
+            event["new_chars"] = new_chars
         if name == "web_fetch":
             event["provider"] = self.fetch_provider
             if http_status is not None:
@@ -283,7 +310,9 @@ class ReportPolicy:
                     return self._record("web_search", {"q": query}, _BLOCKED, ok=False)
                 if self.search_remaining is not None:
                     if self.search_remaining <= 0:
-                        return "Search budget exhausted. Use the evidence already collected."
+                        return self._record("web_search", {"q": query},
+                                            "Search budget exhausted. Use the evidence already collected.",
+                                            ok=False, outcome="budget_exhausted")
                     self.search_remaining -= 1
                 result = str(
                     await original_search.ainvoke(
@@ -293,7 +322,8 @@ class ReportPolicy:
                 # Conservative whole-response suppression also covers answer boxes
                 # and provider summaries, not just organic URL entries.
                 result = _BLOCKED if self.blocked(result) else result
-                return self._record("web_search", {"q": query}, result, ok=result != _BLOCKED)
+                return self._record("web_search", {"q": query}, result,
+                                    ok=result != _BLOCKED and not result.startswith("Error:"))
 
             queries = [q] if isinstance(q, str) else q
             return "\n\n".join(await asyncio.gather(*(one(query) for query in queries[:20])))
@@ -308,28 +338,36 @@ class ReportPolicy:
         @tool
         async def read_source(
             source_id: str, start_line: int = 1, end_line: int = 0, start_column: int = 0,
+            line_count: int = 100,
         ) -> str:
-            """Read cached source text without fetching again. Lines start at 1; end_line is inclusive (0: next 100 lines). Up to 400 lines/20000 chars. start_column continues a long line at a 0-based offset. Use a source_id returned by web_fetch, not a URL/path."""
+            """Read cached text by start_line and line_count (1-based, default 100, max 400). Follow the returned continuation cursor. start_column continues a long line at a 0-based offset. Legacy end_line, when nonzero, overrides line_count. Max 20000 chars; no network request. Use a source_id, not a URL/path."""
             args = {"source_id": source_id, "start_line": start_line,
-                    "end_line": end_line, "start_column": start_column}
+                    "end_line": end_line, "start_column": start_column, "line_count": line_count}
             try:
                 assert self.sources is not None
-                result = self.sources.read(**args)
-                return self._record("read_source", args, result)
+                if line_count < 1:
+                    raise ValueError("line_count must be positive.")
+                before = self.sources.seen_chars
+                result = self.sources.read(source_id, start_line,
+                                           end_line or start_line + min(line_count, 400) - 1, start_column)
+                return self._record("read_source", args, result, new_chars=self.sources.seen_chars - before)
             except ValueError as exc:
                 return self._record("read_source", args, f"Error: {exc}", ok=False)
 
         @tool
         async def find_in_source(
-            source_id: str, query: str, start_line: int = 1, max_matches: int = 10,
+            source_id: str, query: str | list[str], start_line: int = 1, max_matches: int = 10,
+            match_mode: str = "any", offset: int = 0,
         ) -> str:
-            """Find a literal case-insensitive phrase in one cached source. Returns matching lines, column offsets and excerpts. No network or model call. Use read_source for surrounding context; advance start_line for more matches."""
+            """Search cached text without network/model calls. match_mode: any (default: any keyword), all (all keywords on one line), phrase (one exact string). In any/all, a string splits on whitespace; a list preserves multiword phrases. Case-insensitive literal matching, no regex. Returns numbered excerpts ranked by keyword coverage; paginate with offset, keeping query/mode/start_line unchanged. Use read_source for full context."""
             args = {"source_id": source_id, "query": query,
-                    "start_line": start_line, "max_matches": max_matches}
+                    "start_line": start_line, "max_matches": max_matches,
+                    "match_mode": match_mode, "offset": offset}
             try:
                 assert self.sources is not None
+                before = self.sources.seen_chars
                 result = self.sources.find(**args)
-                return self._record("find_in_source", args, result)
+                return self._record("find_in_source", args, result, new_chars=self.sources.seen_chars - before)
             except ValueError as exc:
                 return self._record("find_in_source", args, f"Error: {exc}", ok=False)
 
@@ -359,8 +397,10 @@ class ReportPolicy:
             return self._record("web_fetch", {"url": requested_url}, _BLOCKED, ok=False,
                                 http_status=http_status)
         source = self.sources.add(url, text, title=title, truncated=truncated)
+        before = self.sources.seen_chars
+        preview = self.sources.preview(source, self.fetch_chars)
         return self._record("web_fetch", {"url": requested_url},
-                            self.sources.preview(source, self.fetch_chars), http_status=http_status)
+                            preview, http_status=http_status, new_chars=self.sources.seen_chars - before)
 
     async def _fetch_serper(self, url: str) -> str:
         """Use a trusted Scrape proxy; inspect its entire payload before returning text.
@@ -440,7 +480,9 @@ class ReportPolicy:
             return self._record("web_fetch", {"url": url}, _BLOCKED, ok=False)
         if self.fetch_remaining is not None:
             if self.fetch_remaining <= 0:
-                return "Fetch budget exhausted. Use the evidence already collected."
+                return self._record("web_fetch", {"url": url},
+                                    "Fetch budget exhausted. Use the evidence already collected.",
+                                    ok=False, outcome="budget_exhausted")
             self.fetch_remaining -= 1
         current = url
         try:

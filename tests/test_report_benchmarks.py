@@ -526,8 +526,12 @@ async def test_serper_fetch_uses_proxy_and_shared_budget(
     )
     assert len(seen) == expected
     assert "\n".join(results).count("Fetch budget exhausted") == 3 - expected
-    assert all(e["provider"] == "serper" and e["http_status"] == 200 for e in policy.trace)
-    assert all("# Evidence\n" in e["result"] and "truncated" in e["result"] for e in policy.trace)
+    fetched = [e for e in policy.trace if e["ok"]]
+    refused = [e for e in policy.trace if not e["ok"]]
+    assert len(fetched) == expected and len(refused) == 3 - expected
+    assert all(e["provider"] == "serper" and e["http_status"] == 200 for e in fetched)
+    assert all("# Evidence\n" in e["result"] and "truncated" in e["result"] for e in fetched)
+    assert all(e["outcome"] == "budget_exhausted" and "http_status" not in e for e in refused)
     assert "test-key" not in (tmp_path / "trace").read_text()
 
 
