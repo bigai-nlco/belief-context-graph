@@ -20,28 +20,63 @@ what each style costs per line.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import math
 import os
 import sys
+import types
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
 
-from workflows.stateful_react_agent.bcg.rendering import (
-    WEP_LABELS,
-    change_tags,
-    classify_node,
-    confidence_label,
-    finding_head,
-    finding_line,
-    source_tag,
-    wep_label,
-    wep_suffix,
-    wep_thresholds,
-)
+
+def _load_rendering() -> types.ModuleType:
+    """Load bcg/rendering.py by path, without the workflow package __init__ files.
+
+    Importing workflows.stateful_react_agent.bcg.rendering runs the package
+    __init__, which pulls in frontier_agent and agent_core; rendering itself
+    needs only GraphError from client.py. Loading the two files directly lets
+    this offline tool run in an environment without the agent runtime.
+    """
+    base = ROOT / "workflows" / "stateful_react_agent" / "bcg"
+    package = types.ModuleType("_bcg_preview")
+    package.__path__ = [str(base)]
+    sys.modules["_bcg_preview"] = package
+
+    def load(name: str) -> types.ModuleType:
+        spec = importlib.util.spec_from_file_location(f"_bcg_preview.{name}", base / f"{name}.py")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module
+
+    try:
+        load("client")
+    except ImportError:  # httpx missing: rendering only needs the exception type
+        client = types.ModuleType("_bcg_preview.client")
+
+        class GraphError(RuntimeError):
+            pass
+
+        client.GraphError = GraphError
+        sys.modules["_bcg_preview.client"] = client
+    return load("rendering")
+
+
+_rendering = _load_rendering()
+WEP_LABELS = _rendering.WEP_LABELS
+change_tags = _rendering.change_tags
+classify_node = _rendering.classify_node
+confidence_label = _rendering.confidence_label
+finding_head = _rendering.finding_head
+finding_line = _rendering.finding_line
+source_tag = _rendering.source_tag
+wep_label = _rendering.wep_label
+wep_suffix = _rendering.wep_suffix
+wep_thresholds = _rendering.wep_thresholds
 
 TIERS = ("high confidence", "medium confidence", "low confidence")
 
@@ -112,6 +147,7 @@ def main() -> None:
     tag_kinds: Counter = Counter()
     with_tags = 0
     lengths: dict[str, list[int]] = defaultdict(list)
+    longest: list[tuple[int, str, int, str]] = []
     samples: dict[str, list[dict[str, Any]]] = defaultdict(list)
     n_trials = n_findings = n_actions = 0
 
@@ -146,6 +182,8 @@ def main() -> None:
                 }
                 for style, line in lines.items():
                     lengths[style].append(len(line) + 1)
+                text = str(node.get("belief") or node.get("decision"))
+                longest.append((len(lines["split_confidence"]), trial.name, node["id"], text))
                 if len(samples[wep]) < args.samples:
                     samples[wep].append({"trial": trial.name, "origin": origin, **lines})
 
@@ -187,8 +225,15 @@ def main() -> None:
 
     out += ["", f"5. LINE COST (budget {args.budget} chars)"]
     for style in ("split_confidence", "split_wep_label", "split_wep"):
-        mean = sum(lengths[style]) / len(lengths[style])
-        out.append(f"   {style:<18} mean {mean:6.1f} chars/line   ~{int(args.budget // mean):>3} findings per budget")
+        values = sorted(lengths[style])
+        mean = sum(values) / len(values)
+        median, p90 = values[len(values) // 2], values[min(len(values) - 1, int(len(values) * 0.9))]
+        out.append(f"   {style:<18} mean {mean:6.1f}  median {median:5d}  p90 {p90:5d}  max {values[-1]:6d}"
+                   f"   ~{int(args.budget // median):>3} median-size findings per budget")
+    out.append("   longest findings (split_confidence line length):")
+    for size, trial_name, node_id, text in sorted(longest, reverse=True)[:5]:
+        flat = " ".join(text.split())
+        out.append(f"     {size:>6}  trial {trial_name} B{node_id}: {flat[:110]}{' …' if len(flat) > 110 else ''}")
 
     out += ["", "6. SAMPLES"]
     for label in WEP_LABELS:
