@@ -175,16 +175,122 @@ def confidence_label(node: dict[str, Any]) -> str | None:
     return "low confidence"
 
 
+# ── WEP labels (planned split_wep styles) ────────────────────────────────────
+#
+# One ordinal word per finding, read from the same posterior score the
+# selector uses, so what the model sees and what was selected agree. The
+# thresholds sit on the score's actual scale (stance x source coefficient,
+# then evidence and relation updates), not on the stance anchors: e.g.
+# confirmed + scholarly source = 0.733 -> "almost certain", confirmed +
+# official source = 0.827 -> "confirmed". There is no "unknown" label: an
+# unknown stance scores 0.50 and reads "possible". Override with
+# BCG_WEP_THRESHOLDS="confirmed,almost_certain,probable,possible,unlikely".
+
+WEP_LABELS = ("confirmed", "almost certain", "probable", "possible", "unlikely", "doubtful")
+DEFAULT_WEP_THRESHOLDS = (0.80, 0.70, 0.60, 0.40, 0.30)
+
+_SOURCE_TAGS = {
+    "primary_official": "official source",
+    "scholarly_publisher": "scholarly source",
+    "encyclopedia": "encyclopedia",
+    "general_web": "general web page",
+    "community": "community site",
+    "tabloid_or_entertainment": "tabloid site",
+    "mixed_or_unattributed": "unattributed tool output",
+}
+
+
+def wep_thresholds() -> tuple[float, ...]:
+    raw = os.environ.get("BCG_WEP_THRESHOLDS", "").strip()
+    if not raw:
+        return DEFAULT_WEP_THRESHOLDS
+    try:
+        values = tuple(float(x) for x in raw.split(","))
+    except ValueError as exc:
+        raise ValueError("BCG_WEP_THRESHOLDS must be five comma-separated numbers") from exc
+    if len(values) != 5 or any(not 0 < v < 1 for v in values) or list(values) != sorted(values, reverse=True):
+        raise ValueError("BCG_WEP_THRESHOLDS must be five strictly decreasing numbers in (0, 1)")
+    return values
+
+
+def wep_label_for(value: float | None, thresholds: tuple[float, ...] | None = None) -> str | None:
+    if value is None:
+        return None
+    for threshold, label in zip(thresholds or wep_thresholds(), WEP_LABELS, strict=False):
+        if value >= threshold:
+            return label
+    return WEP_LABELS[-1]
+
+
+def wep_label(node: dict[str, Any]) -> str | None:
+    return wep_label_for(_number(node.get("confidence")))
+
+
+def source_tag(node: dict[str, Any]) -> str | None:
+    """Where the claim came from, in a few words; None for unknown roles."""
+    role = str(node.get("role") or "").lower()
+    if role == "user":
+        return "from the task"
+    if role == "assistant":
+        return "agent's reasoning"
+    if role in {"tool", "function"}:
+        return _SOURCE_TAGS.get(str(node.get("source_category") or ""), "tool output")
+    return None
+
+
+def change_tags(node: dict[str, Any]) -> list[str]:
+    """Why the score moved, from the node's own history only.
+
+    Depends on nothing but the node, so a line's length is fixed and the
+    selectors' per-line budget stays exact.
+    """
+    history = [h for h in node.get("confidence_history") or [] if isinstance(h, dict)]
+    tags: list[str] = []
+    evidence = next((h for h in reversed(history) if h.get("scored_evidence_ids")), None)
+    if evidence is not None and (_number(node.get("evidence_confidence")) or 0) > 0:
+        n = len(evidence["scored_evidence_ids"])
+        tags.append(f"corroborated by {n} other source{'s' if n != 1 else ''}")
+    relations = next((h for h in reversed(history) if "relation_contributions" in h), None)
+    if relations is not None:
+        plus = [c for c in relations.get("relation_contributions") or []
+                if isinstance(c, dict) and (_number(c.get("contribution")) or 0) > 0]
+        minus = [c for c in relations.get("relation_contributions") or []
+                 if isinstance(c, dict) and (_number(c.get("contribution")) or 0) < 0]
+        if plus:
+            tags.append(f"supported by [B{plus[0].get('input_id')}]")
+        if minus:
+            tags.append(f"contradicted by [B{minus[0].get('input_id')}]")
+    first = next((_number(h.get("value")) for h in history if _number(h.get("value")) is not None), None)
+    before, now = wep_label_for(first), wep_label(node)
+    if before and now and before != now:
+        tags.append(f"was {before}")
+    return tags
+
+
+def wep_suffix(node: dict[str, Any], *, annotate: bool = True) -> str:
+    label = wep_label(node)
+    if not label:
+        return ""
+    parts = [label]
+    if annotate:
+        parts += [t for t in (source_tag(node), *change_tags(node)) if t]
+    return " (" + " · ".join(parts) + ")"
+
+
 def finding_line(node: dict[str, Any], style: str = "v0") -> str:
     """A Findings / Beliefs line. Only confidence styles change the suffix."""
     if style not in CONFIDENCE_STYLES:
         return node_line(node)
+    label = confidence_label(node)
+    return finding_head(node) + (f" ({label})" if label else "")
+
+
+def finding_head(node: dict[str, Any]) -> str:
+    """'- [Bn] text' with no confidence suffix; every split style appends its own."""
     content = node.get("belief") or node.get("decision")
     if not isinstance(content, str) or not content:
         raise GraphError("selected_node_has_no_text")
-    label = confidence_label(node)
-    suffix = f" ({label})" if label else ""
-    return f"- [B{node['id']}] {escape(content, quote=False)}{suffix}"
+    return f"- [B{node['id']}] {escape(content, quote=False)}"
 
 
 def styled_node_line(node: dict[str, Any], style: str = "v0") -> str:
