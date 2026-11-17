@@ -132,3 +132,9 @@ def test_full_report_has_confidence_section(run_dir):
     text = bcg_report.render(run)
     assert "CONFIDENCE DYNAMICS" in text
     assert run["aggregate"]["confidence_dynamics"]["nodes_changed"] >= 1
+
+
+def test_interrupted_trial_without_result_json_is_found(run_dir):
+    (run_dir / "trials" / "7" / "result.json").unlink()
+    assert bcg_report.find_trials(run_dir) == [run_dir / "trials" / "7"]
+    assert "prepare call 4" in bcg_report.dump_step_with_memory(run_dir, 4, {"7"})

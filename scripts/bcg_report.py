@@ -486,9 +486,24 @@ def analyse_graph(state_files: list[Path]) -> dict[str, Any]:
 # Per-trial collection
 # ─────────────────────────────────────────────────────────────────────────────
 
+# A trial directory is recognised by any of these, not only result.json: a run
+# that was interrupted (killed, crashed, still running) never writes
+# result.json but its BCG audit log and agent.log are complete up to that point.
+_TRIAL_MARKERS = ("result.json", "agent.log", "agent/bcg/requests.jsonl")
+
+
 def find_trials(run_dir: Path) -> list[Path]:
-    trials = sorted(p.parent for p in run_dir.glob("trials/*/result.json"))
-    return trials or sorted({p.parent for p in run_dir.rglob("result.json")})
+    trials = sorted({
+        t for t in run_dir.glob("trials/*")
+        if t.is_dir() and any((t / marker).exists() for marker in _TRIAL_MARKERS)
+    })
+    if trials:
+        missing = [t.name for t in trials if not (t / "result.json").exists()]
+        if missing:
+            print(f"note: no result.json (interrupted or unfinished) for trials {missing}; "
+                  "reporting from the logs that exist", file=sys.stderr)
+        return trials
+    return sorted({p.parent for p in run_dir.rglob("result.json")})
 
 
 def collect_bcg(trial: Path) -> dict[str, Any]:
