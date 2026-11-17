@@ -71,11 +71,9 @@ WEP_LABELS = _rendering.WEP_LABELS
 change_tags = _rendering.change_tags
 classify_node = _rendering.classify_node
 confidence_label = _rendering.confidence_label
-finding_head = _rendering.finding_head
 finding_line = _rendering.finding_line
 source_tag = _rendering.source_tag
 wep_label = _rendering.wep_label
-wep_suffix = _rendering.wep_suffix
 wep_thresholds = _rendering.wep_thresholds
 
 TIERS = ("high confidence", "medium confidence", "low confidence")
@@ -165,7 +163,9 @@ def main() -> None:
                     n_actions += 1
                     continue
                 n_findings += 1
-                tier, wep = confidence_label(node) or "none", wep_label(node) or "none"
+                digest = node.get("extraction_method") == "rule_tool_result"
+                tier = confidence_label(node) or "none"
+                wep = "(result digest)" if digest else (wep_label(node) or "none")
                 tiers[tier] += 1
                 weps[wep] += 1
                 tier_to_wep[tier][wep] += 1
@@ -175,11 +175,8 @@ def main() -> None:
                     with_tags += 1
                 for tag in tags:
                     tag_kinds[tag.split(" [")[0].split(" by ")[0].split(" ")[0]] += 1
-                lines = {
-                    "split_confidence": finding_line(node, "split_confidence"),
-                    "split_wep_label": finding_head(node) + wep_suffix(node, annotate=False),
-                    "split_wep": finding_head(node) + wep_suffix(node),
-                }
+                lines = {style: finding_line(node, style)
+                         for style in ("split_confidence", "split_wep_label", "split_wep")}
                 for style, line in lines.items():
                     lengths[style].append(len(line) + 1)
                 text = str(node.get("belief") or node.get("decision"))
@@ -193,17 +190,22 @@ def main() -> None:
     out: list[str] = [
         f"trials {n_trials}   findings {n_findings}   action nodes skipped {n_actions}",
         f"WEP thresholds {wep_thresholds()}  (confirmed, almost certain, probable, possible, unlikely; below = doubtful)",
+        f"BCG_DIGEST_CHARS {_rendering.digest_chars() or 'off (full digest text)'}",
         "",
         "1. LABEL DISTRIBUTION (findings)",
     ]
     for label in TIERS:
         out.append(f"   {label:<20} {tiers[label]:>6}  {pct(tiers[label], n_findings)}")
-    out.append(f"   normalised entropy  {entropy(tiers, len(TIERS)):.2f}")
+    out.append(f"   entropy             {-sum(c / n_findings * math.log2(c / n_findings) for c in tiers.values() if c):.2f} bits")
     out.append("")
-    for label in WEP_LABELS:
+    for label in (*WEP_LABELS, "(result digest)"):
         out.append(f"   {label:<20} {weps[label]:>6}  {pct(weps[label], n_findings)}")
-    out.append(f"   normalised entropy  {entropy(weps, len(WEP_LABELS)):.2f}"
-               "   (1.0 = spread evenly, near 0 = collapsed onto one word)")
+    claims = Counter({k: v for k, v in weps.items() if k in WEP_LABELS})
+    bits = -sum(c / sum(claims.values()) * math.log2(c / sum(claims.values())) for c in claims.values() if c) \
+        if claims else 0.0
+    out.append(f"   entropy over claims {bits:.2f} bits   (3-tier above: "
+               f"{-sum(c / n_findings * math.log2(c / n_findings) for c in tiers.values() if c):.2f} bits;"
+               " result digests carry no word)")
 
     out += ["", "2. HOW EACH 3-TIER LABEL SPLITS INTO WEP"]
     for tier in TIERS:

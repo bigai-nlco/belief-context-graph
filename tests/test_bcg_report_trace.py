@@ -29,7 +29,7 @@ def _call(cid, query):
     return json.dumps({"id": cid, "name": "web_search", "arguments": {"query": query}})
 
 
-def build_trial(root: Path) -> Path:
+def build_trial(root: Path, style: str = STYLE) -> Path:
     trial = root / "trials" / "7"
     bcg = trial / "agent" / "bcg"
     bcg.mkdir(parents=True)
@@ -72,12 +72,12 @@ def build_trial(root: Path) -> Path:
         {"version": 1, "problem_id": "p", "acknowledged": acknowledged, "snapshot": snap2}))
 
     def prepare(call, before, snap, evicted):
-        event = {"call": call, "messages_before": before, "render_style": STYLE,
+        event = {"call": call, "messages_before": before, "render_style": style,
                  "retrieval_strategy": "all", "evicted_steps": evicted, "duration_ms": 5}
         if evicted:
             ids = [n["id"] for n in snap["nodes"]]
             graph, shown, rel_ids = render_graph(
-                snap, {"node_ids": ids, "relation_ids": [r["id"] for r in snap["relations"]]}, None, style=STYLE)
+                snap, {"node_ids": ids, "relation_ids": [r["id"] for r in snap["relations"]]}, None, style=style)
             event.update(system_memory="<belief_graph_guide>g</belief_graph_guide>\n\n" + graph,
                          selected_node_ids=shown, selected_relation_ids=rel_ids)
         return event
@@ -138,3 +138,23 @@ def test_interrupted_trial_without_result_json_is_found(run_dir):
     (run_dir / "trials" / "7" / "result.json").unlink()
     assert bcg_report.find_trials(run_dir) == [run_dir / "trials" / "7"]
     assert "prepare call 4" in bcg_report.dump_step_with_memory(run_dir, 4, {"7"})
+
+
+def test_split_wep_run_is_read_with_wep_labels(tmp_path):
+    build_trial(tmp_path, style="split_wep")
+    trial = tmp_path / "trials" / "7"
+    events = [json.loads(x) for x in (trial / "agent" / "bcg" / "requests.jsonl").read_text().splitlines()]
+    memory = events[-1]["system_memory"]
+    assert " · " in memory and "(high confidence)" not in memory
+    seen = bcg_report.shown_nodes(events[-1])
+    assert seen[10]["label"] == "confirmed"           # tail "confirmed · ..." reduced to the word
+    assert bcg_report.is_strong(seen[10])
+    assert seen[11]["label"] in bcg_report.WEAK_LABELS
+    trace = bcg_report.confidence_trace(trial)
+    assert trace["label_style"] == "split_wep"
+    assert {c["tier_to"] for t in trace["nodes"] for c in t["changes"]} <= set(bcg_report.WEP_LABELS)
+    dump = bcg_report.dump_step_with_memory(tmp_path, 4, None)
+    assert "weak labels shown" in dump
+    run = bcg_report.load_run(tmp_path)
+    assert run["aggregate"]["graph"]["wep_labels"]
+    assert "WEP labels" in bcg_report.render(run)

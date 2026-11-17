@@ -74,7 +74,9 @@ try:
     from workflows.stateful_react_agent.bcg.rendering import (
         CONFIDENCE_LABELS,
         SPLIT_ACTIONS_HEADER,
+        WEP_LABELS,
         confidence_label,
+        wep_label_for,
     )
     from workflows.stateful_react_agent.bcg.rendering import (
         classify_node as _runtime_classify,
@@ -82,11 +84,15 @@ try:
 except Exception:  # any import problem means "use the copy"
     _runtime_classify = None
     confidence_label = None
+    wep_label_for = None
     CONFIDENCE_LABELS = ()
+    WEP_LABELS = ("confirmed", "almost certain", "probable", "possible", "unlikely", "doubtful")
     SPLIT_ACTIONS_HEADER = "## Completed actions - already done, do not repeat"
-# A Findings line rendered by split_confidence ends with "(<label>)".
-_LABEL_SUFFIX = re.compile(r"\((" + "|".join(re.escape(x) for x in CONFIDENCE_LABELS) + r")\)\s*$") \
-    if CONFIDENCE_LABELS else None
+# A Findings line rendered by split_confidence ends with "(<label>)"; by
+# split_wep with "(<word> · <source> · <why>)", by split_wep_label "(<word>)".
+_ALL_LABELS = (*CONFIDENCE_LABELS, *WEP_LABELS)
+_LABEL_SUFFIX = re.compile(r"\((" + "|".join(re.escape(x) for x in _ALL_LABELS) + r")(?: · [^()]*)?\)\s*$")
+WEP_STYLES = {"split_wep", "split_wep_label"}
 _CALL_RE = re.compile(
     r"(is using (?P<tool1>\w+) to (search|fetch|call|query|look)"
     r"|is calling the (?P<tool2>\w+) tool"
@@ -443,6 +449,16 @@ def analyse_graph(state_files: list[Path]) -> dict[str, Any]:
         for n in nodes:
             if classify_node(n) == "fact":
                 labels[confidence_label(n) or "(no label)"] += 1
+    # ... and what split_wep would print (result digests carry no word).
+    wep_labels: Counter = Counter()
+    if wep_label_for is not None:
+        for n in nodes:
+            if classify_node(n) == "fact":
+                if n.get("extraction_method") == "rule_tool_result":
+                    wep_labels["(result digest)"] += 1
+                else:
+                    value = n.get("confidence")
+                    wep_labels[wep_label_for(value) if isinstance(value, (int, float)) else "(no label)"] += 1
     with_source = sum(
         1 for n in nodes if isinstance(n.get("source"), dict)
         and isinstance(n["source"].get("turn_id"), int)
@@ -465,6 +481,7 @@ def analyse_graph(state_files: list[Path]) -> dict[str, Any]:
         "nodes_total": len(nodes),
         "node_kinds": dict(kinds),
         "confidence_labels": {k: labels[k] for k in (*CONFIDENCE_LABELS, "(no label)") if labels.get(k)},
+        "wep_labels": {k: wep_labels[k] for k in (*WEP_LABELS, "(result digest)", "(no label)") if wep_labels.get(k)},
         "action_node_pct": pct(kinds.get("action", 0) + kinds.get("blocked", 0), len(nodes)),
         "relations_total": len(relations),
         "relation_types": dict(rel_types),
@@ -983,7 +1000,9 @@ UNEXPECTED_CATEGORIES = {"shown_high", "action_only"}
 # Current split_confidence tier, plus the retired provenance labels so that
 # archived runs rendered with the old split_confidence are still read correctly.
 STRONG_LABELS = {"high confidence", "confirmed by several sources", "from the user",
-                 "one source, stated directly"}
+                 "one source, stated directly", "confirmed", "almost certain"}
+# Labels that ask for verification before use (split_confidence and split_wep).
+WEAK_LABELS = {"medium confidence", "low confidence", "possible", "unlikely", "doubtful"}
 HIGH_CONFIDENCE = 0.70  # numeric layouts (v0/split); overridden by --high-confidence
 
 # Reasoning about support/reliability, including the split_confidence words.
@@ -991,6 +1010,8 @@ SUPPORT_CUES = re.compile(
     CONFIDENCE_CUES.pattern
     + r"|(high|medium|low) confidence|secondhand|single source|one source|stated directly|your own claim|inference"
     r"|speculative|contested|confirmed by|not cross-checked|unverified|reliab"
+    r"|almost certain|unlikely|doubtful|corroborat|contradicted by|unattributed|not yet checked"
+    r"|general web page|scholarly source|official source|(?:is|as|only|labell?ed|marked) (?:possible|probable)\b"
     r"|二手|单一来源|一个来源|未核实|未经证实|可靠性|推断|推测",
     re.I,
 )
@@ -1154,6 +1175,8 @@ def shown_nodes(event: dict[str, Any], *, include_task: bool = False) -> dict[in
             continue
         tail = found.group(3)
         value = CONFIDENCE_VALUE.match(tail or "")
+        if tail and " · " in tail:  # split_wep: "<word> · <source> · <why>"
+            tail = tail.split(" · ", 1)[0]
         out[int(found.group(1))] = {
             "section": section,
             "label": tail if tail and not value else None,
@@ -1368,12 +1391,14 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
     fallback_reasons: Counter = Counter()
     conf_buckets: Counter = Counter()
     label_counts: Counter = Counter()
+    wep_counts: Counter = Counter()
     node_kinds: Counter = Counter()
     rel_types: Counter = Counter()
     for row in rows:
         fallback_reasons.update(row["bcg"]["fallback_reasons"])
         conf_buckets.update(row["bcg"]["graph"]["confidence_buckets"])
         label_counts.update(row["bcg"]["graph"].get("confidence_labels") or {})
+        wep_counts.update(row["bcg"]["graph"].get("wep_labels") or {})
         node_kinds.update(row["bcg"]["graph"]["node_kinds"])
         rel_types.update(row["bcg"]["graph"]["relation_types"])
 
@@ -1418,6 +1443,7 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "contradicts_edges": int(total("bcg.graph.contradicts_edges")),
             "confidence_buckets": dict(conf_buckets),
             "confidence_labels": dict(label_counts.most_common()),
+            "wep_labels": dict(wep_counts.most_common()),
             "confidence_distinct_values": max(
                 (r["bcg"]["graph"]["confidence_distinct_values"] for r in rows), default=0
             ),
@@ -1603,6 +1629,7 @@ any rendering code.""",
         "",
         f"  confidence buckets     {g['confidence_buckets']}",
         f"  support labels         {g['confidence_labels'] or '(unavailable: run inside the repo)'}",
+        f"  WEP labels             {g.get('wep_labels') or '(unavailable: run inside the repo)'}",
         f"  distinct values        {g['confidence_distinct_values']}",
         f"  source coverage        {g['source_coverage_pct']}%",
         f"  tool_name coverage     {g['tool_name_coverage_pct']}%",
@@ -2280,10 +2307,15 @@ def _reasoning_text(step: dict[str, Any]) -> str:
     return "\n".join(x for x in (step.get("thinking"), step.get("text")) if x)
 
 
-def _tier_of(value: float | None) -> str | None:
-    """The tier split_confidence would print for this confidence value."""
+def _tier_of(value: float | None, style: str | None = None) -> str | None:
+    """The label the run's render style prints for this value (3-tier by default)."""
     if value is None:
         return None
+    if style in WEP_STYLES:
+        if wep_label_for is not None:
+            return wep_label_for(value)
+        bounds = (0.80, 0.70, 0.60, 0.28, 0.20)
+        return next((w for b, w in zip(bounds, WEP_LABELS, strict=False) if value >= b), WEP_LABELS[-1])
     if confidence_label is not None:
         try:
             return confidence_label({"confidence": value})
@@ -2386,11 +2418,10 @@ def dump_step_with_memory(run_dir: Path, step_number: int, only: set[str] | None
         out.append(f"  support language       {len(list(SUPPORT_CUES.finditer(thought)))} matches"
                    + ("" if snippets else " — the reasoning never talks about reliability"))
         out += [f"     … {s} …" for s in snippets]
-        shown_low = [i for i, info in seen.items()
-                     if info.get("label") in {"low confidence", "medium confidence"}]
+        shown_low = [i for i, info in seen.items() if info.get("label") in WEAK_LABELS]
         if shown_low:
             used = sorted(set(shown_low) & cited_b)
-            out.append(f"  medium/low shown       {len(shown_low)}, cited {len(used)}"
+            out.append(f"  weak labels shown      {len(shown_low)}, cited {len(used)}"
                        + (f": {', '.join(f'B{i}' for i in used)}" if used else ""))
         out.append("")
     return "\n".join(out) or "no matching trials"
@@ -2501,6 +2532,8 @@ def confidence_trace(trial: Path, ctx: dict[str, Any] | None = None) -> dict[str
 
     prepares = sorted((e for e in ctx["prepares"] if e.get("system_memory")),
                       key=lambda e: e.get("call") or 0)
+    styles = Counter(e.get("render_style") for e in prepares if e.get("render_style"))
+    style = styles.most_common(1)[0][0] if styles else None
     shown_cache = {id(e): shown_nodes(e) for e in prepares}
     step_calls = [(n, (ctx["events"].get(n) or {}).get("call"), _reasoning_text(s))
                   for n, s in enumerate(ctx["steps"], 1)]
@@ -2526,7 +2559,7 @@ def confidence_trace(trial: Path, ctx: dict[str, Any] | None = None) -> dict[str
                 changes.append({
                     "index": k, "call": first_seen.get((node_id, k)), "iteration": entry.get("iteration"),
                     "from": round(previous_value, 4), "to": round(value, 4), "delta": round(delta, 4),
-                    "tier_from": _tier_of(previous_value), "tier_to": _tier_of(value), **cause,
+                    "tier_from": _tier_of(previous_value, style), "tier_to": _tier_of(value, style), **cause,
                 })
             previous_value = value
             if "relation_contributions" in entry:
@@ -2546,7 +2579,7 @@ def confidence_trace(trial: Path, ctx: dict[str, Any] | None = None) -> dict[str
             "node": node_id, "text": node_text(node)[:160], "kind": classify_node(node),
             "initial": round(start, 4) if start is not None else None,
             "final": round(final, 4) if final is not None else None,
-            "tier_initial": _tier_of(start), "tier_final": _tier_of(final),
+            "tier_initial": _tier_of(start, style), "tier_final": _tier_of(final, style),
             "direction": "raised" if (final or 0) > (start or 0) else "lowered" if (final or 0) < (start or 0) else "flat",
             "changes": changes,
             "first_shown_after_change": ({"call": shown_after[0][0], "as": _shown_text(shown_after[0][1])}
@@ -2560,6 +2593,7 @@ def confidence_trace(trial: Path, ctx: dict[str, Any] | None = None) -> dict[str
         f"{e['type']}:{e['effect']}" for t in traced for c in t["changes"] for e in c["edges"])
     crossed = [t for t in traced if t["tier_initial"] != t["tier_final"]]
     return {
+        "label_style": style or "split_confidence (default tiers)",
         "history_available": any(n.get("confidence_history") for n in nodes.values()),
         "snapshot_timing_available": bool(first_seen),
         "nodes_changed": len(traced),

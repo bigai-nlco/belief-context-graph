@@ -49,7 +49,7 @@ class FullGraph(FakeGraph):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("style", ["v0", "split", "split_confidence", "split_confidence_noactions"])
+@pytest.mark.parametrize("style", ["v0", "split", "split_confidence", "split_confidence_noactions", "split_wep", "split_wep_label"])
 async def test_full_graph_bypasses_retrieval_and_budget_without_changing_ingestion(tmp_path, monkeypatch, style):
     def no_selector(*args, **kwargs):
         raise AssertionError("Full-graph mode must never instantiate PCST or embeddings")

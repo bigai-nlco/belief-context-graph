@@ -53,7 +53,9 @@ CBOE = {"id": 15, "node_type": "belief", "role": "tool", "stance": "confirmed",
     (0.545, "possible"),         # confirmed x general web
     (0.50, "possible"),          # unknown stance, any role
     (0.432, "possible"),         # possible x assistant: not "unlikely"
-    (0.395, "unlikely"),         # confirmed x community
+    (0.395, "possible"),         # confirmed x community: weak source, not doubt
+    (0.30, "possible"),          # possible x unattributed (result digests): off the boundary
+    (0.273, "unlikely"),         # unlikely x scholarly
     (0.19, "doubtful"),
 ])
 def test_score_grid_maps_to_wep(value, label, monkeypatch):
@@ -76,9 +78,9 @@ def test_real_shaped_nodes_get_source_and_why(monkeypatch):
 
 
 def test_contradiction_and_label_change():
-    node = dict(USER, id=33, role="assistant", stance="probable", confidence=0.38,
+    node = dict(USER, id=33, role="assistant", stance="probable", confidence=0.25,
                 evidence_confidence=0, confidence_history=_hist(0.533, more=[{
-                    "step": "relation_propagation", "value": 0.38, "relation_contributions": [
+                    "step": "relation_propagation", "value": 0.25, "relation_contributions": [
                         {"relation_id": 3, "relation_type": "contradicts", "input_id": 12,
                          "output_id": 33, "contribution": -0.5}]}]))
     assert r.wep_suffix(node) == " (unlikely · agent's reasoning · contradicted by [B12] · was possible)"
@@ -118,3 +120,90 @@ def test_render_preview_on_a_trial(tmp_path):
     assert "findings 3   action nodes skipped 1" in out
     assert "medium confidence  -> possible 1" in out
     assert "supported" in out and "LINE COST" in out
+
+
+# ── registered styles ────────────────────────────────────────────────────────
+
+DIGEST = {"id": 145, "node_type": "belief", "role": "tool", "stance": "possible",
+          "extraction_method": "rule_tool_result", "tool_name": "web_search", "tool_result_count": 10,
+          "source_category": "mixed_or_unattributed", "confidence": 0.30,
+          "belief": "The web_search tool returned 10 result(s). The bounded graph summary contains:\n"
+                    + "\n".join(f"{i}. **Emerging Equity Markets {i}** — " + "x" * 280 for i in range(1, 11)),
+          "tool_result_items": [{"rank": i, "title": f"**Emerging Equity Markets {i}**", "snippet": "x" * 280}
+                                for i in range(1, 11)],
+          "confidence_history": _hist(0.30)}
+
+
+def test_wep_styles_render_lines(monkeypatch):
+    monkeypatch.delenv("BCG_DIGEST_CHARS", raising=False)
+    snap = {"nodes": [USER, PLAN, ACTION, CBOE, DIGEST], "relations": [
+        {"id": 0, "from_id": 9, "to_id": 1, "type": "depends_on"}]}
+    sel = {"node_ids": [1, 9, 10, 15, 145], "relation_ids": [0]}
+    text, _, _ = r.render_graph(snap, sel, None, style="split_wep")
+    assert "- [B15] The Cboe Gold" in text and "(confirmed · official source)" in text
+    assert "(possible · agent's reasoning · supported by [B1])" in text
+    assert "## Completed actions" in text and "confidence" not in text.split("## Findings")[1]
+    assert "(search result list, not yet checked)" in text and "possible ·" not in text.split("[B145]")[1].split("\n")[0]
+    label_only, _, _ = r.render_graph(snap, sel, None, style="split_wep_label")
+    assert "[B9] The assistant plans to search for information about VIX, GVZ, and OVX. (possible)" in label_only
+
+
+def test_digest_compaction(monkeypatch):
+    monkeypatch.setenv("BCG_DIGEST_CHARS", "300")
+    line = r.styled_node_line(DIGEST, "split_wep")
+    assert len(line) <= 300 and line.startswith("- [B145] web_search returned 10 result(s): 1. Emerging")
+    assert line.endswith("(search result list, not yet checked)") and "**" not in line
+    # same compaction under the baseline style, so the two can be compared fairly
+    assert r.styled_node_line(DIGEST, "split_confidence") == line
+    monkeypatch.setenv("BCG_DIGEST_CHARS", "0")
+    assert len(r.styled_node_line(DIGEST, "split_confidence")) > 2900
+
+
+@pytest.mark.parametrize("raw", ["-1", "x"])
+def test_digest_env_validated(raw, monkeypatch):
+    monkeypatch.setenv("BCG_DIGEST_CHARS", raw)
+    with pytest.raises(ValueError):
+        r.digest_chars()
+
+
+@pytest.mark.parametrize("digest", ["0", "300"])
+@pytest.mark.parametrize("style", ["split_wep", "split_wep_label"])
+def test_pcst_budget_exact_for_wep(style, digest, monkeypatch):
+    pytest.importorskip("pcst_fast")
+    from workflows.stateful_react_agent.bcg import pcst
+
+    monkeypatch.setenv("BCG_DIGEST_CHARS", digest)
+    snap = {"nodes": [USER, PLAN, ACTION, CBOE, DIGEST], "relations": [
+        {"id": 0, "from_id": 9, "to_id": 1, "type": "depends_on"}]}
+    prizes = {1: 0.9, 9: 0.5, 15: 0.8, 145: 0.6, 10: 0.2}
+    full = pcst.select_prized_tree(snap, prizes, 20000, style=style)
+    for budget in range(r.graph_overhead(style), full["rendered_chars"] + 60, 7):
+        selection = pcst.select_prized_tree(snap, prizes, budget, style=style)
+        if selection["node_ids"]:
+            text, _, _ = r.render_graph(snap, selection, budget, strict=True, style=style)
+            assert len(text) <= budget
+
+
+def test_settings_and_guides(tmp_path, monkeypatch):
+    from tests.test_react_bcg import FakeGraph
+    from workflows.stateful_react_agent.bcg.runtime import (
+        CONTEXT_GUIDE_SPLIT_WEP,
+        CONTEXT_GUIDE_SPLIT_WEP_LABEL,
+        BCGMemory,
+        BCGSettings,
+    )
+
+    for style, guide in (("split_wep", CONTEXT_GUIDE_SPLIT_WEP), ("split_wep_label", CONTEXT_GUIDE_SPLIT_WEP_LABEL)):
+        monkeypatch.setenv("BCG_RENDER_STYLE", style)
+        assert BCGSettings.from_agent({}).render_style == style
+        memory = BCGMemory(BCGSettings(), tmp_path, "s", backend=FakeGraph(), render_style=style)
+        assert memory.context_guide == guide
+        for word in r.WEP_LABELS:
+            assert f"  {word}" in guide
+        assert "unknown" not in guide.split("most to least reliable")[1].split("Rely on")[0]
+    assert "corroborated by 2 other sources" in CONTEXT_GUIDE_SPLIT_WEP
+    assert "corroborated by" not in CONTEXT_GUIDE_SPLIT_WEP_LABEL
+    monkeypatch.setenv("BCG_RENDER_STYLE", "split_wep")
+    monkeypatch.setenv("BCG_WEP_THRESHOLDS", "0.7,0.8,0.6,0.3,0.2")
+    with pytest.raises(ValueError):
+        BCGSettings.from_agent({})

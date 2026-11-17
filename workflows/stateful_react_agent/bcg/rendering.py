@@ -10,8 +10,10 @@ from typing import Any
 
 from .client import GraphError
 
-RENDER_STYLES = ("v0", "split", "split_confidence", "split_confidence_noactions")
-SPLIT_STYLES = frozenset({"split", "split_confidence", "split_confidence_noactions"})
+RENDER_STYLES = ("v0", "split", "split_confidence", "split_confidence_noactions", "split_wep", "split_wep_label")
+SPLIT_STYLES = frozenset({"split", "split_confidence", "split_confidence_noactions", "split_wep", "split_wep_label"})
+# Styles whose findings carry one WEP word (split_wep adds source and why).
+WEP_STYLES = frozenset({"split_wep", "split_wep_label"})
 # Styles whose findings carry the high/medium/low tier instead of a number.
 CONFIDENCE_STYLES = frozenset({"split_confidence", "split_confidence_noactions"})
 # Styles that show no "Completed actions" section. Action nodes are removed
@@ -183,11 +185,16 @@ def confidence_label(node: dict[str, Any]) -> str | None:
 # then evidence and relation updates), not on the stance anchors: e.g.
 # confirmed + scholarly source = 0.733 -> "almost certain", confirmed +
 # official source = 0.827 -> "confirmed". There is no "unknown" label: an
-# unknown stance scores 0.50 and reads "possible". Override with
+# unknown stance scores 0.50 and reads "possible". "unlikely"/"doubtful" are
+# kept for doubt and contradiction: the floor of "possible" is 0.28, below
+# 0.30 = possible x unattributed tool output, so a weak source alone reads
+# "possible" (its source tag says why); "unlikely" starts at 0.20. Known
+# overlap of a monotone map: an "unlikely" stance from the user or an official
+# source (0.332 / 0.308) also reads "possible". Override with
 # BCG_WEP_THRESHOLDS="confirmed,almost_certain,probable,possible,unlikely".
 
 WEP_LABELS = ("confirmed", "almost certain", "probable", "possible", "unlikely", "doubtful")
-DEFAULT_WEP_THRESHOLDS = (0.80, 0.70, 0.60, 0.40, 0.30)
+DEFAULT_WEP_THRESHOLDS = (0.80, 0.70, 0.60, 0.28, 0.20)
 
 _SOURCE_TAGS = {
     "primary_official": "official source",
@@ -279,10 +286,72 @@ def wep_suffix(node: dict[str, Any], *, annotate: bool = True) -> str:
 
 def finding_line(node: dict[str, Any], style: str = "v0") -> str:
     """A Findings / Beliefs line. Only confidence styles change the suffix."""
+    if style in SPLIT_STYLES and is_result_digest(node):
+        compact = digest_line(node)
+        if compact is not None:
+            return compact
+    if style in WEP_STYLES:
+        if is_result_digest(node):
+            return finding_head(node) + " (" + DIGEST_TAG + ")"
+        return finding_head(node) + wep_suffix(node, annotate=style == "split_wep")
     if style not in CONFIDENCE_STYLES:
         return node_line(node)
     label = confidence_label(node)
     return finding_head(node) + (f" ({label})" if label else "")
+
+
+# ── Result digests ───────────────────────────────────────────────────────────
+#
+# Once the graph's semantic tool-result budget (tool_result.max_semantic_calls)
+# is spent, every further tool result becomes one rule-built node listing the
+# raw results (extraction_method "rule_tool_result", stance hard-coded
+# "possible", no single source): ~3,000 chars that are a listing, not a claim.
+# BCG_DIGEST_CHARS > 0 renders such nodes as titles only within that many
+# characters, for every split style; 0 (default) keeps the full text. WEP
+# styles never give a digest a reliability word.
+
+DIGEST_TAG = "search result list, not yet checked"
+
+
+def is_result_digest(node: dict[str, Any]) -> bool:
+    return node.get("extraction_method") == "rule_tool_result"
+
+
+def digest_chars() -> int:
+    raw = os.environ.get("BCG_DIGEST_CHARS", "").strip()
+    try:
+        value = int(raw) if raw else 0
+    except ValueError as exc:
+        raise ValueError("BCG_DIGEST_CHARS must be an integer") from exc
+    if value < 0:
+        raise ValueError("BCG_DIGEST_CHARS must be >= 0")
+    return value
+
+
+def digest_line(node: dict[str, Any], limit: int | None = None) -> str | None:
+    """Titles-only line for a result digest, or None when compaction is off.
+
+    Depends on the node and the env only, so selector budgets stay exact.
+    """
+    limit = digest_chars() if limit is None else limit
+    if limit <= 0:
+        return None
+    tool = str(node.get("tool_name") or "tool")
+    count = node.get("tool_result_count")
+    head = f"- [B{node['id']}] {tool} returned {count if isinstance(count, int) else 'some'} result(s): "
+    tail = f" ({DIGEST_TAG})"
+    titles: list[str] = []
+    for item in node.get("tool_result_items") or []:
+        if not isinstance(item, dict):
+            continue
+        title = re.sub(r"\*\*", "", str(item.get("title") or "")).strip()
+        if title:
+            titles.append(f"{item.get('rank', len(titles) + 1)}. {escape(title[:80], quote=False)}")
+    body = "; ".join(titles) or escape(" ".join(str(node.get("belief") or "").split()), quote=False)
+    room = max(20, limit - len(head) - len(tail))
+    if len(body) > room:
+        body = body[: room - 1].rstrip() + "…"
+    return head + body + tail
 
 
 def finding_head(node: dict[str, Any]) -> str:

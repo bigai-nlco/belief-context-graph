@@ -106,7 +106,7 @@ def test_recent_merged_members_use_active_canonical_node():
     assert snapshot == before
 
 
-@pytest.mark.parametrize("style", ["v0", "split", "split_confidence", "split_confidence_noactions"])
+@pytest.mark.parametrize("style", ["v0", "split", "split_confidence", "split_confidence_noactions", "split_wep", "split_wep_label"])
 @pytest.mark.asyncio
 async def test_global_state_uses_whole_graph_and_injection_format_is_unchanged(tmp_path, style):
     settings = BCGSettings.from_react_agent({"bcg": {"url": "http://unused"}})
@@ -191,7 +191,7 @@ def test_startup_uses_available_steps_without_inventing_history(count):
     assert selection["agent_step_numbers"] == list(range(1, max(0, count - 2) + 1))
 
 
-@pytest.mark.parametrize("style", ["v0", "split", "split_confidence", "split_confidence_noactions"])
+@pytest.mark.parametrize("style", ["v0", "split", "split_confidence", "split_confidence_noactions", "split_wep", "split_wep_label"])
 @pytest.mark.parametrize("raw_steps,graph_steps", [(2, 3), (1, 5), (0, 4)])
 def test_guide_matches_scope_and_grounded_next_action_policy(tmp_path, style, raw_steps, graph_steps):
     settings = BCGSettings.from_react_agent({"bcg": {
@@ -213,7 +213,11 @@ def test_guide_matches_scope_and_grounded_next_action_policy(tmp_path, style, ra
     assert "Reconcile Task state, when shown, with recent raw interactions" in guide
     assert "unresolved task, blocker or missing premise" in guide
     assert "Recorded plans and completion claims are not verified outcomes" in guide
-    assert "source and stance priors" in guide and "evidence and relation propagation" in guide
+    if style in {"split_wep", "split_wep_label"}:
+        assert "how the claim was recorded and where it came from" in guide
+        assert "independent corroboration or changed through relations" in guide
+    else:
+        assert "source and stance priors" in guide and "evidence and relation propagation" in guide
     assert "extractor's confidence" not in guide and "if B falls" not in guide
     assert "confidence alone does not establish truth" in guide
     assert "Repeat queries only for a specific gap" in guide

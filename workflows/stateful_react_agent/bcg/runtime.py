@@ -27,6 +27,7 @@ from .rendering import (
     CONFIDENCE_STYLES,
     NO_ACTION_STYLES,
     RENDER_STYLES,
+    WEP_STYLES,
     _nodes,
     findings_view,
     full_graph_selection,
@@ -148,7 +149,56 @@ CONTEXT_GUIDE_SPLIT_CONFIDENCE_NOACTIONS = f"""<belief_graph_guide>
 {_GRAPH_USE_GUIDE}
 </belief_graph_guide>"""
 
+# split_wep / split_wep_label: one ordinal word per finding from the same
+# score the selector uses (stance x source, then corroboration and relations).
+_WEP_SCALE = """Each finding ends with a reliability word, most to least reliable. The word is
+computed from how the claim was recorded and where it came from, then raised by
+independent corroboration or changed through relations:
+  confirmed      - stated in the task, or read in an official primary source
+  almost certain - read in a reliable (e.g. scholarly) source, or well corroborated
+  probable       - read in a reference source, or a firm conclusion of the agent
+  possible       - read on a general or unattributed page, or an unverified idea
+  unlikely       - recorded with doubt, or weakened by a contradicting finding
+  doubtful       - contradicted; do not rely on it
+Rely on confirmed and almost certain findings. Before using a possible finding
+in the answer, verify it or find a better source; resolve unlikely and doubtful
+findings first. The words are graded labels, not probabilities, and two
+findings from the same page are not independent corroboration."""
+
+_WEP_ANNOTATIONS = """After the word come where the claim came from and, when its standing moved,
+why: "corroborated by 2 other sources", "supported by [B4]", "contradicted by
+[B12]", "was probable". A weak source is a reason to look for a better one, not
+to repeat the same query. Lines marked "search result list, not yet checked"
+are raw result lists, not claims: fetch the page before citing anything in them."""
+
+_WEP_LABEL_ONLY = """Lines marked "search result list, not yet checked" are raw result lists, not
+claims: fetch the page before citing anything in them."""
+
+CONTEXT_GUIDE_SPLIT_WEP = f"""<belief_graph_guide>
+{_HISTORY_SCOPE}
+
+{_SPLIT_SECTIONS}
+{_WEP_SCALE}
+{_WEP_ANNOTATIONS}
+{_RELATION_GUIDE}
+
+{_GRAPH_USE_GUIDE}
+</belief_graph_guide>"""
+
+CONTEXT_GUIDE_SPLIT_WEP_LABEL = f"""<belief_graph_guide>
+{_HISTORY_SCOPE}
+
+{_SPLIT_SECTIONS}
+{_WEP_SCALE}
+{_WEP_LABEL_ONLY}
+{_RELATION_GUIDE}
+
+{_GRAPH_USE_GUIDE}
+</belief_graph_guide>"""
+
 GUIDE_BY_STYLE = {
+    "split_wep": CONTEXT_GUIDE_SPLIT_WEP,
+    "split_wep_label": CONTEXT_GUIDE_SPLIT_WEP_LABEL,
     "split": CONTEXT_GUIDE_SPLIT,
     "split_confidence": CONTEXT_GUIDE_SPLIT_CONFIDENCE,
     "split_confidence_noactions": CONTEXT_GUIDE_SPLIT_CONFIDENCE_NOACTIONS,
@@ -181,7 +231,8 @@ class BCGSettings:
     # Layout of the injected graph block for the single agent: "split"
     # (completed actions / findings / relations), "split_confidence" (split
     # with high/medium/low confidence tiers), "split_confidence_noactions"
-    # (split_confidence without the Completed actions section) or "v0"
+    # (split_confidence without the Completed actions section), "split_wep"
+    # (WEP word · source · why), "split_wep_label" (WEP word only) or "v0"
     # (legacy beliefs list).
     render_style: str = "split"
     task_state_enabled: bool = False
@@ -275,6 +326,14 @@ class BCGSettings:
             from .rendering import confidence_thresholds
 
             confidence_thresholds()  # fail fast on invalid BCG_CONFIDENCE_HIGH/LOW
+        if value.render_style in WEP_STYLES:
+            from .rendering import wep_thresholds
+
+            wep_thresholds()  # fail fast on invalid BCG_WEP_THRESHOLDS
+        if value.render_style in RENDER_STYLES and value.render_style != "v0":
+            from .rendering import digest_chars
+
+            digest_chars()  # fail fast on invalid BCG_DIGEST_CHARS
         if type(value.task_state_enabled) is not bool or value.task_state_chars < 256:
             raise ValueError("task_state_enabled must be boolean; task_state_chars must be >= 256")
         if value.graph_recent_turns < 1:
