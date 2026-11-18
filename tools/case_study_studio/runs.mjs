@@ -1,4 +1,4 @@
-import {api, storedToken, storeToken, logout, caseLink, benchmarkLabel, contextModeLabel, defaultRunTitle, taskAnnotationStatus, canAnnotateTask, annotationProgress, reportScoreLabel, runDisplayStatus, runScoreSummary} from './shared.mjs';
+import {api, storedToken, storeToken, logout, caseLink, recordsLink, canViewRecords, benchmarkLabel, modelLabel, contextModeLabel, defaultRunTitle, taskAnnotationStatus, canAnnotateTask, annotationProgress, reportScoreLabel, runDisplayStatus, runScoreSummary} from './shared.mjs';
 import {mountTaskPicker} from './task-picker.mjs';
 import {mountScoreDetails} from './score-details.mjs';
 import {renderVersion, versionLabel} from './run-version.mjs';
@@ -18,6 +18,11 @@ const pendingReviews=new Set();
 const scoreDetails=mountScoreDetails($('#score-dialog'));
 
 function reviewAction(run,task){
+  if(task.clm_recording){
+    const link=`<a class="button primary" href="./clm.html?run=${encodeURIComponent(task.clm_recording)}">CLM 轨迹</a>`;
+    return link+reviewAction(run,{...task,clm_recording:null});
+  }
+  if(!canAnnotateTask(task)&&canViewRecords(task))return `<button class="button" disabled title="仅正常完成的任务可以标注">AI 标注</button><a class="button primary" href="${escape(recordsLink(run.id,task.benchmark,task.id))}">查看记录</a>`;
   const ai=task.ai_review||{},key=`${run.id}/${task.benchmark}/${task.id}`;
   const attributes=`data-ai-review="${escape(task.id)}" data-benchmark="${escape(task.benchmark)}" data-run-id="${run.id}"`;
   if(!canAnnotateTask(task))return `<button class="button" ${attributes} disabled title="仅正常完成的任务可以标注">AI 标注</button>`;
@@ -85,7 +90,7 @@ function renderLive(parent,html,{reset=false}={}){
   else patchLiveChildren(parent,template.content);
 }
 function renderList(runs){
-  renderLive($('#run-list'),runs.length?runs.map(run=>`<button class="run-item ${run.id===selected?'selected':''}" data-run="${run.id}" data-live-key="run-${run.id}"><div><strong>${escape(run.number)}</strong>${badge(runDisplayStatus(run))}</div><p class="run-name">${escape(run.title)}</p><small class="run-mode-label">${escape(contextModeLabel(run.mode,run.task_state))}</small><div><small>${run.ended} / ${run.total} 已结束</small><small>${run.reports} 份报告</small></div><small class="run-version-label">${escape(versionLabel(run))}</small></button>`).join(''):'<p class="muted">暂无测试。点击右上角启动测试。</p>');
+  renderLive($('#run-list'),runs.length?runs.map(run=>`<button class="run-item ${run.id===selected?'selected':''}" data-run="${run.id}" data-live-key="run-${run.id}"><div><strong>${escape(run.number)}</strong>${badge(runDisplayStatus(run))}</div><p class="run-name">${escape(run.title)}</p><small class="run-mode-label">${escape(contextModeLabel(run.mode))}</small><div><small>${run.ended} / ${run.total} 已结束</small><small>${run.reports} 份报告</small></div><small class="run-version-label">${escape(versionLabel(run))}</small></button>`).join(''):'<p class="muted">暂无测试。点击右上角启动测试。</p>');
 }
 function renderRun(run){
   const current=$('#run-content');
@@ -102,8 +107,8 @@ function renderRun(run){
       <h1>${escape(run.title)}</h1>
       <div class="run-heading-actions"><a class="button" href="./annotation-stats.html?run=${run.id}">标注统计</a>${badge(runDisplayStatus(run))}${run.managed&&['queued','starting','running'].includes(run.status)?`<button class="button" id="stop-run" data-run-id="${run.id}" ${run.cancel_requested?'disabled':''}>${run.cancel_requested?'正在停止…':'停止测试'}</button>`:''}<button type="button" class="button delete-run" id="delete-run" data-run-id="${run.id}" data-run-number="${escape(run.number)}" ${run.can_delete?'':'disabled'} title="${escape(run.delete_blocked_reason||'删除该运行及其结果和标注')}">删除运行</button></div>
     </div>
-    <p>模式：${escape(contextModeLabel(run.mode,run.task_state))} · Agent：${escape(run.agent||'待启动')} · Graph：${run.mode==='default'?'不启用':escape(run.graph)} · 并发 ${run.workers||'—'}<br>启动时间：${time(run.started_at||run.created_at)}${run.finished_at?` · 结束：${time(run.finished_at)}`:''}</p>
-    ${run.judge?.enabled?`<p>Report 评分：${run.tasks.filter(t=>t.scoring_status==='official_protocol_scored').length} / ${run.tasks.filter(t=>t.status==='completed').length} 份报告${run.judge.model?` · Judge ${escape(run.judge.model)}`:''}</p>`:''}
+    <p>模式：${escape(contextModeLabel(run.mode))}${run.mode==='bcg_compaction'?` · 保留 ${escape(run.compaction_turns??5)} 轮压缩交互`:''} · Agent：${escape(modelLabel(run.agent)||'待启动')} · Graph：${['default','clm'].includes(run.mode)?'不启用':escape(modelLabel(run.graph))} · 并发 ${run.workers||'—'}<br>启动时间：${time(run.started_at||run.created_at)}${run.finished_at?` · 结束：${time(run.finished_at)}`:''}</p>
+    ${run.judge?.enabled?`<p>Report 评分：${run.tasks.filter(t=>t.scoring_status==='official_protocol_scored').length} / ${run.tasks.filter(t=>t.status==='completed').length} 份报告${run.judge.model?` · Judge ${escape(modelLabel(run.judge.model))}`:''}</p>`:''}
     ${renderVersion(run)}
     </section>
     ${run.error?`<div class="notice amber" data-live-key="run-error">${escape(run.error)}</div>`:''}
@@ -224,18 +229,33 @@ $('#launch-button').addEventListener('click',()=>{
   $('#launch-error').textContent='';
   $('#launch-dialog').showModal();
 });
-$('#launch-profile').addEventListener('change',()=>{const profile=settings.profiles.find(p=>p.id===$('#launch-profile').value);$('#launch-form').elements.workers.max=profile.max_workers;$('#launch-form').elements.workers.value=Math.min(Number($('#launch-form').elements.workers.value),profile.max_workers);});
-$('#launch-mode').addEventListener('change',()=>{
+function updateLaunchModels(){
   const mode=$('#launch-mode').value;
-  $('#launch-task-state').disabled=mode!=='bcg_no_retrieval'||!settings?.task_state_supported;
-  if(mode==='bcg')$('#launch-task-state').checked=true;
-  else if($('#launch-task-state').disabled)$('#launch-task-state').checked=false;
-  $('#launch-context-info').innerHTML=$('#launch-mode').value==='default'
+  const profile=settings?.profiles?.find(p=>p.id===$('#launch-profile').value);
+  const graph=settings?.graph_profiles?.find(p=>p.id===$('#launch-graph-profile').value);
+  const usesGraph=['bcg','bcg_no_retrieval','bcg_compaction'].includes(mode);
+  const compaction=mode==='bcg_compaction';
+  $('#launch-compaction-field').hidden=!compaction;
+  $('#launch-compaction-turns').disabled=!compaction;
+  $('#launch-graph-profile').disabled=!usesGraph||!graph;
+  if(profile){
+    const max=usesGraph&&graph?Math.min(profile.max_workers,graph.max_workers):profile.max_workers;
+    const workers=$('#launch-form').elements.workers;
+    workers.max=max;workers.value=Math.min(Number(workers.value),max);
+  }
+  const graphInfo=`建图：${escape(graph?.label||'GPT-6-Luna · LiteLLM · Thinking 关闭')}`;
+  $('#launch-task-state').disabled=true;
+  $('#launch-task-state').checked=mode==='bcg'||compaction;
+  $('#launch-context-info').innerHTML=mode==='default'
     ?'单 Agent Default · 按顺序保留系统提示、用户输入、Assistant 回复和工具结果<br>不建图、不注入 Graph、不按最近两轮裁剪；仍受模型上下文长度限制<br>报告生成后自动进行同一套 LLM Judge 评分'
-    :$('#launch-mode').value==='bcg_no_retrieval'
-      ?'单 Agent BCG w/o Retrieval · 最近 2 轮 · 永久保留用户输入<br>注入当前 Graph 的全部节点和边，不检索、不按 6,600 字符裁剪；仍受模型上下文长度限制<br>建图：gpt-6-luna / none · LiteLLM · 报告生成后自动进行同一套 LLM Judge 评分'
-      :'单 Agent BCG · 永久保留用户输入 · 最近 2 轮完整交互<br>Task state 基于全图维护；近期 Graph 展示这 2 轮之前的 3 轮节点及其内部关系，不做 retrieval<br>建图：gpt-6-luna / none · LiteLLM · 报告生成后自动进行 LLM Judge 评分';
-});
+    :mode==='clm'
+    ?'单 Agent CLM · 固定保留 System 和初始用户任务<br>模型通过 Bash 编辑历史 Context 文件，自行整理任务状态和证据；有效输入预算 26,624 tokens，不建图<br>逐轮保存编辑前后 Context 与模型 I/O；报告生成后自动进行同一套 LLM Judge 评分'
+    :compaction
+    ?`单 Agent BCG Compaction · 永久保留用户输入 · 每轮完整交互建图后，以 Assistant 消息保留最近 ${escape($('#launch-compaction-turns').value||5)} 轮 Graph，不保留已完成的原始交互<br>仅保留两端都在窗口内的关系；全局 Task State 作为 User 消息放在初始问题后，Graph 使用说明仍在 System<br>${graphInfo} · 报告生成后自动进行 LLM Judge 评分`
+    :`单 Agent BCG · 永久保留用户输入 · 最近 2 轮完整交互<br>Task state 基于全图维护；近期 Graph 展示这 2 轮之前的 3 轮节点及其内部关系，不做 retrieval<br>${graphInfo} · 报告生成后自动进行 LLM Judge 评分`;
+}
+for(const selector of ['#launch-profile','#launch-graph-profile','#launch-mode'])$(selector).addEventListener('change',updateLaunchModels);
+$('#launch-compaction-turns').addEventListener('input',updateLaunchModels);
 $('#launch-form').addEventListener('submit',async event=>{
   event.preventDefault();const button=event.submitter;button.disabled=true;$('#launch-error').textContent='';
   try{
@@ -243,7 +263,9 @@ $('#launch-form').addEventListener('submit',async event=>{
     if(!taskPicker)throw new Error('题目选择器尚未加载，请稍后再试。');
     const ids=taskPicker.value();
     const tasks={drb2:ids};
-    const body={title:form.get('title'),profile:form.get('profile'),mode:form.get('mode'),tasks,task_state:form.get('mode')==='bcg'||form.has('task_state')};
+    const body={title:form.get('title'),profile:form.get('profile'),mode:form.get('mode'),tasks,task_state:['bcg','bcg_compaction'].includes(form.get('mode'))||form.has('task_state')};
+    if(['bcg','bcg_no_retrieval','bcg_compaction'].includes(body.mode)&&form.get('graph_profile'))body.graph_profile=form.get('graph_profile');
+    if(body.mode==='bcg_compaction')body.compaction_turns=Number(form.get('compaction_turns'));
     for(const key of ['workers','timeout','max_turns','search_calls','fetch_calls'])body[key]=Number(form.get(key));
     const run=await api('runs',{method:'POST',body});selected=run.id;history.replaceState(null,'','?run='+selected);event.target.elements.title.value='';suggestedRunTitle='';$('#launch-dialog').close();notice(`${run.number} 已加入队列`);await refresh();
   }catch(error){$('#launch-error').textContent=error.message;}finally{button.disabled=false;}
@@ -282,13 +304,18 @@ $('#delete-form').addEventListener('submit',async event=>{
 });
 try{
   settings=await api('settings');
-  for(const option of $('#launch-mode').options)option.disabled=!settings.context_modes?.includes(option.value);
+  $('#launch-compaction-turns').value=settings.default_compaction_turns||5;
+  $('#launch-graph-profile').innerHTML=(settings.graph_profiles||[]).map(p=>`<option value="${escape(p.id)}" title="${escape(p.label)}">${escape(modelLabel(p.model))}</option>`).join('');
+  $('#launch-graph-profile').value=settings.default_graph_profile||'gpt6-luna';
+  for(const option of $('#launch-mode').options){
+    option.disabled=!settings.context_modes?.includes(option.value)||(option.value==='clm'&&!settings.clm?.available);
+    if(option.value==='clm')option.title=settings.clm?.reason||'模型编辑文件，自行管理上下文';
+  }
   $('#launch-mode').dispatchEvent(new Event('change'));
   taskPicker=mountTaskPicker($('#launch-task-picker'),{
     defaults:settings.default_tasks.drb2,limit:settings.max_tasks,catalog:settings.task_catalog?.drb2,
   });
-  $('#launch-max-tasks').textContent=String(settings.max_tasks);
-  $('#launch-profile').innerHTML=settings.profiles.map(p=>`<option value="${escape(p.id)}">${escape(p.label)}</option>`).join('');
+  $('#launch-profile').innerHTML=settings.profiles.map(p=>`<option value="${escape(p.id)}">${escape(modelLabel(p.agent))}</option>`).join('');
   if(settings.profiles.length)$('#launch-profile').dispatchEvent(new Event('change'));
   if(storedToken()){try{({user}=await api('session'));}catch{logout();}}
   if(user){$('#identity-button').textContent=user.name;await refresh();}

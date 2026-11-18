@@ -7,11 +7,12 @@ export const storedToken = () => {try {return localStorage.getItem(TOKEN_KEY) ||
 export function storeToken(token) {localStorage.setItem(TOKEN_KEY, token);}
 export function logout() {localStorage.removeItem(TOKEN_KEY);}
 export const benchmarkLabel = id => id === 'drb2' ? 'DeepResearch Bench II' : id;
-export function contextModeLabel(mode,taskState=false) {
-  const label={bcg:'BCG',bcg_no_retrieval:'BCG w/o Retrieval',default:'Default'}[mode] || mode || 'BCG';
-  return label+(taskState===true&&mode!=='default'?' + 任务状态':'');
+export const modelLabel = name => name === 'gpt-6-luna' ? 'GPT-6-Luna' : name;
+export function contextModeLabel(mode) {
+  return {bcg:'BCG',bcg_no_retrieval:'BCG w/o Retrieval',bcg_compaction:'BCG Compaction',default:'Default',clm:'CLM'}[mode] || mode || 'BCG';
 }
 export const canAnnotateTask = task => task?.status === 'completed' && task.annotatable === true;
+export const canViewRecords = task => task?.viewable === true;
 export const runDisplayStatus = run => run.status === 'running' && run.phase === 'judging' ? 'judging' : run.status;
 export function reportScoreLabel(task) {
   if(task.scoring_status === 'official_protocol_scored' && Number.isFinite(task.official_score))
@@ -60,10 +61,12 @@ export function remoteLocation(search=location.search) {
   if(benchmark !== 'drb2') throw new Error('共享页面仅保留 DeepResearch Bench II；其他 Benchmark 的历史文件和标注仍保留在服务器');
   if(!/^\d+$/.test(run) || !/^[A-Za-z0-9_-]{1,80}$/.test(task||'')) throw new Error('运行或任务链接无效');
   if(q.has('review') && q.get('review') !== 'ai') throw new Error('标注类型无效');
-  return {run:Number(run),benchmark,task,...(q.get('review')==='ai'?{review:'ai'}:{})};
+  if(q.has('view') && (q.get('view') !== 'records' || q.has('review'))) throw new Error('浏览类型无效');
+  return {run:Number(run),benchmark,task,...(q.get('review')==='ai'?{review:'ai'}:{}),...(q.get('view')==='records'?{view:'records'}:{})};
 }
 export const casePath = remote => `runs/${remote.run}/tasks/${remote.benchmark}/${encodeURIComponent(remote.task)}`;
 export const caseLink = (run,benchmark,task,review) => './index.html?' + new URLSearchParams({run,benchmark,task,...(review==='ai'?{review}:{})});
+export const recordsLink = (run,benchmark,task) => caseLink(run,benchmark,task)+'&view=records';
 
 // Browser source IDs change on every import. Bind only by original file hash,
 // path, JSONL line and call, never by task ID or call alone.
@@ -95,7 +98,8 @@ function validateTask(c,remote) {
     throw new Error('证据与当前任务不匹配');
 }
 async function fetchEvidence(remote,preview=false) {
-  const response=await fetch('/api/'+casePath(remote)+(preview?'/evidence-preview':'/evidence'),{
+  const resource=remote.view==='records'?'records':'evidence';
+  const response=await fetch('/api/'+casePath(remote)+'/'+resource+(preview?'-preview':''),{
     headers:{Authorization:'Bearer '+storedToken()},cache:'no-store'});
   if(!response.ok)throw new Error((await response.json()).error||'证据加载失败');
   return response;
@@ -104,7 +108,8 @@ async function fetchEvidence(remote,preview=false) {
 export async function loadSharedCase(remote, cached=[]) {
   const token=storedToken();
   const isAI=remote.review==='ai';
-  const [{user},run,review]=await Promise.all([api('session'),api(`runs/${remote.run}`),api(casePath(remote)+(isAI?'/ai-review':'/annotation'))]);
+  const isRecords=remote.view==='records';
+  const [{user},run,review]=await Promise.all([api('session'),api(`runs/${remote.run}`),isRecords?Promise.resolve({}):api(casePath(remote)+(isAI?'/ai-review':'/annotation'))]);
   if(isAI && review.status!=='completed') throw new Error('AI 标注尚未完成，请返回运行页面查看进度');
   const key=isAI?previewCacheKey(remote,review.evidence_sha):null;
   let value=isAI?await readPreviewCache(key):null,sha=review.evidence_sha;
@@ -113,11 +118,12 @@ export async function loadSharedCase(remote, cached=[]) {
     catch{await deletePreviewCache(key);value=null;}
   }
   if(!value) {
-    const response=await fetchEvidence(remote,isAI);
+    const response=await fetchEvidence(remote,isAI||isRecords);
     sha=response.headers.get('X-Evidence-SHA256');
     if(isAI&&sha!==review.evidence_sha)throw new Error('AI 标注的证据版本已变化，未加载不同版本的结果');
     value=await loadEvidence(await response.blob());
     validateTask(value.c,remote);
+    if(isRecords)validatePreview(value,remote,sha);
     if(isAI){
       validatePreview(value,remote,sha);
       bindAIAnnotation(value.c,review.annotation,review.model);
@@ -126,9 +132,10 @@ export async function loadSharedCase(remote, cached=[]) {
     }
   }
   let c=value.c;
-  c.id=`shared-${remote.run}-${remote.benchmark}-${remote.task}-${isAI?'ai':user.id}`;
-  c.remote={...remote,user,revision:review.revision,evidence_sha:sha,dirty:false,readOnly:isAI,
-    deferredEvidence:isAI&&value.projection.omitted_files.length>0};
+  c.id=`shared-${remote.run}-${remote.benchmark}-${remote.task}-${isRecords?'records':isAI?'ai':user.id}`;
+  c.remote={...remote,user,revision:review.revision,evidence_sha:sha,dirty:false,readOnly:isAI||isRecords,
+    deferredEvidence:(isAI||isRecords)&&value.projection.omitted_files.length>0};
+  if(isRecords)return {c,run,user};
   if(isAI) {
     c.annotation=bindAIAnnotation(c,review.annotation,review.model);
     c.remote.ai={model:review.model,reasoning_effort:review.reasoning_effort,usage:review.usage,coverage:review.coverage,finished_at:review.finished_at};
@@ -158,12 +165,12 @@ export async function loadFullSharedEvidence(c) {
     throw new Error('完整 Graph 与已加载的证据不匹配');
   full.id=c.id;
   full.remote={...c.remote,deferredEvidence:false,graphLoading:false,graphError:''};
-  full.annotation=bindAIAnnotation(full,c.annotation,c.remote.ai?.model);
+  full.annotation=c.remote.view==='records'?c.annotation:bindAIAnnotation(full,c.annotation,c.remote.ai?.model);
   return full;
 }
 
 export async function saveSharedCase(c) {
-  if(c.remote?.readOnly) throw new Error('AI 标注只读，不会覆盖人工标注');
+  if(c.remote?.readOnly) throw new Error('当前页面只读，不会写入或覆盖标注');
   if(!owners.has(c.id) || owners.get(c.id)!==storedToken()) throw new Error('登录身份已变化。请先导出草稿备份，再重新打开任务');
   const annotation=structuredClone(c.annotation),before=JSON.stringify(annotation);
   const result=await api(casePath(c.remote)+'/annotation',{method:'PUT',body:{

@@ -182,9 +182,11 @@ class Projection:
     # Indices in `turns`, before runtime prepends its graph system marker.
     # Keep empty-extraction and parallel-tool steps in the window as well.
     evicted_step_turn_indices: list[list[int]] = field(default_factory=list)
+    # Original Assistant positions, for replacing a complete step in-place.
+    evicted_step_message_indices: list[int] = field(default_factory=list)
 
 
-def partition(messages: list[Message], recent_turns: int) -> Projection:
+def partition(messages: list[Message], recent_turns: int, *, include_trailing_users: bool = False) -> Projection:
     """Pin human inputs; only trusted host-tagged reports may age out with steps."""
     steps: list[Step] = []
     active: Step | None = None
@@ -242,7 +244,10 @@ def partition(messages: list[Message], recent_turns: int) -> Projection:
     removed.update(index for index, _ in reports if index <= frontier)
     retained_indices = [index for index in range(len(messages)) if index not in removed]
     events = [
-        (index, [{"role": "user", "content": text}]) for index, text in users if index <= frontier
+        # Compaction ingests new human follow-ups immediately while still
+        # pinning them verbatim. Other modes keep their existing write timing.
+        (index, [{"role": "user", "content": text}]) for index, text in users
+        if index <= frontier or include_trailing_users
     ]
     events.extend((step.start, step.graph_turns()) for step in evicted)
     events.extend(
@@ -271,4 +276,5 @@ def partition(messages: list[Message], recent_turns: int) -> Projection:
         "\n\n".join(query_parts)[-8_000:] or question[-8_000:],
         len(evicted),
         step_turn_indices,
+        [step.start for step in evicted],
     )

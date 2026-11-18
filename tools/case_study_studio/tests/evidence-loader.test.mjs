@@ -35,7 +35,7 @@ function mockAPI(t,fixture,changes={}){
     if(url==='/api/runs/1')return Response.json({id:1,tasks:[]});
     if(url.endsWith('/ai-review'))return Response.json(fixture.review);
     if(url.endsWith('/annotation'))return Response.json({revision:1,annotation:null});
-    const preview=url.endsWith('/evidence-preview');
+    const preview=url.endsWith('/evidence-preview')||url.endsWith('/records-preview');
     const body=preview?fixture.preview:fixture.full;
     return new Response(gzipSync(JSON.stringify(body)),{headers:{'X-Evidence-SHA256':changes.sha||sha}});
   };
@@ -68,6 +68,26 @@ test('legacy short benchmark names still load through the same shared route',asy
   const {c}=await loadSharedCase(remote);
   assert.equal(c.benchmark,'drb2');
   assert.equal((await loadFullSharedEvidence(c)).graphs.length,1);
+});
+
+test('record readers do not access annotations or personal drafts and hydrate the saved graph',async t=>{
+  const data=await fixture(),requests=mockAPI(t,data);
+  const {c}=await loadSharedCase({run:1,benchmark:'drb2',task:'2',view:'records'},()=>{
+    throw new Error('Record viewing must not load personal drafts');
+  });
+  assert.equal(c.id,'shared-1-drb2-2-records');
+  assert.equal(c.remote.readOnly,true);
+  assert.equal(c.remote.deferredEvidence,true);
+  assert.equal(c.annotation.events.length,0);
+  assert.equal(c.contexts.length,1);
+  assert(requests.includes('/api/runs/1/tasks/drb2/2/records-preview'));
+  assert(!requests.some(p=>/annotation|ai-review|evidence/.test(p)));
+  const full=await loadFullSharedEvidence(c);
+  assert.equal(full.graphs.length,1);
+  assert.equal(full.remote.readOnly,true);
+  assert.equal(full.remote.deferredEvidence,false);
+  assert.equal(full.id,c.id);
+  assert(requests.includes('/api/runs/1/tasks/drb2/2/records'));
 });
 
 for(const [benchmark,task] of [['deepresearch_bench_ii','5'],['deepresearch_bench','2'],['mmlu','2'],['','2']]){

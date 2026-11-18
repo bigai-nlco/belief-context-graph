@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>CLM · Context 逐轮查看</title><link rel="icon" href="./icon.svg">
+  <link rel="stylesheet" href="./styles.css"><link rel="stylesheet" href="./clm.css">
+  <script type="module" src="./clm.mjs"></script>
+</head>
+<body class="clm-page">
+  <header class="clm-header"><a href="./" class="clm-brand"><img src="./icon.svg" width="30" height="30" alt=""><strong>BCG</strong><span>CONTEXT LAB</span></a><a class="button" href="./">返回运行中心</a></header>
+  <main class="clm-main">
+    <section class="clm-heading"><div><p class="clm-eyebrow">CONTEXT LANGUAGE MODELS</p><h1>查看模型如何编辑自己的 Context</h1><p id="run-subtitle">正在读取运行记录…</p></div><label class="clm-run-field"><span>实验记录</span><select id="clm-run" aria-label="实验记录"></select></label></section>
+    <div id="clm-error" class="clm-error" role="alert" hidden></div>
+    <section id="clm-stats" class="clm-stats" aria-label="运行统计"></section>
+    <nav class="clm-main-tabs" aria-label="查看内容"><button type="button" data-section="turns" aria-current="page">逐轮查看</button><button type="button" data-section="report">任务与报告</button><button type="button" data-section="settings">运行设置</button><button type="button" id="clm-refresh">刷新记录</button></nav>
+    <section id="clm-turn-section" class="clm-workbench">
+      <aside class="clm-sidebar"><div class="clm-sidebar-heading"><h2>模型调用</h2><span id="turn-count"></span></div><label class="clm-filter"><input id="edits-only" type="checkbox">只看 Context 编辑</label><nav id="clm-turn-list" aria-label="选择模型调用轮次"></nav><p class="clm-legend"><i></i> Context 编辑已应用</p></aside>
+      <div class="clm-viewer">
+        <header class="clm-turn-header"><div><h2 id="clm-turn-title">选择一轮</h2><p id="clm-turn-meta"></p></div><div class="clm-turn-controls"><button class="button" id="prev-turn" aria-label="上一轮">← 上一轮</button><button class="button" id="next-turn" aria-label="下一轮">下一轮 →</button></div></header>
+        <p class="clm-phase-note">本轮输入 → 模型输出与命令 → 编辑后的 Context → 下一轮输入。System 和初始用户任务始终保留，不在可编辑文件中。</p>
+        <div class="clm-panels" id="clm-panels" aria-busy="false">
+          <section class="clm-panel"><header><h3>Context 文件</h3><button class="clm-download" data-download="context" title="下载当前显示的原始记录">下载原文 ↓</button></header><nav class="clm-tabs" aria-label="Context 查看方式"><button data-context="after" aria-pressed="true">编辑后</button><button data-context="before" aria-pressed="false">编辑前</button><button data-context="diff" aria-pressed="false">修改差异</button><button data-context="parsed" aria-pressed="false">解析后 Messages</button></nav><div class="clm-panel-body" id="clm-context"></div><footer id="clm-context-note"></footer></section>
+          <section class="clm-panel"><header><h3>模型调用</h3><button class="clm-download" data-download="model" title="下载当前显示的原始记录">下载原文 ↓</button></header><nav class="clm-tabs" aria-label="模型记录查看方式"><button data-model="output" aria-pressed="true">本轮输出</button><button data-model="input" aria-pressed="false">本轮输入</button><button data-model="raw-output" aria-pressed="false">原始响应</button><button data-model="raw-input" aria-pressed="false">原始请求</button></nav><div class="clm-panel-body" id="clm-model"></div><footer><button id="show-next-input" class="clm-text-button">查看下一轮实际输入 →</button><span id="clm-input-note"></span></footer></section>
+        </div>
+      </div>
+    </section>
+    <section id="clm-report-section" class="clm-document" hidden></section>
+    <section id="clm-settings-section" class="clm-document" hidden></section>
+  </main>
+</body>
+</html>

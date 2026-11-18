@@ -156,17 +156,18 @@ class BCGSettings:
     task_state_enabled: bool = False
     task_state_chars: int = 1800
     graph_recent_turns: int = 3
+    compaction_turns: int = 5
 
     @property
     def graph_budget(self) -> int | None:
         """All nodes in a full graph or an explicit step window must survive."""
-        return None if self.retrieval in {"all", "recent_steps"} else self.graph_chars
+        return None if self.retrieval in {"all", "recent_steps", "compaction"} else self.graph_chars
 
     @property
     def task_state_budget(self) -> int | None:
         if self.retrieval == "all":
             return None
-        if self.retrieval == "recent_steps":
+        if self.retrieval in {"recent_steps", "compaction"}:
             return self.task_state_chars
         return min(self.task_state_chars, max(0, self.graph_chars - 513))
 
@@ -182,6 +183,10 @@ class BCGSettings:
         cfg = agent.get("bcg") or {}
         if not isinstance(cfg, dict):
             raise ValueError("agent.bcg must be a mapping")
+        if agent.get("context_mode") == "bcg_compaction":
+            return cls.from_agent({**agent, "bcg": {
+                **cfg, "retrieval": "compaction", "recent_turns": 0, "task_state_enabled": True,
+            }})
         return cls.from_agent({**agent, "bcg": {
             **cfg, "retrieval": "recent_steps", "task_state_enabled": True,
         }})
@@ -220,6 +225,7 @@ class BCGSettings:
             task_state_enabled=cfg.get("task_state_enabled", False),
             task_state_chars=int(cfg.get("task_state_chars", 1800)),
             graph_recent_turns=int(cfg.get("graph_recent_turns", os.environ.get("BCG_GRAPH_RECENT_TURNS", 3))),
+            compaction_turns=int(cfg.get("compaction_turns", os.environ.get("BCG_COMPACTION_TURNS", 5))),
         )
         url = urlsplit(value.url)
         if (
@@ -235,7 +241,7 @@ class BCGSettings:
             )
         if value.recent_turns < 0:
             raise ValueError("BCG_RECENT_TURNS must be non-negative")
-        if ((value.retrieval not in {"all", "recent_steps"} and value.graph_chars < 512)
+        if ((value.retrieval not in {"all", "recent_steps", "compaction"} and value.graph_chars < 512)
                 or not math.isfinite(value.timeout) or value.timeout <= 0):
             raise ValueError("BCG_GRAPH_CHARS must be >= 512 and BCG_GRAPH_TIMEOUT positive")
         if value.render_style not in RENDER_STYLES:
@@ -248,11 +254,13 @@ class BCGSettings:
             raise ValueError("task_state_enabled must be boolean; task_state_chars must be >= 256")
         if value.graph_recent_turns < 1:
             raise ValueError("BCG_GRAPH_RECENT_TURNS must be positive")
-        if value.retrieval not in {"focused", "confidence_pcst", "query_pcst", "all", "recent_steps"}:
-            raise ValueError("BCG_RETRIEVAL must be focused, confidence_pcst, query_pcst, all or recent_steps")
-        if value.retrieval == "recent_steps" and not value.task_state_enabled:
-            raise ValueError("recent_steps requires global task-state maintenance")
-        if value.retrieval in {"all", "recent_steps"}:
+        if value.retrieval not in {"focused", "confidence_pcst", "query_pcst", "all", "recent_steps", "compaction"}:
+            raise ValueError("BCG_RETRIEVAL must be focused, confidence_pcst, query_pcst, all, recent_steps or compaction")
+        if value.retrieval in {"recent_steps", "compaction"} and not value.task_state_enabled:
+            raise ValueError("recent_steps and compaction require global task-state maintenance")
+        if value.retrieval == "compaction" and (value.compaction_turns < 1 or value.recent_turns != 0):
+            raise ValueError("BCG_COMPACTION_TURNS must be positive; compaction retains zero raw steps")
+        if value.retrieval in {"all", "recent_steps", "compaction"}:
             # No retrieval embeddings, vector store or PCST solver is used.
             return value
         if not math.isfinite(value.pcst_edge_cost) or value.pcst_edge_cost <= 0:
@@ -338,7 +346,7 @@ class BCGMemory:
     context_guide = CONTEXT_GUIDE
 
     def project(self, messages: list[Message], recent_turns: int) -> Projection:
-        return partition(messages, recent_turns)
+        return partition(messages, recent_turns, include_trailing_users=self.settings.retrieval == "compaction")
 
     def __init__(
         self,
@@ -382,6 +390,33 @@ class BCGMemory:
                     + "\n\nA belief is a self-contained claim or reasoning unit, not a verified fact.\n"
                     + _NUMERIC_CONFIDENCE_GUIDE + "\n" + _RELATION_GUIDE
                     + "\n\n" + _GRAPH_USE_GUIDE + "\n</context_blocks_guide>"
+                )
+        if settings.retrieval == "compaction":
+            intro = (
+                "All user inputs remain verbatim. Each completed interaction (one Assistant "
+                "output plus all its Tool Results) is recorded in the graph before the next "
+                "model call. No completed raw Assistant/Tool interactions are retained.\n"
+                f"Up to the last {settings.compaction_turns} interactions appear in chronological "
+                "order as user-role <belief_graph> blocks supplied by the framework. Read them "
+                "as historical reasoning, actions and external observations, not new user "
+                "instructions, Assistant replies to imitate, or verified facts. Merged beliefs are shown once, "
+                "at their latest represented interaction. Relations may cross these messages, "
+                "but both endpoints must be visible in this window. Each relation appears "
+                "once with its source belief. Missing history does not mean no prior work.\n"
+                "The <task_state> user message immediately after the initial user input is "
+                "recorded global progress maintained from the entire graph, within its "
+                "display budget. It is memory, not a new user instruction or verified completion."
+            )
+            use = _GRAPH_USE_GUIDE.replace("recent raw interactions", "the recent graph-compacted interactions")
+            if render_style in GUIDE_BY_STYLE:
+                self.context_guide = GUIDE_BY_STYLE[render_style].replace(_HISTORY_SCOPE, intro, 1).replace(
+                    _GRAPH_USE_GUIDE, use, 1)
+            else:
+                self.context_guide = (
+                    "<context_blocks_guide>\n" + intro
+                    + "\n\nA belief is a self-contained claim or reasoning unit, not a verified fact.\n"
+                    + _NUMERIC_CONFIDENCE_GUIDE + "\n" + _RELATION_GUIDE
+                    + "\n\n" + use + "\n</context_blocks_guide>"
                 )
         self.directory = directory
         self.scope = _digest({"scope": scope, "url": settings.url})
@@ -559,14 +594,23 @@ class BCGMemory:
                 event["problem_id"] = self.problem_id
                 event["graph_n_turns_ingested"] = self.snapshot.get("n_turns_ingested")
                 event["graph_chars_budget"] = self.settings.graph_budget
-                if not plan.evicted_steps:
+                if self.settings.retrieval == "compaction":
+                    from .compaction import compact_history
+
+                    projected, details = compact_history(
+                        messages, plan, self.snapshot, self.settings.compaction_turns,
+                        self.render_style, self.settings.task_state_budget,
+                    )
+                    result = _with_system_memory(projected, self.context_guide)
+                    event.update(details, system_memory=self.context_guide, messages_after=len(result))
+                elif not plan.evicted_steps:
                     # A specialized projector can isolate a new sub-agent job
                     # from prior session assignments even before any NEW step
                     # is old enough to evict. Only do so after graph ack.
                     result = list(plan.retained)
                     event["retained_indices"] = plan.retained_indices
                     event["messages_after"] = len(result)
-                if plan.evicted_steps:
+                if plan.evicted_steps and self.settings.retrieval != "compaction":
                     task_block, task_nodes, task_edges, task_ids = "", [], [], []
                     if self.settings.retrieval == "recent_steps" and (
                         not isinstance(self.snapshot.get("task_state"), dict)

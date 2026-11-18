@@ -33,7 +33,7 @@ from benchmarks.public.reports.runtime import ReportPolicy, report_policy
 from benchmarks.public.reports.selection import parse_task_ids, select_tasks
 
 _ROOT = Path(__file__).resolve().parents[3]
-_PIPELINES = ("stateful-react-agent", "agent_team")
+_PIPELINES = ("stateful-react-agent", "agent_team", "clm")
 _ADAPTER_REVISION = 1
 
 
@@ -150,7 +150,7 @@ def collect_usage(trial: Path, *, mode: str = "bcg") -> dict[str, Any]:
         _token_usage(g["usage"].get("llm_totals", g["usage"].get("totals", g["usage"])))
         for g in graphs
     ])
-    if mode == "default" and not graphs:
+    if mode in {"default", "clm"} and not graphs:
         # No construction is performed in Default; this is known zero, not
         # missing provider usage. Never hide unexpected Graph records.
         graph_usage = {key: 0 for key in ("input_tokens", "output_tokens", "total_tokens")}
@@ -200,6 +200,8 @@ async def execute_task(
         # can accidentally fall back to short-answer extraction.
         "profile_overrides": {"agent": {"reporter": False, "context_mode": config.get("mode", "bcg")}},
     }
+    if config.get("mode") == "bcg_compaction":
+        meta["profile_overrides"]["agent"]["bcg"] = {"compaction_turns": config["compaction_turns"]}
     if config.get("max_turns"):
         meta["profile_overrides"]["agent"].update(
             main_max_turns=config["max_turns"],
@@ -214,17 +216,25 @@ async def execute_task(
     state: dict[str, Any] = {}
     try:
         with report_policy(policy):
-            async with (session_factory or BenchmarkSession)() as session:
-                state = await session.run(
-                    policy.instruction(),
-                    meta=meta,
-                    pipeline_id=config["pipeline"],
-                    extra_input={"language": task.metadata.get("language", "auto")},
-                )
+            if config["pipeline"] == "clm":
+                from benchmarks.public.reports.clm import run_clm
+
+                state = await run_clm(policy, resolve_profile("clm", config["profile"]), config, trial)
+            else:
+                async with (session_factory or BenchmarkSession)() as session:
+                    state = await session.run(
+                        policy.instruction(),
+                        meta=meta,
+                        pipeline_id=config["pipeline"],
+                        extra_input={"language": task.metadata.get("language", "auto")},
+                    )
     except Exception as exc:
         status, error = "agent_error", type(exc).__name__
     report = str(state.get("final_answer") or state.get("final_content") or "").strip()
-    if not report and status == "completed":
+    if state.get("stopped_by") == "no_visible_answer":
+        # Never export or grade a tool preamble recovered from an earlier turn.
+        status, error, report = "empty_report", "no_visible_answer", ""
+    elif not report and status == "completed":
         status = "empty_report"
     elif state.get("llm_error") or state.get("stopped_by") in {
         "llm_error",
@@ -259,7 +269,7 @@ async def execute_task(
         "error": error,
         "duration_seconds": round(time.monotonic() - started, 3),
         "official_score": None,
-        "scoring_status": "official_pending",
+        "scoring_status": _RUBRIC_NOT_JUDGED if status == "empty_report" else "official_pending",
         "metrics": metrics,
         "scoring_errors": scoring_errors,
         "usage": usage,
@@ -268,7 +278,8 @@ async def execute_task(
         "answer_status": state.get("answer_status"),
         "report": "report.md",
         "tool_trace": "tools.jsonl",
-        "graph_records": "agent/" if config.get("mode", "bcg") != "default" else None,
+        "graph_records": "agent/" if config.get("mode", "bcg") in {"bcg", "bcg_no_retrieval", "bcg_compaction"} else None,
+        **({"clm_records": "clm/"} if config["pipeline"] == "clm" else {}),
     }
     write_json(trial / "result.json", result)
     from workflows._shared.case_study import try_export_case
@@ -697,11 +708,23 @@ def build_config(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> dict[s
 
     resolved = resolve_profile(args.pipeline, args.profile)
     agent = resolved.get("agent") or {}
-    mode = resolve_context_mode(agent)
-    if mode != "bcg" and args.pipeline != "stateful-react-agent":
-        raise ValueError("Default and BCG w/o Retrieval context modes are supported only by stateful-react-agent")
+    mode = "clm" if args.pipeline == "clm" else resolve_context_mode(agent)
+    if mode != "bcg" and args.pipeline not in {"stateful-react-agent", "clm"}:
+        raise ValueError("Alternative context modes are supported only by stateful-react-agent or the CLM pipeline")
+    if getattr(args, "compaction_turns", None) is not None:
+        if mode != "bcg_compaction" or args.compaction_turns < 1:
+            raise ValueError("--compaction-turns requires BCG Compaction mode and a positive integer")
+        agent = {**agent, "bcg": {**(agent.get("bcg") or {}), "compaction_turns": args.compaction_turns}}
+        resolved = {**resolved, "agent": agent}
     settings_factory = BCGSettings.from_react_agent if args.pipeline == "stateful-react-agent" else BCGSettings.from_agent
-    settings = settings_factory(agent) if mode != "default" else None
+    settings = settings_factory(agent) if mode in {"bcg", "bcg_no_retrieval", "bcg_compaction"} else None
+    clm_config = {}
+    if mode == "clm":
+        from benchmarks.public.reports.clm import provenance, settings as clm_settings
+
+        if args.benchmark != drb2.NAME:
+            raise ValueError("CLM currently supports DeepResearch Bench II (drb2)")
+        clm_config = {"clm_runtime": provenance(), "clm_settings": clm_settings(resolved, args.max_turns)}
     profile = Path(args.profile)
     # Only non-secret model identifiers are persisted; never keys or full env.
     model = (resolved.get("llm") or {}).get("model", "")
@@ -712,6 +735,8 @@ def build_config(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> dict[s
         for item in task.metadata.get("workspace_files", [])
     }
     return {
+        **clm_config,
+        **({"compaction_turns": settings.compaction_turns} if mode == "bcg_compaction" and settings else {}),
         "adapter_revision": _ADAPTER_REVISION,
         "benchmark": args.benchmark,
         "pipeline": args.pipeline,
@@ -800,7 +825,7 @@ async def run(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> None:
         await asyncio.to_thread(try_export_batch, output, task_ids=config["task_ids"])
         print(json.dumps(summarize(output, config["task_ids"]), ensure_ascii=False, indent=2))
         return
-    if config["mode"] != "default":
+    if config["mode"] in {"bcg", "bcg_no_retrieval", "bcg_compaction"}:
         # Health only: Default does not depend on any Graph service.
         import httpx
 
@@ -889,6 +914,8 @@ def parser() -> argparse.ArgumentParser:
                 help="Outer per-task seconds; 0 disables only this outer limit.",
             )
             child.add_argument("--max-turns", type=int)
+            child.add_argument("--compaction-turns", type=int,
+                               help="BCG Compaction only: number of recent graph-compacted interactions (default: profile or 5).")
             child.add_argument(
                 "--search-calls", type=int, default=20,
                 help="Search query budget per task, shared by all agents (default: 20; 0: unlimited).",

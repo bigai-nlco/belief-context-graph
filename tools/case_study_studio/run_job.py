@@ -75,7 +75,7 @@ def main() -> None:
     row = control.row(args.run_id)
     config = json.loads(row["config"])
     mode = config.get("mode", "bcg")
-    if mode == "bcg":
+    if mode in {"bcg", "bcg_compaction"}:
         # Queued runs may have been submitted before the new context policy.
         config["task_state"] = True
     root = control.directory(row)
@@ -84,8 +84,7 @@ def main() -> None:
     metadata = {"started_at": now(), "status": "starting", "workers": config["workers"], "mode": mode,
                 "studio_run_number": control.label(args.run_id), "requested_ids": config["tasks"],
                 "agent": {"model": config["agent_model"]},
-                "graph": ({"enabled": True, "model": "gpt-6-luna", "reasoning_effort": "none", "provider": "litellm"}
-                          if mode != "default" else {"enabled": False}),
+                "graph": {"enabled": mode in {"bcg", "bcg_no_retrieval", "bcg_compaction"}},
                 "exit_codes": {}, "notes": "Report generation status is not an official quality score."}
 
     def save() -> None:
@@ -108,8 +107,26 @@ def main() -> None:
         # submitted or when its page is viewed. Persist before any model calls.
         metadata["code_version"], metadata["source_sha256"] = capture_version(args.root, mode)
         save()
-        if mode not in ("bcg", "bcg_no_retrieval", "default"):
+        if mode not in ("bcg", "bcg_no_retrieval", "bcg_compaction", "default", "clm"):
             raise RuntimeError("不支持的 Agent context mode")
+        graph_spec = None
+        if mode in {"bcg", "bcg_no_retrieval", "bcg_compaction"}:
+            graph_id = config.get("graph_profile", "gpt6-luna")
+            graph_spec = control.graph_profiles().get(graph_id) if isinstance(graph_id, str) else None
+            if graph_spec is None:
+                raise RuntimeError("建图模型配置无效，请选择 GPT-6-Luna 或 Qwen3.5-9B")
+            config.update(graph_profile=graph_id, graph_model=graph_spec["model"])
+            metadata["graph"].update({key: graph_spec[key] for key in (
+                "model", "provider", "reasoning_effort", "thinking", "base_url", "max_tokens", "request_timeout")})
+            save()
+        # Apply the current capacity to runs queued before the local service
+        # was reconfigured, and retain their originally requested concurrency.
+        worker_limit = control.profiles()[config["profile"]]["max_workers"]
+        if graph_spec:
+            worker_limit = min(worker_limit, graph_spec["max_workers"])
+        if config["workers"] > worker_limit:
+            metadata["requested_workers"] = config["workers"]
+            config["workers"] = metadata["workers"] = worker_limit
         if set(config.get("tasks", {})) != {"drb2"}:
             raise RuntimeError("共享页面仅支持 DeepResearch Bench II，旧批次未启动；已有结果和标注保留")
         values = dotenv_values(Path.home() / ".bcg/.env")
@@ -135,18 +152,32 @@ def main() -> None:
             TOKENIZERS_PARALLELISM="false", HF_HUB_OFFLINE="1",
             AGENT_CORE_TRAJECTORY_FORMATS="json,jsonl", PYTHONUNBUFFERED="1",
         )
+        if graph_spec and graph_spec["provider"] == "vllm":
+            # The local model has no API authentication. Never send the LiteLLM key.
+            os.environ["BCG_LOCAL_GRAPH_API_KEY"] = "EMPTY"
         os.environ.pop("BCG_GRAPH_API_KEY", None)
         profile = yaml.safe_load((args.root / control.profiles()[config["profile"]]["source"]).read_text())
         profile["agent"]["context_mode"] = mode
         graph_endpoint: tuple[str, int] | None = None
         # Profile files contain references to env keys, never resolved credentials.
-        if mode != "default":
+        if mode in {"bcg", "bcg_no_retrieval", "bcg_compaction"}:
             if mode == "bcg_no_retrieval":
                 profile["agent"]["bcg"]["retrieval"] = "all"
+            elif mode == "bcg_compaction":
+                profile["agent"]["bcg"].update(retrieval="compaction", recent_turns=0,
+                                             compaction_turns=config.get("compaction_turns", 5))
             else:
                 profile["agent"]["bcg"]["retrieval"] = "recent_steps"
                 profile["agent"]["bcg"].setdefault("graph_recent_turns", 3)
             graph_profile = yaml.safe_load((args.root / "tools/case_study_studio/profiles/graph.yaml").read_text())
+            assert graph_spec is not None
+            graph_profile["models"]["graph"].update({key: graph_spec[key] for key in (
+                "model", "base_url", "api_key_env", "reasoning_effort", "max_tokens")})
+            # A Thinking completion can exceed the old 180-second Graph HTTP
+            # deadline. This only changes BCG calls, never the Agent/Judge LLM.
+            profile["agent"]["bcg"]["timeout"] = max(
+                profile["agent"]["bcg"].get("timeout", 180), graph_spec["request_timeout"])
+            metadata["graph"]["request_timeout"] = profile["agent"]["bcg"]["timeout"]
             task_state = bool(config.get("task_state"))
             profile["agent"]["bcg"]["task_state_enabled"] = task_state
             graph_profile.setdefault("pipeline", {})["task_state"] = {"enabled": task_state}
@@ -165,6 +196,12 @@ def main() -> None:
         else:
             profile["agent"].pop("bcg", None)
             os.environ.pop("BCG_GRAPH_URL", None)
+        if mode == "clm":
+            from benchmarks.public.reports.clm import provenance, settings as clm_settings
+
+            config["pipeline"] = "clm"
+            config["task_state"] = False
+            metadata["clm"] = {"runtime": provenance(), "settings": clm_settings(profile, config["max_turns"])}
         (root / "agent.yaml").write_text(yaml.safe_dump(profile, sort_keys=False))
         metadata["config"] = config
         save()
@@ -172,7 +209,7 @@ def main() -> None:
         def command(benchmark: str, dry: bool = False) -> list[str]:
             ids = benchmark + ":" + ",".join(config["tasks"][benchmark])
             cmd = [sys.executable, "-u", "-m", "benchmarks.public.runner.run_reports", "run", benchmark,
-                "--task-ids", ids, "--pipeline", "stateful-react-agent", "--profile", str(root / "agent.yaml"),
+                "--task-ids", ids, "--pipeline", "clm" if mode == "clm" else "stateful-react-agent", "--profile", str(root / "agent.yaml"),
                 "--workers", str(config["workers"]), "--timeout", str(config["timeout"]),
                 "--max-turns", str(config["max_turns"]), "--search-calls", str(config["search_calls"]),
                 "--fetch-calls", str(config["fetch_calls"]), "--out", str(root / benchmark)]
@@ -186,12 +223,15 @@ def main() -> None:
                 preflight = subprocess.run(command(benchmark, True), stdout=stream, stderr=subprocess.STDOUT, timeout=120)
             if preflight.returncode:
                 raise RuntimeError("任务或数据集校验失败，请检查 task ID 和本机数据文件")
-        if local:
+        if local or (graph_spec and graph_spec["provider"] == "vllm"):
             response = httpx.get("http://127.0.0.1:8001/v1/models", timeout=8, trust_env=False)
             response.raise_for_status()
-            if not any(m.get("id") == "Qwen3.5-9B" and int(m.get("max_model_len", 0)) >= 49152
-                       for m in response.json().get("data", [])):
-                raise RuntimeError("本机 Qwen 服务需要提供 Qwen3.5-9B 和至少 49152 context")
+            served_model = next((m for m in response.json().get("data", [])
+                                 if m.get("id") == "Qwen3.5-9B"), None)
+            if not served_model or int(served_model.get("max_model_len", 0)) < 65536:
+                raise RuntimeError("Agent 或建图使用的本机 Qwen 服务需要提供 Qwen3.5-9B 和至少 65536 context")
+            metadata["local_vllm"] = {"model": "Qwen3.5-9B", "max_model_len": int(served_model["max_model_len"]),
+                                      "base_url": "http://127.0.0.1:8001/v1"}
         if graph_endpoint is not None:
             graph_url, port = graph_endpoint
             with (root / "graph-server.log").open("ab") as stream:

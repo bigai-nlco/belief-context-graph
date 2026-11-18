@@ -11,6 +11,14 @@ const data={status:'scored',score:1/3,model:'offline-judge',reasoning_effort:'hi
   {id:'presentation',label:'表达呈现',score:null,items:[]},
 ]};
 
+test('Judge uses the same model display name as Agent and Graph without changing saved data',()=>{
+  const record={...data,model:'gpt-6-luna'};
+  const html=scoreDetailsMarkup(record);
+  assert(html.includes('Judge GPT-6-Luna'));
+  assert(!html.includes('Judge gpt-6-luna'));
+  assert.equal(record.model,'gpt-6-luna');
+});
+
 test('saved rubric explanations retain raw text and original item numbers',()=>{
   const all=scoreItemsMarkup(data);
   assert.equal(all.count,3);

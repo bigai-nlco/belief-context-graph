@@ -43,6 +43,19 @@ from bcg.core.confidence import VALID_STANCES, _norm_stance
 VALID_RELATION_TYPES = {"depends_on", "supplements", "contradicts"}
 
 
+def _extraction_token_limit(
+    model: str, reasoning_effort: str | None, max_tokens: int | None, json_limit: int,
+) -> int:
+    """Keep compact JSON caps unless Qwen Thinking shares that output budget.
+
+    Fact/node limits still apply. Only the token ceiling uses the configured
+    model budget so reasoning cannot consume a 768-token JSON-only allowance.
+    """
+    if "qwen" in model.casefold() and llm.resolve_reasoning_effort(model, reasoning_effort) != "none":
+        return int(max_tokens or 16384)
+    return min(int(max_tokens or json_limit), json_limit)
+
+
 def _clean_str(v: Any) -> str | None:
     if (
         isinstance(v, str)
@@ -437,7 +450,7 @@ Results:
             client,
             model,
             prompt,
-            max_tokens=min(int(max_tokens or 768), 768),
+            max_tokens=_extraction_token_limit(model, reasoning_effort, max_tokens, 768),
             reasoning_effort=reasoning_effort,
         )
     except Exception:
@@ -579,10 +592,8 @@ Items:
             client,
             model,
             prompt,
-            max_tokens=min(
-                int(max_tokens or 4096),
-                max(768, 256 * len(candidates)),
-            ),
+            max_tokens=_extraction_token_limit(
+                model, reasoning_effort, max_tokens or 4096, max(768, 256 * len(candidates))),
             reasoning_effort=reasoning_effort,
         )
     except Exception:
@@ -753,13 +764,10 @@ def extract_assistant_tool_result_nodes_batch(
         model,
         prompt,
         temperature=0.0,
-        # This call returns one bounded Assistant partition plus at most
-        # ``max_facts`` facts for each Tool Result item.  Do not inherit the
-        # graph model's potentially very large global completion budget.
-        max_tokens=min(
-            int(max_tokens or 4096),
-            max(1536, 1024 + 256 * len(candidates)),
-        ),
+        # Keep non-thinking JSON bounded. Qwen reasoning shares the completion
+        # ceiling, so use its model budget while retaining the same fact limits.
+        max_tokens=_extraction_token_limit(
+            model, reasoning_effort, max_tokens or 4096, max(1536, 1024 + 256 * len(candidates))),
         reasoning_effort=reasoning_effort,
     )
     parsed = llm.parse_json_response(raw)

@@ -144,6 +144,23 @@ test('all 22 calls of the real Demo match, including no-graph calls and the fina
 
 const graphInput = text => '<context_blocks_guide>Fixed guide</context_blocks_guide>\n<belief_graph>' + text + '</belief_graph>';
 
+for (const role of ['user','assistant']) test(`compaction evidence preserves the recorded ${role} graph role`, () => {
+  const row={...audit(4,'<belief_graph_guide>Guide only</belief_graph_guide>'),context_mode:'bcg_compaction',
+    task_state_message:{role:'user',content:'<task_state>\n[T11] Goal in progress\n</task_state>'},
+    compacted_messages:[{role,agent_step:2,content:'<belief_graph>\n[B12] Earlier evidence\n</belief_graph>'},
+      {role,agent_step:3,content:'<belief_graph>\n[B14] Updated claim\n[B14] depends_on [B12]\n</belief_graph>'}]};
+  const c=ingestFiles([file('agent/bcg/requests.jsonl',[row]),file('agent/trajectories/main.jsonl',trace('main'))]);
+  const before=structuredClone(c),context=c.contexts[0];
+  const expected=`### Task State · user\n\n[T11] Goal in progress\n\n### 第 2 轮压缩交互 · ${role}\n\n[B12] Earlier evidence\n\n### 第 3 轮压缩交互 · ${role}\n\n[B14] Updated claim\n[B14] depends_on [B12]`;
+  assert.equal(contextBeliefText(context),expected);
+  const turn=contextTurn(c,context);
+  assert.equal(turn.status,'matched');
+  assert.equal(eventBeliefContext(c,eventFromTrajectory(c,'record:'+turn.assistant.id)).text,expected);
+  assert.deepEqual(c,before);
+  assert.equal(contextBeliefText({raw:{context_mode:'bcg_compaction',compacted_messages:[]}}),'');
+  assert.equal(contextBeliefText({raw:{context_mode:'bcg_compaction',compacted_messages:[{role:'tool'}]}}),null);
+});
+
 test('critical-process Assistant and tool citations use their producing call injection', () => {
   const c = ingestFiles([
     file('agent/bcg/requests.jsonl', [audit(4, graphInput('B12: Known evidence.')), audit(5, graphInput('B99: Later evidence.'))]),

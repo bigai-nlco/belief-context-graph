@@ -512,6 +512,10 @@ def test_streaming_and_chat_use_same_projection_without_mutating_native_blocks(t
         assert [m["role"] for m in provider.inputs[0][0]].count("system") == 1
         assert provider.inputs[0][0][0]["content"].startswith("original instructions\n\n")
         assert deltas[0].reasoning_blocks == [{"type": "thinking", "signature": "original"}]
+        hint = {"role": "user", "content": "Retry the empty response.", "transient": True}
+        _ = [delta async for delta in client.stream([*messages, hint])]
+        assert provider.inputs[-1][0] == [*provider.inputs[0][0], hint]
+        assert memory.calls == 1 and hint["content"] not in str(memory.acknowledged)
         await memory.close()
 
     asyncio.run(run())
@@ -587,7 +591,7 @@ def test_real_agent_loop_four_tool_steps_then_answer(tmp_path):
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("mode", [None, "bcg", "bcg_no_retrieval", "default"])
+@pytest.mark.parametrize("mode", [None, "bcg", "bcg_no_retrieval", "bcg_compaction", "default"])
 @pytest.mark.parametrize("report_tools", [False, True])
 def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode, report_tools):
     # A stale retrieval env must not override single-agent recent-step selection.
@@ -671,6 +675,8 @@ def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode,
     }
     if mode is not None:
         profile["agent"]["context_mode"] = mode
+    if mode == "bcg_compaction":
+        profile["agent"]["bcg"] = {"compaction_turns": 3}
     if mode == "default":
         profile["agent"]["bcg"] = {"url": "not-a-graph-url"}
         def no_memory(*args, **kwargs):
@@ -730,10 +736,21 @@ def test_production_react_node_selects_context_mode(tmp_path, monkeypatch, mode,
         return
     assert len(provider.inputs[-1]) == 6
     assert result["bcg"]["fallback"] is None
-    assert result["bcg"]["evicted_steps"] == 2
+    assert result["bcg"]["evicted_steps"] == (4 if mode == "bcg_compaction" else 2)
     if mode == "bcg_no_retrieval":
         assert result["bcg"]["retrieval_strategy"] == "all"
         assert result["bcg"]["graph_chars_budget"] is None
+        assert not graph.selections
+    elif mode == "bcg_compaction":
+        assert [len(request) for request in provider.inputs] == [3, 4, 5, 6, 6]
+        assert result["bcg"]["retrieval_strategy"] == "compaction"
+        assert result["bcg"]["selector_result"]["agent_step_numbers"] == [2, 3, 4]
+        for request in provider.inputs:
+            assert [m["role"] for m in request[:3]] == ["system", "user", "user"]
+            assert "<task_state>" in request[2]["content"]
+            assert "<belief_graph>\n" not in request[0]["content"]
+            assert all(m["role"] == "user" and m["content"].startswith("<belief_graph>\n") for m in request[3:])
+            assert not any(m.get("tool_calls") or m.get("tool_call_id") for m in request)
         assert not graph.selections
     else:
         assert result["bcg"]["retrieval_strategy"] == "recent_steps"

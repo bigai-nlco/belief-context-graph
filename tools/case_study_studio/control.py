@@ -140,7 +140,7 @@ class Control:
     def profiles(self) -> dict:
         return {
             "qwen35-9b": {"label": "Qwen3.5-9B · 本机 vLLM · Thinking 开启",
-                "agent": "Qwen3.5-9B", "max_workers": 2,
+                "agent": "Qwen3.5-9B", "max_workers": 1,
                 "source": "tools/case_study_studio/profiles/qwen35-9b.yaml"},
             "gpt6-luna": {"label": "GPT-6-Luna · LiteLLM · low",
                 "agent": "gpt-6-luna", "max_workers": 6,
@@ -148,15 +148,41 @@ class Control:
         }
 
     def settings(self) -> dict:
+        from benchmarks.public.reports.clm import installation
+
+        clm = installation()
         return {"shared": True, "profiles": [
             {"id": key, **{k: v for k, v in value.items() if k != "source"}}
             for key, value in self.profiles().items()
             if safe_child(self.root, value["source"]).is_file()],
-            "default_tasks": DEFAULT_IDS, "context_modes": ["bcg", "bcg_no_retrieval", "default"],
+            "default_tasks": DEFAULT_IDS, "context_modes": ["bcg", "bcg_no_retrieval", "bcg_compaction", "default", "clm"],
+            "default_compaction_turns": 5,
+            "clm": {"available": clm["available"], "reason": clm["reason"]},
             "task_state_supported": True,
             "graph_model": "gpt-6-luna", "graph_effort": "none",
+            "default_graph_profile": "gpt6-luna",
+            "graph_profiles": [{"id": key, **{k: v for k, v in value.items()
+                                if k not in {"base_url", "api_key_env"}}}
+                               for key, value in self.graph_profiles().items()],
             "max_tasks": MAX_TASKS, "poll_seconds": 3, "launch_requires_admin": False,
             "task_catalog": {"drb2": self.task_catalog()}}
+
+    @staticmethod
+    def graph_profiles() -> dict:
+        """Server-owned model routes; independent of the selected Agent model."""
+        return {
+            "gpt6-luna": {"label": "GPT-6-Luna · LiteLLM · Thinking 关闭",
+                "model": "gpt-6-luna", "provider": "litellm", "max_workers": 6,
+                "reasoning_effort": "none", "thinking": False,
+                "max_tokens": 8192, "request_timeout": 180,
+                "base_url": "https://litellm.mybigai.ac.cn/", "api_key_env": "LITELLM_OPENAI_API_KEY"},
+            "qwen35-9b": {"label": "Qwen3.5-9B · 本机 vLLM · Thinking 开启",
+                "model": "Qwen3.5-9B", "provider": "vllm", "max_workers": 1,
+                # Qwen uses an on/off template switch, not a calibrated effort level.
+                "reasoning_effort": "low", "thinking": True,
+                "max_tokens": 16384, "request_timeout": 600,
+                "base_url": "http://127.0.0.1:8001/v1", "api_key_env": "BCG_LOCAL_GRAPH_API_KEY"},
+        }
 
     def task_catalog(self) -> dict:
         """Expose IDs and task previews only, never rubrics or blocked sources."""
@@ -303,13 +329,14 @@ class Control:
                     "input_tokens": trace.get("input", 0), "output_tokens": trace.get("output", 0),
                     "total_tokens": trace.get("input", 0) + trace.get("output", 0)}
                 graph_usage = usage.get("graph") or graph.get("graph_usage", {})
-                if mode == "default" and not graph_usage:
+                if mode in {"default", "clm"} and not graph_usage:
                     graph_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
                 task_reviews = [{"name": x["name"], "user_id": x["user_id"],
                     "status": json.loads(x["annotation"]).get("status", "draft"),
                     "mine": bool(user and x["user_id"] == user["id"]), "updated_at": x["updated_at"]}
                     for x in reviews if x["benchmark"] == benchmark and x["task_id"] == task_id]
                 tasks.append({"benchmark": benchmark, "id": task_id, "status": task_status,
+                    "clm_recording": f"{self.label(run_id)}-task-{task_id}" if mode == "clm" and (trial / "clm/summary.json").is_file() else None,
                     "calls": trace.get("calls", usage.get("agent_model_calls", 0)),
                     "turn": trace.get("turn", 0), "updated": trace.get("updated"),
                     "searches": tool.get("searches", 0), "fetches": tool.get("fetches", 0),
@@ -322,19 +349,22 @@ class Control:
                     "scoring_status": result.get("scoring_status", "official_pending"),
                     "score_details_available": score_path.is_file() and score_path.resolve().is_relative_to(trial),
                     "agent_input": agent_usage.get("input_tokens"), "agent_output": agent_usage.get("output_tokens"),
-                    "report": (trial / "report.md").is_file(), "reviews": task_reviews,
+                    "report": (trial / "report.md").is_file() and (trial / "report.md").stat().st_size > 0,
+                    "viewable": task_status in TERMINAL and bool(trace), "reviews": task_reviews,
                     "ai_review": ai_reviews.get((benchmark, task_id), {"status": "not_started"}),
                     "annotatable": task_status == "completed"})
         ended = sum(t["status"] in TERMINAL for t in tasks)
         return {"id": run_id, "number": self.label(run_id), "title": row["title"], "status": status,
             "mode": mode,
+            "compaction_turns": batch.get("config", {}).get("compaction_turns", config.get("compaction_turns", 5)) if mode == "bcg_compaction" else None,
             "task_state": bool(batch.get("config", {}).get("task_state", config.get("task_state", False))),
             "code_version": public_version(batch.get("code_version")),
             "managed": bool(row["managed"]), "created_at": row["created_at"],
             "started_at": row["started_at"] or batch.get("started_at"),
             "finished_at": row["finished_at"] or batch.get("finished_at"),
             "agent": batch.get("agent", {}).get("model") or config.get("agent_model", ""),
-            "graph": (batch.get("graph", {}).get("model") or "gpt-6-luna") if mode != "default" else None,
+            "graph": (batch.get("graph", {}).get("model") or config.get("graph_model")
+                      or "gpt-6-luna") if mode in {"bcg", "bcg_no_retrieval", "bcg_compaction"} else None,
             "workers": batch.get("workers") or config.get("workers"),
             "phase": batch.get("phase"),
             "judge": batch.get("judge", {"enabled": bool(config.get("judge_reports"))}),
@@ -419,7 +449,18 @@ class Control:
         }
 
     def evidence(self, run_id: int, benchmark: str, task_id: str) -> tuple[Path, str]:
-        trial, _ = self.annotation_task(run_id, benchmark, task_id)
+        trial, task = self.annotation_task(run_id, benchmark, task_id)
+        return self._freeze_evidence(run_id, benchmark, task_id, trial, task)
+
+    def records(self, run_id: int, benchmark: str, task_id: str) -> tuple[Path, str]:
+        """Read saved terminal-task records without granting annotation access."""
+        trial, task = self.task(run_id, benchmark, task_id)
+        if not task["viewable"]:
+            raise APIError(409, "该任务尚无可浏览的已结束记录")
+        return self._freeze_evidence(run_id, benchmark, task_id, trial, task)
+
+    def _freeze_evidence(self, run_id: int, benchmark: str, task_id: str,
+                         trial: Path, task: dict) -> tuple[Path, str]:
         # Freeze one evidence revision for all reviewers. Never rewrite cited records.
         target = safe_child(self.state, "evidence", str(run_id), benchmark, task_id + ".json.gz")
         with self.lock:
@@ -439,7 +480,12 @@ class Control:
                     from workflows._shared.case_study import export_case
                     root = self.directory(self.row(run_id))
                     source = read_json(root / benchmark / "_cases" / (task_id + ".json"))
-                    export_case(trial, output=target, metadata={"question": source.get("question", "")},
+                    export_case(trial, output=target, metadata={
+                        "question": source.get("question", ""), "task_id": task_id,
+                        "benchmark": "deepresearch_bench_ii" if benchmark == "drb2" else benchmark,
+                        "status": task["status"],
+                        "mode": self.detail(run_id)["mode"],
+                    },
                                 graph_dir=root / "graphs")
             digest_path = target.with_suffix(".sha256")
             if not digest_path.exists():
@@ -450,6 +496,11 @@ class Control:
     def evidence_preview(self, run_id: int, benchmark: str, task_id: str) -> tuple[Path, str]:
         from tools.case_study_studio.evidence_preview import preview_bundle
         source, digest = self.evidence(run_id, benchmark, task_id)
+        return preview_bundle(source, digest), digest
+
+    def records_preview(self, run_id: int, benchmark: str, task_id: str) -> tuple[Path, str]:
+        from tools.case_study_studio.evidence_preview import preview_bundle
+        source, digest = self.records(run_id, benchmark, task_id)
         return preview_bundle(source, digest), digest
 
     def review(self, run_id: int, benchmark: str, task_id: str, user: dict) -> dict:
@@ -491,23 +542,36 @@ class Control:
 
     def create_run(self, data: dict, user: dict) -> dict:
         mode = data.get("mode", "bcg")
-        if mode not in ("bcg", "bcg_no_retrieval", "default"):
-            raise APIError(400, "请选择 BCG、BCG w/o Retrieval 或 Default 模式")
+        if mode not in ("bcg", "bcg_no_retrieval", "bcg_compaction", "default", "clm"):
+            raise APIError(400, "请选择 BCG、BCG Compaction、Default 或 CLM 模式")
         task_state = data.get("task_state", False)
-        if type(task_state) is not bool or (mode == "default" and task_state):
+        if type(task_state) is not bool or (mode in {"default", "clm"} and task_state):
             raise APIError(400, "任务状态维护仅适用于 BCG 模式，开关必须是布尔值")
-        if mode == "bcg":
+        if mode in {"bcg", "bcg_compaction"}:
             task_state = True
+        if mode == "clm":
+            from benchmarks.public.reports.clm import installation
+
+            dependency = installation()
+            if not dependency["available"]:
+                raise APIError(400, dependency["reason"])
         profile_id = data.get("profile")
         profile = self.profiles().get(profile_id) if isinstance(profile_id, str) else None
         if not profile or not safe_child(self.root, profile["source"]).is_file():
             raise APIError(400, "请选择服务器已配置的 Agent 模型")
+        graph_profile_id = data.get("graph_profile", "gpt6-luna")
+        graph_profile = None
+        if mode in {"bcg", "bcg_no_retrieval", "bcg_compaction"}:
+            graph_profile = self.graph_profiles().get(graph_profile_id) if isinstance(graph_profile_id, str) else None
+            if not graph_profile:
+                raise APIError(400, "请选择服务器已配置的建图模型")
         title = data.get("title", "")
         if not isinstance(title, str) or not 1 <= len(title.strip()) <= 100:
             raise APIError(400, "填写 1–100 字的测试名称")
-        workers = data.get("workers", 2)
-        if type(workers) is not int or not 1 <= workers <= profile["max_workers"]:
-            raise APIError(400, f"此模型的并发范围为 1–{profile['max_workers']}")
+        max_workers = min(profile["max_workers"], graph_profile["max_workers"]) if graph_profile else profile["max_workers"]
+        workers = data.get("workers", min(2, max_workers))
+        if type(workers) is not int or not 1 <= workers <= max_workers:
+            raise APIError(400, f"当前 Agent / 建图模型组合的并发范围为 1–{max_workers}")
         tasks = data.get("tasks")
         if not isinstance(tasks, dict) or not tasks or set(tasks) - set(DEFAULT_IDS):
             raise APIError(400, "仅支持 DeepResearch Bench II，请填写该 Benchmark 的 task ID")
@@ -525,7 +589,14 @@ class Control:
                 raise APIError(400, "题库中没有这些题号：" + ", ".join(missing))
         config = {"profile": data["profile"], "agent_model": profile["agent"],
                   "mode": mode, "task_state": task_state, "tasks": tasks, "workers": workers,
-                  "pipeline": "stateful-react-agent", "judge_reports": True}
+                  "pipeline": "clm" if mode == "clm" else "stateful-react-agent", "judge_reports": True}
+        if mode == "bcg_compaction":
+            count = data.get("compaction_turns", 5)
+            if type(count) is not int or not 1 <= count <= 300:
+                raise APIError(400, "压缩交互保留轮数的范围为 1–300")
+            config["compaction_turns"] = count
+        if graph_profile:
+            config.update(graph_profile=graph_profile_id, graph_model=graph_profile["model"])
         for key, default, minimum, maximum in (("timeout", 3600, 60, 14400),
                 ("max_turns", 200, 1, 300), ("search_calls", 50, 0, 2000), ("fetch_calls", 50, 0, 2000)):
             value = data.get(key, default)

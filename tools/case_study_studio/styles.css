@@ -25,6 +25,11 @@ dialog{border:1px solid var(--line);border-radius:14px;max-width:650px;width:cal
 .graph-stats>strong{flex-shrink:0;white-space:nowrap}.graph-stats>.mono{flex:1}.graph-caption:after{content:"（示意最多 8 个邻居，全部关系见下方明细）";display:block;font-size:8px;margin-top:3px}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 
+/* Interrupted runs expose evidence, never an empty or editable review form. */
+.records-mode .workbench{grid-template-columns:minmax(0,1fr)}
+.records-mode .workbench>.annotation-panel,.records-mode .heading-actions,.records-mode .summary-bar,.records-mode .export-menu,.records-mode .sidebar-foot{display:none}
+.records-banner>div{display:flex;flex-direction:column;gap:5px;min-width:0}
+.records-banner span{font-size:12px;line-height:1.7;color:var(--muted)}
 /* Initial loading screen disappears when the workbench replaces #app. */
 .workbench-loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg)}
 .workbench-loading-card{display:flex;flex-direction:column;align-items:center;gap:22px;width:min(100%,340px);padding:36px 24px;background:var(--paper);border:1px solid var(--line);border-radius:18px;box-shadow:0 8px 32px rgba(var(--shadow-rgb),.05);text-align:center}

@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {benchmarkLabel,contextModeLabel,remoteLocation,caseLink,defaultRunTitle,bindAIAnnotation,saveSharedCase,taskAnnotationStatus,canAnnotateTask,annotationProgress,reportScoreLabel,runDisplayStatus,runScoreSummary} from '../shared.mjs';
+import {benchmarkLabel,modelLabel,contextModeLabel,remoteLocation,caseLink,defaultRunTitle,bindAIAnnotation,saveSharedCase,taskAnnotationStatus,canAnnotateTask,annotationProgress,reportScoreLabel,runDisplayStatus,runScoreSummary} from '../shared.mjs';
+
+test('model labels use display capitalization without changing API identifiers',()=>{
+  assert.equal(modelLabel('gpt-6-luna'),'GPT-6-Luna');
+  assert.equal(modelLabel('Qwen3.5-9B'),'Qwen3.5-9B');
+  assert.equal(modelLabel('other-model'),'other-model');
+  assert.equal(modelLabel(undefined),undefined);
+});
 
 test('full-graph ablation is displayed separately from BCG and Default',()=>{
   assert.equal(contextModeLabel('bcg'),'BCG');
@@ -9,9 +16,9 @@ test('full-graph ablation is displayed separately from BCG and Default',()=>{
   assert.equal(contextModeLabel(undefined),'BCG');
 });
 
-test('run mode labels consistently include enabled task state',()=>{
-  assert.equal(contextModeLabel('bcg',true),'BCG + 任务状态');
-  assert.equal(contextModeLabel('bcg_no_retrieval',true),'BCG w/o Retrieval + 任务状态');
+test('run mode labels omit task-state details without relabelling legacy modes',()=>{
+  assert.equal(contextModeLabel('bcg',true),'BCG');
+  assert.equal(contextModeLabel('bcg_no_retrieval',true),'BCG w/o Retrieval');
   assert.equal(contextModeLabel('bcg',false),'BCG');
   assert.equal(contextModeLabel('bcg_no_retrieval',false),'BCG w/o Retrieval');
   assert.equal(contextModeLabel('default',false),'Default');

@@ -18,6 +18,15 @@ class BCGClient:
         self.memory = memory
         self.model = inner.model
 
+    async def _project(self, messages: list[Message]) -> list[Message]:
+        # A request-only user addendum (e.g. retry guidance) is appended by the
+        # loop after its durable history. Pass it through without pinning or
+        # graphing it as human input; reuse the projection of the real transcript.
+        if messages and messages[-1].get("transient") and messages[-1].get("role") == "user":
+            projected = await self.memory.prepare(messages[:-1])
+            return [*projected, messages[-1]]
+        return await self.memory.prepare(messages)
+
     async def chat(
         self,
         messages: list[Message],
@@ -28,7 +37,7 @@ class BCGClient:
         extra_headers: dict[str, str] | None = None,
         timeout: float | None = None,
     ) -> LLMResponse:
-        projected = await self.memory.prepare(messages)
+        projected = await self._project(messages)
         return await self.inner.chat(
             projected,
             tools=tools,
@@ -48,7 +57,7 @@ class BCGClient:
         extra_headers: dict[str, str] | None = None,
         timeout: float | None = None,
     ) -> AsyncIterator[StreamDelta]:
-        projected = await self.memory.prepare(messages)
+        projected = await self._project(messages)
         stream = self.inner.stream(
             projected,
             tools=tools,

@@ -6,8 +6,8 @@ OpenAI-compatible client wrappers used by every stage.
 Two clients live here:
 
   * chat completions  — `load_config` / `make_client` / `call_model`
-    (unchanged behaviour: temperature is forced to 0 by callers, retries,
-    token accounting via the process-global USAGE tracker).
+    (Qwen honors the model-configured temperature despite legacy callers'
+    zero defaults; other models keep their existing temperature policy).
 
   * embeddings        — `load_embedding_config` / `EmbeddingClient`
     Used by the split module (global sentence clustering) and the merge
@@ -71,6 +71,7 @@ except ImportError:
 
 # Top-level config keys that are NOT chat-model entries.
 RESERVED_CONFIG_KEYS = {"embedding", "belief_graph"}
+_CLIENT_TEMPERATURE_ATTRIBUTE = "_bcg_model_temperature"
 
 
 def _is_reserved_key(key: str) -> bool:
@@ -213,7 +214,12 @@ def load_config(
 
 
 def make_client(cfg: dict[str, Any]) -> OpenAI:
-    return OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"])
+    client = OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"])
+    if cfg.get("temperature") is not None:
+        # Keep model settings on this client, not in process-global state: the
+        # same configured client is used for extraction, relations and merging.
+        setattr(client, _CLIENT_TEMPERATURE_ATTRIBUTE, float(cfg["temperature"]))
+    return client
 
 
 def _normalize_temperature_for_model(
@@ -279,17 +285,27 @@ def call_model(
 ) -> str:
     """Call chat completions and return the response text. Retries on errors.
 
-    Note: the pipeline always calls this with temperature=0 — deterministic
-    JSON output is what makes extraction reliable, regardless of what the
-    config file says.
+    Legacy construction stages pass temperature=0. For Qwen, prefer the model
+    configuration bound by make_client instead, so Thinking requests actually
+    use the configured sampling temperature. Other models retain their policy;
+    injected clients without a configured temperature use the caller's value.
     """
+    configured_temperature = getattr(client, _CLIENT_TEMPERATURE_ATTRIBUTE, None)
+    if "qwen" in model.casefold() and isinstance(configured_temperature, (int, float)):
+        temperature = float(configured_temperature)
     temperature = _normalize_temperature_for_model(model, temperature)
     effective_reasoning_effort = resolve_reasoning_effort(model, reasoning_effort)
     kwargs: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
-        "reasoning_effort": effective_reasoning_effort,
     }
+    if "qwen" in model.casefold():
+        # vLLM's Qwen template uses a boolean switch, not OpenAI effort levels.
+        kwargs["extra_body"] = {"chat_template_kwargs": {
+            "enable_thinking": effective_reasoning_effort != "none",
+        }}
+    else:
+        kwargs["reasoning_effort"] = effective_reasoning_effort
     if temperature is not None:
         kwargs["temperature"] = temperature
     if max_tokens is not None:
@@ -307,6 +323,7 @@ def call_model(
                 "model": model,
                 "label": usage_label,
                 "max_tokens": max_tokens,
+                "temperature": temperature,
                 "reasoning_effort": effective_reasoning_effort,
                 "prompt_len": len(prompt) if prompt is not None else 0,
                 "prompt": prompt,

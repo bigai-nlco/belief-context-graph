@@ -71,6 +71,16 @@ def test_untracked_graph_and_lock_changes_are_distinguishable(checkout: Path) ->
     assert "bcg/new_module.py" in files
 
 
+def test_model_route_registry_is_in_launch_fingerprint(checkout: Path) -> None:
+    path = "tools/case_study_studio/control.py"
+    write(checkout, path, "# model routes v1\n")
+    before, manifest = run_version.capture_version(checkout, "bcg")
+    assert path in manifest
+    write(checkout, path, "# model routes v2\n")
+    after, _ = run_version.capture_version(checkout, "bcg")
+    assert before["source_sha256"] != after["source_sha256"]
+
+
 def test_detached_head_and_nested_non_checkout(checkout: Path) -> None:
     git(checkout, "checkout", "--detach")
     detached = run_version.git_metadata(checkout)

@@ -68,8 +68,9 @@ def capture_version(root: Path, mode: str) -> tuple[dict, dict[str, str]]:
     git = git_metadata(root)
     manifest: dict[str, str] = {}
     complete = True
-    folders = (*AGENT_ROOTS, "tools/case_study_studio/profiles", *(("bcg",) if mode in ("bcg", "bcg_no_retrieval") else ()))
+    folders = (*AGENT_ROOTS, "tools/case_study_studio/profiles", *(("bcg",) if mode in ("bcg", "bcg_no_retrieval", "bcg_compaction") else ()))
     candidates = {root / name for name in ("pyproject.toml", "uv.lock", "tools/case_study_studio/run_job.py",
+                                          "tools/case_study_studio/control.py",
                                           "tools/case_study_studio/run_version.py") if (root / name).exists()}
     for folder in folders:
         candidates.update(file for file in (root / folder).rglob("*") if file.is_file() and (

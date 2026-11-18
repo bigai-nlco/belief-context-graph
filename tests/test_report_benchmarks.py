@@ -717,16 +717,21 @@ async def test_default_report_mode_needs_no_graph_and_records_zero_graph_usage(d
 
 
 @pytest.mark.asyncio
-async def test_full_graph_report_mode_keeps_health_usage_and_export(datasets, tmp_path, monkeypatch):
+@pytest.mark.parametrize("mode", ["bcg_no_retrieval", "bcg_compaction"])
+async def test_full_graph_report_mode_keeps_health_usage_and_export(datasets, tmp_path, monkeypatch, mode):
     profile = _write(tmp_path / "full-graph.yaml", "llm:\n  model: offline-fixture\nagent:\n  context_mode: bcg_no_retrieval\n  bcg:\n    url: http://graph.test\n    retrieval: query_pcst\n    graph_chars: 6600\n")
+    profile.write_text(profile.read_text().replace("bcg_no_retrieval", mode))
     args = run_reports.parser().parse_args([
         "run", "drb2", "--data-root", str(datasets), "--pipeline", "stateful-react-agent",
         "--profile", str(profile), "--out", str(tmp_path / "full-graph-out"),
+        *(["--compaction-turns", "3"] if mode == "bcg_compaction" else []),
     ])
     tasks = run_reports.load_tasks(args)
     config = run_reports.build_config(args, tasks)
-    assert config["mode"] == "bcg_no_retrieval" and config["graph_url"] == "http://graph.test"
-    assert config["recent_turns"] == 2 and config["graph_chars"] is None
+    assert config["mode"] == mode and config["graph_url"] == "http://graph.test"
+    assert config["recent_turns"] == (0 if mode == "bcg_compaction" else 2) and config["graph_chars"] is None
+    if mode == "bcg_compaction":
+        assert config["compaction_turns"] == 3 and config["task_state_enabled"]
     requests = []
     client = httpx.AsyncClient
 
@@ -744,7 +749,9 @@ async def test_full_graph_report_mode_keeps_health_usage_and_export(datasets, tm
             pass
 
         async def run(self, instruction, **kwargs):
-            assert kwargs["meta"]["profile_overrides"]["agent"]["context_mode"] == "bcg_no_retrieval"
+            assert kwargs["meta"]["profile_overrides"]["agent"]["context_mode"] == mode
+            if mode == "bcg_compaction":
+                assert kwargs["meta"]["profile_overrides"]["agent"]["bcg"]["compaction_turns"] == 3
             return {"final_answer": "# Report\nEvidence-based answer.\n## References\nhttps://example.org/source"}
 
     async def worker(task_id, actual, output, sem):
@@ -767,10 +774,10 @@ async def test_full_graph_report_mode_keeps_health_usage_and_export(datasets, tm
     for task in tasks:
         trial = args.out / "trials" / task.task_id
         result = json.loads((trial / "result.json").read_text())
-        assert result["mode"] == "bcg_no_retrieval" and result["graph_records"] == "agent/"
+        assert result["mode"] == mode and result["graph_records"] == "agent/"
         assert result["usage"]["graph"]["total_tokens"] == 40
         assert result["usage"]["combined"]["total_tokens"] == 160
-        assert read_bundle(trial / CASE_NAME)["cases"][0]["mode"] == "bcg_no_retrieval"
+        assert read_bundle(trial / CASE_NAME)["cases"][0]["mode"] == mode
     args.pipeline = "agent_team"
     with pytest.raises(ValueError, match="only by stateful-react-agent"):
         run_reports.build_config(args, tasks)
@@ -863,6 +870,28 @@ async def test_worker_preserves_whole_report_and_never_passes_reference(datasets
     assert imported["question"] == task.question
     assert imported["status"] == expected_status
     assert "reference" not in imported and "ground_truth" not in imported
+
+
+@pytest.mark.asyncio
+async def test_no_visible_answer_cannot_publish_or_grade_an_old_tool_preamble(datasets, tmp_path):
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def run(self, *args, **kwargs):
+            return {"stopped_by": "no_visible_answer", "final_content": "I will search for more sources."}
+
+    task = drb2.load_tasks(datasets)[0]
+    config = {"pipeline": "stateful-react-agent", "profile": "benchmark",
+              "search_calls": 20, "fetch_calls": 30, "fetch_chars": 20000}
+    trial = tmp_path / "trial"
+    result = await run_reports.execute_task(task, config, trial, session_factory=Session)
+    assert result["status"] == "empty_report" and result["error"] == "no_visible_answer"
+    assert result["scoring_status"] == "not_judged"
+    assert result["official_score"] is None and (trial / "report.md").read_text() == ""
 
 
 @pytest.mark.parametrize("pipeline", ["stateful-react-agent", "agent_team"])

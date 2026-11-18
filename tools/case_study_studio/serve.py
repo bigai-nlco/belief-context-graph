@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 if TYPE_CHECKING:
     from tools.case_study_studio.control import Control
+    from tools.case_study_studio.clm_records import CLMRecords
 
 ASSETS = {"index.html", "styles.css", "retrieval.css", "retrieval.mjs", "app.mjs", "model.mjs", "browser_crypto.mjs", "view-state.mjs", "bundles.mjs",
           "demo.mjs", "demo-case.json", "icon.svg", "copy-editor.html",
@@ -26,11 +27,13 @@ ASSETS = {"index.html", "styles.css", "retrieval.css", "retrieval.mjs", "app.mjs
           "review-pipeline.html", "review-pipeline.css", "review-pipeline.mjs",
           "review-pipeline-data.mjs", "review-pipeline-contract.json",
           "evidence-loader.mjs", "evidence-worker.mjs", "evidence-cache.mjs", "task-picker.mjs", "score-details.mjs",
-          "annotation-stats.html", "annotation-stats.css", "annotation-stats.mjs"}
+          "annotation-stats.html", "annotation-stats.css", "annotation-stats.mjs",
+          "clm.html", "clm.css", "clm.mjs"}
 
 
 class StudioHTTPServer(ThreadingHTTPServer):
     control: Control | None = None
+    clm: CLMRecords | None = None
     identity_requests: dict[tuple[str, int], int]
 
 
@@ -104,6 +107,21 @@ class Handler(SimpleHTTPRequestHandler):
         control = self._api()
         parts = unquote(urlsplit(self.path).path).strip("/").split("/")
         method = self.command
+        # Explicitly published, read-only recordings. No identity or annotation writes.
+        # The same Host/Origin restriction above applies before any data is read.
+        if parts[:3] == ["api", "clm", "runs"] and method == "GET":
+            recordings = getattr(self.server, "clm", None)
+            if len(parts) == 3:
+                return self._json({"runs": recordings.runs() if recordings else []})
+            if not recordings:
+                raise APIError(404, "未发布 CLM 记录")
+            if len(parts) == 4:
+                return self._json(recordings.detail(parts[3]))
+            if len(parts) == 5 and parts[4] == "report":
+                return self._json(recordings.report(parts[3]))
+            if len(parts) == 6 and parts[4] == "turns":
+                return self._json(recordings.turn(parts[3], parts[5]))
+            raise APIError(404, "找不到这个 CLM 接口")
         if parts == ["api", "settings"] and method == "GET":
             return self._json(control.settings())
         if parts == ["api", "session"]:
@@ -192,9 +210,11 @@ class Handler(SimpleHTTPRequestHandler):
                 benchmark, task_id, action = parts[4:]
                 if action == "score" and method == "GET":
                     return self._json(control.score_details(run_id, benchmark, task_id))
-                if action in {"evidence", "evidence-preview"} and method == "GET":
-                    preview = action == "evidence-preview"
-                    path, digest = (control.evidence_preview if preview else control.evidence)(run_id, benchmark, task_id)
+                if action in {"evidence", "evidence-preview", "records", "records-preview"} and method == "GET":
+                    preview = action.endswith("-preview")
+                    reader = {"evidence": control.evidence, "evidence-preview": control.evidence_preview,
+                              "records": control.records, "records-preview": control.records_preview}[action]
+                    path, digest = reader(run_id, benchmark, task_id)
                     self.send_response(200)
                     self.send_header("Content-Type", "application/gzip")
                     self.send_header("Content-Length", str(path.stat().st_size))
@@ -261,6 +281,8 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8876)
     parser.add_argument("--shared", action="store_true", help="Shared runs, progress and server-side annotations")
     parser.add_argument("--state-dir", type=Path, help="Private SQLite/evidence directory")
+    parser.add_argument("--clm-results", action="append", type=Path, default=[],
+                        help="Explicit CLM run directory to publish read-only; repeat for multiple runs")
     args = parser.parse_args()
     root = Path(__file__).resolve().parent
     handler = partial(Handler, directory=str(root))
@@ -269,6 +291,9 @@ def main() -> None:
         if args.shared:
             from tools.case_study_studio.control import Control
             server.control = Control(root.parents[1], args.state_dir, schedule=True)
+        if args.clm_results or args.shared:
+            from tools.case_study_studio.clm_records import CLMRecords
+            server.clm = CLMRecords(args.clm_results, control=server.control)
         print(f"BCG Case Study Studio: http://{args.host}:{server.server_port}", flush=True)
         if args.shared:
             print("Shared mode. Signed-in reviewers can start/stop tests without an administrator code.", flush=True)

@@ -94,10 +94,12 @@ from workflows.stateful_react_agent.bcg import (
 )
 from workflows.stateful_react_agent.bcg.llm import BCGClient
 from workflows.stateful_react_agent.observers import (
+    NO_VISIBLE_ANSWER,
     FinalAnswerSalvageObserver,
     ReporterStreamObserver,
     ReportSynthesisObserver,
     RichConsoleObserver,
+    VisibleAnswerGuard,
 )
 from workflows.stateful_react_agent.profile import resolve_context_mode
 from workflows.stateful_react_agent.prompts import (
@@ -923,7 +925,9 @@ async def react_agent_node(state: dict[str, Any], ctx: NodeContext) -> dict[str,
 
     event_store = registry.get_optional(EventStore)
     model_name = extract_model_name(llm)
+    answer_guard = VisibleAnswerGuard(graph_compaction=context_mode == "bcg_compaction")
     observers: list[Any] = [
+        answer_guard,
         LeakedToolCallRetryObserver(tool_names=tool_names),
         RichConsoleObserver(),
         TrajectoryFileObserver(
@@ -1099,6 +1103,9 @@ async def react_agent_node(state: dict[str, Any], ctx: NodeContext) -> dict[str,
                 reasoning_only_max_tokens=reasoning_only_max_tokens,
                 logical_call_timeout_s=logical_call_timeout_s,
                 loop_policy=_loop_policy(),
+                # This addendum exists only on the retry request, not in the transcript.
+                system_addendum_per_call=answer_guard.retry_instruction,
+                system_addendum_per_call_role="user",
                 compactor=retention,
                 compaction_policy=retention,
                 tool_result_post_processor=ReactToolResultPostProcessor(),
@@ -1163,7 +1170,10 @@ async def react_agent_node(state: dict[str, Any], ctx: NodeContext) -> dict[str,
     # by ``FinalAnswerSalvageObserver``.
     final_text = result.metadata.get("final_answer") or result.final_content
     final_text = _strip_leaked_tool_calls(str(final_text or ""))
-    if not final_text:
+    if result.stopped_by == NO_VISIBLE_ANSWER:
+        final_text = ""
+        result.metadata["final_answer_source"] = "none"
+    elif not final_text:
         final_text = _minimal_best_effort_answer(
             question, result.stopped_by, language=answer_language,
         )
@@ -1171,7 +1181,7 @@ async def react_agent_node(state: dict[str, Any], ctx: NodeContext) -> dict[str,
     answer_source = str(result.metadata.get("final_answer_source") or "agent")
     answer_status = (
         "not_found"
-        if answer_source == "deterministic_fallback"
+        if answer_source in {"deterministic_fallback", "none"}
         else "best_effort"
         if answer_source in {
             "clean_context_llm",

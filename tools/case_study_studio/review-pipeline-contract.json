@@ -2,10 +2,10 @@
   "format": "bcg-review-method-contract",
   "version": 1,
   "prompt_version": "bcg-agent-use-review-v3",
-  "source_fingerprint": "911a8c033857583a9a67cd289003eaee0ed45d3eca53a41db698a1be6a8d7160",
+  "source_fingerprint": "1bd63aedb3485bc622e80c261896fc19273a224f60c527b7944e6570fda980b8",
   "source_files": {
     "tools/case_study_studio/review_queue.py": "dc96e7b1dc1db22b5a517a2fac1d7e4f4480e5d8b6c534df63d27dcef7441bcd",
-    "tools/case_study_studio/control.py": "7fe9aba91d54023390b76187682e48528a403d821a73f7eb448f01bca4ab88da",
+    "tools/case_study_studio/control.py": "d097f64d18729b06d5df60219e46cbd270f64e387f62e538c1e9e2f94ecf2f6c",
     "tools/ai_review/evidence.py": "df24af9e517b060f2896e889d082f59de7e25f6ae38d49c6955a654d2906effe",
     "tools/ai_review/prompts.py": "680fb904aff68cb1375f9f797ae9233684e917d1e5a9a85819270d97882f62ee",
     "tools/ai_review/client.py": "a896538b71c48aec3f6656d5158c7c1d42155e6e75c1965491a5dce5e95b5d55",
@@ -26,8 +26,8 @@
     "freeze": {
       "path": "tools/case_study_studio/control.py",
       "symbol": "evidence",
-      "line": 421,
-      "end_line": 448,
+      "line": 443,
+      "end_line": 470,
       "text": "    def evidence(self, run_id: int, benchmark: str, task_id: str) -> tuple[Path, str]:\n        trial, _ = self.annotation_task(run_id, benchmark, task_id)\n        # Freeze one evidence revision for all reviewers. Never rewrite cited records.\n        target = safe_child(self.state, \"evidence\", str(run_id), benchmark, task_id + \".json.gz\")\n        with self.lock:\n            self.row(run_id)  # Do not recreate evidence after a concurrent deletion.\n            if not target.exists():\n                target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)\n                original = trial / \"case-study.json.gz\"\n                if original.is_file() and not original.is_symlink():\n                    # Generated bundles are already bounded, structured and redacted.\n                    from workflows._shared.case_study import read_bundle\n                    read_bundle(original)\n                    temporary = target.with_suffix(\".tmp\")\n                    temporary.write_bytes(original.read_bytes())\n                    temporary.chmod(0o600)\n                    temporary.replace(target)\n                else:\n                    from workflows._shared.case_study import export_case\n                    root = self.directory(self.row(run_id))\n                    source = read_json(root / benchmark / \"_cases\" / (task_id + \".json\"))\n                    export_case(trial, output=target, metadata={\"question\": source.get(\"question\", \"\")},\n                                graph_dir=root / \"graphs\")\n            digest_path = target.with_suffix(\".sha256\")\n            if not digest_path.exists():\n                digest_path.write_text(hashlib.sha256(target.read_bytes()).hexdigest())\n            digest = digest_path.read_text().strip()\n        return target, digest"
     },
     "load": {

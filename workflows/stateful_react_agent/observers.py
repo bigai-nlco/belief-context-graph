@@ -22,8 +22,11 @@ from frontier_agent.core.llm import LLMClient
 from frontier_agent.core.loop_types import (
     AgentLoopResult,
     BaseObserver,
+    Intervention,
+    TurnContext,
 )
 from frontier_agent.core.messages import Message, assistant_msg_with_reasoning, user_msg
+from frontier_agent.core.runtime.loop._response import extract_final_content
 from frontier_agent.infra.nonblocking_stream import nonblocking_stderr
 from workflows._shared.sdk_shim import (
     ReporterDeltaEmitter,
@@ -53,7 +56,56 @@ _CONTENT_PREVIEW = 2000
 _ARGS_PREVIEW = 400
 _RESULT_PREVIEW = 400
 
+NO_VISIBLE_ANSWER = "no_visible_answer"
+_GRAPH_BLOCK = re.compile(r"<belief_graph>.*?(?:</belief_graph>|\Z)", re.DOTALL)
 
+
+class VisibleAnswerGuard(BaseObserver):
+    """A tool-free ReAct turn must answer in visible text, never in reasoning alone."""
+
+    critical = True
+
+    def __init__(self, *, graph_compaction: bool = False) -> None:
+        self.graph_compaction = graph_compaction
+        self.retrying = False
+
+    def retry_instruction(self) -> str:
+        if not self.retrying:
+            return ""
+        return ("Continue the original task. If further evidence is needed and tools are "
+                "available, issue a real tool call. Otherwise give your answer in visible text.")
+
+    async def on_llm_response(self, ctx: TurnContext) -> Intervention | None:
+        # Blocked landing calls and real parsed calls have their own loop handling.
+        if ctx.tool_calls or ctx.blocked_tool_calls:
+            self.retrying = False
+            return None
+        # Reuse the kernel's visibility rules (including incomplete <think> tags),
+        # but inspect ONLY this response, never the last nonempty text in history.
+        text = extract_final_content([{"role": "assistant", "content": ctx.ai_text}])
+        # A memory-only echo is not a report. Keep answers that discuss or quote a graph.
+        if self.graph_compaction and text.startswith("<belief_graph>"):
+            text = _GRAPH_BLOCK.sub("", text).strip().removesuffix("<|im_end|>").strip()
+        if text:
+            self.retrying = False
+            return None
+        if self.retrying or ctx.finish_reason in {"refusal", "content_filter", "safety"}:
+            logger.warning("turn=%s: no tool call or visible answer; ending without a report", ctx.turn)
+            return Intervention(pop_last_message=True, stop_reason=NO_VISIBLE_ANSWER)
+        self.retrying = True
+        if ctx.tool_schemas_stripped:
+            ctx.metadata["_llm_strip_tools"] = True  # Keep a tool-free landing turn tool-free.
+        logger.warning("turn=%s: no tool call or visible answer; replaying once", ctx.turn)
+        # The trajectory observer still records this attempt. It must not become
+        # a completed interaction, a user instruction, or evidence in the graph.
+        return Intervention(pop_last_message=True, continue_to_next_turn=True)
+
+    async def on_loop_end(self, result: AgentLoopResult) -> None:
+        if result.stopped_by == NO_VISIBLE_ANSWER:
+            # The generic kernel can walk back to a previous tool-call preamble.
+            # Clear it before reporters, streams or the benchmark see the result.
+            result.final_content = ""
+            result.metadata.pop("final_answer", None)
 
 
 class FinalAnswerSalvageObserver(BaseObserver):
@@ -489,8 +541,8 @@ class ReportSynthesisObserver(BaseObserver):
         )
 
     async def on_loop_end(self, result: AgentLoopResult) -> None:
-        # D5b: cancel/pause leaves no terminal — synthesise nothing.
-        if result.stopped_by == "paused":
+        # Do not turn a rejected empty completion into a report.
+        if result.stopped_by in {"paused", NO_VISIBLE_ANSWER}:
             return
 
         stream = ReporterDeltaEmitter(self._emitter)

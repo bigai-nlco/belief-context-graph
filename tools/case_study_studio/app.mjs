@@ -5,7 +5,7 @@ import {mountCopyRuntime} from './copy-runtime.mjs';
 import {renderMarkdown} from './markdown.mjs';
 import {VIEW_STORAGE_KEY, DEFAULT_VIEW, normalizeView, readViewState} from './view-state.mjs';
 import {BUNDLE_FORMAT, MAX_IMPORT_BYTES, readImportFile, importBundles} from './bundles.mjs';
-import {remoteLocation, loadSharedCase, loadFullSharedEvidence, saveSharedCase, caseLink, benchmarkLabel, canAnnotateTask} from './shared.mjs';
+import {remoteLocation, loadSharedCase, loadFullSharedEvidence, saveSharedCase, caseLink, recordsLink, canViewRecords, benchmarkLabel, canAnnotateTask} from './shared.mjs';
 
 const $ = (q, root = document) => root.querySelector(q);
 const escape = x => String(x ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
@@ -24,6 +24,7 @@ const sharedMode = new URLSearchParams(location.search).has('run');
 const viewStorageKey = VIEW_STORAGE_KEY + (sharedMode ? ':shared:' + location.search : new URLSearchParams(location.search).has('copy-editor') ? ':copy-editor' : '');
 const current = () => state.cases.find(c => c.id === state.active);
 const aiReadOnly = () => !!current()?.remote?.readOnly;
+const recordsOnly = () => current()?.remote?.view === 'records';
 const reviewMutations = '[data-field], [data-toggle-dimension], [data-conclusion-focus], [data-no-dimensions], [data-link-dimension], [data-action="complete"], [data-action="cite"], [data-action="choose-event-source"], [data-action="delete-event"], [data-action="add-dimension"], [data-action="edit-dimension"], [data-action="delete-dimension"]';
 const icons = {
   plus: '<path d="M12 5v14M5 12h14"/>', upload: '<path d="M12 16V3m-5 5 5-5 5 5M4 15v5h16v-5"/>',
@@ -195,7 +196,7 @@ function renderSidebar() {
   if (sharedMode) return `<aside class="sidebar shared-sidebar"><a class="brand" href="./?run=${remote?.run || ''}"><img src="./icon.svg" alt="" width="37" height="37"><span>BCG<span class="brand-sub">CASE STUDY STUDIO</span></span></a>
     <div class="workspace-label"><span class="eyebrow">${escape(sharedRun?.number || '共享运行')}</span></div>
     <a class="button full" href="./?run=${remote?.run || ''}">返回运行进度</a>
-    <div class="queue-heading">本次运行的任务</div><nav class="case-list" aria-label="Case 列表">${(sharedRun?.tasks || []).map(t=>`<div class="case-row"><a class="case-item ${t.benchmark===remote.benchmark && t.id===remote.task?'active':''}" ${canAnnotateTask(t)?`href="${escape(caseLink(remote.run,t.benchmark,t.id,aiReadOnly()&&t.ai_review?.status==='completed'?'ai':undefined))}"`:'aria-disabled="true"'}><span class="case-item-top"><span class="mono">${escape(t.id)}</span></span><span class="case-name">${escape(benchmarkLabel(t.benchmark))}</span><span class="case-item-bottom">${!canAnnotateTask(t)?'暂不可标注':aiReadOnly()&&t.ai_review?.status==='completed'?'查看 AI 标注':'人工标注'}</span></a></div>`).join('')}</nav>
+    <div class="queue-heading">本次运行的任务</div><nav class="case-list" aria-label="Case 列表">${(sharedRun?.tasks || []).map(t=>`<div class="case-row"><a class="case-item ${t.benchmark===remote.benchmark && t.id===remote.task?'active':''}" ${canAnnotateTask(t)?`href="${escape(caseLink(remote.run,t.benchmark,t.id,aiReadOnly()&&t.ai_review?.status==='completed'?'ai':undefined))}"`:canViewRecords(t)?`href="${escape(recordsLink(remote.run,t.benchmark,t.id))}"`:'aria-disabled="true"'}><span class="case-item-top"><span class="mono">${escape(t.id)}</span></span><span class="case-name">${escape(benchmarkLabel(t.benchmark))}</span><span class="case-item-bottom">${!canAnnotateTask(t)?canViewRecords(t)?'查看记录 · 只读':'暂不可标注':aiReadOnly()&&t.ai_review?.status==='completed'?'查看 AI 标注':'人工标注'}</span></a></div>`).join('')}</nav>
     <div class="sidebar-foot">${button(icon('book')+'标注教程','help','button ghost full')}<div class="privacy">${icon('lock')}<div>${escape(current()?.remote?.user?.name || '共享工作区')}<span>独立标注 · 服务器保存</span></div></div></div></aside>`;
   const cases = state.cases.filter(c => `${c.taskId} ${c.title}`.toLowerCase().includes(state.sidebarSearch.toLowerCase()));
   return `<aside class="sidebar"><a class="brand" href="./" aria-label="BCG Case Study Studio"><img src="./icon.svg" alt="" width="37" height="37"><span>BCG<span class="brand-sub">CASE STUDY STUDIO</span></span></a>
@@ -214,6 +215,7 @@ function renderShell() {
   }
   const c = current();
   document.body.classList.toggle('ai-review-mode',aiReadOnly());
+  document.body.classList.toggle('records-mode',recordsOnly());
   $('#app').innerHTML = `${renderSidebar()}<main class="main"><header class="topbar"><div class="breadcrumb">${sharedMode?escape(sharedRun?.number || '共享工作区'):'研究工具'} <span>/</span> Case Study <span>/</span> <strong>${c ? escape(c.taskId) : '工作台'}</strong></div><div class="top-actions"><span class="save-state"><i></i><span id="save-label">${sharedMode?'已连接服务器':db ? '已保存到此浏览器' : '仅临时保存 · 请导出备份'}</span></span>${sharedMode?'':button('使用示例', 'demo', 'button subtle')+button(icon('upload') + '导入文件', 'import', 'button')}<details class="export-menu"><summary class="button">${icon('download')}导出</summary><div>${button('工作包 JSON · 含证据与标注', 'export-json', 'menu-item')}${button('当前 Case · Markdown', 'export-md', 'menu-item')}${button('所有 Case · CSV', 'export-csv', 'menu-item')}</div></details></div></header>
     <div class="content">${sharedMode&&c?renderSharedBanner(c):''}${startupError?`<section class="notice amber"><h2>无法打开任务</h2><p>${escape(startupError)}</p><a class="button" href="./">返回运行中心填写昵称或重试</a></section>`:c ? renderWorkspace(c) : renderEmpty()}</div><footer class="footer"><span>BCG / CASE STUDY STUDIO</span><span>轨迹阅读 · 证据引用 · ${aiReadOnly()?'AI 标注':'人工标注'}</span></footer></main>`;
   if (saveError) saveLabel('未保存 · 请导出备份', true);
@@ -233,6 +235,11 @@ function renderShell() {
   scheduleViewSave();
 }
 function renderSharedBanner(c){
+  if(c.remote.view==='records'){
+    const task=sharedRun.tasks.find(t=>t.benchmark===remote.benchmark&&t.id===remote.task);
+    const status={interrupted:'运行中断',cancelled:'运行已停止',timeout:'运行超时',completed:'已完成'}[task?.status]||'运行失败';
+    return `<div class="shared-case-banner records-banner"><div><strong>${status}${task?.report?'':' · 无最终报告'}</strong><span>只读浏览已保存的运行轨迹、逐轮 Belief 注入和最后保存的 Graph。历史快照缺失时不作补造。</span></div><a class="button subtle" href="./?run=${remote.run}">返回运行进度</a></div>`;
+  }
   if(c.remote.readOnly){
     const ai=c.remote.ai;
     return `<div class="shared-case-banner ai-review-banner"><div><strong>AI 标注 · 只读</strong><span>${escape(ai.model)} · ${escape(ai.reasoning_effort)} · LiteLLM${ai.usage?` · 标注 Token ${num(ai.usage.total_tokens)}`:''}</span></div><a class="button subtle" href="${escape(caseLink(remote.run,remote.benchmark,remote.task))}">人工标注</a></div>`;
@@ -378,7 +385,7 @@ function graphSVG(node, edges, graph) {
   return `<svg viewBox="0 0 520 224" role="img" aria-label="B${escape(node.id)} 的一跳关系图"><defs><marker id="edge-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="var(--line-strong)"/></marker></defs>${edges.filter(e => points.has(e.from_id) && points.has(e.to_id) && e.from_id !== e.to_id).map(e => {const a = points.get(e.from_id), b = points.get(e.to_id), dx = b[0]-a[0], dy = b[1]-a[1], len = Math.hypot(dx,dy); return `<line x1="${a[0] + dx/len*23}" y1="${a[1]+dy/len*23}" x2="${b[0]-dx/len*26}" y2="${b[1]-dy/len*26}" class="graph-edge ${e.type === 'contradicts' ? 'conflict-edge' : ''}" marker-end="url(#edge-arrow)"><title>B${escape(e.from_id)} ${escape(e.type)} B${escape(e.to_id)}</title></line>`;}).join('')}${[...points.entries()].map(([id,[x,y]]) => `<g class="svg-node ${id === node.id ? 'center' : ''}" data-node="${escape(id)}" role="button" tabindex="0" aria-label="查看节点 B${escape(id)}"><circle cx="${x}" cy="${y}" r="23"/><text x="${x}" y="${y+4}" text-anchor="middle">B${escape(id)}</text></g>`).join('')}</svg>`;
 }
 function renderReport(c) {
-  return `<section class="task-result"><h3 class="subheading">任务原文</h3><pre class="plain-text">${escape(c.question || '任务文件中未提供，可在基本信息中填写分析目标。')}</pre><h3 class="subheading">最终结果</h3>${c.report ? `<article class="record report-record"><div class="report-markdown" data-copy-lock>${renderMarkdown(c.report)}</div></article>` : blank('尚无最终结果', '导入包含最终回答或报告的运行结果。')}</section>`;
+  return `<section class="task-result"><h3 class="subheading">任务原文</h3><pre class="plain-text">${escape(c.question || '任务文件中未提供，可在基本信息中填写分析目标。')}</pre><h3 class="subheading">最终结果</h3>${c.report ? `<article class="record report-record"><div class="report-markdown" data-copy-lock>${renderMarkdown(c.report)}</div></article>` : blank('尚无最终结果', recordsOnly()?'本次任务未保存最终报告，已有模型输出可在运行轨迹中查看。':'导入包含最终回答或报告的运行结果。')}</section>`;
 }
 
 function field(label, path, value, {type = 'textarea', options, placeholder = '', rows = 3, hint = '', help = ''} = {}) {
@@ -654,8 +661,12 @@ function lockReviewer() {
       if(el.matches('[data-action]'))el.hidden=true;
     });
     $('.annotation-panel')?.classList.add('ai-readonly');
-    const chip=$('#review-status');if(chip){chip.textContent='AI 标注';chip.className='badge green';}
-    saveLabel('AI 标注 · 已保存到服务器');
+    const chip=$('#review-status');if(chip){chip.textContent=recordsOnly()?'运行记录 · 只读':'AI 标注';chip.className='badge '+(recordsOnly()?'neutral':'green');}
+    if(recordsOnly()){
+      $('.case-kicker .eyebrow').textContent='RUN RECORDS';
+      $('.footer>span:nth-child(2)').textContent='轨迹阅读 · 只读浏览';
+    }
+    saveLabel(recordsOnly()?'运行记录 · 只读':'AI 标注 · 已保存到服务器');
   }
 }
 
@@ -998,7 +1009,7 @@ try{savedView=localStorage.getItem(viewStorageKey);}catch{}
 try {
   // Read-only AI results never read personal drafts. Human shared pages load
   // only this user's task draft after session resolution, not the entire DB.
-  if(!sharedMode||remote?.review!=='ai')db=await openDB();
+  if(!sharedMode||(remote?.review!=='ai'&&remote?.view!=='records'))db=await openDB();
   if(!sharedMode)state.cases=(await dbOperation('getAll')).filter(c=>!c.remote);
   if(!sharedMode){
   for(const c of state.cases)if(updateDemoTitle(c))pending.set(c.id,c);
@@ -1013,6 +1024,7 @@ catch(e){toast('浏览器持久化存储不可用。仍可标注，请及时导�
 if(sharedMode) {
   try {
     if(startupError)throw new Error(startupError);
+    if(remote.view==='records')$('.workbench-loading-card p').textContent='正在加载运行记录…';
     const loaded=await loadSharedCase(remote,id=>dbOperation('get',id).catch(()=>null));
     sharedRun=loaded.run;state.cases=[loaded.c];state.active=loaded.c.id;
     navigation=readViewState(savedView,[loaded.c.id]);

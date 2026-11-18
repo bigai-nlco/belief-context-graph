@@ -317,6 +317,25 @@ export function agentTrajectories(c) {
 
 /** Display only the recorded graph block; preserve the full input in source data. */
 export function contextBeliefText(context) {
+  // Compaction audit records share one graph namespace. These blocks were
+  // sent separately from System. Show the recorded role, including legacy runs.
+  const audit=context?.raw;
+  if(audit?.context_mode==='bcg_compaction'){
+    if(!Array.isArray(audit.compacted_messages))return null;
+    const parts=[];
+    if(audit.task_state_message?.role==='user'&&typeof audit.task_state_message.content==='string'){
+      const task=audit.task_state_message.content.match(/^<task_state>\s*([\s\S]*?)\s*<\/task_state>$/);
+      if(!task)return null;
+      if(task[1])parts.push(`### Task State · user\n\n${task[1]}`);
+    }
+    for(const message of audit.compacted_messages){
+      if(!['user','assistant'].includes(message?.role)||typeof message.content!=='string'||!Number.isInteger(message.agent_step))return null;
+      const graph=message.content.match(/^<belief_graph>\s*([\s\S]*?)\s*<\/belief_graph>$/);
+      if(!graph)return null;
+      parts.push(`### 第 ${message.agent_step} 轮压缩交互 · ${message.role}\n\n${graph[1]}`);
+    }
+    return parts.join('\n\n');
+  }
   const blocks = [...(context?.text || '').matchAll(/<belief_graph>([\s\S]*?)<\/belief_graph>/g)];
   // Multiple graph blocks may use different ID namespaces. Do not merge them.
   return blocks.length === 1 ? blocks[0][1].trim() : null;

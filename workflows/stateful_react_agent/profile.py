@@ -29,8 +29,8 @@ _PROFILE_ALIASES = {
 def resolve_context_mode(agent: dict[str, Any]) -> str:
     """Keep existing profiles on BCG; explicitly opt into context ablations."""
     mode = agent.get("context_mode", "bcg")
-    if mode not in ("bcg", "bcg_no_retrieval", "default"):
-        raise ValueError("agent.context_mode must be 'bcg', 'bcg_no_retrieval' or 'default'")
+    if mode not in ("bcg", "bcg_no_retrieval", "bcg_compaction", "default"):
+        raise ValueError("agent.context_mode must be 'bcg', 'bcg_no_retrieval', 'bcg_compaction' or 'default'")
     return mode
 
 

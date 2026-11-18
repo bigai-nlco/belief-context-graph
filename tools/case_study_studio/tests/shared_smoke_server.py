@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from tools.case_study_studio.control import ROOT
+from tools.case_study_studio.clm_records import CLMRecords
 from tools.case_study_studio.serve import Handler, StudioHTTPServer
 from tools.case_study_studio.tests.mock_ai_review import mock_reviews
 from tools.case_study_studio.tests.mock_run_summary import mock_summaries
@@ -22,6 +23,7 @@ args = parser.parse_args()
 control = annotated_fixture(args.root)[0] if args.mock_summary else build_fixture(args.root)
 with StudioHTTPServer(("127.0.0.1", args.port), partial(Handler, directory=str(ROOT / "tools/case_study_studio"))) as server:
     server.control = control
+    server.clm = CLMRecords([], control)
     print(f"Offline QA server ready: {server.server_port}", flush=True)
     with mock_reviews(control) if args.mock_ai else nullcontext(), \
          mock_summaries(control) if args.mock_summary else nullcontext():

@@ -102,6 +102,26 @@ def test_missing_or_ambiguous_graph_cannot_support_finding(trial):
     assert prepare_case(trial)["steps"][0]["graph"]["status"] == "ambiguous"
 
 
+@pytest.mark.parametrize("role", ["user", "assistant"])  # current and legacy audits
+def test_compaction_evidence_reads_actual_message_roles_and_detects_different_windows(trial, role):
+    row = {"call": 1, "context_mode": "bcg_compaction", "graph_chars": 100,
+           "system_memory": "<belief_graph_guide>Guide only</belief_graph_guide>",
+           "task_state_message": {"role": "user", "content": "<task_state>\n[T1] Task in progress\n</task_state>"},
+           "compacted_messages": [
+               {"role": role, "agent_step": 1, "content": "<belief_graph>\n[B12] Earlier evidence\n</belief_graph>"},
+               {"role": role, "agent_step": 2, "content": "<belief_graph>\n" + GRAPH + "\n</belief_graph>"}]}
+    path = trial / "agent/bcg/requests.jsonl"
+    original = json.dumps(row, ensure_ascii=False) + "\n"
+    write(trial, "agent/bcg/requests.jsonl", original)
+    graph = prepare_case(trial)["steps"][0]["graph"]
+    assert graph["status"] == "matched"
+    assert "Task State · user" in graph["text"] and f"第 2 轮压缩交互 · {role}" in graph["text"]
+    assert GRAPH in graph["text"] and "Guide only" not in graph["text"]
+    row["compacted_messages"][1]["content"] = "<belief_graph>Different graph of the same size</belief_graph>"
+    path.write_text(original + json.dumps(row) + "\n")
+    assert prepare_case(trial)["steps"][0]["graph"]["status"] == "ambiguous"
+
+
 @pytest.mark.parametrize("field,value", [
     ("graph_quotes", ["invented node quotation"]), ("action_quote", "invented Assistant action"),
     ("report_quote", "invented report sentence"), ("anchor_id", "future-step"),

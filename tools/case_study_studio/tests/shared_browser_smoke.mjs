@@ -321,26 +321,48 @@ try{
   assert.equal((await api('settings')).launch_requires_admin,false);
   assert.equal(await evaluate('document.querySelector("#launch-form [name=drb2]").type'),'hidden');
   const launchSettings=await api('settings');
-  assert.deepEqual(launchSettings.context_modes,['bcg','bcg_no_retrieval','default']);
+  assert.deepEqual(launchSettings.context_modes,['bcg','bcg_no_retrieval','default','clm']);
+  assert.deepEqual(await evaluate('[...document.querySelector("#launch-mode").options].map(o=>[o.value,o.textContent])'),[['bcg','BCG'],['default','Default'],['clm','CLM']]);
+  assert.deepEqual(await evaluate('[...document.querySelector("#launch-profile").options].map(o=>o.textContent)'),['Qwen3.5-9B','GPT-6-Luna'],'Agent choices show model names only');
+  assert.equal(await evaluate('document.querySelector("#launch-graph-profile option[value=gpt6-luna]").textContent'),'GPT-6-Luna');
+  assert.equal(await evaluate('document.querySelector("#launch-form").textContent.includes("批次按编号排队")'),false);
+  assert.equal(await evaluate('document.querySelector("#launch-form").textContent.includes("启动会消耗已配置的 API 额度")'),false);
   assert.equal(await evaluate('document.querySelector("#launch-mode").value'),'bcg','existing launch defaults to BCG');
+  assert.equal(await evaluate('document.querySelector("#launch-graph-profile").value'),'gpt6-luna');
+  assert.deepEqual(launchSettings.graph_profiles.map(p=>p.id),['gpt6-luna','qwen35-9b']);
+  const selectModel=(id,value)=>evaluate(`{const e=document.querySelector(${JSON.stringify(id)});e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('change',{bubbles:true}));}`);
+  await selectModel('#launch-profile','gpt6-luna');
+  assert.equal(await evaluate('document.querySelector("#launch-form [name=workers]").max'),'6');
+  await selectModel('#launch-graph-profile','qwen35-9b');
+  assert.equal(await evaluate('document.querySelector("#launch-profile").value'),'gpt6-luna','Graph model does not change Agent');
+  assert.equal(await evaluate('document.querySelector("#launch-form [name=workers]").max'),'1');
+  assert(await evaluate('document.querySelector("#launch-context-info").textContent.includes("Qwen3.5-9B · 本机 vLLM · Thinking 开启")'));
+  for(const width of [1440,430,320]){
+    await command('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:false});
+    assert(await evaluate('document.querySelector("#launch-dialog").scrollWidth<=document.querySelector("#launch-dialog").clientWidth+1'),'model selectors fit the dialog');
+    assert(await evaluate(`(()=>{const a=document.querySelector('#launch-profile').getBoundingClientRect(),g=document.querySelector('#launch-graph-profile').getBoundingClientRect();return a.right<=g.left||a.bottom<=g.top;})()`),'Agent and Graph selectors do not overlap');
+    await shot('launch-graph-model-'+width+'.png');
+  }
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+  await selectModel('#launch-profile','qwen35-9b');
   assert.equal(await evaluate('document.querySelector("#launch-mode option[value=default]").disabled'),false);
   await evaluate('document.querySelector("#launch-mode").value="default";document.querySelector("#launch-mode").dispatchEvent(new Event("change",{bubbles:true}))');
   assert(await evaluate('document.querySelector("#launch-task-state").disabled'));
+  assert(await evaluate('document.querySelector("#launch-graph-profile").disabled'));
   assert(await evaluate('document.querySelector("#launch-context-info").textContent.includes("不建图、不注入 Graph")'));
   await click('[data-close=launch-dialog]');await click('#launch-button');
   assert.equal(await evaluate('document.querySelector("#launch-mode").value'),'default','reopening preserves the selected context mode');
   await shot('launch-default-mode.png');
-  assert.equal(await evaluate('document.querySelector("#launch-mode option[value=bcg_no_retrieval]").disabled'),false);
-  await evaluate('document.querySelector("#launch-mode").value="bcg_no_retrieval";document.querySelector("#launch-mode").dispatchEvent(new Event("change",{bubbles:true}))');
-  assert(await evaluate('!document.querySelector("#launch-task-state").disabled'));
-  await click('#launch-task-state');
-  assert(await evaluate('document.querySelector("#launch-context-info").textContent.includes("全部节点和边")'));
-  assert(await evaluate('document.querySelector("#launch-context-info").textContent.includes("不按 6,600 字符裁剪")'));
+  await selectModel('#launch-mode','bcg');
+  assert(await evaluate('document.querySelector("#launch-task-state").disabled && document.querySelector("#launch-task-state").checked'));
+  assert(await evaluate('!document.querySelector("#launch-graph-profile").disabled'));
+  assert.equal(await evaluate('document.querySelector("#launch-graph-profile").value'),'qwen35-9b','Graph choice survives Default mode');
+  assert.equal(await evaluate('document.querySelector("#launch-dialog").textContent.includes("w/o Retrieval")'),false);
   for(const width of [1440,430,320]){
     await command('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:false});
-    assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'full-graph mode dialog does not overflow');
-    assert(await evaluate('document.querySelector("#launch-dialog").scrollWidth<=document.querySelector("#launch-dialog").clientWidth+1'),'full-graph mode option fits dialog');
-    await shot('launch-no-retrieval-'+width+'.png');
+    assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'BCG mode dialog does not overflow');
+    assert(await evaluate('document.querySelector("#launch-dialog").scrollWidth<=document.querySelector("#launch-dialog").clientWidth+1'),'BCG mode option fits dialog');
+    await shot('launch-bcg-'+width+'.png');
   }
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await evaluate('document.querySelector("#launch-mode").value="bcg";document.querySelector("#launch-mode").dispatchEvent(new Event("change",{bubbles:true}))');
@@ -348,7 +370,7 @@ try{
   assert(await evaluate('document.querySelector("#launch-task-state").checked && document.querySelector("#launch-task-state").disabled'));
   assert.equal(await evaluate('document.querySelector("#launch-form [name=drb2]").value'),launchSettings.default_tasks.drb2.join(','),'launch form uses the server default task list');
   assert.equal(launchSettings.default_tasks.drb2.length,32);
-  assert.equal(await evaluate('document.querySelector("#launch-max-tasks").textContent'),'32');
+  assert.equal(await evaluate('document.querySelector("#launch-max-tasks")===null'),true);
   const taskIds=()=>evaluate('document.querySelector("#launch-form [name=drb2]").value');
   assert.equal(await evaluate('document.querySelectorAll(".task-chip").length'),32);
   const markedIds=()=>evaluate('[...document.querySelectorAll(".task-chip.is-marked")].map(e=>e.dataset.removeTask)');
@@ -478,20 +500,23 @@ try{
   assert.equal(await evaluate('document.querySelectorAll("#cancel-form [name=admin]").length'),0);
   await shot('cancel-dialog.png');await click('#cancel-form [type=submit]');
   await until(async()=> (await api('runs/2')).status==='cancelled','cancel queue');
-  await click('#launch-button');
-  await evaluate('document.querySelector("#launch-mode").value="bcg_no_retrieval";document.querySelector("#launch-mode").dispatchEvent(new Event("change",{bubbles:true}))');
-  // Default clears the task-state switch; the all-graph mode remains opt-in.
-  assert(await evaluate('!document.querySelector("#launch-task-state").checked'));
-  await click('#launch-task-state');
-  await click('#launch-form [type=submit]');
+  // Historical/API full-graph records remain accurately labelled even though
+  // the launch UI offers BCG, Default and CLM. This mock server never runs jobs.
+  const legacyRun=await api('runs',aliceToken,'POST',{
+    title:'Legacy full-graph fixture',profile:'qwen35-9b',graph_profile:'qwen35-9b',
+    mode:'bcg_no_retrieval',task_state:true,tasks:{drb2:['2']},
+    workers:1,timeout:3600,max_turns:200,search_calls:50,fetch_calls:50,
+  });
+  await navigate('/?run='+legacyRun.id);
   await until(()=>evaluate('document.querySelector(".run-heading .eyebrow")?.textContent==="RUN-0003"'),'queued full-graph batch');
   const fullGraphRun=await api('runs/3');
   assert.equal(fullGraphRun.mode,'bcg_no_retrieval');
   assert.equal(fullGraphRun.task_state,true);
-  assert.equal(await evaluate('document.querySelector(".run-item.selected .run-mode-label").textContent'),'BCG w/o Retrieval + 任务状态');
-  assert(await evaluate('document.querySelector(".run-heading").textContent.includes("任务状态")'));
-  assert.equal(fullGraphRun.graph,'gpt-6-luna');
+  assert.equal(await evaluate('document.querySelector(".run-item.selected .run-mode-label").textContent'),'BCG w/o Retrieval');
+  assert.equal(await evaluate('document.querySelector(".run-heading").textContent.includes("+ 任务状态")'),false);
+  assert.equal(fullGraphRun.graph,'Qwen3.5-9B','Graph model selection is saved and shown while queued');
   assert.equal(fullGraphRun.judge.enabled,true);
+  assert(await evaluate('document.querySelector(".run-heading").textContent.includes("Judge GPT-6-Luna")'));
   assert(await evaluate('document.querySelector(".run-heading").textContent.includes("模式：BCG w/o Retrieval")'));
   assert(await evaluate('document.querySelector(".run-item.selected").textContent.includes("BCG w/o Retrieval")'));
   for(const width of [1440,430,320]){

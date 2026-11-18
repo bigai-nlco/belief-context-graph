@@ -1,4 +1,4 @@
-import {api,benchmarkLabel} from './shared.mjs';
+import {api,benchmarkLabel,modelLabel} from './shared.mjs';
 
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const percent=value=>Number.isFinite(value)?`${(value*100).toFixed(1)} / 100`:'—';
@@ -37,7 +37,7 @@ export function scoreDetailsMarkup(data){
   const date=data.judged_at?new Date(data.judged_at).toLocaleString('zh-CN',{hour12:false}):'—';
   return `
     ${data.status==='judge_error'?'<p class="score-error" role="status">本次评分未完成，未产生完整分数。这里只展示已保存的评分项，不会自动重新评分。</p>':''}
-    <p class="score-metadata">Judge ${escape(data.model||'未记录')} · 思考强度 ${escape(data.reasoning_effort||'未记录')}<br>评分时间 ${escape(date)}${Number.isFinite(data.duration_seconds)?` · 耗时 ${data.duration_seconds.toFixed(1)} 秒`:''}</p>
+    <p class="score-metadata">Judge ${escape(modelLabel(data.model)||'未记录')} · 思考强度 ${escape(data.reasoning_effort||'未记录')}<br>评分时间 ${escape(date)}${Number.isFinite(data.duration_seconds)?` · 耗时 ${data.duration_seconds.toFixed(1)} 秒`:''}</p>
     <div class="score-overview"><div><span>总分</span><strong>${percent(data.score)}</strong></div>${data.dimensions.map(d=>`<div><span>${escape(d.label)}</span><strong>${percent(d.score)}</strong></div>`).join('')}</div>
     <p class="score-legend">单项评分：1 满足标准 · 0 未满足标准 · −1 命中受限引用。总分为得 1 分的项目占全部评分项的比例。<br>原文证据由 Judge 从 Agent 最终报告中摘录，按每条评分项记录。0 分项按规则留空；1 分和 −1 分项应提供报告原句。</p>
     <div class="score-filters">

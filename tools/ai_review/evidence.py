@@ -109,6 +109,34 @@ def content(value: Any) -> str:
     return ""
 
 
+def injected_graph_text(audit: dict) -> str | None:
+    """Read actual injected messages; never reconstruct them from a final graph."""
+    if audit.get("context_mode") == "bcg_compaction":
+        messages = audit.get("compacted_messages")
+        if not isinstance(messages, list):
+            return None
+        parts = []
+        task = audit.get("task_state_message") or {}
+        if task.get("role") == "user" and isinstance(task.get("content"), str):
+            match = re.fullmatch(r"<task_state>\s*([\s\S]*?)\s*</task_state>", task["content"])
+            if not match:
+                return None
+            if match[1]:
+                parts.append("### Task State · user\n\n" + match[1])
+        for message in messages:
+            if (not isinstance(message, dict) or message.get("role") not in ("user", "assistant")
+                    or not isinstance(message.get("content"), str)
+                    or type(message.get("agent_step")) is not int):
+                return None
+            match = re.fullmatch(r"<belief_graph>\s*([\s\S]*?)\s*</belief_graph>", message["content"])
+            if not match:
+                return None
+            parts.append(f"### 第 {message['agent_step']} 轮压缩交互 · {message['role']}\n\n" + match[1])
+        return "\n\n".join(parts)
+    blocks = re.findall(r"<belief_graph>([\s\S]*?)</belief_graph>", audit.get("system_memory", ""))
+    return blocks[0].strip() if len(blocks) == 1 else None
+
+
 def prepare_case(source: Path) -> dict[str, Any]:
     files, warnings = load_files(source)
     meta = {**json.loads(files.get("result.json", "{}")), **json.loads(files.get("case.json", "{}"))}
@@ -135,16 +163,17 @@ def prepare_case(source: Path) -> dict[str, Any]:
                 continue
             call = row.get("turn")
             matches = injections.get((owner(name), str(call)), [])
-            unique = {json.dumps({k: m.get(k) for k in ("system_memory", "graph_chars", "fallback")}, sort_keys=True)
+            unique = {json.dumps({k: m.get(k) for k in ("system_memory", "graph_chars", "fallback",
+                       "context_mode", "compacted_messages", "task_state_message")}, sort_keys=True)
                       for m in matches}
             match = matches[0] if len(unique) == 1 else None
             graph_text, status = "", "missing" if not matches else "ambiguous"
             if match:
-                blocks = re.findall(r"<belief_graph>([\s\S]*?)</belief_graph>", match.get("system_memory", ""))
+                injected = injected_graph_text(match)
                 if match.get("fallback"):
                     status = "fallback"
-                elif len(blocks) == 1:
-                    graph_text = blocks[0].strip()
+                elif injected is not None:
+                    graph_text = injected
                     status = "matched" if graph_text else "empty"
                 elif match.get("graph_chars") == 0:
                     status = "empty"

@@ -19,8 +19,8 @@ agent:
   logical_call_timeout_s: 900
   thinking_format: reasoning_content
   thinking_in_history: true
-  max_len: 49152
-  max_input_tokens: 40960
+  max_len: 65536
+  max_input_tokens: 57344
   reporter: false
   agent_tools: [web_search, web_fetch, bash, download_file, grep_search, glob_search, recover_result]
   web_search_impl: original

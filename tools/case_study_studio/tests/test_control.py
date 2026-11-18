@@ -57,8 +57,51 @@ def control(tmp_path: Path) -> Control:
 
 
 def request_config(**changes: object) -> dict:
-    return {"title": "Offline UI test", "profile": "qwen35-9b", "workers": 2,
+    return {"title": "Offline UI test", "profile": "qwen35-9b", "workers": 1,
             "tasks": {"drb2": ["2"]}, **changes}
+
+
+@pytest.mark.parametrize("agent", ["gpt6-luna", "qwen35-9b"])
+@pytest.mark.parametrize("graph, model", [("gpt6-luna", "gpt-6-luna"), ("qwen35-9b", "Qwen3.5-9B")])
+def test_graph_model_is_selected_independently(control: Control, agent: str, graph: str, model: str) -> None:
+    user = control.register("model-selector")["user"]
+    run = control.create_run(request_config(profile=agent, graph_profile=graph), user)
+    saved = json.loads(control.row(run["id"])["config"])
+    assert saved["graph_profile"] == graph and saved["graph_model"] == model
+    assert run["graph"] == model and run["agent"] == control.profiles()[agent]["agent"]
+    reopened = Control(control.root, control.state)
+    assert reopened.detail(run["id"])["graph"] == model
+
+
+def test_graph_model_choices_default_limits_and_no_graph_mode(control: Control) -> None:
+    user = control.register("graph-settings")["user"]
+    settings = control.settings()
+    assert settings["default_graph_profile"] == "gpt6-luna"
+    choices = {p["id"]: p for p in settings["graph_profiles"]}
+    assert set(choices) == {"gpt6-luna", "qwen35-9b"}
+    assert choices["qwen35-9b"]["thinking"] is True
+    assert choices["qwen35-9b"]["max_workers"] == 1
+    assert control.profiles()["qwen35-9b"]["max_workers"] == 1
+    assert choices["gpt6-luna"]["reasoning_effort"] == "none"
+    assert all("api_key_env" not in p and "base_url" not in p for p in choices.values())
+    run = control.create_run(request_config(profile="gpt6-luna", workers=6), user)
+    assert run["graph"] == "gpt-6-luna"
+    assert json.loads(control.row(run["id"])["config"])["graph_profile"] == "gpt6-luna"
+    with pytest.raises(APIError, match="并发"):
+        control.create_run(request_config(profile="gpt6-luna", graph_profile="qwen35-9b", workers=2), user)
+    run = control.create_run(request_config(profile="gpt6-luna", graph_profile="qwen35-9b", workers=6, mode="default"), user)
+    assert run["graph"] is None
+    assert "graph_profile" not in json.loads(control.row(run["id"])["config"])
+    request = request_config()
+    request.pop("workers")
+    assert control.create_run(request, user)["workers"] == 1
+
+
+@pytest.mark.parametrize("graph", ["invalid", "../graph.yaml", "", None, {}, ["qwen35-9b"]])
+def test_invalid_graph_model_is_rejected(control: Control, graph: object) -> None:
+    user = control.register("invalid-graph")["user"]
+    with pytest.raises(APIError, match="建图模型"):
+        control.create_run(request_config(graph_profile=graph), user)
 
 
 def test_catalog_and_progress_are_stable(control: Control) -> None:
@@ -212,7 +255,7 @@ def test_concurrent_edit_has_one_winner(control: Control) -> None:
 
 
 @pytest.mark.parametrize("changes", [
-    {"profile": {}}, {"profile": "arbitrary.py"}, {"workers": 3}, {"workers": True},
+    {"profile": {}}, {"profile": "arbitrary.py"}, {"workers": 2}, {"workers": 3}, {"workers": True},
     {"tasks": {"drb2": ["../.env"]}}, {"tasks": {"drb2": [{}]}}, {"tasks": {"drb2": ["2", "2"]}},
     {"tasks": {"unknown": ["2"]}}, {"tasks": {"drb2": [str(i) for i in range(33)]}},
     {"tasks": {"drbench": ["DR0001"]}}, {"tasks": {"drb2": ["2"], "drbench": ["DR0001"]}},
@@ -299,7 +342,22 @@ def test_context_mode_is_validated_saved_and_displayed(control: Control) -> None
     assert result["mode"] == "bcg_no_retrieval" and result["graph"] == "gpt-6-luna"
     assert json.loads(control.row(result["id"])["config"])["mode"] == "bcg_no_retrieval"
     assert result["judge"]["enabled"]
-    assert control.settings()["context_modes"] == ["bcg", "bcg_no_retrieval", "default"]
+    assert control.settings()["context_modes"] == ["bcg", "bcg_no_retrieval", "bcg_compaction", "default", "clm"]
+
+
+def test_compaction_launch_saves_window_and_forces_global_state(control: Control) -> None:
+    user = control.register("compaction-operator")["user"]
+    assert control.settings()["default_compaction_turns"] == 5
+    for count in (1, 3, 5):
+        run = control.create_run(request_config(mode="bcg_compaction", compaction_turns=count), user)
+        assert run["mode"] == "bcg_compaction" and run["task_state"]
+        assert run["compaction_turns"] == count and run["graph"] == "gpt-6-luna"
+        assert json.loads(control.row(run["id"])["config"])["compaction_turns"] == count
+    for value in (0, -1, 301, True, "3", 1.5):
+        with pytest.raises(APIError, match="保留轮数"):
+            control.create_run(request_config(mode="bcg_compaction", compaction_turns=value), user)
+    run = control.create_run(request_config(mode="bcg_compaction"), user)
+    assert run["compaction_turns"] == 5
 
 
 def test_report_scores_do_not_change_annotation_status(control: Control) -> None:
@@ -426,6 +484,8 @@ def test_http_permissions_and_static_boundary(control: Control) -> None:
         assert call("/api/runs/1/tasks/drb2/2/ai-review")[0] == 401
         assert call("/api/runs/1/tasks/drb2/2/score")[0] == 401
         assert call("/api/runs/1/tasks/drb2/2/evidence-preview")[0] == 401
+        assert call("/api/runs/1/tasks/drb2/2/records")[0] == 401
+        assert call("/api/runs/1/tasks/drb2/2/records-preview")[0] == 401
         assert call("/api/runs/1/tasks/drb2/2/ai-review", method="POST", body={})[0] == 401
         assert call("/api/settings")[0] == 200
         assert b"runs.mjs" in call("/")[1]
@@ -468,6 +528,10 @@ def test_http_permissions_and_static_boundary(control: Control) -> None:
         assert call(ai_path, method="PUT", body={"annotation": {}}, headers=auth)[0] == 404
         trial = control.task(1, "drb2", "2")[0]
         write(trial, "result.json", {"status": "agent_error"})
+        for action in ("records", "records-preview"):
+            status, raw = call("/api/runs/1/tasks/drb2/2/" + action, headers=auth)
+            assert status == 200 and raw[:2] == b"\x1f\x8b"
+        assert call("/api/runs/1/tasks/drb2/2/records", method="PUT", body={}, headers=auth)[0] == 404
         annotation_path = "/api/runs/1/tasks/drb2/2/annotation"
         body = {"revision": 0, "evidence_sha": "old-evidence", "annotation": {
             "status": "draft", "events": [], "dimensions": {}, "conclusion": {}}}
