@@ -1066,6 +1066,7 @@ def graph_steps(acknowledged: list[Any]) -> list[dict[str, Any]]:
                 "results": {},
                 "thinking": "\n".join(THINKING_BLOCK.findall(text)),
                 "text": THINKING_BLOCK.sub("", text).strip(),
+                "source": f"state.json acknowledged[{index}]",
             })
         elif role == "tool" and steps and steps[-1]["tool_turn"] is None:
             steps[-1]["tool_turn"] = index
@@ -1085,6 +1086,8 @@ def trajectory_steps(rows: list[Any]) -> list[dict[str, Any]]:
                           for c in row.get("tool_calls") or [] if isinstance(c, dict)],
                 "thinking": str(row.get("thinking") or "") or _thinking_from_blocks(row.get("thinking_blocks")),
                 "text": str(row.get("content") or ""),
+                "source": f"trajectory t=llm turn {row.get('turn')}",
+                "reasoning_tokens": (row.get("usage") or {}).get("reasoning_tokens"),
             })
     return out
 
@@ -1118,8 +1121,10 @@ def merge_steps(graph: list[dict[str, Any]], traj: list[dict[str, Any]]) -> tupl
         for j in range(cursor, min(len(traj), cursor + 4)):
             if sig(traj[j]) == sig(step):
                 aligned += 1
+                step["trajectory"] = traj[j]  # raw provider fields, for cross-checking
                 if not step["thinking"]:
                     step["thinking"] = traj[j]["thinking"]
+                    step["thinking_source"] = traj[j]["source"]
                 cursor = j + 1
                 break
     merged = list(graph)
@@ -2269,11 +2274,9 @@ def dump_step(run_dir: Path, step_number: int, only: set[str] | None) -> str:
         step = steps[step_number - 1]
         event = events.get(step_number)
         out += [BAR, f"task {trial.name} | agent step {step_number} | prepare call "
-                f"{event.get('call') if event else 'UNMAPPED'} | graph/trajectory aligned {aligned}/{len(steps)}", BAR,
-                "MODEL THINKING (as recorded; may be empty):",
-                step.get("thinking") or "(none recorded)",
-                "", "MODEL CONTENT (full):", step.get("text") or "(none recorded)",
-                "", "FORMAL TOOL CALLS (full arguments):"]
+                f"{event.get('call') if event else 'UNMAPPED'} | graph/trajectory aligned {aligned}/{len(steps)}", BAR]
+        out += _reasoning_section(step)[1:]
+        out += ["", "FORMAL TOOL CALLS (full arguments):"]
         if not step.get("calls"):
             out.append("(no tool calls)")
         for i, call in enumerate(step.get("calls") or [], 1):
@@ -2346,6 +2349,40 @@ def _cue_snippets(text: str, limit: int = 6) -> list[str]:
     return [re.sub(r"\s+", " ", text[a:b]).strip() for a, b in windows[:limit]]
 
 
+def _reasoning_section(step: dict[str, Any]) -> list[str]:
+    """Thinking and content with their provenance, and checks for parser mix-ups.
+
+    thinking = the provider's reasoning field (reasoning_content, thinking
+    blocks or <think>); content = the visible message text. The report never
+    moves text between the two, so what is printed is what the server returned.
+    """
+    origin = step.get("source", "?")
+    traj = step.get("trajectory") or {}
+    thinking, text = step.get("thinking") or "", step.get("text") or ""
+    out = ["", f"MODEL THINKING  [{step.get('thinking_source', origin)}: reasoning field]:",
+           thinking or "(none recorded — the provider did not expose reasoning, or this step was not aligned)",
+           "", f"MODEL CONTENT  [{origin}: content field]:", text or "(none)"]
+    notes: list[str] = []
+    if thinking and not text:
+        notes.append("content is empty and all text arrived as reasoning. If this sentence reads like a "
+                     "message to the user, the server's reasoning parser may have classified visible text as "
+                     "reasoning (e.g. Qwen output without a closing </think>); check the raw response.")
+    if "</think>" in text or "<think>" in text:
+        notes.append("content contains a literal <think>/</think> tag: the reasoning parser did not split "
+                     "this output, so part of the content above is reasoning.")
+    if traj and step.get("source", "").startswith("state.json"):
+        if traj.get("thinking") and thinking and traj["thinking"].strip() != thinking.strip():
+            notes.append(f"thinking differs from {traj['source']}: " + traj["thinking"][:200])
+        if (traj.get("text") or "").strip() != text.strip():
+            notes.append(f"content differs from {traj['source']}: " + (traj.get("text") or "(empty)")[:200])
+    tokens = traj.get("reasoning_tokens", step.get("reasoning_tokens"))
+    if thinking and tokens == 0:
+        notes.append("usage.reasoning_tokens is 0 although reasoning text exists: the server did not count "
+                     "it as reasoning, another sign to check how its parser split the output.")
+    out += [f"  note: {n}" for n in notes]
+    return out
+
+
 def dump_step_with_memory(run_dir: Path, step_number: int, only: set[str] | None) -> str:
     """The graph block a step was produced from, side by side with its reasoning.
 
@@ -2388,9 +2425,8 @@ def dump_step_with_memory(run_dir: Path, step_number: int, only: set[str] | None
             out.append(f"{mark} {line}")
 
         # ── right: what the model did with it ──
-        out += ["", "MODEL THINKING:", step.get("thinking") or "(none recorded — the provider did not "
-                "expose reasoning, or this step was not aligned)",
-                "", "MODEL CONTENT:", step.get("text") or "(none)", "", "TOOL CALLS:"]
+        out += _reasoning_section(step)
+        out += ["", "TOOL CALLS:"]
         for i, call in enumerate(step.get("calls") or [], 1):
             out.append(f"  {i}. {call.get('name')} {json.dumps(call.get('arguments') or {}, ensure_ascii=False)}")
         if not step.get("calls"):

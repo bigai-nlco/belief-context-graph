@@ -122,7 +122,7 @@ def test_dump_step_with_memory_marks_cited_lines(run_dir):
     assert "## Completed actions" not in text
     marked = [line for line in text.splitlines() if line.startswith(">> ")]
     assert any("[B11]" in line for line in marked) and any("[B12]" in line for line in marked)
-    assert "MODEL THINKING:" in text and "low confidence" in text
+    assert "MODEL THINKING  [state.json acknowledged[8]: reasoning field]:" in text and "low confidence" in text
     assert "cited & shown" in text and "B11 (" in text
     assert "support language" in text
 
@@ -158,3 +158,35 @@ def test_split_wep_run_is_read_with_wep_labels(tmp_path):
     run = bcg_report.load_run(tmp_path)
     assert run["aggregate"]["graph"]["wep_labels"]
     assert "WEP labels" in bcg_report.render(run)
+
+
+def test_reasoning_section_keeps_fields_and_flags_parser_doubts():
+    # Qwen tool step as recorded in version1117 task9: content "", text only in thinking.
+    traj = bcg_report.trajectory_steps([{
+        "t": "llm", "turn": 10, "content": "", "tool_calls": [{"name": "web_fetch", "args": {"url": "u"}}],
+        "thinking": "我需要找到具体的历史数据下载。", "usage": {"reasoning_tokens": 0}}])
+    graph = bcg_report.graph_steps([{"role": "assistant", "content":
+        "<thinking>\n我需要找到具体的历史数据下载。\n</thinking>\n<tool_call>\n"
+        + json.dumps({"id": "c", "name": "web_fetch", "arguments": {"url": "u"}}) + "\n</tool_call>"}])
+    steps, aligned = bcg_report.merge_steps(graph, traj)
+    assert aligned == 1
+    text = "\n".join(bcg_report._reasoning_section(steps[0]))
+    assert "MODEL THINKING  [state.json acknowledged[0]: reasoning field]:\n我需要找到" in text
+    assert "MODEL CONTENT  [state.json acknowledged[0]: content field]:\n(none)" in text
+    assert "content is empty and all text arrived as reasoning" in text
+    assert "reasoning_tokens is 0" in text
+    assert "differs from" not in text  # graph and trajectory agree
+
+    # First step of the screenshot: both parts present, nothing flagged.
+    both = bcg_report.graph_steps([{"role": "assistant", "content":
+        "<thinking>\nThis is a comprehensive research task.\n</thinking>\n\nI'll help you conduct a detailed "
+        "investigation.\n<tool_call>\n" + json.dumps({"id": "a", "name": "web_search", "arguments": {"q": "x"}})
+        + "\n</tool_call>"}])
+    text = "\n".join(bcg_report._reasoning_section(both[0]))
+    assert "This is a comprehensive research task." in text.split("MODEL CONTENT")[0]
+    assert "I'll help you conduct a detailed investigation." in text.split("MODEL CONTENT")[1]
+    assert "note:" not in text
+
+    # Unsplit Qwen output: the tag lands in content.
+    raw = bcg_report.graph_steps([{"role": "assistant", "content": "plan the search\n</think>\n\nSearching now."}])
+    assert "did not split" in "\n".join(bcg_report._reasoning_section(raw[0]))
