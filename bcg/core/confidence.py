@@ -130,6 +130,11 @@ def select_independent_evidence(
 
 def _canonical_evidence_urls(record: dict[str, Any]) -> tuple[str, ...]:
     """Return a stable URL identity for an evidence record."""
+    # An attributed page can quote other URLs in its body. Its own source_url
+    # is the observation identity, including across fetch/read/search calls.
+    origin = record.get("source_url")
+    if isinstance(origin, str) and origin.lower().startswith(("http://", "https://")):
+        return (origin.rstrip(".,;:!?)]}").lower().rstrip("/"),)
     text = str(record.get("text") or record.get("content") or "")
     urls = {
         match.group(0).rstrip(".,;:!?)]}").lower().rstrip("/")

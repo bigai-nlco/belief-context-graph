@@ -2127,6 +2127,8 @@ class StreamingBeliefBuilder:
         ) if role == "tool" else {}
         for ev in evid:
             ev.update(source_meta)
+            if role == "tool":
+                ev["tool_name"] = str(cleaned.get("tool_name") or "tool")
         evidence_ids = [self.graph.add_evidence(ev) for ev in evid]
         primary_text_key = "decision" if node_type == "decision" else "belief"
         primary_text = cleaned.get(primary_text_key)

@@ -61,6 +61,35 @@ fetch = sources.tool_source_metadata(
     [{"text": "Source: https://fred.stlouisfed.org/series/VIXCLS\nObserved: 19.42"}],
 )
 assert fetch["source_host"] == "fred.stlouisfed.org"
+cached_body = ("Source: https://fred.stlouisfed.org/series/VIXCLS\n"
+               "Source ID: S1\nTitle: VIX\nL12: Value 19.42\n")
+for name in ("read_source", "find_in_source"):
+    wrapped_cache = "<tool_result>" + json.dumps({
+        "tool_call_id": name, "name": name, "content": cached_body,
+    }) + "</tool_result>"
+    cached = sources.tool_source_metadata(
+        {"tool_name": name, "tool_result_index": 0}, raw_content=wrapped_cache)
+    assert cached["source_url"] == fetch["source_url"]
+    assert cached["source_id"] == "S1"
+    assert sources.tool_source_metadata(
+        {"tool_name": name}, raw_content="Error: Unknown source_id"
+    )["source_category"] == "mixed_or_unattributed"
+other_body = "Source: https://www.who.int/report\nSource ID: S2\nTitle: Report\nL1: Text\n"
+parallel_cache = wrapped_cache + "<tool_result>" + json.dumps({
+    "tool_call_id": "two", "name": "read_source", "content": other_body,
+}) + "</tool_result>"
+assert sources.tool_source_metadata(
+    {"tool_name": "read_source", "tool_result_index": 1}, raw_content=parallel_cache
+)["source_url"] == "https://www.who.int/report"
+assert sources.tool_source_metadata(
+    {"tool_name": "read_source", "tool_result_index": 2}, raw_content=parallel_cache
+)["source_category"] == "mixed_or_unattributed"
+assert sources.tool_source_metadata(
+    {"tool_name": "run_python_code", "source_rank": 1, "tool_result_items": items}
+)["source_category"] == "mixed_or_unattributed"
+assert sources.tool_source_metadata(
+    {"tool_name": "bcg_recover"}, raw_content=cached_body
+)["source_category"] == "mixed_or_unattributed"
 policy = confidence.normalize_confidence_config()
 confirmed = policy["stance_quality"]["confirmed"]
 unknown = policy["stance_quality"]["unknown"]
@@ -105,6 +134,30 @@ confidence.record_evidence_merge_confidence(
     }, config=custom,
 )
 assert math.isclose(merged["evidence_confidence"], round(0.10 * core.logit(0.616), 6))
+
+# Cache reads and recovery of the canonical page cannot be corroboration.
+canonical = {
+    "source": {"item_id": "case", "turn_id": 1},
+    "evidence_ids": [10, 11, 12, 13], "initial_confidence": 0.70,
+    "evidence_confidence": 0.0, "factor_confidence": 0.0, "confidence": 0.70,
+}
+records = {
+    10: {"role": "tool", "stance": "confirmed", "source": {"item_id": "case", "turn_id": 1},
+         "source_url": fetch["source_url"], "text": "Original claim"},
+    11: {"role": "tool", "tool_name": "read_source", "stance": "confirmed",
+         "source": {"item_id": "case", "turn_id": 2}, "source_url": fetch["source_url"],
+         "text": "A different passage quoting https://example.org/elsewhere"},
+    12: {"role": "tool", "tool_name": "run_python_code", "stance": "confirmed",
+         "source": {"item_id": "case", "turn_id": 3}, "text": "Calculated answer"},
+    13: {"role": "tool", "stance": "confirmed", "source_coefficient": 0.88,
+         "source": {"item_id": "case", "turn_id": 4},
+         "source_url": "https://www.who.int/independent-report", "text": "Independent claim"},
+}
+selected_ids, selected_records = confidence.additional_evidence_from_node(canonical, records)
+assert selected_ids == [12, 13]
+assert confidence.evidence_contribution(selected_records[0]) == 0.0
+confidence.recompute_evidence_confidence_from_node(canonical, records)
+assert canonical["evidence_confidence"] == round(confidence.evidence_contribution(records[13]), 6)
 
 # Exercise the real layered YAML loader and a user file without any API call.
 # Import only after installing the lightweight package stubs above.

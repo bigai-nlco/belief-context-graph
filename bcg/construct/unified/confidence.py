@@ -40,6 +40,8 @@ from bcg.core.confidence import (
     initial_confidence,
     logit,
     posterior_confidence,
+    _canonical_evidence_urls,
+    _normalized_evidence_content,
     select_independent_evidence,
     sigmoid,
     source_reliability,
@@ -123,6 +125,10 @@ def evidence_contribution(evidence: dict[str, Any], config: dict[str, Any] | Non
     duplicate is not counterevidence: it contributes zero rather than reducing
     the canonical belief. Explicit counterevidence uses a contradiction edge.
     """
+    # Computation and graph recall can transform or repeat observations, but
+    # cannot independently corroborate a factual claim about the outside world.
+    if evidence.get("tool_name") in {"run_python_code", "bcg_recover"}:
+        return 0.0
     role = _role_from_record(evidence)
     stance = evidence.get("stance") or "unknown"
     policy = normalize_confidence_config(config)
@@ -178,6 +184,20 @@ def additional_evidence_from_node(
 
     out_ids: list[int] = []
     out_records: list[dict[str, Any]] = []
+    original: list[dict[str, Any]] = []
+    if has_source_identity:
+        for raw_eid in evidence_ids:
+            try:
+                record = evidence_by_id.get(int(raw_eid))
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(record, dict):
+                continue
+            source = record.get("source") or {}
+            if (source.get("item_id"), source.get("turn_id")) == (node_item_id, node_turn_id):
+                original.append(record)
+    original_urls = {_canonical_evidence_urls(ev) for ev in original}
+    original_content = {_normalized_evidence_content(ev) for ev in original}
     for index, raw_eid in enumerate(evidence_ids):
         try:
             eid = int(raw_eid)
@@ -195,6 +215,13 @@ def additional_evidence_from_node(
             ):
                 continue
         elif index == 0:
+            continue
+
+        # A subsequent read of the same cached page (or a repeated search)
+        # is additional context, not independent support for this belief.
+        urls = _canonical_evidence_urls(ev)
+        content = _normalized_evidence_content(ev)
+        if (urls and urls in original_urls) or (content and content in original_content):
             continue
 
         out_ids.append(eid)
