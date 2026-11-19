@@ -27,6 +27,7 @@ USAGE
     python scripts/bcg_report.py RUN_DIR --json out.json    # archive
     python scripts/bcg_report.py RUN_DIR --dump-memory 7    # injected block
     python scripts/bcg_report.py RUN_DIR --dump-queries     # search history
+    python scripts/bcg_report.py RUN_DIR --tasks 23 --dump-io 7  # input/output for agent step 7
 
 Layout is auto-detected, so both pipelines work:
     stateful-react-agent   trials/<id>/agent/bcg/        trajectory react_agent.*
@@ -61,11 +62,8 @@ TURN_BANNER = re.compile(r"\[ReAct\]\s+Turn\s+(\d+)\s*/\s*(\d+)")
 HTTP_ERR = re.compile(r"\b(400|401|403|404|408|409|429|500|502|503|504)\b")
 NO_SOURCE = "No recorded source"
 
-# Node classification must match what the renderer puts under "Completed
-# actions", otherwise the report measures a different split than the model saw.
-# Use the runtime's own classifier when the repository is importable; the copy
-# below is the same split2 rule (a node describing what a tool RETURNED is a
-# finding, not an action) for reading archived runs outside the repository.
+# Classify action vs tool-result nodes using the same provenance as the v1
+# renderer. Legacy text heuristics remain for archived split/v0 graphs.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 try:
     from workflows.stateful_react_agent.bcg.rendering import (
@@ -81,9 +79,12 @@ except Exception:  # any import problem means "use the copy"
     confidence_label = None
     CONFIDENCE_LABELS = ()
     SPLIT_ACTIONS_HEADER = "## Completed actions - already done, do not repeat"
-# A Findings line rendered by split_confidence ends with "(<label>)".
-_LABEL_SUFFIX = re.compile(r"\((" + "|".join(re.escape(x) for x in CONFIDENCE_LABELS) + r")\)\s*$") \
-    if CONFIDENCE_LABELS else None
+# Built-in labels also work when the agent repository is not importable.
+# In v1 these are node metadata on the FIRST line (before multiline results).
+KNOWN_CONFIDENCE_LABELS = tuple(dict.fromkeys((*CONFIDENCE_LABELS,
+    "high confidence", "medium confidence", "low confidence",
+    "confirmed by several sources", "from the user", "one source, stated directly")))
+_LABEL_SUFFIX = re.compile(r"\((" + "|".join(re.escape(x) for x in KNOWN_CONFIDENCE_LABELS) + r")\)\s*$", re.I)
 _CALL_RE = re.compile(
     r"(is using (?P<tool1>\w+) to (search|fetch|call|query|look)"
     r"|is calling the (?P<tool2>\w+) tool"
@@ -102,6 +103,21 @@ QUERY_IN_NODE = re.compile(
     r'(?:search(?:ing)? for|query|fetch(?:ing)?)\s*[:\s]\s*\\?"(.+?)\\?"\s*\.?\s*$',
     re.I,
 )
+
+
+def action_query(node: dict[str, Any]) -> str | None:
+    """Recover the query the renderer showed (v1 structured or legacy text)."""
+    for value in (node.get("query"),
+                  (node.get("tool_arguments") or {}).get("query")
+                  if isinstance(node.get("tool_arguments"), dict) else None,
+                  (node.get("tool_arguments") or {}).get("search_query")
+                  if isinstance(node.get("tool_arguments"), dict) else None):
+        if isinstance(value, str) and value:
+            return normalize_query(value.replace('\\"', '"'))
+    matched = QUERY_IN_NODE.search(node_text(node))
+    return normalize_query(matched.group(1).replace('\\"', '"')) if matched else None
+
+
 # Reference-list entries in a report: "1. Author (year)." or "- Author (year)."
 REFERENCE_ENTRY = re.compile(r"^\s*(?:\d+[.)]|[-*\u2022])\s+\S", re.M)
 REFERENCES_HEADING = re.compile(
@@ -208,13 +224,28 @@ def jaccard(left: frozenset[str], right: frozenset[str]) -> float:
     return len(left & right) / len(union) if union else 0.0
 
 
+def fallback_confidence_label(node: dict[str, Any]) -> str | None:
+    """Use numeric tiers when running this report outside the agent repository."""
+    value = node.get("confidence")
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    if value >= 0.70:
+        return "high confidence"
+    if value >= 0.50:
+        return "medium confidence"
+    return "low confidence"
+
+
 def normalize_query(text: str) -> str:
     """Lowercase, collapse whitespace, drop surrounding quotes.
 
     Two searches that differ only in spacing or quoting are the same search as
     far as wasted effort is concerned.
     """
-    return re.sub(r"\s+", " ", str(text).strip().strip('"\'').lower())
+    value = str(text).strip()
+    if len(value) >= 2 and value[0] in ('"', "'") and value[-1] == value[0]:
+        value = value[1:-1]
+    return re.sub(r"\s+", " ", value.lower())
 
 
 def walk(node: Any) -> Iterator[dict[str, Any]]:
@@ -378,16 +409,19 @@ def node_text(node: dict[str, Any]) -> str:
 
 
 def classify_node(node: dict[str, Any]) -> str:
-    """action = a tool call the agent issued; blocked = a dead-end result;
-    fact = everything else (including what a tool returned).
-
-    action + blocked is exactly what the split renderer lists under
-    "Completed actions"; fact is what it lists under "Findings".
-    """
+    """Action/tool-result/fact for diagnostics; v1 uses node provenance."""
+    method = node.get("extraction_method")
+    if method == "rule_tool_call":
+        return "action"
+    if method in {"rule_tool_result", "compact_llm_tool_result"} or node.get("role") == "tool":
+        return "blocked" if _BLOCKED_RE.search(node_text(node)) or re.search(
+            r"\bblocked source\b", node_text(node), re.I) else "fact"
+    if node.get("role") == "assistant" and action_query(node):
+        return "action"
     if _runtime_classify is not None:
         try:
             info = _runtime_classify(node)
-        except Exception:  # e.g. a node without text
+        except Exception:
             return "fact"
         if info["blocked"]:
             return "blocked"
@@ -434,12 +468,12 @@ def analyse_graph(state_files: list[Path]) -> dict[str, Any]:
             buckets["high >=0.70"] += 1
 
     kinds = Counter(classify_node(n) for n in nodes)
-    # What split_confidence would print for each finding (actions carry none).
+    # v1 labels every node (including assistant thoughts and tool calls).
+    # Keep graph-level statistics independent of the selected render style.
     labels: Counter = Counter()
-    if confidence_label is not None:
-        for n in nodes:
-            if classify_node(n) == "fact":
-                labels[confidence_label(n) or "(no label)"] += 1
+    for n in nodes:
+        label = confidence_label(n) if confidence_label is not None else fallback_confidence_label(n)
+        labels[label or "(no label)"] += 1
     with_source = sum(
         1 for n in nodes if isinstance(n.get("source"), dict)
         and isinstance(n["source"].get("turn_id"), int)
@@ -451,9 +485,9 @@ def analyse_graph(state_files: list[Path]) -> dict[str, Any]:
     # graph told it not to and it did anyway — that is the Phase 1.1 target.
     recorded_queries: dict[str, int] = {}
     for node in nodes:
-        match = QUERY_IN_NODE.search(node_text(node))
-        if match:
-            recorded_queries.setdefault(normalize_query(match.group(1)), node.get("id"))
+        query = action_query(node)
+        if query and classify_node(node) == "action":
+            recorded_queries.setdefault(query, node.get("id"))
 
     return {
         "nodes_by_id": {n["id"]: n for n in nodes if isinstance(n.get("id"), int)},
@@ -461,7 +495,7 @@ def analyse_graph(state_files: list[Path]) -> dict[str, Any]:
         "graphs": len(state_files),
         "nodes_total": len(nodes),
         "node_kinds": dict(kinds),
-        "confidence_labels": {k: labels[k] for k in (*CONFIDENCE_LABELS, "(no label)") if labels.get(k)},
+        "confidence_labels": dict(labels.most_common()),
         "action_node_pct": pct(kinds.get("action", 0) + kinds.get("blocked", 0), len(nodes)),
         "relations_total": len(relations),
         "relation_types": dict(rel_types),
@@ -517,20 +551,28 @@ def collect_bcg(trial: Path) -> dict[str, Any]:
             usage = {k: v for k, v in totals.items() if isinstance(v, (int, float))}
             break
 
-    # How many of the nodes shown per call were action records. The selector
-    # caps search-history nodes on its own (FOCUSED_SEARCH_LIMIT), so a thin
-    # completed-actions section may be the selector's doing, not the renderer's.
-    kinds = {
-        node_id: classify_node(node)
-        for node_id, node in (graph.get("nodes_by_id") or {}).items()
-    }
+    # Parse the exact injected block. In v1 selected_node_ids excludes
+    # suppressed blocked result nodes, and all sections are nested under Steps.
     nodes_by_id = graph.get("nodes_by_id") or {}
-    actions_shown = [
-        float(sum(1 for i in (e.get("selected_node_ids") or []) if is_listed_action(kinds.get(i))))
-        for e in injected
-    ]
-    # The renderer does not log trimming; derive it. selector_result holds what
-    # the selector offered, selected_node_ids what survived the final cap.
+    shown_by_event = [shown_nodes(event) for event in injected]
+    def shown_action_ids(event: dict[str, Any], shown: dict[int, dict[str, Any]]) -> set[int]:
+        # v0 did not distinguish actions in its ## Beliefs section. Keep its
+        # original provenance-based classification for cross-version reports.
+        legacy_v0 = not any(V1_STEP.match(line) for line in
+                            (event.get("system_memory") or "").splitlines()) and not (
+                            SPLIT_ACTIONS_HEADER in (event.get("system_memory") or ""))
+        return {node_id for node_id, info in shown.items()
+                if info["section"] == "actions" or (legacy_v0 and
+                    node_id in nodes_by_id and
+                    is_listed_action(classify_node(nodes_by_id[node_id])))}
+
+    action_ids_by_event = [shown_action_ids(event, shown)
+                           for event, shown in zip(injected, shown_by_event, strict=True)]
+    actions_shown = [float(len(ids)) for ids in action_ids_by_event]
+    rendered_nodes = [float(len(shown)) for shown in shown_by_event]
+
+    # The selector caps search-history nodes on its own. The difference
+    # between offered and selected still measures budget/selection trimming.
     trimmed: list[float] = []
     dropped_ids: list[int] = []
     for event in injected:
@@ -540,33 +582,41 @@ def collect_bcg(trial: Path) -> dict[str, Any]:
         lost = sorted(set(offered) - set(event.get("selected_node_ids") or []))
         trimmed.append(float(len(lost)))
         dropped_ids.extend(lost)
-    # Size of the "Completed actions" section, read off the injected block.
+
+    # Action text size for v1 is the sum of its tool-call lines, not the entire
+    # Step (which also contains Thoughts and Findings). Keep the legacy
+    # Completed actions section metric for older styles.
     action_chars: list[float] = []
     for event in injected:
         memory = event.get("system_memory") or ""
-        start = memory.find(SPLIT_ACTIONS_HEADER)
-        if start < 0:
+        if any(V1_STEP.match(line) for line in memory.splitlines()):
+            total = sum(len(line) for line in memory.splitlines()
+                        if (match := SHOWN_LINE.match(line)) and match.group("bullet")
+                        and line.startswith("  - "))
+            action_chars.append(float(total))
             continue
-        end = memory.find("\n## Findings", start)
-        action_chars.append(float(len(memory[start:end if end >= 0 else None])))
-    # Labels the model was shown (split_confidence only), pooled over calls.
+        start = memory.find(SPLIT_ACTIONS_HEADER)
+        if start >= 0:
+            end = memory.find("\n## Findings", start)
+            action_chars.append(float(len(memory[start:end if end >= 0 else None])))
+
+    # Pooled labels that the model ACTUALLY saw, one per node, across styles.
     labels_shown: Counter = Counter()
-    for event in injected:
-        memory = event.get("system_memory") or ""
-        findings = memory.split("## Findings", 1)[1] if "## Findings" in memory else ""
-        for line in findings.split("## Relations", 1)[0].splitlines():
-            found = _LABEL_SUFFIX.search(line) if _LABEL_SUFFIX else None
-            if found:
-                labels_shown[found.group(1)] += 1
-    # Every search query the model was actually shown, pooled over the session.
-    # Read from the raw node text, so it works for v0 and split alike.
+    for shown in shown_by_event:
+        for info in shown.values():
+            if info["label"]:
+                labels_shown[info["label"]] += 1
+            elif info["confidence"] is not None:
+                labels_shown[f"confidence {info['confidence']:g}"] += 1
+
+    # Every search query actually shown: prefer code-owned query fields for v1.
     shown_actions: set[str] = set()
-    for event in injected:
-        for node_id in event.get("selected_node_ids") or []:
+    for shown, actions in zip(shown_by_event, action_ids_by_event, strict=True):
+        for node_id in actions:
             node = nodes_by_id.get(node_id)
-            found = QUERY_IN_NODE.search(node_text(node)) if node else None
-            if found:
-                shown_actions.add(normalize_query(found.group(1).replace('\\"', '"')))
+            query = action_query(node) if node else None
+            if query:
+                shown_actions.add(query)
     variants = Counter(
         str(
             e.get("variant") or e.get("bcg_variant")
@@ -589,6 +639,7 @@ def collect_bcg(trial: Path) -> dict[str, Any]:
         "evicted_steps_max": max((e.get("evicted_steps", 0) for e in injected), default=0),
         "graph_turns_written": sum(e.get("graph_turns_written", 0) or 0 for e in prepares),
         "selected_nodes": stats([float(len(e.get("selected_node_ids") or [])) for e in injected]),
+        "rendered_nodes": stats(rendered_nodes),
         "action_nodes_shown": stats(actions_shown),
         "selected_relations": stats([float(len(e.get("selected_relation_ids") or [])) for e in injected]),
         "graph_chars": stats([float(e.get("graph_chars", 0)) for e in injected]),
@@ -948,9 +999,17 @@ def collect_trial(trial: Path) -> dict[str, Any]:
 TOOL_CALL_BLOCK = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
 TOOL_RESULT_BLOCK = re.compile(r"<tool_result>\s*(\{.*?\})\s*</tool_result>", re.S)
 THINKING_BLOCK = re.compile(r"<thinking>\s*(.*?)\s*</thinking>", re.S)
-# A rendered node line: "- [B12] text (label)" or "- [B12] text (confidence 0.7)".
-SHOWN_LINE = re.compile(r"^- \[B(\d+)\] (.*?)(?: \(([^()]*)\))?\s*$")
-CONFIDENCE_VALUE = re.compile(r"^confidence (\d*\.?\d+)$")
+# Both old "- [B12] ..." and indented v1 "    [B12] ...".
+# Do not mistake numbered search hits within one result node for new nodes.
+SHOWN_LINE = re.compile(r"^(?P<indent>\s*)(?P<bullet>- )?\[B(?P<id>\d+)\] (?P<body>.*)$")
+CONFIDENCE_VALUE = re.compile(r"^confidence (\d*\.?\d+)$", re.I)
+V1_STEP = re.compile(r"^Step t-\d+\s*$")
+V1_HEADER = re.compile(r"^\s*(Thought|Findings|Context):\s*$")
+# Metadata follows the opening line: (low confidence; depends_on [B27]: ...).
+# Inspect only the first item, since relation notes can themselves contain ().
+NODE_METADATA = re.compile(r"\((high confidence|medium confidence|low confidence|confidence \d*\.?\d+|"
+                           r"confirmed by several sources|from the user|one source, stated directly)"
+                           r"(?=[;)])", re.I)
 REPEAT_TOOLS = {"web_search", "search", "web_fetch", "fetch", "web_search_aligned", "web_fetch_aligned"}
 UNEXPECTED_CATEGORIES = {"shown_high", "action_only"}
 # Current split_confidence tier, plus the retired provenance labels so that
@@ -1085,10 +1144,23 @@ def map_step_events(steps: list[dict[str, Any]], prepares: list[dict[str, Any]])
 
 
 def shown_nodes(event: dict[str, Any]) -> dict[int, dict[str, Any]]:
-    """Node id -> section, label/confidence exactly as the model saw them."""
+    """Nodes actually visible in the memory, including v1 inline metadata.
+
+    In v1, confidence belongs to the node, not to one of its numbered search
+    hits. BLOCKED result nodes are omitted entirely; action nodes remain.
+    """
     out: dict[int, dict[str, Any]] = {}
     section = "findings"
+    v1 = False
     for line in (event.get("system_memory") or "").splitlines():
+        if V1_STEP.match(line):
+            v1, section = True, "thought"
+            continue
+        heading = V1_HEADER.match(line) if v1 else None
+        if heading:
+            section = {"Thought": "thought", "Findings": "findings",
+                       "Context": "context"}[heading.group(1)]
+            continue
         if line.startswith("## "):
             section = "actions" if line.startswith("## Completed actions") else (
                 "relations" if line.startswith("## Relations") else "findings")
@@ -1098,10 +1170,20 @@ def shown_nodes(event: dict[str, Any]) -> dict[int, dict[str, Any]]:
         found = SHOWN_LINE.match(line)
         if not found:
             continue
-        tail = found.group(3)
+        # v1 tool calls have a bullet; thought and context are not actions.
+        kind = "actions" if v1 and found.group("bullet") else section
+        body = found.group("body")
+        meta = NODE_METADATA.search(body) if v1 else None
+        if meta:
+            tail = meta.group(1).lower()
+        else:
+            legacy = _LABEL_SUFFIX.search(body)
+            numeric = re.search(r"\((confidence \d*\.?\d+)\)\s*$", body, re.I)
+            tail = legacy.group(1).lower() if legacy else (
+                numeric.group(1).lower() if numeric else None)
         value = CONFIDENCE_VALUE.match(tail or "")
-        out[int(found.group(1))] = {
-            "section": section,
+        out[int(found.group("id"))] = {
+            "section": kind,
             "label": tail if tail and not value else None,
             "confidence": float(value.group(1)) if value else None,
         }
@@ -1523,7 +1605,7 @@ rendering code. If the property is missing, the corresponding change cannot
 work no matter how it is written:
   - confidence spread  -> goal B (react to low confidence) and tiered rendering
   - source coverage    -> goal A (bcg_recover returns something useful)
-  - action-node share  -> the completed-actions section that targets goal C
+  - action-node share  -> recorded tool calls that target goal C (v1: within Steps)
 Fix these in the construction config (belief_graph.extractor) before changing
 any rendering code.""",
         brief,
@@ -1571,7 +1653,7 @@ any rendering code.""",
     if g["tool_name_coverage_pct"] < 20 and g["action_node_pct"] < 10:
         out += [
             "  !! few nodes record which tool produced them, and few read as action",
-            "     records. A 'completed actions' section would have little to show.",
+            "     records. An action listing (including v1 Steps) would have little to show.",
         ]
     if g["contradicts_edges"] == 0:
         out += [
@@ -1603,7 +1685,8 @@ constraint and a smarter trim policy would change nothing.""",
             f"  messages before   {fmt_stats(b['messages_before'])}",
             f"  messages after    {fmt_stats(b['messages_after'])}",
             f"  messages removed  {fmt_stats(b['messages_removed'])}",
-            f"  nodes shown       {fmt_stats(b['selected_nodes'])}",
+            f"  nodes selected    {fmt_stats(b['selected_nodes'])}",
+            f"  nodes rendered    {fmt_stats(b['rendered_nodes'])}",
             f"  relations shown   {fmt_stats(b['selected_relations'])}",
             f"  graph chars       {fmt_stats(b['graph_chars'])}  (budget {meta.get('graph_chars', '?')})",
             f"  prepare latency   {fmt_stats(b['prep_duration_ms'], ' ms')}",
@@ -1612,7 +1695,7 @@ constraint and a smarter trim policy would change nothing.""",
         if b.get("labels_shown"):
             out.append(f"  labels shown      {b['labels_shown']}")
         if b["action_chars"] is not None:
-            out.append(f"  action section    {fmt_stats(b['action_chars'], ' chars')}")
+            out.append(f"  action text       {fmt_stats(b['action_chars'], ' chars')}")
         if b["trim_dropped_nodes"] is None:
             out += [
                 "  trim dropped      unknown (no selector_result in the audit log)",
@@ -1743,7 +1826,7 @@ section is supposed to achieve.""",
         out.append(f"  distinct queries       {t['distinct_queries']} of {t['search_calls']} searches")
         out.append(
             f"  queries listed in block {t['queries_listed_in_block']} "
-            f"({t['query_coverage_pct']}%)   <<< actions-section coverage"
+            f"({t['query_coverage_pct']}%)   <<< rendered-action coverage"
         )
         if t["duplicate_by_name"].get("bcg_recover"):
             out += [
@@ -1780,7 +1863,7 @@ support (the label or number exactly as rendered on that call).
               shown_low      only weaker-than-threshold findings were shown
               retry_after_failure  the earlier call failed or was blocked
   UNEXPECTED  shown_high     a strongly supported finding from it was shown
-              action_only    "Completed actions" listed it, no finding shown
+              action_only    an action was visible, but no finding was shown
   other       verbatim       the earlier result was still in the context
                              verbatim (or a fallback kept all history): not a
                              graph problem
@@ -1947,7 +2030,7 @@ length collapse has traded the answer for the metric.""",
     if c["C_preventable_repeats"] > 0:
         todo.append(
             f"{c['C_preventable_repeats']} searches repeated a query the graph had "
-            "recorded — a completed-actions section targets exactly this."
+            "recorded — a visible action record (v1: inside Step) targets this."
         )
     if c["C_unexpected_causes"].get("does_not_read_confidence"):
         todo.append(
@@ -2162,6 +2245,127 @@ def dump_step(run_dir: Path, step_number: int, only: set[str] | None) -> str:
     return "\n".join(out) or "no matching trials"
 
 
+def _recorded_input_messages(rows: list[Any], step_number: int) -> tuple[Any, str] | None:
+    """Find a request payload saved alongside the corresponding model response.
+
+    Different trajectory writers expose different optional request fields. Do
+    not treat the model response's ``content`` as an input, or mistake the
+    accumulated final conversation for the request at a particular step.
+    """
+    llm_events = [row for row in rows if isinstance(row, dict) and row.get("t") == "llm"]
+    if not 1 <= step_number <= len(llm_events):
+        return None
+    row = llm_events[step_number - 1]
+    for key in ("request_messages", "input_messages", "prompt_messages"):
+        if isinstance(row.get(key), list):
+            return row[key], f"trajectory llm event: {key}"
+    for parent in ("request", "input"):
+        value = row.get(parent)
+        if isinstance(value, dict) and isinstance(value.get("messages"), list):
+            return value["messages"], f"trajectory llm event: {parent}.messages"
+    return None
+
+
+def _recorded_step_results(rows: list[Any], step_number: int) -> list[Any]:
+    """Collect result events between this llm response and the next one."""
+    current = 0
+    collecting = False
+    results: list[Any] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if row.get("t") == "llm":
+            current += 1
+            if collecting:
+                break
+            collecting = current == step_number
+            continue
+        if collecting and (row.get("t") == "result" or row.get("role") == "tool"):
+            results.append(row)
+    return results
+
+
+def dump_io(run_dir: Path, step_number: int, only: set[str] | None) -> str:
+    """Inspect one model step, preserving all recorded input and output text.
+
+    The BCG audit records the exact injected memory but not necessarily the
+    final provider request after context projection. When that request wasn't
+    logged, show the original pre-step graph transcript separately; never
+    misrepresent that transcript as the exact messages sent to the LLM.
+    """
+    out: list[str] = []
+    for trial in find_trials(run_dir):
+        if only and trial.name not in only:
+            continue
+        rows = load_trajectory(trial)
+        _, acknowledged = load_graph_nodes(trial)
+        graph = graph_steps(acknowledged)
+        trajectory = trajectory_steps(rows)
+        steps, aligned = merge_steps(graph, trajectory)
+        if not 1 <= step_number <= len(steps):
+            out.append(f"task {trial.name}: step {step_number} not found (1..{len(steps)})")
+            continue
+        prepares = [
+            event for path in sorted(trial.rglob("requests.jsonl"))
+            if "bcg_team" not in path.parts
+            for event in read_jsonl(path)
+            if isinstance(event, dict) and "call" in event
+        ]
+        events = map_step_events(steps, prepares)
+        event = events.get(step_number)
+        step = steps[step_number - 1]
+        out += [BAR,
+                f"task {trial.name} | agent step {step_number} | "
+                f"prepare call {event.get('call') if event else 'UNMAPPED'} | "
+                f"graph/trajectory aligned {aligned}/{len(steps)}",
+                BAR, "", "MODEL INPUT:"]
+
+        captured = _recorded_input_messages(rows, step_number)
+        if captured is not None:
+            messages, source = captured
+            out += [f"Exact request messages recorded in {source}:",
+                    json.dumps(messages, ensure_ascii=False, indent=2)]
+        else:
+            out.append("Exact provider request messages NOT recorded in available files.")
+            if step.get("asst_turn") is not None:
+                out += ["", "PRE-STEP TRANSCRIPT (original graph-acknowledged turns; "
+                        "NOT the projected LLM request):"]
+                for index, turn in enumerate(acknowledged[:step["asst_turn"]]):
+                    out += [f"  message {index}:", json.dumps(turn, ensure_ascii=False, indent=2)]
+            else:
+                out.append("No aligned acknowledged history for this step.")
+
+        out += ["", "BCG MEMORY INJECTED (exact audit text, if present):"]
+        if event is None:
+            out.append("(no reliably mapped BCG prepare event)")
+        else:
+            out += [f"render_style={event.get('render_style', '?')} "
+                    f"evicted_steps={event.get('evicted_steps', '?')}",
+                    event.get("system_memory") or "(no injected memory recorded)"]
+        out += ["", "MODEL OUTPUT — THINKING (as recorded):",
+                step.get("thinking") or "(none recorded)",
+                "", "MODEL OUTPUT — CONTENT (full):",
+                step.get("text") or "(none recorded)",
+                "", "MODEL OUTPUT — TOOL CALLS (full):"]
+        if not step.get("calls"):
+            out.append("(no tool calls)")
+        for index, call in enumerate(step.get("calls") or [], 1):
+            out += [f"  {index}:", json.dumps(call, ensure_ascii=False, indent=2)]
+        out += ["", "TOOL RESULTS (available recorded content):"]
+        if step.get("results"):
+            for call_id, result in step["results"].items():
+                out += [f"  {call_id}:", json.dumps(result, ensure_ascii=False, indent=2)]
+        else:
+            recorded_results = _recorded_step_results(rows, step_number)
+            if recorded_results:
+                out.append("(from trajectory result events)")
+                for result in recorded_results:
+                    out.append(json.dumps(result, ensure_ascii=False, indent=2))
+            else:
+                out.append("(none recorded for this step)")
+    return "\n".join(out) or "no matching trials"
+
+
 def dump_repeats(run_dir: Path, only: set[str] | None) -> str:
     out: list[str] = []
     for trial in find_trials(run_dir):
@@ -2209,16 +2413,22 @@ def main() -> None:
                         help="print every search in order and what the graph recorded")
     parser.add_argument("--dump-step", type=int, metavar="STEP",
                         help="print full model output and formal tool calls for an agent step")
+    parser.add_argument("--dump-io", type=int, metavar="STEP",
+                        help="show all available model input, BCG memory, output and tool results for an agent step")
     parser.add_argument("--dump-repeats", action="store_true",
                         help="print every repeated call with what the model saw and its reasoning")
     parser.add_argument("--high-confidence", type=float, default=HIGH_CONFIDENCE,
                         help="numeric layouts: confidence at or above this counts as strong "
-                        f"(default {HIGH_CONFIDENCE}); split_confidence uses its labels")
+                        f"(default {HIGH_CONFIDENCE}); split_confidence/v1 use node labels")
     args = parser.parse_args()
 
     only = {t.strip() for t in args.tasks.split(",")} if args.tasks else None
     HIGH_CONFIDENCE = args.high_confidence
 
+    if args.dump_io is not None:
+        for run_dir in args.run_dirs:
+            print(dump_io(run_dir, args.dump_io, only))
+        return
     if args.dump_step is not None:
         for run_dir in args.run_dirs:
             print(dump_step(run_dir, args.dump_step, only))

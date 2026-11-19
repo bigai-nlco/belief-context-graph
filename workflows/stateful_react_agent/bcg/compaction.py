@@ -11,7 +11,7 @@ from frontier_agent.core.messages import Message
 from .client import GraphError
 from .messages import Projection
 from .recent import recent_step_selection
-from .rendering import relation_line, render_graph
+from .rendering import _nodes, render_graph, render_v1_block
 
 
 def compact_history(
@@ -41,6 +41,9 @@ def compact_history(
                          evicted_step_turn_indices=[plan.evicted_step_turn_indices[index]])
         for node_id in recent_step_selection(snapshot, single, 1)["node_ids"]:
             owners[node_id] = index  # a merged representative appears only once
+    original_owners = dict(owners)
+    if style == "v1":
+        owners = {node_id: owner for node_id, owner in owners.items() if node_id in visible}
     if set(owners) != set(visible):
         raise GraphError("compaction_window_membership_mismatch")
     edges = {edge["id"]: edge for edge in snapshot.get("relations", [])}
@@ -48,14 +51,29 @@ def compact_history(
     replacements: dict[int, Message] = {}
     for index in range(first, plan.evicted_steps):
         ids = sorted(node_id for node_id, owner in owners.items() if owner == index)
-        block, _, _ = render_graph(snapshot, {"node_ids": ids, "relation_ids": []},
-                                   None, strict=True, style=style)
         owned_edges = [rid for rid in relation_ids if owners[edges[rid]["from_id"]] == index]
-        # Preserve the existing <belief_graph>, headings, node/edge text and
-        # confidence styling. Relations' targets may live in another block.
-        if owned_edges:
-            block = block.removesuffix("</belief_graph>") + "\n".join(
-                relation_line(edges[rid]) for rid in owned_edges) + "\n</belief_graph>"
+        if style == "v1":
+            # A cross-step relation belongs inline to its source node even
+            # though the target is rendered in another compaction message.
+            # Include suppressed blocked-result nodes only as status signals;
+            # render_v1_block never prints or returns those redundant nodes.
+            from .rendering import _v1_blocked_result
+            all_nodes = _nodes(snapshot)
+            render_ids = ids + [node_id for node_id, owner in original_owners.items()
+                                if owner == index and node_id not in owners and
+                                _v1_blocked_result(all_nodes[node_id])]
+            block, _ = render_v1_block(all_nodes, render_ids,
+                                       [edges[rid] for rid in owned_edges],
+                                       allow_external_edges=True,
+                                       step_distance=plan.evicted_steps - index)
+        else:
+            block, _, _ = render_graph(snapshot, {"node_ids": ids, "relation_ids": []},
+                                       None, strict=True, style=style)
+            # Preserve the exact legacy compaction output for older styles.
+            if owned_edges:
+                from .rendering import relation_line
+                block = block.removesuffix("</belief_graph>") + "\n".join(
+                    relation_line(edges[rid]) for rid in owned_edges) + "\n</belief_graph>"
         # Request projection only: the durable transcript (and thus the list of
         # pinned human inputs or graph writes) never receives this memory.
         message: Message = {"role": "user", "content": block}

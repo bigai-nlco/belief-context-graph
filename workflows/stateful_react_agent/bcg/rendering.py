@@ -10,7 +10,7 @@ from typing import Any
 
 from .client import GraphError
 
-RENDER_STYLES = ("v0", "split", "split_confidence")
+RENDER_STYLES = ("v0", "split", "split_confidence", "v1")
 SPLIT_STYLES = frozenset({"split", "split_confidence"})
 
 GRAPH_OVERHEAD = len("<belief_graph>\n## Beliefs\n\n## Relations\n</belief_graph>")
@@ -25,6 +25,10 @@ SPLIT_GRAPH_OVERHEAD = len(
 
 
 def graph_overhead(style: str = "v0") -> int:
+    # V1 adds step/thought/findings headings, inline edges and confidence.
+    # PCST's final strict render remains the authoritative budget check.
+    if style == "v1":
+        return SPLIT_GRAPH_OVERHEAD + 64
     return SPLIT_GRAPH_OVERHEAD if style in SPLIT_STYLES else GRAPH_OVERHEAD
 
 
@@ -153,7 +157,7 @@ def confidence_thresholds() -> tuple[float, float]:
 
 
 def confidence_label(node: dict[str, Any]) -> str | None:
-    """high/medium/low confidence for one finding, or None without a number."""
+    """high/medium/low confidence for an entire node, or None without a number."""
     confidence = _number(node.get("confidence"))
     if confidence is None:
         return None
@@ -179,9 +183,195 @@ def finding_line(node: dict[str, Any], style: str = "v0") -> str:
 
 def styled_node_line(node: dict[str, Any], style: str = "v0") -> str:
     """The exact line a node occupies in the rendered block of this style."""
+    if style == "v1":
+        return v1_node_line(node, [], action=_v1_action(node))
     if style in SPLIT_STYLES and classify_node(node)["is_action"]:
         return action_line(node)
     return finding_line(node, style)
+
+
+def v1_node_line(node: dict[str, Any], edges: list[dict[str, Any]], *,
+                 action: bool = False) -> str:
+    """A v1 node with its own confidence and outgoing relations in its header.
+
+    Multiline result content stays *within one node*. Metadata appears before
+    the result body so a confidence tier cannot look attached to its last hit.
+    """
+    content = node.get("belief") or node.get("decision")
+    if not isinstance(content, str) or not content:
+        raise GraphError("selected_node_has_no_text")
+    info = classify_node(node)
+    if action:
+        # Prefer code-owned arguments, not brittle natural-language parsing.
+        tool = escape(str(node.get("tool_name") or info["tool"] or "tool"), quote=False)
+        query = node.get("query") or info["query"]
+        if not query and isinstance(node.get("tool_arguments"), dict):
+            args = node["tool_arguments"]
+            query = args.get("query") or args.get("search_query")
+        if isinstance(query, str) and query:
+            body = f'{tool} "{escape(query, quote=False)}"'
+        else:
+            body = escape(content, quote=False)
+    else:
+        body = escape(content, quote=False)
+    label = confidence_label(node)
+    metadata = ([label] if label else [])
+    for edge in edges:
+        relation = f'[B{edge["from_id"]}] {edge["type"]} [B{edge["to_id"]}]'
+        if isinstance(edge.get("note"), str) and edge["note"]:
+            relation += ": " + escape(edge["note"], quote=False)
+        metadata.append(relation)
+    suffix = f' ({"; ".join(metadata)})' if metadata else ""
+    # Metadata on the opening line, not on the last search result line.
+    opening, sep, remainder = body.partition("\n")
+    return f'[B{node["id"]}] {opening}{suffix}' + (sep + remainder if sep else "")
+
+
+def _v1_blocked_result(node: dict[str, Any]) -> bool:
+    """Suppress redundant result nodes, never the issuing action itself."""
+    if node.get("role") != "tool" and node.get("extraction_method") not in {
+        "rule_tool_result", "compact_llm_tool_result"
+    }:
+        return False
+    content = node.get("belief") or node.get("decision") or ""
+    return bool(_BLOCKED_RE.search(content)) or bool(re.search(
+        r"\bblocked source\b", content, re.I
+    ))
+
+
+def _v1_action(node: dict[str, Any]) -> bool:
+    return (node.get("extraction_method") == "rule_tool_call"
+            or (node.get("role") == "assistant" and
+                (bool(node.get("query")) or classify_node(node)["is_action"])))
+
+
+def _v1_turn(node: dict[str, Any]) -> int | None:
+    source = node.get("source")
+    turn = source.get("turn_id") if isinstance(source, dict) else None
+    return turn if type(turn) is int else None
+
+
+def render_v1_block(nodes: dict[int, dict[str, Any]], kept: list[int],
+                    edges: list[dict[str, Any]], *, allow_external_edges: bool = False,
+                    step_distance: int | None = None) -> tuple[str, list[int]]:
+    """Chronological step -> assistant thought -> calls -> paired tool findings.
+
+    Match result to call by explicit tool_call_id first, then depends_on edge,
+    then tool name/turn proximity. A missing call still preserves the finding.
+    """
+    visible = [i for i in kept if not _v1_blocked_result(nodes[i])]
+    visible_set = set(visible)
+    selected_edges = [e for e in edges if e["from_id"] in visible_set and
+                      (allow_external_edges or e["to_id"] in visible_set)]
+    outgoing: dict[int, list[dict[str, Any]]] = {i: [] for i in visible}
+    for edge in selected_edges:
+        outgoing[edge["from_id"]].append(edge)
+    for values in outgoing.values():
+        values.sort(key=lambda e: e["id"])
+
+    action_ids = [i for i in visible if _v1_action(nodes[i])]
+    result_ids = [i for i in visible if nodes[i].get("role") == "tool" and i not in action_ids]
+    thought_ids = [i for i in visible if i not in action_ids and i not in result_ids
+                   and nodes[i].get("role") == "assistant"]
+    context_ids = [i for i in visible if i not in action_ids and i not in result_ids
+                   and i not in thought_ids]
+    def sortkey(i: int) -> tuple[int, int]:
+        t = _v1_turn(nodes[i])
+        return (t if t is not None else 10**9, i)
+    action_ids.sort(key=sortkey)
+    thought_ids.sort(key=sortkey)
+    context_ids.sort(key=sortkey)
+    result_ids.sort(key=sortkey)
+
+    # Use assistant turn IDs as the step boundary. When thought extraction is
+    # empty, code-owned tool-call nodes still establish the assistant turn.
+    assistant_turns = sorted({_v1_turn(nodes[i]) for i in action_ids + thought_ids
+                              if _v1_turn(nodes[i]) is not None and nodes[i].get("role") != "user"})
+    if not assistant_turns:
+        assistant_turns = sorted({_v1_turn(nodes[i]) for i in visible
+                                  if _v1_turn(nodes[i]) is not None})
+    if not assistant_turns:
+        assistant_turns = [0]
+
+    def step_for(i: int) -> int:
+        turn = _v1_turn(nodes[i])
+        if turn is None:
+            return len(assistant_turns) - 1
+        prior = [index for index, start in enumerate(assistant_turns) if start <= turn]
+        return prior[-1] if prior else 0
+
+    paired: dict[int, list[int]] = {i: [] for i in action_ids}
+    orphan_results: list[int] = []
+    for rid in result_ids:
+        result = nodes[rid]
+        candidates = [aid for aid in action_ids if step_for(aid) == step_for(rid)]
+        match = next((aid for aid in candidates
+                      if result.get("tool_call_id") and
+                      result.get("tool_call_id") == nodes[aid].get("tool_call_id")), None)
+        if match is None:
+            match = next((e["to_id"] for e in outgoing[rid]
+                          if e["type"] == "depends_on" and e["to_id"] in candidates), None)
+        if match is None and candidates:
+            same_tool = [aid for aid in candidates if result.get("tool_name") and
+                         result.get("tool_name") == nodes[aid].get("tool_name")]
+            match = (same_tool or candidates)[0]
+        if match is None:
+            orphan_results.append(rid)
+        else:
+            paired[match].append(rid)
+
+    blocked_actions = set()
+    for rid in kept:
+        if not _v1_blocked_result(nodes[rid]):
+            continue
+        result = nodes[rid]
+        candidates = [aid for aid in action_ids if step_for(aid) == step_for(rid)]
+        match = next((aid for aid in candidates if result.get("tool_call_id") and
+                      result.get("tool_call_id") == nodes[aid].get("tool_call_id")), None)
+        if match is None:
+            match = next((e["to_id"] for e in edges if e["from_id"] == rid
+                          and e["type"] == "depends_on" and e["to_id"] in candidates), None)
+        if match is None:
+            match = next((aid for aid in candidates if result.get("tool_name") and
+                          result.get("tool_name") == nodes[aid].get("tool_name")), None)
+        if match is not None:
+            blocked_actions.add(match)
+
+    lines = ["<belief_graph>"]
+    for index in range(len(assistant_turns)):
+        members = [i for i in visible if step_for(i) == index]
+        if not members:
+            continue
+        lines.append(f"Step t-{step_distance if step_distance is not None else len(assistant_turns) - index}")
+        if any(i in members for i in context_ids):
+            lines.append("  Context:")
+            for i in context_ids:
+                if i in members:
+                    lines.append("    " + v1_node_line(nodes[i], outgoing[i]).replace("\n", "\n    "))
+        lines.append("  Thought:")
+        for i in thought_ids:
+            if i in members:
+                lines.append("    " + v1_node_line(nodes[i], outgoing[i]).replace("\n", "\n    "))
+        for i in action_ids:
+            if i not in members:
+                continue
+            line = v1_node_line(nodes[i], outgoing[i], action=True)
+            if i in blocked_actions:
+                first, sep, rest = line.partition(" (")
+                line = first + " → BLOCKED" + (" (" + rest if sep else "")
+            lines.append("  - " + line.replace("\n", "\n    "))
+            if paired[i]:
+                lines.append("    Findings:")
+                for rid in paired[i]:
+                    lines.append("      " + v1_node_line(nodes[rid], outgoing[rid]).replace("\n", "\n      "))
+        if any(rid in members for rid in orphan_results):
+            lines.append("  Findings:")
+            for rid in orphan_results:
+                if rid in members:
+                    lines.append("    " + v1_node_line(nodes[rid], outgoing[rid]).replace("\n", "\n    "))
+        lines.append("")
+    lines.append("</belief_graph>")
+    return "\n".join(lines), [e["id"] for e in selected_edges]
 
 
 def relation_line(edge: dict[str, Any]) -> str:
@@ -295,7 +485,13 @@ def render_graph(
             lines.append(relation_line(edges[rid]))
         return "\n".join([*lines, "</belief_graph>"]), chosen
 
-    if style == "v0":
+    if style == "v1":
+        def block_v1(kept: list[int]) -> tuple[str, list[int]]:
+            chosen = relations_for(kept)
+            return render_v1_block(nodes, kept, [edges[rid] for rid in chosen])
+        block = block_v1
+        kept = list(_finding_order(list(node_lines), selection))
+    elif style == "v0":
         block = block_v0
         # Selector already budgets node text. Include confidence/relations/
         # escaping in the final hard cap as well. Remove whole nodes.
@@ -331,11 +527,11 @@ def render_graph(
         kept = list(order)
     if budget is None:
         text, chosen = block(kept)
-        return text, sorted(kept), chosen
+        return text, sorted(i for i in kept if style != "v1" or not _v1_blocked_result(nodes[i])), chosen
     while kept:
         text, chosen = block(kept)
         if len(text) <= budget:
-            return text, sorted(kept), chosen
+            return text, sorted(i for i in kept if style != "v1" or not _v1_blocked_result(nodes[i])), chosen
         if strict:
             raise GraphError("selection_exceeds_render_budget")
         kept.pop()

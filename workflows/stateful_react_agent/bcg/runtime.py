@@ -120,9 +120,26 @@ CONTEXT_GUIDE_SPLIT_CONFIDENCE = f"""<belief_graph_guide>
 {_GRAPH_USE_GUIDE}
 </belief_graph_guide>"""
 
+CONTEXT_GUIDE_V1 = f"""<belief_graph_guide>
+{_HISTORY_SCOPE}
+
+The graph is organized in chronological Step t-n blocks (n steps before the
+current context). Thought nodes come from assistant beliefs; each issued tool
+call is followed by Findings from that call. BLOCKED marks an unsuccessful
+call; redundant blocked-source result nodes are omitted. Node IDs refer to
+whole beliefs, including any multiline search-result list. Confidence tiers
+belong to the entire node, including tool-call nodes. Relations are inline
+with their source node and retain their recorded direction.
+{_TIERED_CONFIDENCE_GUIDE}
+{_RELATION_GUIDE}
+
+{_GRAPH_USE_GUIDE}
+</belief_graph_guide>"""
+
 GUIDE_BY_STYLE = {
     "split": CONTEXT_GUIDE_SPLIT,
     "split_confidence": CONTEXT_GUIDE_SPLIT_CONFIDENCE,
+    "v1": CONTEXT_GUIDE_V1,
 }
 
 
@@ -151,7 +168,8 @@ class BCGSettings:
     tonggraph_timeout: float = 30.0
     # Layout of the injected graph block for the single agent: "split"
     # (completed actions / findings / relations), "split_confidence" (split
-    # with high/medium/low confidence tiers) or "v0" (legacy beliefs list).
+    # with high/medium/low confidence tiers), "v1" (step/tool/finding grouping
+    # with inline relation and node-level confidence) or "v0" (legacy).
     render_style: str = "split"
     task_state_enabled: bool = False
     task_state_chars: int = 1800
@@ -245,8 +263,8 @@ class BCGSettings:
                 or not math.isfinite(value.timeout) or value.timeout <= 0):
             raise ValueError("BCG_GRAPH_CHARS must be >= 512 and BCG_GRAPH_TIMEOUT positive")
         if value.render_style not in RENDER_STYLES:
-            raise ValueError("BCG_RENDER_STYLE must be split, split_confidence or v0")
-        if value.render_style == "split_confidence":
+            raise ValueError("BCG_RENDER_STYLE must be v0, split, split_confidence or v1")
+        if value.render_style in {"split_confidence", "v1"}:
             from .rendering import confidence_thresholds
 
             confidence_thresholds()  # fail fast on invalid BCG_CONFIDENCE_HIGH/LOW
@@ -358,7 +376,7 @@ class BCGMemory:
         render_style: str = "v0",
     ) -> None:
         if render_style not in RENDER_STYLES:
-            raise ValueError("render_style must be split, split_confidence or v0")
+            raise ValueError("render_style must be v0, split, split_confidence or v1")
         self.settings = settings
         # Opt-in per instance: only the single-agent workflow passes a split
         # style; subclasses (agent_team) keep the legacy layout and own guide.
