@@ -1,0 +1,30 @@
+{
+  "stance": {
+    "instruction": "Identify the exact proposition first. If it reports someone's own explicitly stated request, intention, recommendation or experienced obstacle, the utterance directly evidences THAT report, not the success of the proposed action. For an external claim distinguish some unverified support from no pertinent evidence.",
+    "choices": {
+      "confirmed": "This turn directly establishes the specific claim. An explicit speech act directly establishes that the speaker requested, intended, recommended or reported it, not that external facts or future success are verified.",
+      "possible": "There is a relevant lead, excerpt, estimate or qualified reason for the external claim, but insufficient verification.",
+      "unknown": "There is no usable support for this specific proposition; an unrelated snippet or broken assertion is not support. Not the default for every unverified source."
+    }
+  },
+  "task_status": {
+    "instruction": "Name the work item whose status the clause reports. An exhausted route or unavailable input blocks that named activity even if the overall report can continue by another route. Do not mark a whole task complete merely because one stage has enough material."
+  },
+  "kind": {
+    "instruction": "Read the whole proposed child. A separately checkable section or named subset can refine a broad parent even with different wording or a different language. Ask what remains undone after finishing it. Researching, continuing, or fetching is a method rather than a new deliverable. Mere mention of more details or limitations adds no independently checkable scope.",
+    "choices": {
+      "narrower_scope": "A specific work product or question is a proper part of the wider objective; another substantive portion remains. Includes one requested part of a multi-part report.",
+      "new_deliverable": "The current material independently specifies an additional artifact or output serving the parent, not already specified in it.",
+      "none": "Same outcome in different words, general search/reading method, status or evidence, contains the parent instead, or insufficient grounding."
+    }
+  },
+  "type": {
+    "instruction": "First test whether BOTH endpoints assert incompatible propositions: same scope, incompatible outcomes. Otherwise reject contradictory. Reject paraphrases that add no useful information. If A is a plan and B is its specified requirement, gap or already available input, consider depends_on. Topic overlap with a broad review or the mere fact that a tool found a result is not supplementation.",
+    "choices": {
+      "depends_on": "B supplies a specific prerequisite, evidence, constraint or requirement for A in the stated direction.",
+      "supplements": "A contributes specific NEW detail to a substantive point in B. Neither repetition, a search result following a search plan, nor facts on the general topic of a report suffice.",
+      "contradicts": "One endpoint makes a concrete assertion that cannot coexist with the other's assertion in the same scope. Equivalent constraints agree.",
+      "none": "No meaningful directed relation: same content, wrong direction, generic topical relevance, or insufficient evidence."
+    }
+  }
+}

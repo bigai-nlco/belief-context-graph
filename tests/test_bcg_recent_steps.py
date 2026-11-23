@@ -206,7 +206,7 @@ def test_guide_matches_scope_and_grounded_next_action_policy(tmp_path, style, ra
     assert f"last {raw_steps} complete interactions remain verbatim" in guide
     assert "One interaction is one Assistant output plus all its Tool Results." in guide
     assert "entire acknowledged historical graph" in guide
-    assert "only task records fitting its display budget are shown" in guide
+    assert '"Blocked or failed attempts"' in guide and '"Latest plan"' in guide and "display budget" not in guide
     assert f"up to {graph_steps} complete interactions immediately before the retained raw interactions" in guide
     assert "relations between those nodes" in guide
     assert "additional tasks, nodes and relations" in guide

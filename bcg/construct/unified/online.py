@@ -156,9 +156,11 @@ class SessionManager:
             f"  reasoning_effort={effective_reasoning}"
             + (f"  max_tokens={self.max_tokens}" if self.max_tokens else "")
         )
-        print(
-            f"[online] stance/entities model={self.model}  metadata_source=graph_model"
-        )
+        classification = self.options.classification
+        if classification.get("mode") == "decision_model":
+            print(f"[online] classifier={classification['model']} (Decisions); candidate text/entities model={self.model}")
+        else:
+            print(f"[online] stance/entities model={self.model}  metadata_source=graph_model")
 
         emb_cfg = load_embedding_config(config_path, embedding_key=embedding_key)
         self.embedder = None

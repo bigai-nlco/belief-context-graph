@@ -485,7 +485,16 @@ class ReportPolicy:
                     refusal, addresses = await vet_public_url(current)
                     if refusal:
                         raise ValueError("URL is not an allowed public endpoint.")
-                    pinned, headers, extensions = pin_to_address(current, addresses, {})
+                    pinned, headers, extensions = pin_to_address(
+                        current,
+                        addresses,
+                        {
+                            "User-Agent": (
+                                "Mozilla/5.0 (compatible; FrontierAgent/1.0; "
+                                "+https://github.com/ApodexAI/FrontierAgent)"
+                            ),
+                        },
+                    )
                     async with client.stream(
                         "GET", pinned, headers=headers, extensions=extensions
                     ) as response:

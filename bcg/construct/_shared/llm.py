@@ -136,6 +136,10 @@ class TokenUsageTracker:
     def set_label(self, label: str) -> None:
         self._label = label or "unlabeled"
 
+    @property
+    def current_label(self) -> str:
+        return self._label
+
     @contextmanager
     def label(self, label: str):
         prev = self._label
@@ -248,6 +252,8 @@ class TokenUsageTracker:
             input_rate = float(pricing.get("input_per_1k", 0.0))
             output_rate = float(pricing.get("output_per_1k", 0.0))
             for record in missing_records:
+                if ".decisions:" in str(record.get("label", "")):
+                    continue  # The graph chat model's prices do not apply to Decisions.
                 estimated += (
                     int(record.get("input_tokens") or 0) / 1000.0 * input_rate
                     + int(record.get("output_tokens") or 0) / 1000.0 * output_rate
@@ -303,7 +309,8 @@ class TokenUsageTracker:
 
     def estimate_cost(self, pricing: dict[str, Any] | None) -> dict[str, Any] | None:
         """pricing = {"input_per_1k": x, "output_per_1k": y} (USD); None -> no cost."""
-        if not pricing:
+        if not pricing or any(".decisions:" in str(r.get("label", "")) for r in self.records):
+            # A single chat-model rate cannot price a mixed-model run; use llm_cost instead.
             return None
         t = self.totals()
         in_rate = float(pricing.get("input_per_1k", 0.0))
@@ -326,6 +333,15 @@ class TokenUsageTracker:
             "cost": self.llm_cost(pricing),
             "by_label": self.by_label(),
         }
+        decisions = [r for r in self.records if ".decisions:" in str(r.get("label", ""))]
+        if decisions:
+            d["decision_totals"] = {
+                "n_calls": len(decisions),
+                **{
+                    key: sum(int(r.get(key) or 0) for r in decisions)
+                    for key in ("input_tokens", "output_tokens", "reasoning_tokens", "total_tokens")
+                },
+            }
         cost = self.estimate_cost(pricing)
         if cost is not None:
             d["estimated_cost"] = cost

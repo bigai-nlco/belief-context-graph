@@ -1,0 +1,36 @@
+{
+  "stance": {
+    "instruction": "Evaluate the scope and modality of the recorded proposition, not whether its words appear in an excerpt. Stated intentions, recommendations and constraints can be observed as speech acts. A possibility/estimate about the world or about evidence sufficiency remains tentative. A search snippet supporting an external proposition is a lead, not primary verification; a corrupt or irrelevant fragment gives no support.",
+    "choices": {
+      "confirmed": "This turn directly establishes the specific claim. An explicit speech act directly establishes that the speaker requested, intended, recommended or reported it, not that external facts or future success are verified.",
+      "possible": "There is a relevant lead, excerpt, estimate or qualified reason for the external claim, but insufficient verification.",
+      "unknown": "There is no usable support for this specific proposition; an unrelated snippet or broken assertion is not support. Not the default for every unverified source."
+    }
+  },
+  "task_status": {
+    "instruction": "Name the work item whose status the clause reports. An exhausted route or unavailable input blocks that named activity even if the overall report can continue by another route. Do not mark a whole task complete merely because one stage has enough material."
+  },
+  "kind": {
+    "instruction": "Compare the given parent with this particular child (not other hypothetical tasks). First discard fragments, parallel topics, methods/intentions to search, and repetitions: if no distinct checkable work is requested, answer none. For genuine child work, assess what changed: (1) a newly specified self-contained artifact with concrete contents is a change of deliverable; (2) a portion of the same analysis is a change of scope. An artifact already named in the parent is not new. Use the quoted source, not label words or resemblance.",
+    "choices": {
+      "new_deliverable": "A distinct concrete output with its own acceptance criterion has been specified by the child. It serves the parent, which did not ask for that output. Prefer this over mere scope narrowing when both descriptions sound possible.",
+      "narrower_scope": "Same requested kind of analysis, but one bounded question, section, population, time slice or case of a larger work; identifiable work remains. A noun phrase or a suggested search is not a subtask.",
+      "none": "No separately checkable duty, insufficient evidence, wrong direction, same outcome, or merely a technique to reach it."
+    }
+  },
+  "type": {
+    "instruction": "Use the literal A-to-B direction. Does executing or concluding A actually consume the specific resource or satisfy a concrete requirement identified by B? If so choose depends_on. Otherwise, can you point to a new detail in A that extends a specific substantive idea in B? If so choose supplements, even when wording partly overlaps. Do not connect a topical fact to a generic request to research that domain. Identical meaning is none. A contradiction requires incompatible assertions in the same scope, not a different speaker.",
+    "choices": {
+      "depends_on": "B supplies a specific prerequisite, evidence, constraint or requirement for A in the stated direction.",
+      "supplements": "There is an identifiable NEW detail in A, pertinent to a specific subject, lead, or claim in B. Generic topic match, same constraints or pure search sequence are not enough.",
+      "contradicts": "One endpoint makes a concrete assertion that cannot coexist with the other's assertion in the same scope. Equivalent constraints agree.",
+      "none": "No meaningful directed relation: same content, wrong direction, generic topical relevance, or insufficient evidence."
+    }
+  },
+  "node_type": {
+    "instruction": "A terminal report may commit to a concrete answer or a final recommendation without saying 'my final answer'. Distinguish its actual adopted conclusion from background and a discussion of what to recommend later."
+  },
+  "task_role": {
+    "instruction": "When a statement mixes current progress and a future action, attend to the new information: an explicit readiness assessment, missing evidence, or blocked route can be a progress update. A mere intention without reported state is a plan."
+  }
+}

@@ -68,7 +68,7 @@ def main() -> None:
     import yaml
     from dotenv import dotenv_values
 
-    from tools.case_study_studio.control import Control, now, read_json
+    from tools.case_study_studio.control import Control, now, read_json, task_worker_limit
     from tools.case_study_studio.run_version import capture_version
 
     control = Control(args.root, args.state)
@@ -121,9 +121,7 @@ def main() -> None:
             save()
         # Apply the current capacity to runs queued before the local service
         # was reconfigured, and retain their originally requested concurrency.
-        worker_limit = control.profiles()[config["profile"]]["max_workers"]
-        if graph_spec:
-            worker_limit = min(worker_limit, graph_spec["max_workers"])
+        worker_limit = task_worker_limit(control.profiles()[config["profile"]], graph_spec)
         if config["workers"] > worker_limit:
             metadata["requested_workers"] = config["workers"]
             config["workers"] = metadata["workers"] = worker_limit
@@ -164,8 +162,13 @@ def main() -> None:
             if mode == "bcg_no_retrieval":
                 profile["agent"]["bcg"]["retrieval"] = "all"
             elif mode == "bcg_compaction":
-                profile["agent"]["bcg"].update(retrieval="compaction", recent_turns=0,
-                                             compaction_turns=config.get("compaction_turns", 5))
+                profile["agent"]["bcg"].update(
+                    retrieval="compaction",
+                    recent_turns=0,
+                    compaction_turns=config.get("compaction_turns", 5),
+                    compaction_task_state_filter=bool(config.get("compaction_task_state_filter", False)),
+                    compaction_task_state_hops=config.get("compaction_task_state_hops", 2),
+                )
             else:
                 profile["agent"]["bcg"]["retrieval"] = "recent_steps"
                 profile["agent"]["bcg"].setdefault("graph_recent_turns", 3)
@@ -181,6 +184,13 @@ def main() -> None:
             task_state = bool(config.get("task_state"))
             profile["agent"]["bcg"]["task_state_enabled"] = task_state
             graph_profile.setdefault("pipeline", {})["task_state"] = {"enabled": task_state}
+            classification = config.get("graph_classification", "graph_model")
+            if classification not in ("graph_model", "decision_model"):
+                raise RuntimeError("未知的建图分类方案")
+            graph_profile["pipeline"]["classification"]["mode"] = classification
+            metadata["graph"]["classification"] = classification
+            if classification == "decision_model":
+                metadata["graph"]["classifier_model"] = graph_profile["pipeline"]["classification"]["model"]
             embedding = values.get("BCG_EMBEDDING_MODEL") or str(Path.home() / "PLM/all-MiniLM-L6-v2")
             if Path(embedding).is_dir():
                 graph_profile["models"]["embedding"]["model"] = embedding

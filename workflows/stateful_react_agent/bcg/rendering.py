@@ -423,17 +423,10 @@ def _finding_order(ids: list[int], selection: dict[str, Any]) -> list[int]:
     return order
 
 
-def render_graph(
-    snapshot: dict[str, Any],
-    selection: dict[str, Any],
-    budget: int | None,
-    *,
-    strict: bool = False,
-    style: str = "v0",
-) -> tuple[str, list[int], list[int]]:
-    """Render real nodes/edges; None disables the cap for full-graph injection."""
-    if style not in RENDER_STYLES:
-        raise GraphError("invalid_render_style")
+def checked_graph_selection(
+    snapshot: dict[str, Any], selection: dict[str, Any],
+) -> tuple[dict[int, dict[str, Any]], dict[int, dict[str, Any]]]:
+    """Check endpoints across the whole selection, even when rendered in separate messages."""
     ids, relation_ids = selection.get("node_ids"), selection.get("relation_ids")
     if (
         not isinstance(ids, list)
@@ -459,6 +452,22 @@ def render_graph(
             or edge.get("type") not in {"depends_on", "supplements", "contradicts"}
         ):
             raise GraphError("invalid_selected_relation")
+    return nodes, edges
+
+
+def render_graph(
+    snapshot: dict[str, Any],
+    selection: dict[str, Any],
+    budget: int | None,
+    *,
+    strict: bool = False,
+    style: str = "v0",
+) -> tuple[str, list[int], list[int]]:
+    """Render real nodes/edges; None disables the cap for full-graph injection."""
+    if style not in RENDER_STYLES:
+        raise GraphError("invalid_render_style")
+    nodes, edges = checked_graph_selection(snapshot, selection)
+    ids, relation_ids = selection["node_ids"], selection["relation_ids"]
     node_lines: dict[int, str] = {}
     for node_id in dict.fromkeys(ids):
         node_lines[node_id] = node_line(nodes[node_id])

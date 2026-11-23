@@ -556,6 +556,31 @@ def build_update_prompt(
 # Phase 1: Node extraction only (beliefs + decisions, no relations)
 # =====================================================================
 
+_TASK_FIELDS = "      {TASK_STATE_FIELDS}\n"
+_CHILD_TASK_FIELDS = """      "task_role": "<task | plan | evidence | intermediate_conclusion | constraint | progress | other>",
+      "task_ids": [42],
+      "task_refinements": [{"parent_id": 42, "kind": "narrower_scope", "parent_quote": "<exact span from shown parent's content>", "child_quote": "<exact span from the current source for this belief>"}],
+"""
+
+
+def _grounded_output_fields(*, parents: bool, gaps: bool) -> str:
+    """Workflow fields live on the belief object; only show reference fields with real candidates."""
+    fields = [
+        '      "task_role": "<required: task | plan | evidence | intermediate_conclusion | constraint | progress | other>",',
+        '      "task_scope": "<root when addressing the overall assignment (including a plan, gap, or progress with no shown child task); otherwise omit>",',
+        '      "gap_quote": "<if missing substantive evidence for a named subject/aspect: verbatim span naming both subject and missing evidence>",',
+        '      "next_action_quote": "<concrete plan only: verbatim clause or bullet naming the specific subject/aspect to check, never generic search/report filler>",',
+        '      "task_status": "<progress only: open | in_progress | blocked | reported_complete | cancelled>",',
+        '      "root_refinement": {"kind": "narrower_scope | new_deliverable", "parent_quote": "<first-level task only: ROOT span>", "child_quote": "<current choice>"},',
+    ]
+    if parents:
+        fields += ['      "task_ids": [],',
+                   '      "task_refinements": [{"parent_id": 42, "kind": "narrower_scope | new_deliverable", '
+                   '"parent_quote": "<shown parent span>", "child_quote": "<current choice>"}],']
+    if gaps:
+        fields.append('      "closes_gaps": [{"id": 42, "quote": "<explicit answer to that shown gap; use its actual integer id>"}],')
+    return "\n".join(fields) + "\n"
+
 _OUTPUT_FORMAT_EXCERPT_NODES = """\
 ## Output (JSON only — no markdown fences, no commentary)
 {
@@ -564,6 +589,7 @@ _OUTPUT_FORMAT_EXCERPT_NODES = """\
       "belief": "<self-contained coherent belief>",
       "stance": "confirmed | almost_certain | probable | possible | unlikely | doubtful | unknown",
       "entities": ["<specific entity>", "..."],
+      {TASK_STATE_FIELDS}
       "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
     }
   ],
@@ -586,6 +612,7 @@ _OUTPUT_FORMAT_SENTENCES_NODES = """\
       "belief": "<self-contained coherent belief>",
       "stance": "confirmed | almost_certain | probable | possible | unlikely | doubtful | unknown",
       "entities": ["<specific entity>", "..."],
+      {TASK_STATE_FIELDS}
       "supporting_sentence_indices": [0, 2]
     }
   ],
@@ -608,6 +635,7 @@ _OUTPUT_FORMAT_EXCERPT_USER_NODES = """\
       "belief": "<self-contained coherent belief>",
       "stance": "confirmed | almost_certain | probable | possible | unlikely | doubtful | unknown",
       "entities": ["<specific entity>", "..."],
+      {TASK_STATE_FIELDS}
       "supporting_excerpts": ["<verbatim excerpt copied character-for-character from the content>"]
     }
   ]
@@ -622,6 +650,7 @@ _OUTPUT_FORMAT_SENTENCES_USER_NODES = """\
       "belief": "<self-contained coherent belief>",
       "stance": "confirmed | almost_certain | probable | possible | unlikely | doubtful | unknown",
       "entities": ["<specific entity>", "..."],
+      {TASK_STATE_FIELDS}
       "supporting_sentence_indices": [0, 2]
     }
   ]
@@ -699,6 +728,7 @@ def build_node_extraction_prompt(
     graph_edges: str = "[]",
     current_date: str | None = None,
     task_state_enabled: bool = False,
+    decisions: bool = False,
 ) -> str | None:
     """Phase 1 prompt: extract beliefs + decisions only (no relations).
     Returns None for an unknown role."""
@@ -753,15 +783,37 @@ def build_node_extraction_prompt(
             belief_definition,
             decision_definition,
             belief_details,
-            stance_definition,
+            "" if decisions else stance_definition,
             role_guidance,
         )
         if part
     )
+    task_fields = ""
     if task_state_enabled and key in {"user", "assistant"}:
-        from .task_state import EXTRACTION_GUIDANCE
+        from .task_state import extraction_guidance, shown_task_texts, shown_workflow
 
-        parts.append(EXTRACTION_GUIDANCE)
+        has_parents = bool(shown_task_texts(graph_nodes))
+        if decisions:
+            parts.append(
+                "Retain explicit requested outcomes, bounded plans, constraints, evidence, conclusions and "
+                "progress reports. Preserve separately checkable deliverables and subjects. Do not invent "
+                "subtasks or mistake proposed methods for completed work."
+            )
+            if has_parents:
+                parts.append(
+                    "If a candidate explicitly addresses a shown historical task, copy its actual id(s) into task_ids. "
+                    "For a proposed child, supply one task_refinements item per proposed parent: parent_id, "
+                    "parent_quote (exact span naming the wider objective or remaining work), child_quote (exact "
+                    "span naming the bounded work or new deliverable in this turn). Do not assign a refinement kind. "
+                    "Do not invent a child from a restatement. Otherwise omit the proof; use [] for uncertain targets."
+                )
+        else:
+            root, open_gaps = shown_workflow(graph_nodes) if key == "assistant" else ("", set())
+            parts.append(extraction_guidance(has_parents, grounded_assistant=bool(root)))
+            if root:
+                task_fields = _grounded_output_fields(parents=has_parents, gaps=bool(open_gaps))
+            elif has_parents:
+                task_fields = _CHILD_TASK_FIELDS
     if has_existing_nodes:
         parts.append(
             _ASSISTANT_NODE_GRAPH_CONTEXT_BLOCK
@@ -807,7 +859,21 @@ def build_node_extraction_prompt(
         )
         parts.append(f"## Current turn sentences\n{SENTENCES_PLACEHOLDER}\n")
 
-    prompt = "\n".join(parts)
+    if decisions:
+        # Replace only the schema; never rewrite evidence or historical node content.
+        # The baseline hard constraints end with a description of its separate output lists.
+        # Keep every grounding requirement, but match the new neutral candidate schema.
+        parts[-3] = parts[-3].split('Empty "beliefs"')[0].split("4. Empty beliefs")[0].replace(
+            "An empty beliefs list is valid", "An empty nodes list is valid").rstrip(" \n-")
+        evidence = ('"supporting_excerpts":["<exact contiguous quote>"]' if mode == "excerpt"
+                    else '"supporting_sentence_indices":[0]')
+        refs = (', "task_ids":[42], "task_refinements":[{"parent_id":42,"parent_quote":"...",'
+                '"child_quote":"..."}]' if task_state_enabled and key in {"user", "assistant"} and has_parents else '')
+        parts[-2] = ('## Output (JSON only)\nReturn one nodes list for all extracted units, including any final answer. '
+                     'Return [] inside nodes when empty. Do not label them; classification is separate. '
+                     'IDs below are examples, never default IDs.\n{"nodes":[{"text":"<self-contained claim '
+                     'or final answer>","entities":["..."],' + evidence + refs + '}]}\n')
+    prompt = "\n".join(parts).replace(_TASK_FIELDS, task_fields)
     # Kept in the function signature for caller compatibility. Event metadata is
     # assigned deterministically when the graph node is created, not by the LLM.
     _ = current_date
@@ -1058,6 +1124,14 @@ _TOOL_RESULT_RELATION_OUTPUT_FORMAT = """\
 """
 
 
+def _candidate_edge_schema(*, layered: bool = False) -> str:
+    layer = '"selected_previous_layer": <integer or null>, ' if layered else ''
+    return ('## Output (JSON only)\nPropose directed endpoint pairs and a short, factual note. '
+            'Use the relation definitions only to find and orient candidates; do not label the relation. '
+            'A separate classifier assigns its type or rejects the pair.\n{'
+            + layer + '"relations":[{"from":<int>, "to":<int>, "note":"<short reason>"}]}\n')
+
+
 def build_relation_extraction_prompt(
     *,
     role: str,
@@ -1068,6 +1142,7 @@ def build_relation_extraction_prompt(
     previous_nodes: str | None = None,
     current_nodes: str | None = None,
     current_date: str | None = None,
+    decisions: bool = False,
 ) -> str:
     """Phase 2 prompt: extract relations only (on post-merge graph)."""
     if normalize_role(role) == "tool":
@@ -1082,7 +1157,7 @@ def build_relation_extraction_prompt(
             "## Current Tool Result nodes\n" + CURRENT_NODES_PLACEHOLDER + "\n",
             _TOOL_RESULT_RELATION_RULES,
             _TOOL_RESULT_RELATION_HARD_CONSTRAINTS,
-            _TOOL_RESULT_RELATION_OUTPUT_FORMAT,
+            _candidate_edge_schema() if decisions else _TOOL_RESULT_RELATION_OUTPUT_FORMAT,
         ]
         prompt = "\n".join(parts)
         prompt = prompt.replace(
@@ -1110,7 +1185,7 @@ def build_relation_extraction_prompt(
             "### Existing relations\n" + GRAPH_EDGES_PLACEHOLDER + "\n",
             "## Nodes from this turn\n" + NEW_NODE_IDS_PLACEHOLDER + "\n",
             _RELATION_EDGE_RULES,
-            _RELATION_OUTPUT_FORMAT,
+            _candidate_edge_schema() if decisions else _RELATION_OUTPUT_FORMAT,
         ]
     )
     prompt = "\n".join(parts)
@@ -1168,6 +1243,7 @@ def build_layered_relation_extraction_prompt(
     graph_edges: str = "[]",
     current_nodes: str = "[]",
     validation_feedback: str | None = None,
+    decisions: bool = False,
 ) -> str:
     """Build one relation prompt over several candidate previous-turn layers.
 
@@ -1204,7 +1280,7 @@ def build_layered_relation_extraction_prompt(
             + "\nReturn a corrected complete JSON response.\n"
         )
     parts.append(_LAYERED_RELATION_HARD_CONSTRAINTS)
-    parts.append(_LAYERED_RELATION_OUTPUT_FORMAT)
+    parts.append(_candidate_edge_schema(layered=True) if decisions else _LAYERED_RELATION_OUTPUT_FORMAT)
     prompt = "\n".join(parts)
     prompt = prompt.replace(CONTENT_PLACEHOLDER, content or "")
     prompt = prompt.replace(PREVIOUS_NODES_PLACEHOLDER, previous_nodes or "[]")

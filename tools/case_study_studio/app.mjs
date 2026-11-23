@@ -1,5 +1,5 @@
 import {allDimensions, addCustomDimension, updateCustomDimension, removeCustomDimension, OPTIONS, IMPROVEMENT_STAGES, updateDemoTitle, uid, pretty, textOf, ingestFiles, graphViews, agentTrajectories, contextTurn, contextBeliefText, recordPresentation, eventEvidencePresentation, eventBeliefContext, eventFromTrajectory, newEvent, selectedDimensions, hasNoApplicableDimensions, setDimensionSelected, confirmNoApplicableDimensions, linkedEvents, setDimensionEvent, removeEvent, eventLabel, conclusionObservations, setConclusionFocus, completion, validateReview, tokenMetrics, markdownReport, csvSummary, workspaceExport, restoreWorkspace} from './model.mjs';
-import {renderRetrieval, retrievalRounds, bindRetrievalPan, zoomRetrieval} from './retrieval.mjs';
+import {renderRetrieval, retrievalRounds, bindRetrievalPan, zoomRetrieval, overviewMarkup, mountOverview} from './retrieval.mjs';
 import {REAL_DEMO_ID, buildDemoCase, demoLabel} from './demo.mjs';
 import {mountCopyRuntime} from './copy-runtime.mjs';
 import {renderMarkdown} from './markdown.mjs';
@@ -208,7 +208,17 @@ function renderSidebar() {
     <div class="sidebar-foot">${button(icon('book') + '标注教程', 'help', 'button ghost full')}
     <div class="privacy">${icon('lock')}<div>LOCAL-FIRST<span>数据保存在当前浏览器</span></div></div></div></aside>`;
 }
+let disposeAtlas;
+function bindEvidenceMaps(c) {
+  bindRetrievalPan(document);
+  const slot=$('.atlas-slot'), id=state.graphView==='turns'?state.graphTurn:state.graphFull;
+  const graph=slot && c?.graphs.find(g=>g.id===id);
+  if(graph)disposeAtlas=mountOverview(slot, graph, state.graphLayer, layer=>{
+    state.graphLayer=layer;scheduleViewSave();
+  }, c.question);
+}
 function renderShell() {
+  disposeAtlas?.();disposeAtlas=null;
   if (renderedCase === state.active && current()) {
     state.evidenceScroll = $('#evidence-content')?.scrollTop ?? 0;
     state.formScroll = $('#form-content')?.scrollTop ?? 0;
@@ -228,7 +238,7 @@ function renderShell() {
   if (c) {
     $('#evidence-content').scrollTop = state.evidenceScroll;
     $('#form-content').scrollTop = state.formScroll;
-    bindRetrievalPan(document);
+    bindEvidenceMaps(c);
     lockReviewer();
   }
   renderedCase = state.active;
@@ -259,7 +269,7 @@ function renderWorkspace(c) {
     ${c.warnings.length ? `<details class="notice amber"><summary>记录提示 · ${c.warnings.length}</summary><ul data-copy-lock>${c.warnings.map(w=>`<li>${escape(w)}</li>`).join('')}</ul></details>` : ''}
     ${renderDemoOverview(c)}
     <section class="summary-bar"><div><small>AGENT TOKENS</small><strong>${num(t.agent)}</strong></div><div title="${escape(t.graphScope)}"><small>GRAPH TOKENS <span>ⓘ</span></small><strong>${num(t.graph)}</strong></div><div><small>AGENT + GRAPH</small><strong>${num(t.combined)}</strong></div><div><small>关键过程</small><strong><b class="event-total" data-event-count data-copy-lock>${c.annotation.events.length}</b><span>个</span></strong></div><div class="progress-cell"><small>标注进度 <span id="review-progress">${dimensionProgress(c)}</span></small><progress id="progress-meter" value="${p.percent}" max="100"></progress></div></section>
-    <div class="workbench"><section class="panel evidence-panel"><div class="panel-heading"><div><span class="section-number">01</span><h2>轨迹</h2></div></div><nav class="tabs" aria-label="证据视图">${[['trajectory','运行轨迹'], ['context','每轮 Belief 注入情况'], ['graph','Belief Graph'], ['retrieval','逐轮选图'], ['report','任务和结果']].map(([id, label]) => `<button data-tab="${id}" class="${state.tab === id ? 'selected' : ''}" aria-pressed="${state.tab === id}">${label}</button>`).join('')}</nav><div id="evidence-content" class="panel-body">${renderEvidence(c)}</div></section>
+    <div class="workbench"><section class="panel evidence-panel"><div class="panel-heading"><div><span class="section-number">01</span><h2>轨迹</h2></div></div><nav class="tabs" aria-label="证据视图">${[['trajectory','运行轨迹'], ['context','每轮 Belief 注入情况'], ['graph','BCG / TSG 图谱'], ['retrieval','逐轮选图'], ['report','任务和结果']].map(([id, label]) => `<button data-tab="${id}" class="${state.tab === id ? 'selected' : ''}" aria-pressed="${state.tab === id}">${label}</button>`).join('')}</nav><div id="evidence-content" class="panel-body">${renderEvidence(c)}</div></section>
     <section class="panel annotation-panel"><div class="panel-heading"><div><span class="section-number">02</span><h2>分析</h2></div></div>${renderReviewRoute(c)}<div id="form-content" class="panel-body form-body">${renderForm(c)}</div></section></div>`;
 }
 function renderReviewRoute(c) {
@@ -374,9 +384,9 @@ function renderGraph(c) {
     ${button('下一份 →', 'next-graph', 'button subtle', index === graphs.length - 1 ? 'disabled' : '')}
   </nav>` : '';
   return `${switcher}${navigation}
-  <div class="notice">${turns ? '该轮建图完成时的 Graph 快照，包含截至该轮的节点和关系。' : '完整 Graph 中的全部节点和关系，与每轮快照分开展示。'}实际注入 Agent 的内容见「每轮 Belief 注入情况」。</div><div class="graph-stats"><strong>${graph.nodes.length}<span>节点</span></strong><strong>${graph.relations.length}<span>关系</span></strong><span class="mono">${escape(graph.graphId)}</span></div><label class="search-input">${icon('search')}<input id="graph-search" aria-label="搜索 Graph 节点" value="${escape(state.query)}" placeholder="搜索 belief 内容或 ID"></label>
+  <div class="notice">${turns ? '该轮建图完成时的 Graph 快照，包含截至该轮的节点和关系。' : '完整 Graph 中的全部节点和关系，与每轮快照分开展示。'}实际注入 Agent 的内容见「每轮 Belief 注入情况」。</div>${overviewMarkup()}<details class="graph-local-explorer" ${state.node || state.query || $('.graph-local-explorer')?.open ? 'open' : ''}><summary>BCG 节点邻域与原始记录</summary><div class="graph-stats"><strong>${graph.nodes.length}<span>节点</span></strong><strong>${graph.relations.length}<span>关系</span></strong><span class="mono">${escape(graph.graphId)}</span></div><label class="search-input">${icon('search')}<input id="graph-search" aria-label="搜索 Graph 节点" value="${escape(state.query)}" placeholder="搜索 belief 内容或 ID"></label>
   ${node ? `<div class="graph-neighborhood">${graphSVG(node, adjacent, graph)}<span class="graph-caption">当前节点的一跳关系 · 点击相邻节点查看</span></div><article class="belief-detail"><div class="record-header"><span class="badge green">B${escape(node.id)}</span><span class="mono">confidence ${escape(node.confidence ?? '未知')}</span></div><p>${escape(node.belief ?? node.decision ?? node.content)}</p><div class="small muted">来源：${escape(pretty(node.source ?? {}))} · stance：${escape(node.stance ?? '未知')}</div><div class="relation-list">${adjacent.map(e => `<div><span class="mono">B${escape(e.from_id)}</span><span class="edge-type ${e.type === 'contradicts' ? 'contradiction' : ''}">${escape(e.type)}</span><span class="mono">B${escape(e.to_id)}</span><p>${escape(e.note ?? '')}</p></div>`).join('') || '<p class="muted small">此节点在上传快照中没有关系。</p>'}</div><details class="raw-record"><summary>节点原始属性</summary><pre>${escape(pretty(node))}</pre></details></article>` : graph.nodes.length ? blank('没有匹配的节点', '请调整关键词。') : blank('本份 Graph 暂无节点', '该快照记录的节点数量为 0。')}
-  <div class="node-list-heading">所有匹配节点 <span>${matching.length}</span></div><div class="node-list">${matching.slice(0, 300).map(n => `<button data-node="${escape(n.id)}" class="node-row ${n.id === node?.id ? 'selected' : ''}"><span class="mono">B${escape(n.id)}</span><span>${escape(n.belief ?? n.decision ?? n.content)}</span></button>`).join('')}</div>${matching.length > 300 ? '<p class="muted small">仅列出前 300 个节点，请用搜索缩小范围。</p>' : ''}`;
+  <div class="node-list-heading">所有匹配节点 <span>${matching.length}</span></div><div class="node-list">${matching.slice(0, 300).map(n => `<button data-node="${escape(n.id)}" class="node-row ${n.id === node?.id ? 'selected' : ''}"><span class="mono">B${escape(n.id)}</span><span>${escape(n.belief ?? n.decision ?? n.content)}</span></button>`).join('')}</div>${matching.length > 300 ? '<p class="muted small">仅列出前 300 个节点，请用搜索缩小范围；全图保留全部节点。</p>' : ''}</details>`;
 }
 function graphSVG(node, edges, graph) {
   const neighbors = [...new Set(edges.map(e => e.from_id === node.id ? e.to_id : e.from_id))].filter(id => id !== node.id && graph.nodes.some(n => n.id === id)).slice(0, 8);
@@ -590,7 +600,11 @@ function renderRelatedOccurrences(e) {
   return `<details class="ai-related-occurrences"><summary>同类过程与关联轮次 · ${items.length}</summary><p>${escape(e.groupReason)}</p>${items.map(item=>`<details><summary>${escape(item.agent)} · call ${escape(item.call)}</summary><h5>本轮注入的 Belief</h5><div class="report-markdown">${renderMarkdown(item.graphEvidence.text)}</div><h5>本轮 Agent 输出</h5><div class="report-markdown">${renderMarkdown(item.quote)}</div></details>`).join('')}</details>`;
 }
 function eventField(label, e, key, opts, events) { return field(label, `events.${events.indexOf(e)}.${key}`, e[key], opts); }
-function renderEvidenceOnly() { $('#evidence-content').innerHTML = renderEvidence(current()); bindRetrievalPan(document); lockReviewer(); scheduleViewSave(); }
+function renderEvidenceOnly() {
+  disposeAtlas?.();disposeAtlas=null;
+  const c=current();$('#evidence-content').innerHTML=renderEvidence(c);
+  bindEvidenceMaps(c);lockReviewer();scheduleViewSave();
+}
 function openEvidence(tab) {
   if (state.tab === tab) return;
   state.tab = tab;
@@ -1033,7 +1047,17 @@ if(sharedMode) {
     if(loaded.c.remote.dirty){pending.set(loaded.c.id,loaded.c);if(loaded.c.remote.conflict){saveError='服务器标注已更新，请先导出本地草稿备份，再加载服务器版本';toast(saveError,true);}else saveTimer=setTimeout(flush,450);}
   }catch(error){state.cases=[];state.active='';startupError=error.message;}
 }
+function readAtlasLink() {
+  if (!current() || !['#bcg','#tsg'].includes(location.hash)) return false;
+  Object.assign(state,{tab:'graph',graphView:'full',graphLayer:location.hash.slice(1),node:'',query:''});
+  return true;
+}
+const linkedAtlas=readAtlasLink();
 renderShell();
+if(linkedAtlas)void ensureFullEvidence();
+window.addEventListener('hashchange',()=>{
+  if(readAtlasLink()){renderShell();$('#evidence-content').scrollTop=0;void ensureFullEvidence();}
+});
 
 function copyFragments() {
   const before={...state}, sample=ingestFiles([]);

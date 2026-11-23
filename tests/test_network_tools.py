@@ -244,3 +244,80 @@ async def test_dns_rebinding_cannot_reach_a_private_address(
     assert dial_url == "http://93.184.216.34/secret"   # not the rebound private IP
     assert headers["Host"] == "rebind.test"
     assert calls["n"] == 1                             # resolved once, then pinned
+
+
+@pytest.mark.asyncio
+async def test_tun_fake_ip_verifies_real_public_dns_and_blocks_private_or_literal_targets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Under TUN fake-IP (198.18.0.0/15), public domains resolve via pinned DoH
+    to their real global IPs, while literal 198.18.x.x URLs and nip.io-style
+    domains pointing to non-public IPs remain strictly refused."""
+    import io
+    import socket
+    import urllib.parse
+
+    from plugins.tools import _download_runner as runner
+    from plugins.tools._bounded_fetch import vet_public_url
+
+    def fake_getaddrinfo(host: str, port: object, *args: object, **kwargs: object) -> object:
+        # Literal IPs resolve to themselves, while domain names get TUN fake-IPs.
+        ip = host if runner._is_ip_literal(host) else "198.18.0.149"
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, port))]
+
+    doh_answers: dict[tuple[str, str], dict[str, object]] = {
+        ("www.worldbank.org", "1"): {
+            "Status": 0,
+            "Answer": [
+                {"type": 5, "data": "www.worldbank.org.cdn.cloudflare.net."},
+                {"type": 1, "data": "104.18.40.198"},
+            ],
+        },
+        ("www.worldbank.org", "28"): {
+            "Status": 0,
+            "Answer": [{"type": 28, "data": "2606:4700::6812:28c6"}],
+        },
+        ("127.0.0.1.nip.io", "1"): {
+            "Status": 0,
+            "Answer": [{"type": 1, "data": "127.0.0.1"}],
+        },
+        ("127.0.0.1.nip.io", "28"): {"Status": 0},
+        ("corp.example", "1"): {"Status": 3},
+    }
+    doh_calls: list[tuple[str, str]] = []
+
+    class FakeOpener:
+        def __init__(self, resolver_ip: str) -> None:
+            self.resolver_ip = resolver_ip
+
+        def open(self, req: object, timeout: float = 5.0) -> io.BytesIO:
+            parsed = urllib.parse.urlsplit(req.full_url)  # type: ignore[attr-defined]
+            params = urllib.parse.parse_qs(parsed.query)
+            key = (params["name"][0], params["type"][0])
+            doh_calls.append((self.resolver_ip, key[0]))
+            payload = doh_answers.get(key, {"Status": 0})
+            return io.BytesIO(json.dumps(payload).encode("utf-8"))
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+    monkeypatch.setattr(runner, "_opener", FakeOpener)
+
+    # 1. Legitimate public domain under TUN fake-IP resolves to its real global IPs (IPv4 first).
+    refusal, addresses = await vet_public_url("https://www.worldbank.org/en/country/bangladesh")
+    assert refusal == ""
+    assert addresses == ("104.18.40.198", "2606:4700::6812:28c6")
+    assert doh_calls
+
+    # 2. Literal 198.18.0.x URL must NEVER trigger DoH or bypass SSRF checks.
+    doh_calls.clear()
+    refusal_lit, addrs_lit = await vet_public_url("http://198.18.0.149/admin")
+    assert "refusing non-public address" in refusal_lit and addrs_lit == ()
+    assert doh_calls == []
+
+    # 3. Domain whose real DNS points to loopback/private IP is caught and refused.
+    refusal_nip, addrs_nip = await vet_public_url("http://127.0.0.1.nip.io/secret")
+    assert "refusing non-public address for 127.0.0.1.nip.io: 127.0.0.1" in refusal_nip
+    assert addrs_nip == ()
+
+    # 4. Internal / NXDOMAIN name fails closed without falling back to fake-IP.
+    refusal_nx, addrs_nx = await vet_public_url("https://corp.example/internal")
+    assert "NXDOMAIN" in refusal_nx and addrs_nx == ()

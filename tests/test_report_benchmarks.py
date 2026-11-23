@@ -717,21 +717,22 @@ async def test_default_report_mode_needs_no_graph_and_records_zero_graph_usage(d
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["bcg_no_retrieval", "bcg_compaction"])
-async def test_full_graph_report_mode_keeps_health_usage_and_export(datasets, tmp_path, monkeypatch, mode):
+@pytest.mark.parametrize(("mode", "window"), [("bcg_no_retrieval", None), ("bcg_compaction", 3),
+                                              ("bcg_compaction", "all")])
+async def test_full_graph_report_mode_keeps_health_usage_and_export(datasets, tmp_path, monkeypatch, mode, window):
     profile = _write(tmp_path / "full-graph.yaml", "llm:\n  model: offline-fixture\nagent:\n  context_mode: bcg_no_retrieval\n  bcg:\n    url: http://graph.test\n    retrieval: query_pcst\n    graph_chars: 6600\n")
     profile.write_text(profile.read_text().replace("bcg_no_retrieval", mode))
     args = run_reports.parser().parse_args([
         "run", "drb2", "--data-root", str(datasets), "--pipeline", "stateful-react-agent",
         "--profile", str(profile), "--out", str(tmp_path / "full-graph-out"),
-        *(["--compaction-turns", "3"] if mode == "bcg_compaction" else []),
+        *(["--compaction-turns", str(window)] if mode == "bcg_compaction" else []),
     ])
     tasks = run_reports.load_tasks(args)
     config = run_reports.build_config(args, tasks)
     assert config["mode"] == mode and config["graph_url"] == "http://graph.test"
     assert config["recent_turns"] == (0 if mode == "bcg_compaction" else 2) and config["graph_chars"] is None
     if mode == "bcg_compaction":
-        assert config["compaction_turns"] == 3 and config["task_state_enabled"]
+        assert config["compaction_turns"] == window and config["task_state_enabled"]
     requests = []
     client = httpx.AsyncClient
 
@@ -751,7 +752,7 @@ async def test_full_graph_report_mode_keeps_health_usage_and_export(datasets, tm
         async def run(self, instruction, **kwargs):
             assert kwargs["meta"]["profile_overrides"]["agent"]["context_mode"] == mode
             if mode == "bcg_compaction":
-                assert kwargs["meta"]["profile_overrides"]["agent"]["bcg"]["compaction_turns"] == 3
+                assert kwargs["meta"]["profile_overrides"]["agent"]["bcg"]["compaction_turns"] == window
             return {"final_answer": "# Report\nEvidence-based answer.\n## References\nhttps://example.org/source"}
 
     async def worker(task_id, actual, output, sem):
@@ -781,6 +782,43 @@ async def test_full_graph_report_mode_keeps_health_usage_and_export(datasets, tm
     args.pipeline = "agent_team"
     with pytest.raises(ValueError, match="only by stateful-react-agent"):
         run_reports.build_config(args, tasks)
+
+
+@pytest.mark.parametrize("window", [3, "all"])
+def test_compaction_task_state_filter_cli_and_profile_preservation(datasets, tmp_path, window):
+    profile = _write(
+        tmp_path / "compact.yaml",
+        "llm:\n  model: offline-fixture\nagent:\n  context_mode: bcg_compaction\n  bcg:\n    url: http://graph.test\n    compaction_task_state_filter: true\n    compaction_task_state_hops: 3\n",
+    )
+    # Omitting --compaction-task-state-filter must NOT reset the profile's true setting to False.
+    args_profile = run_reports.parser().parse_args([
+        "run", "drb2", "--data-root", str(datasets), "--pipeline", "stateful-react-agent",
+        "--profile", str(profile), "--compaction-turns", str(window), "--out", str(tmp_path / "out1"),
+    ])
+    tasks = run_reports.load_tasks(args_profile)
+    cfg_profile = run_reports.build_config(args_profile, tasks)
+    assert cfg_profile["compaction_turns"] == window
+    assert cfg_profile["compaction_task_state_filter"] is True
+    assert cfg_profile["compaction_task_state_hops"] == 3
+
+    # Explicit CLI flags also work and reject non-compaction modes.
+    args_cli = run_reports.parser().parse_args([
+        "run", "drb2", "--data-root", str(datasets), "--pipeline", "stateful-react-agent",
+        "--profile", str(profile), "--compaction-turns", str(window),
+        "--compaction-task-state-filter", "--compaction-task-state-hops", "1",
+        "--out", str(tmp_path / "out2"),
+    ])
+    cfg_cli = run_reports.build_config(args_cli, tasks)
+    assert cfg_cli["compaction_task_state_filter"] is True and cfg_cli["compaction_task_state_hops"] == 1
+
+    non_compaction = _write(tmp_path / "bcg.yaml", profile.read_text().replace("bcg_compaction", "bcg"))
+    bad_args = run_reports.parser().parse_args([
+        "run", "drb2", "--data-root", str(datasets), "--pipeline", "stateful-react-agent",
+        "--profile", str(non_compaction), "--compaction-task-state-filter",
+        "--out", str(tmp_path / "out3"),
+    ])
+    with pytest.raises(ValueError, match="requires BCG Compaction mode"):
+        run_reports.build_config(bad_args, tasks)
 
 
 @pytest.mark.parametrize("graph_usage", [

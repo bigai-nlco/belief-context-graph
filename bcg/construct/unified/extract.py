@@ -15,7 +15,10 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .decisions import DecisionClassifier
 
 from .._shared.tool_queries import (
     extract_pure_tool_calls,
@@ -400,6 +403,7 @@ def extract_compact_tool_result_nodes(
     max_facts: int = 3,
     max_tokens: int | None = None,
     reasoning_effort: str | None = None,
+    classifier: DecisionClassifier | None = None,
 ) -> dict[str, Any] | None:
     """Distill one structured tool result with a small, history-free prompt.
 
@@ -428,6 +432,8 @@ def extract_compact_tool_result_nodes(
         {key: item[key] for key in ("rank", "title", "snippet") if key in item}
         for item in result_items
     ]
+    stance_rule = "" if classifier else "- For each fact, classify stance as confirmed, almost_certain, probable, possible, unlikely, doubtful, or unknown.\n"
+    stance_field = "" if classifier else '"stance":"possible",'
     prompt = f"""Extract at most {max(1, int(max_facts))} self-contained facts useful for this query:
 {query or "(query unavailable)"}
 
@@ -437,10 +443,9 @@ Rules:
   claim such as "a tower" or combine claims from different results.
 - Skip irrelevant results and do not infer facts that the title/snippet does not state.
 - Prefer answer-relevant facts that prevent repeating this search.
-- For each fact, classify stance as confirmed, almost_certain, probable, possible, unlikely, doubtful, or unknown.
-- Give the single supporting search result's integer rank as source_rank; do not combine results.
+{stance_rule}- Give the single supporting search result's integer rank as source_rank; do not combine results.
 - For each fact, list only specific salient entities explicitly present in it.
-- JSON only: {{"beliefs":[{{"belief":"...","stance":"possible","entities":["..."],"source_rank":1}}]}}.
+- JSON only: {{"beliefs":[{{"belief":"...",{stance_field}"entities":["..."],"source_rank":1}}]}}.
 
 Results:
 {json.dumps(prompt_items, ensure_ascii=False)}
@@ -494,6 +499,8 @@ Results:
         nodes.append(node)
     if not nodes:
         return rule_result
+    if classifier:
+        _classify_tool_stances(classifier, nodes)
     return {
         "nodes": nodes,
         "beliefs": nodes,
@@ -503,6 +510,16 @@ Results:
         "skipped": False,
         "extraction_method": "compact_llm_tool_result",
     }
+
+
+def _classify_tool_stances(classifier: DecisionClassifier, nodes: list[dict[str, Any]]) -> None:
+    pairs = []
+    for node in nodes:
+        rank = node.get("source_rank")
+        evidence = [{k: item[k] for k in ("rank", "title", "snippet") if k in item}
+                    for item in node["tool_result_items"] if rank is None or item.get("rank") == rank]
+        pairs.append((node, evidence))
+    classifier.tool_facts(pairs)
 
 
 def extract_compact_tool_result_nodes_batch(
@@ -516,6 +533,7 @@ def extract_compact_tool_result_nodes_batch(
     max_facts: int = 3,
     max_tokens: int | None = None,
     reasoning_effort: str | None = None,
+    classifier: DecisionClassifier | None = None,
 ) -> list[dict[str, Any] | None]:
     """Distill independent tool results with one history-free model call.
 
@@ -567,6 +585,10 @@ def extract_compact_tool_result_nodes_batch(
         return results
 
     fact_limit = max(1, int(max_facts))
+    metadata_rule = ("- List only specific salient entities explicitly present in each fact." if classifier else
+                     "- For every fact, classify stance as confirmed, almost_certain, probable, possible, unlikely, doubtful, or unknown,\n"
+                     "  and list only specific salient entities explicitly present in that fact.")
+    stance_field = "" if classifier else '"stance":"possible",'
     prompt = f"""Extract at most {fact_limit} self-contained facts for EACH item below.
 
 Rules:
@@ -579,10 +601,9 @@ Rules:
 - Skip irrelevant results and do not infer facts the title/snippet does not state.
 - Prefer answer-relevant facts that prevent repeating the corresponding search.
 - Return every input item_index exactly once, even when its beliefs list is empty.
-- For every fact, classify stance as confirmed, almost_certain, probable, possible, unlikely, doubtful, or unknown,
-  and list only specific salient entities explicitly present in that fact.
+{metadata_rule}
 - For each fact, provide its single supporting result's integer source_rank.
-- JSON only: {{"items":[{{"item_index":0,"beliefs":[{{"belief":"...","stance":"possible","entities":["..."],"source_rank":1}}]}}]}}.
+- JSON only: {{"items":[{{"item_index":0,"beliefs":[{{"belief":"...",{stance_field}"entities":["..."],"source_rank":1}}]}}]}}.
 
 Items:
 {json.dumps(candidates, ensure_ascii=False)}
@@ -679,6 +700,9 @@ Items:
             "batch_item_index": item_index,
             "batch_size": len(items),
         }
+    if classifier:
+        _classify_tool_stances(classifier, [node for result in results if result
+                               for node in result["nodes"] if node.get("extraction_method") == "compact_llm_tool_result"])
     return results
 
 
@@ -1336,6 +1360,7 @@ def extract_nodes(
     max_tokens: int | None = None,
     reasoning_effort: str | None = None,
     task_state_enabled: bool = False,
+    classifier: DecisionClassifier | None = None,
 ) -> dict[str, Any]:
     """Phase 1: one LLM call to extract beliefs + decisions only (no relations)."""
     n_sentences = len(sentences or [])
@@ -1375,6 +1400,7 @@ def extract_nodes(
             graph_edges=graph_edges_str,
             current_date=current_date,
             task_state_enabled=task_state_enabled,
+            decisions=classifier is not None,
         )
     else:
         prompt = build_node_extraction_prompt(
@@ -1385,6 +1411,7 @@ def extract_nodes(
             graph_edges=graph_edges_str,
             current_date=current_date,
             task_state_enabled=task_state_enabled,
+            decisions=classifier is not None,
         )
 
     if prompt is None:
@@ -1418,6 +1445,15 @@ def extract_nodes(
 
     parsed = llm.parse_json_response(raw)
     parsed = parsed if isinstance(parsed, dict) else {}
+
+    if classifier:
+        from .decisions import DecisionError
+        from .task_state import shown_task_texts
+
+        if not isinstance(parsed.get("nodes"), list):
+            raise DecisionError("Decision-arm extraction did not return a nodes array")
+        parsed = classifier.nodes(parsed["nodes"], role=role, sentences=semantic_sentences, content=semantic_content,
+                                  shown_tasks=shown_task_texts(graph_nodes_str), task_state=task_state_enabled)
 
     out_nodes: list[dict[str, Any]] = []
     out_beliefs: list[dict[str, Any]] = []
@@ -1467,20 +1503,10 @@ def extract_nodes(
         ordinal += 1
 
     if task_state_enabled:
-        from .task_state import ANCHOR_ROLES, canonical_task_role
+        from .task_state import restrict_to_shown_tasks, shown_task_texts, shown_workflow
 
-        try:
-            shown = json.loads(graph_nodes_str) if graph_nodes_str else []
-        except (ValueError, TypeError):
-            shown = []
-        if not isinstance(shown, list):
-            shown = []
-        allowed = {n["id"] for n in shown if isinstance(n, dict)
-                   and type(n.get("id")) is int and canonical_task_role(n.get("task_role")) in ANCHOR_ROLES}
-        for node in out_nodes:
-            refs = node.get("task_ids", [])
-            node["task_rejected_ids"] = [i for i in refs if i not in allowed]
-            node["task_ids"] = [i for i in refs if i in allowed]
+        root, gaps = shown_workflow(graph_nodes_str) if classifier is None and role == "assistant" else ("", set())
+        restrict_to_shown_tasks(out_nodes, shown_task_texts(graph_nodes_str), root=root, gaps=gaps)
 
     return {
         "nodes": out_nodes,
@@ -1489,6 +1515,29 @@ def extract_nodes(
         "raw_output": raw,
         "skipped": False,
     }
+
+
+def _shown_contents(*blocks: str | None) -> dict[int, str]:
+    """Use only endpoint contents actually shown (legacy windows can have an omission marker)."""
+    contents = {}
+    for block in blocks:
+        if not block:
+            continue
+        try:
+            rows = json.loads(block)
+        except ValueError:
+            # format_graph_nodes may include a human-readable omission marker.
+            rows = []
+            for line in block.splitlines():
+                if line.lstrip().startswith("{"):
+                    try:
+                        rows.append(json.loads(line.strip().rstrip(",")))
+                    except ValueError:
+                        continue
+        for node in rows if isinstance(rows, list) else []:
+            if isinstance(node, dict) and type(node.get("id")) is int and isinstance(node.get("content"), str):
+                contents[node["id"]] = node["content"]
+    return contents
 
 
 def extract_relations(
@@ -1506,6 +1555,7 @@ def extract_relations(
     temperature: float = 0.0,
     max_tokens: int | None = None,
     reasoning_effort: str | None = None,
+    classifier: DecisionClassifier | None = None,
 ) -> dict[str, Any]:
     """Phase 2: one LLM call to extract relations on the post-merge graph."""
     import json as _json
@@ -1519,6 +1569,7 @@ def extract_relations(
         previous_nodes=previous_nodes_str,
         current_nodes=current_nodes_str,
         current_date=current_date,
+        decisions=classifier is not None,
     )
 
     try:
@@ -1535,7 +1586,8 @@ def extract_relations(
 
     parsed = llm.parse_json_response(raw)
     parsed = parsed if isinstance(parsed, dict) else {}
-    relations = _clean_relations(parsed.get("relations", []) or [])
+    relations = (classifier.edges(parsed.get("relations"), _shown_contents(graph_nodes_str, previous_nodes_str, current_nodes_str),
+                                  new_node_ids, role=role) if classifier else _clean_relations(parsed.get("relations", []) or []))
     return {"relations": relations, "raw_output": raw, "skipped": False}
 
 
@@ -1554,6 +1606,7 @@ def extract_layered_relations(
     temperature: float = 0.0,
     max_tokens: int | None = None,
     reasoning_effort: str | None = None,
+    classifier: DecisionClassifier | None = None,
 ) -> dict[str, Any]:
     """Extract Assistant relations while selecting at most one prior layer."""
     prompt = build_layered_relation_extraction_prompt(
@@ -1563,6 +1616,7 @@ def extract_layered_relations(
         graph_edges=graph_edges_str,
         current_nodes=current_nodes_str,
         validation_feedback=validation_feedback,
+        decisions=classifier is not None,
     )
 
     try:
@@ -1584,9 +1638,17 @@ def extract_layered_relations(
 
     parsed = llm.parse_json_response(raw)
     parsed = parsed if isinstance(parsed, dict) else {}
+    relations = parsed.get("relations", []) or []
+    layer = parsed.get("selected_previous_layer")
+    if classifier:
+        relations = classifier.edges(relations, _shown_contents(previous_nodes_str, current_nodes_str), new_node_ids, role=role)
+        # A legitimate "none" veto may remove the only cross-layer candidate.
+        # Mixed layers and incorrect nonempty selections still go through the normal validator.
+        if not any(r["from"] not in new_node_ids or r["to"] not in new_node_ids for r in relations):
+            layer = None
     return {
-        "selected_previous_layer": parsed.get("selected_previous_layer"),
-        "relations": _clean_relations(parsed.get("relations", []) or []),
+        "selected_previous_layer": layer,
+        "relations": _clean_relations(relations),
         "raw_output": raw,
         "skipped": False,
     }

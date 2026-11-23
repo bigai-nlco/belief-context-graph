@@ -1,0 +1,34 @@
+{
+  "provenance": true,
+  "questions": {
+    "type": {
+      "instruction": "Read these as directed memory records. Opposing assertions about exactly the same quantity/scope conflict; different dates, an access failure, a wish or later progress are not contradictions. If A acts on a specific item in B, uses its finding to conclude something, or implements B's explicit constraint, B is a premise for A. If A instead supplies a concrete part of the answer sought by B (a measured value, named source or mechanism), narrows its open lead, or adds a new detail to the same specific idea, A supplements B. A prior statement of a precise information gap is a valid target for a new detail. Do not require B already to possess that detail. Shared subject, near duplicate, opposite direction or a generic research aim alone is none. Original snippets, when available, disambiguate the endpoints; they are not third endpoints.",
+      "choices": {
+        "depends_on": "B enables A: a named premise, resource, finding or instruction in B is actually used in A.",
+        "supplements": "A fills in, specifies or extends something concretely identified in B, without requiring B to establish A.",
+        "contradicts": "A and B claim mutually exclusive things with matching subject, measure, units, time and scope.",
+        "none": "No directed use, new specific information, or incompatible assertion; similarity and succession alone are insufficient."
+      }
+    },
+    "kind": {
+      "instruction": "Treat a bullet or heading as a work item when the cited source makes its output clear. Compare child against exactly this parent. If child produces a separately inspectable artifact not required by the parent, choose new_deliverable. If completing child answers one identifiable component and leaves a named sibling or part of the parent unfinished, choose narrower_scope. It is not necessary for parent and child to use identical wording. Rerunning a search, retrieving a source, duplicating the parent's whole output or naming a topic without a work requirement is none. Do not demand an extra assigned task ID: this question is about the proposed link.",
+      "choices": {
+        "narrower_scope": "Child resolves a real part of the parent question; other parts are left. Also applies to one requested component of a combined output.",
+        "new_deliverable": "The child calls for a new checkable product serving the parent, not already specified there.",
+        "none": "Parallel/unrelated work, procedure, generic phrase, reverse direction, or restatement."
+      }
+    },
+    "node_type": {
+      "instruction": "Separate the report's adopted answer/recommendation from information that merely occurs in a final report. Dates, study results, comparison table entries, scope and background are usually supporting beliefs, even when stated emphatically. Do not infer a decision merely from 'concludes', 'the report states' or a number."
+    },
+    "stance": {
+      "instruction": "Evaluate what is claimed, including its scope. A speaker's explicit intent, current access failure, or quotation of what a report itself says can be directly established. That does not verify external truth. A relevant single snippet gives a possible external claim, not an unknown or confirmed one; absence of support for the distinguishing detail is unknown. A specific inference with explicit premises can be probable."
+    },
+    "task_role": {
+      "instruction": "Method intended = plan. Observed or attributed fact = evidence. An assessment drawn from facts = intermediate_conclusion, even when it appears in a report. New information about partially completed, impeded or remaining work = progress."
+    },
+    "task_status": {
+      "instruction": "Classify the named activity rather than every stage of the task. A source cannot be fetched / search is exhausted is blocked for that route. Some material gathered, more needed means in_progress. Enough to start drafting is not explicit completion of the report; use unspecified if no work status other than readiness is explicit."
+    }
+  }
+}

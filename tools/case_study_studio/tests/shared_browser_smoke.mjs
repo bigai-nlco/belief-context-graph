@@ -91,7 +91,7 @@ try{
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   assert.equal(await evaluate('document.querySelector(".run-heading .eyebrow").textContent'),'RUN-0001');
   assert.equal(await evaluate('document.querySelector(".run-version-missing").textContent'),'代码版本：未记录');
-  // Synthetic provenance overlays the offline response, not any saved run.
+  // Give both panes enough offline records to scroll; do not create real runs.
   await evaluate(`window.versionOriginalFetch=window.fetch;
     window.versionFixture={schema_version:1,commit:'a'.repeat(40),branch:'feat/'+('long-branch-'.repeat(12)),dirty:true,
       repository_url:'https://github.com/example/project',source_sha256:'b'.repeat(64),agent_sha256:'c'.repeat(64),
@@ -99,20 +99,50 @@ try{
     window.fetch=async(...args)=>{const response=await window.versionOriginalFetch(...args);
       const url=String(args[0]);if(!['/api/runs','/api/runs/1'].includes(url))return response;
       const data=await response.json();
-      if(url==='/api/runs')data.runs.forEach(run=>run.code_version=window.versionFixture);
-      else data.code_version=window.versionFixture;
+      if(url==='/api/runs')data.runs=Array.from({length:32},(_,i)=>({...data.runs[0],
+        id:i+1,number:'RUN-'+String(i+1).padStart(4,'0'),code_version:window.versionFixture}));
+      else {data.code_version=window.versionFixture;data.judge={enabled:true,model:'gpt-6-luna'};
+        data.tasks=Array.from({length:32},(_,i)=>({...data.tasks[0],id:String(i+1)}));}
       return Response.json(data);};document.dispatchEvent(new Event('visibilitychange'));`);
   await until(()=>evaluate('!!document.querySelector(".run-version")'),'run version appears');
+  assert(await evaluate('document.querySelector(".run-heading").textContent.includes("Judge GPT-6-Luna")'),'display the recorded Judge model');
   assert(await evaluate('document.querySelector(".run-item .run-version-label").textContent.includes("aaaaaaaa")'));
   await click('.run-version>summary');
   assert(await evaluate('document.querySelector(".run-version").open'));
   assert.equal(await evaluate('document.querySelector(".version-body a").getAttribute("href")'),'https://github.com/example/project/commit/'+'a'.repeat(40));
+  const wheel=async(selector,deltaY)=>{
+    const {x,y}=await evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.left+10,y:r.top+r.height/2};})()`);
+    await command('Input.dispatchMouseEvent',{type:'mouseWheel',x,y,deltaX:0,deltaY});
+  };
+  const rightPosition=()=>evaluate('({detail:document.querySelector("#run-content").scrollTop,heading:document.querySelector(".run-heading").getBoundingClientRect().top,toolbar:document.querySelector(".runs-sidebar-head").getBoundingClientRect().top,page:window.scrollY})');
+  assert(await evaluate(`(()=>{const s=document.querySelector('.runs-sidebar'),r=s.getBoundingClientRect(),d=document.querySelector('#run-content').getBoundingClientRect();
+    return getComputedStyle(s).overflowY==='auto' && r.right===d.left && r.top===d.top && r.bottom===innerHeight;
+  })()`),'the sidebar scrollbar spans the pane beside the divider, not an inset list');
+  await wheel('#run-content',300);
+  await until(()=>evaluate('document.querySelector("#run-content").scrollTop>0'),'right detail scrolls independently');
+  const reading=await rightPosition();
+  assert.equal(reading.page,0);
+  assert.equal(await evaluate('document.querySelector(".runs-sidebar").scrollTop'),0);
+  await wheel('.runs-sidebar',300);
+  await until(()=>evaluate('document.querySelector(".runs-sidebar").scrollTop>0'),'left run list scrolls');
+  assert.deepEqual(await rightPosition(),reading,'left wheel preserves the visible detail');
+  for(const delta of [100000,-100000]){
+    const atEdge=delta>0?'el.scrollTop+el.clientHeight>=el.scrollHeight-1':'el.scrollTop===0';
+    await wheel('.runs-sidebar',delta);
+    await until(()=>evaluate(`(()=>{const el=document.querySelector('.runs-sidebar');return ${atEdge};})()`),'left list reaches its edge');
+    await wheel('.runs-sidebar',delta);
+    await pause(100);
+    assert.deepEqual(await rightPosition(),reading,'no scroll chaining at either end of the run list');
+  }
   await evaluate(`document.dispatchEvent(new Event('visibilitychange'))`);
   await pause(3500);
+  assert.deepEqual(await rightPosition(),reading,'live refresh does not reset detail scroll');
+  await evaluate('document.querySelector("#run-content").scrollTop=0');
   assert(await evaluate('document.querySelector(".run-version").open'),'polling preserves expanded version details');
   for(const width of [1440,430,360,320]){
     await command('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:false});
     assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'long branch and hashes never widen the page');
+    if(width<=680)assert(await evaluate('(()=>{const l=document.querySelector("#run-list");return l.scrollWidth>l.clientWidth && document.documentElement.scrollHeight>innerHeight;})()'),'mobile keeps the horizontal run list and vertically scrollable page');
     assert(await evaluate(`(()=>{const p=document.querySelector('.run-version'),r=p.getBoundingClientRect();return p.scrollWidth<=p.clientWidth+1&&r.left>=0&&r.right<=innerWidth;})()`),'version card stays inside viewport');
     await shot('run-version-'+width+'.png');
   }
@@ -208,14 +238,16 @@ try{
   assert(await evaluate('document.querySelector("#score-dialog .score-items").textContent.includes("Reason B")'));
   assert(await evaluate('document.querySelector("#score-dialog .score-items").textContent.includes("0 分项按评分规则不提供原文证据")'));
   assert.equal(await evaluate('window.scoreDetailRequests'),1,'filtering never refetches or grades');
+  // close() clears .open synchronously; the dialog clears its content in the queued close event.
+  const scoreClosed=()=>evaluate('!document.querySelector("#score-dialog").open && !document.querySelector("#score-dialog-content").childNodes.length');
   await click('[data-close="score-dialog"]');
-  await until(()=>evaluate('!document.querySelector("#score-dialog").open'),'score dialog closed');
+  await until(scoreClosed,'score dialog closed');
   await evaluate('window.scoreDetailMode="fail"');await click('[data-score-task="2"]');
   await until(()=>evaluate('!!document.querySelector("[data-reload-score]")'),'read error with retry');
   await evaluate('window.scoreDetailMode="normal"');await click('[data-reload-score]');
   await until(()=>evaluate('document.querySelectorAll("#score-dialog .score-criterion").length===3'),'retry loads saved details');
   await click('[data-close="score-dialog"]');
-  await until(()=>evaluate('!document.querySelector("#score-dialog").open'),'retry dialog closed');
+  await until(scoreClosed,'retry dialog closed');
   await evaluate('window.scoreDetailMode="delayed"');await click('[data-score-task="2"]');
   await until(()=>evaluate('typeof window.releaseScoreDetail==="function"'),'delayed load started');
   await click('[data-close="score-dialog"]');
@@ -321,17 +353,21 @@ try{
   assert.equal((await api('settings')).launch_requires_admin,false);
   assert.equal(await evaluate('document.querySelector("#launch-form [name=drb2]").type'),'hidden');
   const launchSettings=await api('settings');
-  assert.deepEqual(launchSettings.context_modes,['bcg','bcg_no_retrieval','default','clm']);
-  assert.deepEqual(await evaluate('[...document.querySelector("#launch-mode").options].map(o=>[o.value,o.textContent])'),[['bcg','BCG'],['default','Default'],['clm','CLM']]);
+  assert.deepEqual(launchSettings.context_modes,['bcg','bcg_no_retrieval','bcg_compaction','default','clm']);
+  assert.deepEqual(await evaluate('[...document.querySelector("#launch-mode").options].map(o=>[o.value,o.textContent])'),[['bcg','BCG'],['bcg_compaction','BCG Compaction'],['default','Default'],['clm','CLM']]);
   assert.deepEqual(await evaluate('[...document.querySelector("#launch-profile").options].map(o=>o.textContent)'),['Qwen3.5-9B','GPT-6-Luna'],'Agent choices show model names only');
   assert.equal(await evaluate('document.querySelector("#launch-graph-profile option[value=gpt6-luna]").textContent'),'GPT-6-Luna');
   assert.equal(await evaluate('document.querySelector("#launch-form").textContent.includes("批次按编号排队")'),false);
   assert.equal(await evaluate('document.querySelector("#launch-form").textContent.includes("启动会消耗已配置的 API 额度")'),false);
   assert.equal(await evaluate('document.querySelector("#launch-mode").value'),'bcg','existing launch defaults to BCG');
   assert.equal(await evaluate('document.querySelector("#launch-graph-profile").value'),'gpt6-luna');
+  assert.deepEqual(await evaluate('[document.querySelector("#launch-form [name=workers]").value,document.querySelector("#launch-form [name=workers]").max]'),['1','2'],'local Agent defaults to one task and can overlap remote Graph work with a second');
   assert.deepEqual(launchSettings.graph_profiles.map(p=>p.id),['gpt6-luna','qwen35-9b']);
   const selectModel=(id,value)=>evaluate(`{const e=document.querySelector(${JSON.stringify(id)});e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('change',{bubbles:true}));}`);
   await selectModel('#launch-profile','gpt6-luna');
+  assert.equal(await evaluate('document.querySelector("#launch-classification").value'),'graph_model');
+  await selectModel('#launch-classification','decision_model');
+  assert(await evaluate('document.querySelector("#launch-context-info").textContent.includes("GPT-6-Luna Decisions")'));
   assert.equal(await evaluate('document.querySelector("#launch-form [name=workers]").max'),'6');
   await selectModel('#launch-graph-profile','qwen35-9b');
   assert.equal(await evaluate('document.querySelector("#launch-profile").value'),'gpt6-luna','Graph model does not change Agent');
@@ -349,6 +385,8 @@ try{
   await evaluate('document.querySelector("#launch-mode").value="default";document.querySelector("#launch-mode").dispatchEvent(new Event("change",{bubbles:true}))');
   assert(await evaluate('document.querySelector("#launch-task-state").disabled'));
   assert(await evaluate('document.querySelector("#launch-graph-profile").disabled'));
+  assert.equal(await evaluate('document.querySelector("#launch-form [name=workers]").max'),'1','local Agent without Graph keeps one worker');
+  assert(await evaluate('document.querySelector("#launch-classification").disabled && document.querySelector("#launch-classification-field").hidden'));
   assert(await evaluate('document.querySelector("#launch-context-info").textContent.includes("不建图、不注入 Graph")'));
   await click('[data-close=launch-dialog]');await click('#launch-button');
   assert.equal(await evaluate('document.querySelector("#launch-mode").value'),'default','reopening preserves the selected context mode');
@@ -356,6 +394,7 @@ try{
   await selectModel('#launch-mode','bcg');
   assert(await evaluate('document.querySelector("#launch-task-state").disabled && document.querySelector("#launch-task-state").checked'));
   assert(await evaluate('!document.querySelector("#launch-graph-profile").disabled'));
+  assert.equal(await evaluate('document.querySelector("#launch-classification").value'),'decision_model');
   assert.equal(await evaluate('document.querySelector("#launch-graph-profile").value'),'qwen35-9b','Graph choice survives Default mode');
   assert.equal(await evaluate('document.querySelector("#launch-dialog").textContent.includes("w/o Retrieval")'),false);
   for(const width of [1440,430,320]){
@@ -516,7 +555,7 @@ try{
   assert.equal(await evaluate('document.querySelector(".run-heading").textContent.includes("+ 任务状态")'),false);
   assert.equal(fullGraphRun.graph,'Qwen3.5-9B','Graph model selection is saved and shown while queued');
   assert.equal(fullGraphRun.judge.enabled,true);
-  assert(await evaluate('document.querySelector(".run-heading").textContent.includes("Judge GPT-6-Luna")'));
+  assert(await evaluate('document.querySelector(".run-heading").textContent.includes("Report 评分：0 / 0")'),'queued fixture has no scored reports');
   assert(await evaluate('document.querySelector(".run-heading").textContent.includes("模式：BCG w/o Retrieval")'));
   assert(await evaluate('document.querySelector(".run-item.selected").textContent.includes("BCG w/o Retrieval")'));
   for(const width of [1440,430,320]){

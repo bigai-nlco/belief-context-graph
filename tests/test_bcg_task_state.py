@@ -93,7 +93,7 @@ def test_rebuild_keeps_real_chain_provenance_and_confidence_unchanged():
     task = next(t for t in state["nodes"] if t["id"] == "T1")
     assert task["parent_ids"] == ["T0"]
     assert task["kind"] == "task" and task["plan_ids"] == [4]
-    assert state["version"] == 2
+    assert state["version"] == 4
     assert task["status_source_id"] == 6 and task["status_provenance"] == "assistant_report"
     assert task["evidence_ids"] == [2] and task["intermediate_conclusion_ids"] == [3]
     assert task["relation_paths"]["2"] == [0] and task["path_roots"]["2"] == 3
@@ -130,18 +130,19 @@ def test_render_is_bounded_whole_bundles_and_cites_only_real_sources(budget):
     assert set(edges) <= {r["id"] for r in value["relations"]}
     if budget is None:
         assert set(tasks) == {"T0", "T1"}
-        assert "[B4] plan:" in text and "[T4]" not in text
-        assert "[B3] depends_on [B2]" in text
-        assert "explicit task reference, not a factual edge" in text
+        assert "- [B4] (for [T1]) Fetch the licensing authority's original notice." in text and "[T4]" not in text
+        assert "- [B3] (for [T1]) Pilot status does not establish licensed operation." in text
+        assert "explicit task reference" not in text and "see [B" not in text
+        assert "    - [T1] blocked (reported) — Verify the operating license. [B1]" in text  # nested under T0
     assert render_task_state({}, budget) == ("", [], [], [])
 
 
 @pytest.mark.parametrize("status,phrase", [
-    ("open", "reported open."),
-    ("in_progress", "reported in progress."),
-    ("blocked", "reported blocked."),
-    ("reported_complete", "reported complete (not verified)."),
-    ("cancelled", "reported cancelled."),
+    ("open", "open (reported)"),
+    ("in_progress", "in progress (reported)"),
+    ("blocked", "blocked (reported)"),
+    ("reported_complete", "complete (reported, not verified)"),
+    ("cancelled", "cancelled (reported)"),
 ])
 def test_render_explains_reported_status_and_keeps_original_sources(status, phrase):
     value = snapshot()
@@ -149,20 +150,20 @@ def test_render_explains_reported_status_and_keeps_original_sources(status, phra
     value["task_state"] = build_task_state(value)
     before = copy.deepcopy(value)
     text, ids, edges, tasks = render_task_state(value, None)
-    assert f"- [T1] source: [B1] | status: {phrase}" in text
-    assert "- [T0] source: [B0] | status: unknown (no progress reported)." in text
-    assert text.splitlines()[:2] == [
-        "## Task state",
-        "[Tn] tracks the task recorded in [Bn]. Status reflects reported progress, "
-        "not verified completion. Unknown means no progress was recorded.",
-    ]
+    assert f"- [T1] {phrase} — Verify the operating license. [B1]" in text
+    assert "latest update [B6]: License verification is blocked until the notice is available." in text
+    assert "- [T0] no progress reported — Compare two licensing schemes. [B0]" in text
+    assert text.splitlines()[0] == "## Task state"
+    assert "not independently verified" in text.splitlines()[1] and "[Tn] tracks" not in text
     for repeated_guidance in ("Plans are intent", "These are older records",
                               "avoid repeating completed work", "Paths do not prove completion"):
         assert repeated_guidance not in text
     assert "task |" not in text
     assert value == before, "rendering must not rewrite status, beliefs, edges or confidence"
-    assert {0, 1, 2, 3, 4, 6} <= set(ids) and set(tasks) == {"T0", "T1"}
-    assert edges == [0]
+    assert {0, 1, 3, 6} <= set(ids) and set(tasks) == {"T0", "T1"}
+    # A plan of a task reported complete/cancelled is retired from "Latest plan".
+    assert (4 in ids) == (status not in {"reported_complete", "cancelled"})
+    assert edges == []
     for i in ids:
         original = next(n for n in value["nodes"] if n["id"] == i)
         assert original["belief"] in text
@@ -173,8 +174,15 @@ def test_render_reports_conflicts_without_overriding_claimed_completion():
     value["nodes"][-1]["task_status"] = "reported_complete"
     value["relations"].append({"id": 9, "from_id": 2, "to_id": 3, "type": "contradicts"})
     value["task_state"] = build_task_state(value)
-    text, *_ = render_task_state(value, None)
-    assert "[T1] source: [B1] | status: reported complete (not verified). Conflicting evidence: review." in text
+    text, _, edges, _ = render_task_state(value, None)
+    assert "[T1] complete (reported, not verified) — Verify the operating license. [B1]" in text
+    # The tool-result endpoint is not otherwise shown, so its text is quoted inline.
+    assert ('- Conflict: [B2] "The source describes a pilot, not an operating license." contradicts [B3]'
+            in text) and 9 in edges
+    value["relations"][-1]["note"] = "Pilot notice versus the claimed operating date."
+    text, ids, edges, _ = render_task_state(value, None)
+    assert "contradicts [B3]: Pilot notice versus the claimed operating date." in text
+    assert {2, 3} <= set(ids) and 9 in edges
 
 
 def test_natural_state_budget_keeps_whole_task_and_status_sources():
@@ -224,29 +232,77 @@ def test_extraction_reuses_one_model_call_and_rejects_unshown_task_ids(monkeypat
 
 def test_stream_and_sdk_keep_task_state_in_snapshots(tmp_path, monkeypatch):
     calls = []
+    turns = ["Compare A and B.", "First I will verify the licensing date.", "License verification is blocked."]
     def respond(client, model, prompt, **kwargs):
         calls.append(prompt)
-        text = "Compare A and B." if len(calls) == 1 else "The comparison is blocked."
+        text = turns[len(calls) - 1]
         return json.dumps({"beliefs": [{"belief": text, "stance": "asserted", "entities": [],
-            "supporting_sentence_indices": [0], "task_role": "task" if len(calls) == 1 else "progress",
-            "task_ids": [] if len(calls) == 1 else [0], "task_status": "blocked"}]})
+            "supporting_sentence_indices": [0], "task_role": "task" if len(calls) < 3 else "progress",
+            "task_ids": [] if len(calls) < 3 else [1], "task_status": "blocked",
+            **({"task_scope": "root", "root_refinement": {"kind": "new_deliverable",
+                "parent_quote": "Compare A and B", "child_quote": "verify the licensing date"}}
+               if len(calls) == 2 else {})}]})
     monkeypatch.setattr(extract.llm, "call_model", respond)
     monkeypatch.setattr(stream, "extract_layered_relations", lambda *a, **kw: {"relations": []})
     monkeypatch.setattr(stream, "extract_relations", lambda *a, **kw: {"relations": []})
     builder = stream.StreamingBeliefBuilder(client=None, model="fixture", item_id="task",
         out_dir=tmp_path, options=stream.StreamOptions(task_state_enabled=True, incremental_merge=False))
-    builder.ingest_turn("user", "Compare A and B.")
-    builder.ingest_turn("assistant", "The comparison is blocked.")
-    assert len(calls) == 2, "no independent task-state generation calls"
+    first = builder.ingest_turn("user", turns[0])
+    assert first["task_state_extraction"] == "skipped_initial_user"
+    assert not builder.graph.snapshot()["task_state"]["nodes"]
+    builder.ingest_turn("assistant", turns[1])
+    builder.ingest_turn("assistant", turns[2])
+    assert len(calls) == 3, "no independent task-state generation calls"
+    assert "## Task-state annotations" not in calls[0] and "## Task-state annotations" in calls[1]
     native = builder.graph.snapshot()
     assert native["task_state"]["nodes"][0]["status"] == "blocked"
     graph = _bcg_from_construct(native, sessions=[], metadata={})
     result = _memory_document(graph, native=native, run_id="task", trajectory=[], options_dict={}, metadata={}, engine="unified")
     assert result["task_state"] == native["task_state"]
-    assert result["nodes"][0]["task_role"] == "task"
+    assert [n["task_role"] for n in result["nodes"]] == ["other", "task", "progress"]
+    assert result["nodes"][1]["root_refinement"] == native["nodes"][1]["root_refinement"]
+    assert result["nodes"][1]["task_scope"] == "root"
     builder.finalize()
     assert json.loads((tmp_path / "final_graph.json").read_text())["task_state"] == native["task_state"]
     assert "task_state" not in BeliefGraph().snapshot()
+
+
+@pytest.mark.parametrize("evidence_mode", ["sentence", "excerpt"])
+def test_multipart_user_query_is_belief_only_even_if_model_volunteers_tasks(tmp_path, monkeypatch, evidence_mode):
+    builder = stream.StreamingBeliefBuilder(client=None, model="fixture", item_id="multipart",
+        out_dir=tmp_path, options=stream.StreamOptions(task_state_enabled=True, incremental_merge=False,
+                                                       evidence_mode=evidence_mode))
+    parts = ["Compare costs in Nepal.", "List data sources."]
+    def respond(client, model, prompt, **kwargs):
+        assert "## Task-state annotations" not in prompt and "task_role" not in prompt
+        return json.dumps({"beliefs": [{"belief": s, "stance": "confirmed", "entities": ["Nepal"] if i == 0 else [],
+            "supporting_sentence_indices": [i], "supporting_excerpts": [s],
+            "task_role": kind, "task_ids": [42], "task_status": "reported_complete"}
+            for i, (s, kind) in enumerate(zip(parts, ("task", "progress"), strict=True))]})
+    monkeypatch.setattr(extract.llm, "call_model", respond)
+    builder.ingest_turn("system", "Graph preamble.")
+    builder.ingest_turn("user", "  ")
+    event = builder.ingest_turn("user", " ".join(parts))
+    assert event["task_state_extraction"] == "skipped_initial_user" and event["new_node_ids"] == [0, 1]
+    snap = builder.graph.snapshot()
+    assert [n["belief"] for n in snap["nodes"]] == parts and snap["nodes"][0]["entities"] == ["Nepal"]
+    assert all(n["supporting_excerpts"] and n["task_role"] == "other" and not n["task_ids"]
+               and "task_status" not in n and n["task_annotation_source"] == "source_role" for n in snap["nodes"])
+    assert not snap["task_state"]["nodes"] and not snap["task_state"]["relations"]
+
+
+def test_empty_first_extraction_does_not_disable_annotations_on_later_user_turns(tmp_path, monkeypatch):
+    flags = []
+    def respond(*args, **kwargs):
+        flags.append(kwargs["task_state_enabled"])
+        return {"nodes": []}
+    monkeypatch.setattr(stream, "extract_nodes", respond)
+    builder = stream.StreamingBeliefBuilder(client=None, model="fixture", item_id="empty-first",
+        out_dir=tmp_path, options=stream.StreamOptions(task_state_enabled=True, incremental_merge=False))
+    for role, text in [("system", "Preamble."), ("user", "Main task."), ("assistant", "A plan."),
+                       ("user", "A later clarification.")]:
+        builder.ingest_turn(role, text)
+    assert flags == [False, True, True]
 
 
 def test_schema_and_agent_flags_are_strict_and_opt_in():
@@ -343,7 +399,7 @@ def test_task_sources_are_not_lost_to_incremental_merge(tmp_path, monkeypatch, t
     builder = stream.StreamingBeliefBuilder(client=None, model="fixture", item_id="merge",
         out_dir=tmp_path, options=stream.StreamOptions(task_state_enabled=True),
         embedder=SimpleNamespace(set_log_path=lambda _: None))
-    builder.ingest_turn("user", source)
+    builder.ingest_turn("assistant", source)
     assert excluded == [{0}]
 
 
@@ -378,8 +434,10 @@ def test_replay_command_artifacts_and_non_overwrite(tmp_path):
 def test_legacy_role_aliases_are_read_as_current_roles(legacy, current):
     assert canonical_task_role(legacy) == current
     assert clean_annotation({"task_role": legacy})["task_role"] == current
-    value = node(1)
-    classify_node(value, {"task_role": legacy, "task_ids": [0]}, [node(0, "goal")])
+    value = node(1, text="Verify the operating license for site A.")
+    parent = node(0, "goal", "Verify the operating licenses for site A and site B.")
+    classify_node(value, {"task_role": legacy, "task_ids": [0], "task_refinements": [
+        {"parent_id": 0, "kind": "narrower_scope", "parent_quote": "site B", "child_quote": "site A"}]}, [parent])
     assert value["task_role"] == current and value["task_ids"] == [0]
 
 
@@ -401,26 +459,26 @@ def test_latest_explicit_plan_is_rendered_under_task_with_budget():
     value["task_state"] = build_task_state(value)
     text, ids, _, tasks = render_task_state(value, None)
     assert value["task_state"]["nodes"][1]["plan_ids"] == [4, 7]
-    assert "[B7] plan: Use the regulator's registry instead." in text
-    assert 7 in ids and "T7" not in tasks and "[B4] plan:" not in text
+    assert "- [B7] (for [T1]) Use the regulator's registry instead." in text
+    assert 7 in ids and "T7" not in tasks and "[B4]" not in text  # older intention retired
     value["nodes"][-1]["belief"] = "Oversized plan. " * 1000
     text, ids, _, tasks = render_task_state(value, 1800)
     assert len(text) <= 1800 and "T1" in tasks and 7 not in ids
-    assert "[B6] progress:" in text
+    assert "latest update [B6]" in text
 
 
 def test_task_coverage_precedes_optional_detail_and_evidence_precedes_plan():
     value = snapshot()
     for i in range(10, 14):
         value["nodes"].append(node(i, "task", f"Review the explicitly requested program {i}.", role="user"))
-    value["nodes"][4]["belief"] = "A long recorded plan. " * 35
+    value["nodes"][4]["belief"] = "A long recorded plan. " * 80
     value["task_state"] = build_task_state(value)
     before = copy.deepcopy(value)
     text, ids, edges, tasks = render_task_state(value, 1800)
     assert set(tasks) == {"T0", "T1", "T10", "T11", "T12", "T13"}
-    assert "[B3] depends_on [B2]" in text
-    assert 4 not in ids  # Optional long plan cannot displace a task or evidence chain.
-    assert edges == [0] and len(text) <= 1800
+    assert 3 in ids  # A shorter finding still fits after the oversized plan is skipped.
+    assert 4 not in ids  # Whole items only: an oversized plan cannot displace tasks.
+    assert edges == [] and len(text) <= 1800
     assert value == before
 
 
@@ -447,7 +505,7 @@ def test_legacy_projection_keeps_hierarchy_without_promoting_plan_completion():
     assert state["unassigned_progress_ids"] == [4]
     assert state["unassigned_plan_ids"] == [5, 6]
     text, _, _, tasks = render_task_state(value, None)
-    assert set(tasks) == {"T0", "T1"} and "[B3] plan:" in text
+    assert set(tasks) == {"T0", "T1"} and "- [B3] (for [T1])" in text
     assert "next_action" not in text and "subgoal" not in text
     assert value == before
 
@@ -479,3 +537,71 @@ def test_new_extraction_can_reference_shown_tasks_but_never_plans(monkeypatch):
     assert "Only task creates a task record." in EXTRACTION_GUIDANCE
     assert "Never reference\na plan as a task." in EXTRACTION_GUIDANCE
     assert "goal/subgoal/plan/next_action" not in EXTRACTION_GUIDANCE
+
+
+def test_long_horizon_filtering_retires_stale_gaps_clusters_blocks_and_drops_process_chatter():
+    nodes = [
+        # Repeated constraints on the same excluded paper collapse to the latest complete one.
+        node(5, "constraint", "The assistant must avoid using the excluded Azra Zaimovic 2021 review.",
+             source={"turn_id": 2}),
+        node(25, "constraint", "The assistant must not cite or view the excluded Azra Zaimovic et al. 2021 article.",
+             source={"turn_id": 8}),
+        # 10 open gaps across turns: old gap B10 (>8 behind) falls outside active closable horizon;
+        # gap B21 is answered by later substantive finding B40; current gap B29 survives.
+        *[node(10 + k, "evidence", f"The assistant still needs archival registry metrics for regionR{k}.",
+               task_scope="root", gap_quote=f"archival registry metrics for regionR{k}",
+               source={"turn_id": 3 + k}) for k in range(10)],
+        node(21, "evidence", "The assistant lacks exclusion rate figures for PDS food subsidies.",
+             task_scope="root", gap_quote="exclusion rate figures for PDS food subsidies",
+             source={"turn_id": 14}),
+        node(28, "evidence", "The assistant lacks coverage figures for Bangladesh EGPP rural public works.",
+             task_scope="root", gap_quote="coverage figures for Bangladesh EGPP rural public works",
+             source={"turn_id": 17}),
+        node(29, "evidence", "The assistant still lacks official coverage rates for Nepal PRONAO.",
+             task_scope="root", gap_quote="official coverage rates for Nepal PRONAO",
+             source={"turn_id": 18}),
+        # Process chatter (pip/pandas/README) vs substantive earlier synthesis B40 vs recent-window syntheses B52/B55.
+        node(35, "evidence", "The previous Python code failed because pandas is not installed in the sandbox.",
+             source={"turn_id": 15}),
+        node(36, "evidence", "S5 provides only a README rather than CSV data.", source={"turn_id": 15}),
+        node(40, "evidence",
+             "The assistant reports that India PDS food subsidies have a 61% exclusion error and 25% inclusion error.",
+             entities=["India", "PDS"], source={"turn_id": 15}),
+        node(52, "evidence",
+             "The assistant reports that Bangladesh EGPP rural public works covers 8.2% of ultra-poor households across 40 districts.",
+             entities=["Bangladesh", "EGPP"], source={"turn_id": 19}),
+        node(55, "evidence",
+             "The assistant reports that Nepal SSF covers 662,201 formal workers and excludes 85% informal labor.",
+             entities=["Nepal", "SSF"], source={"turn_id": 20}),
+        node(56, "intermediate_conclusion",
+             "Informal labor exclusion exceeds 80% across all four South Asian contributory schemes.",
+             source={"turn_id": 20}),
+        # Similar blocked web_search calls cluster into one line with (+2 similar).
+        node(60, "tool_action", 'The assistant is using web_search to search for "Pakistan Zakat exclusion ultra-poor 2021".',
+             extraction_method="rule_tool_call", tool_call_id="c1", tool_name="web_search", source={"turn_id": 4}),
+        node(61, "evidence", "[BLOCKED] source is unavailable for this task",
+             role="tool", extraction_method="rule_tool_result", tool_call_id="c1", tool_name="web_search",
+             source={"turn_id": 5}),
+        node(62, "tool_action", 'The assistant is using web_search to search for "Pakistan Zakat program ultra-poor exclusion errors".',
+             extraction_method="rule_tool_call", tool_call_id="c2", tool_name="web_search", source={"turn_id": 6}),
+        node(63, "evidence", "[BLOCKED] source is unavailable for this task",
+             role="tool", extraction_method="rule_tool_result", tool_call_id="c2", tool_name="web_search",
+             source={"turn_id": 7}),
+        node(64, "tool_action", 'The assistant is using web_search to search for "Pakistan Zakat social protection ultra-poor exclusion 2023".',
+             extraction_method="rule_tool_call", tool_call_id="c3", tool_name="web_search", source={"turn_id": 9}),
+        node(65, "evidence", "[BLOCKED] source is unavailable for this task",
+             role="tool", extraction_method="rule_tool_result", tool_call_id="c3", tool_name="web_search",
+             source={"turn_id": 10}),
+    ]
+    graph = {"nodes": nodes, "relations": []}
+    graph["task_state"] = build_task_state(graph)
+    text, ids, _, _ = render_task_state(graph, None)
+
+    assert 25 in ids and 5 not in ids  # duplicate constraint collapsed
+    assert 40 in ids and 35 not in ids and 36 not in ids  # process chatter excluded, earlier synthesis kept
+    assert 52 not in ids and 55 not in ids  # recent 3-turn window evidence omitted (shown in <belief_graph>)
+    assert 56 in ids  # intermediate conclusions remain globally visible even in recent turns
+    assert 10 not in ids  # stale gap outside 8-gap closable horizon retired
+    assert 21 not in ids and 28 not in ids  # gaps covered by later findings (including recent B52) retired
+    assert 29 in ids  # unresolved current gap kept
+    assert "- [B64] (+2 similar) web_search:" in text and 60 not in ids and 62 not in ids

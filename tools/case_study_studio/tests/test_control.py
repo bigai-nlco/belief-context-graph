@@ -61,6 +61,18 @@ def request_config(**changes: object) -> dict:
             "tasks": {"drb2": ["2"]}, **changes}
 
 
+def test_graph_classification_selection(control: Control) -> None:
+    user = control.register("ablation")["user"]
+    assert control.settings()["graph_classifications"] == ["graph_model", "decision_model"]
+    assert control.create_run(request_config(), user)["graph_classification"] == "graph_model"
+    for mode in ("bcg", "bcg_compaction"):
+        run = control.create_run(request_config(mode=mode, graph_classification="decision_model"), user)
+        assert control.detail(run["id"])["graph_classification"] == "decision_model"
+    for changes in ({"graph_classification": "other"}, {"mode": "default", "graph_classification": "decision_model"}):
+        with pytest.raises(APIError):
+            control.create_run(request_config(**changes), user)
+
+
 @pytest.mark.parametrize("agent", ["gpt6-luna", "qwen35-9b"])
 @pytest.mark.parametrize("graph, model", [("gpt6-luna", "gpt-6-luna"), ("qwen35-9b", "Qwen3.5-9B")])
 def test_graph_model_is_selected_independently(control: Control, agent: str, graph: str, model: str) -> None:
@@ -81,7 +93,8 @@ def test_graph_model_choices_default_limits_and_no_graph_mode(control: Control) 
     assert set(choices) == {"gpt6-luna", "qwen35-9b"}
     assert choices["qwen35-9b"]["thinking"] is True
     assert choices["qwen35-9b"]["max_workers"] == 1
-    assert control.profiles()["qwen35-9b"]["max_workers"] == 1
+    agent = next(p for p in settings["profiles"] if p["id"] == "qwen35-9b")
+    assert agent["max_workers"] == 2 and agent["max_workers_without_graph"] == 1
     assert choices["gpt6-luna"]["reasoning_effort"] == "none"
     assert all("api_key_env" not in p and "base_url" not in p for p in choices.values())
     run = control.create_run(request_config(profile="gpt6-luna", workers=6), user)
@@ -95,6 +108,28 @@ def test_graph_model_choices_default_limits_and_no_graph_mode(control: Control) 
     request = request_config()
     request.pop("workers")
     assert control.create_run(request, user)["workers"] == 1
+
+
+@pytest.mark.parametrize("mode", ["bcg", "bcg_compaction", "bcg_no_retrieval"])
+def test_local_agent_remote_graph_allows_two_tasks(control: Control, mode: str) -> None:
+    user = control.register("two-workers")["user"]
+    request = request_config(mode=mode, graph_profile="gpt6-luna", workers=2, tasks={"drb2": ["2", "5"]})
+    run = control.create_run(request, user)
+    assert run["workers"] == json.loads(control.row(run["id"])["config"])["workers"] == 2
+    with pytest.raises(APIError, match="1–2"):
+        control.create_run({**request, "workers": 3}, user)
+    with pytest.raises(APIError, match="1–1"):
+        control.create_run({**request, "graph_profile": "qwen35-9b"}, user)
+
+
+@pytest.mark.parametrize("mode", ["default", "clm"])
+def test_local_agent_without_graph_keeps_one_worker(control: Control, mode: str, monkeypatch) -> None:
+    from benchmarks.public.reports import clm
+
+    monkeypatch.setattr(clm, "installation", lambda: {"available": True})
+    user = control.register("no-graph")["user"]
+    with pytest.raises(APIError, match="1–1"):
+        control.create_run(request_config(mode=mode, workers=2), user)
 
 
 @pytest.mark.parametrize("graph", ["invalid", "../graph.yaml", "", None, {}, ["qwen35-9b"]])
@@ -121,6 +156,32 @@ def test_catalog_and_progress_are_stable(control: Control) -> None:
     assert "source" not in json.dumps(first)
     # Reading the run list must not consume any future launch numbers.
     assert control.create_run(request_config(), user)["number"] == "RUN-0002"
+
+
+@pytest.mark.parametrize(("agent", "graph", "agent_name", "graph_name"), [
+    ("Qwen3.5-9B (local vLLM)", "gpt-6-luna (LiteLLM)", "Qwen3.5-9B (local vLLM)", "gpt-6-luna (LiteLLM)"),
+    ({"model": "agent"}, {"model": "graph", "classification": "graph_model"}, "agent", "graph"),
+    ("agent", {"model": "graph"}, "agent", "graph"),
+    (None, [], "", "gpt-6-luna"),
+])
+def test_external_model_formats_do_not_break_catalog(control: Control, agent, graph, agent_name, graph_name) -> None:
+    folder = control.results / "external-cli"
+    manifest = write(folder, "batch.json", {"agent": agent, "graph": graph, "mode": "bcg_compaction",
+                                           "started_at": "2026-11-23T14:16:24+0800", "compaction_turns": "all"})
+    write(folder, "drb2/run.json", {"task_ids": ["2"], "task_state_enabled": True})
+    before = manifest.read_bytes()
+    # Exercise the same discovery as server startup, followed by the polling and detail endpoints.
+    studio = Control(control.root, control.state)
+    viewer = {"id": "test-viewer"}
+    runs = studio.list_runs(viewer)
+    assert [r["id"] for r in runs] == [2, 1]
+    assert runs[1]["agent"] == "offline-fixture"
+    external = studio.detail(2, viewer)
+    assert external["title"].startswith((agent_name or "历史实验") + " · ")
+    assert (external["agent"], external["graph"]) == (agent_name, graph_name)
+    assert external["compaction_turns"] == "all" and external["task_state"] is True
+    assert studio.list_runs(viewer) == runs
+    assert manifest.read_bytes() == before
 
 
 @pytest.mark.parametrize("usage, expected", [
@@ -255,7 +316,7 @@ def test_concurrent_edit_has_one_winner(control: Control) -> None:
 
 
 @pytest.mark.parametrize("changes", [
-    {"profile": {}}, {"profile": "arbitrary.py"}, {"workers": 2}, {"workers": 3}, {"workers": True},
+    {"profile": {}}, {"profile": "arbitrary.py"}, {"workers": 0}, {"workers": 3}, {"workers": True},
     {"tasks": {"drb2": ["../.env"]}}, {"tasks": {"drb2": [{}]}}, {"tasks": {"drb2": ["2", "2"]}},
     {"tasks": {"unknown": ["2"]}}, {"tasks": {"drb2": [str(i) for i in range(33)]}},
     {"tasks": {"drbench": ["DR0001"]}}, {"tasks": {"drb2": ["2"], "drbench": ["DR0001"]}},
@@ -348,16 +409,38 @@ def test_context_mode_is_validated_saved_and_displayed(control: Control) -> None
 def test_compaction_launch_saves_window_and_forces_global_state(control: Control) -> None:
     user = control.register("compaction-operator")["user"]
     assert control.settings()["default_compaction_turns"] == 5
-    for count in (1, 3, 5):
-        run = control.create_run(request_config(mode="bcg_compaction", compaction_turns=count), user)
-        assert run["mode"] == "bcg_compaction" and run["task_state"]
-        assert run["compaction_turns"] == count and run["graph"] == "gpt-6-luna"
-        assert json.loads(control.row(run["id"])["config"])["compaction_turns"] == count
-    for value in (0, -1, 301, True, "3", 1.5):
+    assert control.settings()["compaction_retention_modes"] == ["recent", "all"]
+    assert control.settings()["compaction_task_state_filter_supported"] is True
+    assert control.settings()["default_compaction_task_state_hops"] == 2
+    for count in (1, 3, 5, "all"):
+        for ts_filter in (False, True):
+            run = control.create_run(request_config(
+                mode="bcg_compaction", compaction_turns=count,
+                compaction_task_state_filter=ts_filter,
+                **({"compaction_task_state_hops": 3} if ts_filter else {}),
+            ), user)
+            assert run["mode"] == "bcg_compaction" and run["task_state"]
+            assert run["compaction_turns"] == count and run["graph"] == "gpt-6-luna"
+            assert run["compaction_task_state_filter"] is ts_filter
+            assert run["compaction_task_state_hops"] == (3 if ts_filter else None)
+            assert run["graph_classification"] == "graph_model"
+            saved = json.loads(control.row(run["id"])["config"])
+            assert saved["compaction_turns"] == count and saved["compaction_task_state_filter"] is ts_filter
+            control.cancel_run(run["id"], user)
+    for value in (0, -1, 301, True, "3", 1.5, "unlimited", None):
         with pytest.raises(APIError, match="保留轮数"):
             control.create_run(request_config(mode="bcg_compaction", compaction_turns=value), user)
+    for bad_bool in ("true", 1, None):
+        with pytest.raises(APIError, match="布尔值"):
+            control.create_run(request_config(mode="bcg_compaction", compaction_task_state_filter=bad_bool), user)
+    with pytest.raises(APIError, match="仅适用于 BCG Compaction"):
+        control.create_run(request_config(mode="bcg", compaction_task_state_filter=True), user)
+    for bad_hops in (-1, 11, True, "2"):
+        with pytest.raises(APIError, match="跳数"):
+            control.create_run(request_config(mode="bcg_compaction", compaction_task_state_hops=bad_hops), user)
     run = control.create_run(request_config(mode="bcg_compaction"), user)
-    assert run["compaction_turns"] == 5
+    assert run["compaction_turns"] == 5 and run["compaction_task_state_filter"] is False
+    assert run["compaction_task_state_hops"] is None
 
 
 def test_report_scores_do_not_change_annotation_status(control: Control) -> None:

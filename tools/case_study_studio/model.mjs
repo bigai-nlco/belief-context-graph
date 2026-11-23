@@ -473,6 +473,7 @@ function graphOf(value, sourceId, label) {
   return {id: `${sourceId}:graph`, fileId: sourceId, label, graphId: String(value.problem_id ?? value.graph_id ?? v.problem_id ?? value.item_id ?? ''),
     // No temporal reconstruction from final confidence/content: retain the uploaded snapshot as-is.
     kind: 'uploaded_snapshot', scope: 'full', nodes: nodes.filter(obj), relations: arr(v.relations).filter(obj),
+    ...(obj(v.task_state) ? {taskState: v.task_state} : {}),
     call: value.call ?? null, nTurns: v.n_turns_ingested ?? null,
     snapshotScope: value.snapshot_scope ?? null};
 }
@@ -485,6 +486,271 @@ export function graphViews(c) {
     views[isTurn ? 'turns' : 'full'].push(graph);
   }
   return views;
+}
+
+// A snapshot owns both views. TSG records reference original beliefs by ID;
+// they never inherit B→B edges, even when two tasks refer to the same belief.
+const atlasCache = new WeakMap();
+export function overviewGraph(graph, layer = 'bcg') {
+  let cache = atlasCache.get(graph);
+  if (!cache) { cache = new Map(); atlasCache.set(graph, cache); }
+  if (cache.has(layer)) return cache.get(layer);
+  const tsg = layer === 'tsg', state = graph.taskState;
+  const available = !tsg || (Array.isArray(state?.nodes) && Array.isArray(state?.relations));
+  const byId = new Map(), incident = new Map(), relations = [];
+  const valid = id => Number.isSafeInteger(id) || (typeof id === 'string' && id.length > 0);
+  const label = (prefix, id) => String(id).startsWith(prefix) ? String(id) : prefix + id;
+  const add = (id, kind, raw) => {
+    if (byId.has(id)) return;
+    byId.set(id, {id, kind, raw, text: String(raw?.belief ?? raw?.decision ?? raw?.text ?? raw?.content ?? '')});
+    incident.set(id, []);
+  };
+  const beliefs = new Map(graph.nodes.filter(n => valid(n.id)).map(n => [label('B', n.id), n]));
+  if (tsg && available) {
+    for (const n of state.nodes) if (obj(n) && valid(n.id)) add(label('T', n.id), 'task', n);
+  } else if (!tsg) {
+    for (const [id, n] of beliefs) add(id, 'belief', n);
+  }
+  let invalidEdges = 0;
+  const parallel = new Map();
+  for (const raw of available ? (tsg ? state.relations : graph.relations) : []) {
+    if (!obj(raw) || !valid(raw.from_id) || !valid(raw.to_id)) { invalidEdges++; continue; }
+    const endpoint = id => tsg ? String(id) : label('B', id);
+    const from_id = endpoint(raw.from_id), to_id = endpoint(raw.to_id);
+    for (const id of [from_id, to_id]) {
+      if (byId.has(id)) continue;
+      const n = beliefs.get(id);
+      add(id, n ? 'belief' : 'missing', n);
+    }
+    const edge = {from_id, to_id, type: String(raw.type ?? ''), raw, lane:0};
+    relations.push(edge); incident.get(from_id).push(edge);
+    if (from_id !== to_id) incident.get(to_id).push(edge);
+    const key=JSON.stringify([from_id,to_id].sort());
+    if (!parallel.has(key)) parallel.set(key,[]);
+    parallel.get(key).push(edge);
+  }
+  // E.g. T2 updated_by B114 and B114 addresses T2 are two distinct records.
+  for (const edges of parallel.values()) edges.forEach((e,i)=>{
+    e.lane=(i-(edges.length-1)/2)*(e.from_id<=e.to_id?1:-1);
+  });
+  const nodes = [...byId.values()];
+  const result = {available, nodes, byId, relations, incident, invalidEdges,
+    taskCount: nodes.filter(n => n.kind === 'task').length, beliefCount: nodes.filter(n => n.kind === 'belief').length,
+    missingCount: nodes.filter(n => n.kind === 'missing').length};
+  cache.set(layer, result);
+  return result;
+}
+
+// Use the same recorded source index as the standalone BCG visualizer. These
+// are Graph trajectory rows (User / Assistant / Tool), not Agent call numbers.
+const atlasTimelines = new WeakMap();
+const timelineIds = new Intl.Collator('en', {numeric:true});
+export const timelineSize = Object.freeze({column:116,row:40,radius:7,axis:28});
+export function trajectoryLayout(model) {
+  if (atlasTimelines.has(model)) return atlasTimelines.get(model);
+  const groups = new Map(), positions = new Map();
+  for (const n of model.nodes) {
+    const r=n.raw || {}, s=r.source || {};
+    const candidates=[s.turn_id,s.turn_index,s.trajectory_index,r.turn_id,r.turn_index,r.trajectory_index];
+    // A missing/negative index must not turn into trajectory row zero.
+    const turn=candidates.map(x=>typeof x==='string' && /^\d+$/.test(x) ? Number(x) : x)
+      .find(x=>Number.isSafeInteger(x) && x>=0) ?? null;
+    const role=String(r.role || s.role || s.type || '').toLowerCase();
+    const decision=(r.node_type ?? r.type)==='decision' || (r.decision!=null && r.belief==null);
+    const point={id:n.id, turn, role:role==='function'?'tool':role, decision,
+      caption:(decision?'D#':'B#')+n.id.slice(1), confidence:Number.isFinite(r.confidence)?r.confidence.toFixed(2):'—'};
+    if(!groups.has(turn)) groups.set(turn,[]);
+    groups.get(turn).push(point);
+  }
+  const columns=[...groups.keys()].sort((a,b)=>a===b?0:a===null?1:b===null?-1:a-b).map((turn,i)=>{
+    const points=groups.get(turn).sort((a,b)=>timelineIds.compare(a.id,b.id));
+    const x=24+timelineSize.column*(i+.5);
+    points.forEach((p,j)=>{p.x=x;p.y=52+j*timelineSize.row;positions.set(p.id,p);});
+    return {turn,x,label:turn===null?'轮次未记录':`traj[${turn}]`,count:points.length};
+  });
+  const rows=columns.reduce((m,c)=>Math.max(m,c.count),1);
+  const result={positions,columns,width:48+Math.max(1,columns.length)*timelineSize.column,
+    height:52+(rows-1)*timelineSize.row+timelineSize.radius+20};
+  atlasTimelines.set(model,result);return result;
+}
+
+const setIndexCache=new WeakMap();
+export const memberLabels=Object.freeze({anchor:'任务定义',evidence:'证据',conclusion:'中间结论',plan:'计划',progress:'进度记录',other:'其他引用'});
+const byAtlasId=(a,b)=>timelineIds.compare(a.id,b.id);
+
+// Sets are an index on saved workflow relations, never on factual BCG adjacency.
+// Two workflow records may explain one membership; sharing a member is not a
+// task-to-task edge. Keep the original edges, including unclassifiable ones.
+export function taskSetIndex(model){
+  if(setIndexCache.has(model))return setIndexCache.get(model);
+  const groups=new Map(),owners=new Map(),unplaced=[],taskEdges=[];
+  for(const node of model.nodes.filter(n=>n.kind==='task').sort(byAtlasId))
+    groups.set(node.id,{id:node.id,node,members:new Map(),buckets:new Map(),parents:new Set(),children:new Set(),shared:[]});
+  for(const e of model.relations){
+    const a=groups.get(e.from_id),b=groups.get(e.to_id);
+    if(a && b){
+      taskEdges.push(e); // Preserve type, direction and separate parallel records.
+      if(e.type==='part_of'){a.parents.add(b.id);b.children.add(a.id);}
+      continue;
+    }
+    const g=a||b, id=a?e.to_id:e.from_id;
+    if(!g || !id.startsWith('B')){unplaced.push(e);continue;}
+    if(!g.members.has(id)){
+      g.members.set(id,{id,node:model.byId.get(id),edges:[]});
+      if(!owners.has(id))owners.set(id,new Set());
+      owners.get(id).add(g.id);
+    }
+    g.members.get(id).edges.push(e);
+  }
+  for(const g of groups.values()){
+    g.rows=[...g.members.values()].sort(byAtlasId);
+    // Old snapshots can lack a belief's semantic role. Only use the task's
+    // recorded role lists to label an already-linked member, not to add a link.
+    const roleLists=['evidence_ids','intermediate_conclusion_ids','plan_ids','update_ids'].map(key=>new Set(arr(g.node.raw[key]).map(i=>'B'+i)));
+    for(const m of g.rows){
+      const role=m.node.raw?.task_role,types=new Set(m.edges.map(e=>e.type));
+      m.bucket=types.has('described_by')?'anchor':types.has('updated_by')||role==='progress'||roleLists[3].has(m.id)?'progress':
+        role==='evidence'||roleLists[0].has(m.id)?'evidence':role==='intermediate_conclusion'||roleLists[1].has(m.id)?'conclusion':
+        role==='plan'||role==='next_action'||roleLists[2].has(m.id)?'plan':'other';
+      if(!g.buckets.has(m.bucket))g.buckets.set(m.bucket,[]);
+      g.buckets.get(m.bucket).push(m);
+      if(owners.get(m.id).size>1)g.shared.push(m);
+    }
+  }
+  // Exact owner signatures partition shared members: a three-set member is
+  // not counted a second time in each pair of sets.
+  const signatures=new Map();
+  for(const [id,o] of owners){
+    if(o.size<2)continue;
+    const tasks=[...o].sort(timelineIds.compare),key=JSON.stringify(tasks);
+    if(!signatures.has(key))signatures.set(key,{tasks,ids:[]});
+    signatures.get(key).ids.push(id);
+  }
+  const overlaps=[...signatures.values()].sort((a,b)=>b.ids.length-a.ids.length||timelineIds.compare(a.tasks.join(','),b.tasks.join(',')));
+  for(const overlap of overlaps)overlap.ids.sort(timelineIds.compare);
+  const result={groups,owners,unplaced,taskEdges,overlaps,sharedCount:overlaps.reduce((n,o)=>n+o.ids.length,0)};
+  setIndexCache.set(model,result);return result;
+}
+
+// The user message is a presentation root, never a stored task or workflow edge.
+export const taskRootId='@user-input';
+
+// Read only explicitly recorded workflow fields. In particular, never infer
+// gaps/progress from words in historical runs or turn the presentation root into a graph node.
+export function workflowDetails(graph, record) {
+  if (!record || !graph?.taskState || ![3, 4].includes(graph.taskState.version)) return [];
+  const byId=overviewGraph(graph,'bcg').byId, rows=[];
+  function gapText(raw) {
+    const q=(raw?.gap_quote||'').trim();
+    if(!q)return '';
+    const fold=s=>String(s).normalize('NFKC').toLowerCase().replace(/\s+/g,' ').trim();
+    const qf=fold(q);
+    for(const s of Array.isArray(raw?.supporting_excerpts)?raw.supporting_excerpts:[]){
+      if(typeof s==='string' && s.trim().length<=360 && fold(s).includes(qf)) return s.trim();
+    }
+    return q;
+  }
+  function add(ids,label,field) {
+    for(const i of [...new Set(Array.isArray(ids)?ids.filter(Number.isInteger):[])].sort((a,b)=>b-a)){
+      const n=byId.get('B'+i); if(!n)continue;
+      const text=field==='gap_quote' ? gapText(n.raw) : field ? n.raw[field] : n.text;
+      if(text) rows.push({id:'B'+i,label,text});
+    }
+  }
+  add(record.open_gap_ids,'待核实','gap_quote');
+  if(record===graph.taskState.root) add(graph.taskState.unassigned_gap_ids,'待归属缺口','gap_quote');
+  add(record.plan_ids,'明确的下一步','next_action_quote');
+  add(Number.isInteger(record.status_source_id)?[record.status_source_id]:[],'最近报告的进展');
+  return rows;
+}
+
+// Project the recorded part_of DAG onto one tree. Use the deepest available
+// parent to retain specific subtasks; break ties by numeric task ID. The full
+// incoming/outgoing records remain in the inspector, including duplicate edges.
+function taskHierarchy(sets){
+  const ids=[...sets.groups.keys()].sort(timelineIds.compare);
+  const children=new Map([taskRootId,...ids].map(id=>[id,[]]));
+  const candidates=new Map(ids.map(id=>[id,new Map()]));
+  for(const e of sets.taskEdges)if(e.type==='part_of' && e.from_id!==e.to_id)
+    candidates.get(e.from_id).set(e.to_id,e);
+  const pending=new Map(ids.map(id=>[id,candidates.get(id).size]));
+  const ready=ids.filter(id=>!pending.get(id)),ranks=new Map([[taskRootId,0]]),links=[];
+  let head=0;
+  while(links.length<ids.length){
+    if(head===ready.length){
+      // A malformed cycle has no topological start. Follow unresolved parents
+      // into the cycle, then open it at its lowest ID (not at a downstream leaf).
+      const path=[],offset=new Map();let id=ids.find(id=>!ranks.has(id));
+      while(!offset.has(id)){
+        offset.set(id,path.length);path.push(id);
+        id=[...candidates.get(id).keys()].filter(p=>!ranks.has(p)).sort(timelineIds.compare)[0];
+      }
+      ready.push(path.slice(offset.get(id)).sort(timelineIds.compare)[0]);
+    }
+    const id=ready[head++];if(ranks.has(id))continue;
+    const parent=[...candidates.get(id).keys()].filter(p=>ranks.has(p))
+      .sort((a,b)=>ranks.get(b)-ranks.get(a)||timelineIds.compare(a,b))[0]??taskRootId;
+    children.get(parent).push(id);ranks.set(id,ranks.get(parent)+1);
+    const record=candidates.get(id).get(parent)??null;
+    links.push({from:parent,to:id,kind:record?'branch':'root',record});
+    for(const child of sets.groups.get(id).children){
+      if(ranks.has(child))continue;
+      const n=pending.get(child)-1;pending.set(child,n);if(n===0)ready.push(child);
+    }
+  }
+  for(const list of children.values())list.sort(timelineIds.compare);
+  return {children,ranks,links};
+}
+
+// Each subtree owns a contiguous horizontal span; every level owns a separate
+// row. Walk iteratively so long traces do not depend on the JS call stack.
+export function taskDiagramLayout(sets,sizes,showShared=false){
+  const {children,ranks,links}=taskHierarchy(sets);
+  const boxes=new Map(),subtree=new Map(),rowHeights=[],rowTops=[18],gapX=28,gapY=50,margin=20;
+  const size=id=>sizes.get(id)??(id.startsWith('@shared:')?{width:118,height:28}:
+    id===taskRootId?{width:282,height:90}:{width:196,height:102});
+  const order=[...ranks.keys()];
+  for(let i=order.length-1;i>=0;i--){
+    const id=order[i],kids=children.get(id),s=size(id),depth=ranks.get(id);
+    const childWidth=kids.reduce((w,k)=>w+subtree.get(k),0)+Math.max(0,kids.length-1)*gapX;
+    subtree.set(id,Math.max(s.width,childWidth));
+    rowHeights[depth]=Math.max(rowHeights[depth]??0,s.height);
+  }
+  for(let d=1;d<rowHeights.length;d++)rowTops[d]=rowTops[d-1]+rowHeights[d-1]+gapY;
+  const center=new Map([[taskRootId,margin+subtree.get(taskRootId)/2]]);
+  for(const id of order){
+    const s=size(id),depth=ranks.get(id),cx=center.get(id),kids=children.get(id);
+    boxes.set(id,{x:cx-s.width/2,y:rowTops[depth],...s,rank:depth});
+    const w=kids.reduce((n,k)=>n+subtree.get(k),0)+Math.max(0,kids.length-1)*gapX;
+    let x=cx-w/2;
+    for(const child of kids){center.set(child,x+subtree.get(child)/2);x+=subtree.get(child)+gapX;}
+  }
+  for(const e of links){
+    const a=boxes.get(e.from),b=boxes.get(e.to),sx=center.get(e.from),tx=center.get(e.to);
+    const bus=rowTops[b.rank]-gapY/2;
+    e.points=[[sx,a.y+a.height+2],[sx,bus],[tx,bus],[tx,b.y-3]];
+  }
+  let width=2*margin+subtree.get(taskRootId),height=rowTops.at(-1)+rowHeights.at(-1)+margin;
+  if(showShared && sets.overlaps.length){
+    // Optional membership overlay lives beneath the tree. Route through
+    // gutters outside the owner's subtree, without moving any task or root.
+    const hubs=sets.overlaps.map((o,i)=>({o,id:'@shared:'+i,cx:o.tasks.reduce((n,k)=>n+center.get(k),0)/o.tasks.length}))
+      .sort((a,b)=>a.cx-b.cx||timelineIds.compare(a.id,b.id));
+    const top=height+gapY;let left=margin;
+    for(const {id,o,cx} of hubs){
+      const s=size(id),x=Math.max(left,cx-s.width/2),tx=x+s.width/2;
+      boxes.set(id,{x,y:top,...s,rank:rowTops.length});left=x+s.width+gapX;
+      width=Math.max(width,left);height=Math.max(height,top+s.height+margin);
+      for(const owner of o.tasks){
+        const b=boxes.get(owner),sx=center.get(owner)+b.width/3,out=rowTops[b.rank]+rowHeights[b.rank]+12;
+        const gutter=center.get(owner)+subtree.get(owner)/2+gapX/3;
+        links.push({from:owner,to:id,kind:'shared',record:null,points:[
+          [sx,b.y+b.height+2],[sx,out],[gutter,out],[gutter,top-14],[tx,top-14],[tx,top-3]]});
+      }
+    }
+  }
+  const r=boxes.get(taskRootId);
+  return {boxes,links,width,height,focus:{x:center.get(taskRootId),y:r.y+r.height/2}};
 }
 
 function contextOf(value, sourceId, index) {

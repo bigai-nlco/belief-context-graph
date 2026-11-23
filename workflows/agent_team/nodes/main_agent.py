@@ -1442,6 +1442,7 @@ async def _main_agent_node(
         # the coordinator loop is blocked inside the tool. Keep them in the
         # execution scope as well as the loop observer list.
         "sdk_extra_observers": metadata.get("sdk_extra_observers") or [],
+        "_bcg_human_steers": metadata.get("_bcg_human_steers"),
         "parent_agent_id": metadata.get("parent_agent_id"),
         # Default this eval workflow to the bash command allowlist (enforce).
         # Carried on the loop's ExecutionScope (auto-reset by run_agent_loop's

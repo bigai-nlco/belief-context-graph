@@ -9,12 +9,15 @@
 </head>
 <body class="runs-page">
   <header class="runs-header"><a class="runs-brand" href="./"><img src="./icon.svg" width="32" height="32" alt=""><strong>BCG</strong><span class="runs-brand-label">RUNS &amp; ANNOTATIONS</span></a><div class="runs-actions"><span id="connection" role="status">正在连接…</span><a class="button" href="./clm.html">CLM 实验</a><a class="button" href="./review-pipeline.html">AI Review 方法</a><button class="button" id="identity-button">标注身份</button><button class="button primary" id="launch-button">＋ 启动测试</button></div></header>
-  <div class="runs-layout"><aside class="runs-sidebar"><div class="runs-sidebar-title"><h2>测试运行</h2><button id="refresh-button" class="button ghost refresh-button" type="button" data-state="idle" aria-busy="false">
+  <div class="runs-layout"><aside class="runs-sidebar" aria-labelledby="runs-list-title" tabindex="0">
+    <header class="runs-sidebar-head"><div class="runs-sidebar-title"><h2 id="runs-list-title">测试运行</h2><button id="refresh-button" class="button ghost refresh-button" type="button" data-state="idle" aria-busy="false">
     <svg class="refresh-symbol refresh-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.5 6.2L3 16M3 21v-5h5"/></svg>
     <svg class="refresh-symbol refresh-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>
     <svg class="refresh-symbol refresh-error" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/></svg>
     <span class="refresh-label" aria-live="polite" aria-atomic="true">刷新</span>
-  </button></div><p>按启动编号查看结果</p><nav id="run-list" aria-label="测试运行列表"></nav></aside><main class="runs-main" id="run-content"><p class="boot">正在读取运行记录…</p></main></div>
+    </button></div><p>按启动编号查看结果</p></header>
+    <nav id="run-list" aria-label="测试运行列表"></nav>
+  </aside><main class="runs-main" id="run-content" aria-label="运行详情" tabindex="0"><p class="boot">正在读取运行记录…</p></main></div>
   <div id="run-notice" class="run-notice" role="status" hidden></div>
   <dialog id="score-dialog" class="studio-dialog score-dialog" aria-labelledby="score-dialog-title">
     <div class="dialog-header">
@@ -56,9 +59,12 @@
         <label class="field"><span>Agent 模型</span><select name="profile" id="launch-profile"></select></label>
         <label class="field"><span>建图模型</span><select name="graph_profile" id="launch-graph-profile" disabled></select></label>
         <label class="field launch-context-mode"><span>上下文模式</span><select name="mode" id="launch-mode"><option value="bcg">BCG</option><option value="bcg_compaction" disabled>BCG Compaction</option><option value="default" disabled>Default</option><option value="clm" disabled>CLM</option></select></label>
-        <label class="field" id="launch-compaction-field" hidden><span>压缩交互保留轮数</span><input name="compaction_turns" id="launch-compaction-turns" type="number" required min="1" max="300" value="5" disabled><small>一轮 = 一次 Assistant 回复及其全部 Tool Results</small></label>
+        <label class="field" id="launch-classification-field" hidden><span>建图分类方案</span><select name="graph_classification" id="launch-classification" disabled><option value="graph_model">原始 BCG（建图模型分类）</option><option value="decision_model">Decision Model 分类</option></select></label>
+        <label class="field" id="launch-compaction-field" hidden><span>压缩历史保留策略</span><select id="launch-compaction-policy" name="compaction_policy" disabled><option value="recent">最近 N 轮（默认 5 轮）</option><option value="all" disabled>全部轮次（不淘汰）</option></select></label>
+        <label class="field" id="launch-compaction-count-field" hidden><span>保留轮数</span><input name="compaction_turns" id="launch-compaction-turns" type="number" required min="1" max="300" value="5" disabled></label>
       </div>
-      <label class="field task-state-setting"><span><input type="checkbox" id="launch-task-state" name="task_state" checked disabled> 维护全局任务状态</span><small>BCG 默认启用，从全部历史 Graph 维护，不增加独立模型调用。</small></label>
+      <label class="field task-state-setting" id="launch-compaction-filter-field" hidden><span><input type="checkbox" id="launch-compaction-task-state-filter" name="compaction_task_state_filter" disabled> 按 Task State 筛选每轮节点</span><small>在所选轮次窗口内，仅保留与当前活跃 Task State 节点在 2 跳真实关系内连通的节点；自动补带对应工具调用并完整保留最近 1 轮，空轮跳过。</small></label>
+      <label class="field task-state-setting"><span><input type="checkbox" id="launch-task-state" name="task_state" checked disabled> 维护全局任务状态</span><small>从全部历史 Graph 维护；任务状态本身不需要单独的规划模型。</small></label>
       <div class="graph-setting" id="launch-context-info">单 Agent BCG · 永久保留用户输入 · 最近 2 轮完整交互<br>Task state 基于全图维护；近期 Graph 展示这 2 轮之前的 3 轮节点及其内部关系，不做 retrieval<br>建图：GPT-6-Luna / none · LiteLLM · 报告生成后自动进行 LLM Judge 评分</div>
       <section class="task-picker" id="launch-task-picker" aria-labelledby="task-picker-heading">
         <div class="task-picker-heading"><h3 id="task-picker-heading">DeepResearch Bench II 题目</h3><span id="task-selection-count" role="status" aria-live="polite"></span></div>
@@ -86,7 +92,7 @@
       <button class="button primary" type="submit">确认启动测试</button>
     </form>
   </dialog>
-  <dialog id="cancel-dialog" class="studio-dialog"><form id="cancel-form"><div class="dialog-header"><h2>停止这次测试</h2><button type="button" class="icon-button" data-close="cancel-dialog" aria-label="关闭">×</button></div><p>保留已有结果和轨迹。只停止本次任务与专用建图服务，不关闭共用的 vLLM。</p><p id="cancel-error" class="form-error" role="alert"></p><button class="button primary" type="submit">确认停止</button></form></dialog>
+  <dialog id="cancel-dialog" class="studio-dialog"><form id="cancel-form"><div class="dialog-header"><h2>停止这次测试</h2><button type="button" class="icon-button" data-close="cancel-dialog" aria-label="关闭"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><p>保留已有结果和轨迹。只停止本次任务与专用建图服务，不关闭共用的 vLLM。</p><p id="cancel-error" class="form-error" role="alert"></p><button class="button primary" type="submit">确认停止</button></form></dialog>
   <dialog id="delete-dialog" class="studio-dialog delete-dialog" aria-labelledby="delete-title" aria-describedby="delete-description">
     <form id="delete-form">
       <div class="dialog-header"><h2 id="delete-title">删除运行</h2><button type="button" class="icon-button" data-close="delete-dialog" aria-label="关闭"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>

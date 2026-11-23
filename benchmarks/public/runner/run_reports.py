@@ -201,7 +201,12 @@ async def execute_task(
         "profile_overrides": {"agent": {"reporter": False, "context_mode": config.get("mode", "bcg")}},
     }
     if config.get("mode") == "bcg_compaction":
-        meta["profile_overrides"]["agent"]["bcg"] = {"compaction_turns": config["compaction_turns"]}
+        bcg_override: dict[str, Any] = {"compaction_turns": config["compaction_turns"]}
+        if "compaction_task_state_filter" in config:
+            bcg_override["compaction_task_state_filter"] = bool(config["compaction_task_state_filter"])
+        if config.get("compaction_task_state_hops") is not None:
+            bcg_override["compaction_task_state_hops"] = int(config["compaction_task_state_hops"])
+        meta["profile_overrides"]["agent"]["bcg"] = bcg_override
     if config.get("max_turns"):
         meta["profile_overrides"]["agent"].update(
             main_max_turns=config["max_turns"],
@@ -703,6 +708,11 @@ async def run_worker(
 
 
 def build_config(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> dict[str, Any]:
+    from workflows.stateful_react_agent.bcg.recent import (
+        parse_bool_flag,
+        parse_compaction_task_state_hops,
+        parse_compaction_turns,
+    )
     from workflows.stateful_react_agent.bcg.runtime import BCGSettings
     from workflows.stateful_react_agent.profile import resolve_context_mode
 
@@ -712,9 +722,22 @@ def build_config(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> dict[s
     if mode != "bcg" and args.pipeline not in {"stateful-react-agent", "clm"}:
         raise ValueError("Alternative context modes are supported only by stateful-react-agent or the CLM pipeline")
     if getattr(args, "compaction_turns", None) is not None:
-        if mode != "bcg_compaction" or args.compaction_turns < 1:
-            raise ValueError("--compaction-turns requires BCG Compaction mode and a positive integer")
-        agent = {**agent, "bcg": {**(agent.get("bcg") or {}), "compaction_turns": args.compaction_turns}}
+        if mode != "bcg_compaction":
+            raise ValueError("--compaction-turns requires BCG Compaction mode")
+        turns = parse_compaction_turns(args.compaction_turns)
+        agent = {**agent, "bcg": {**(agent.get("bcg") or {}), "compaction_turns": turns}}
+        resolved = {**resolved, "agent": agent}
+    if getattr(args, "compaction_task_state_filter", None) is not None:
+        if mode != "bcg_compaction":
+            raise ValueError("--compaction-task-state-filter requires BCG Compaction mode")
+        enabled = parse_bool_flag(args.compaction_task_state_filter, name="--compaction-task-state-filter")
+        agent = {**agent, "bcg": {**(agent.get("bcg") or {}), "compaction_task_state_filter": enabled}}
+        resolved = {**resolved, "agent": agent}
+    if getattr(args, "compaction_task_state_hops", None) is not None:
+        if mode != "bcg_compaction":
+            raise ValueError("--compaction-task-state-hops requires BCG Compaction mode")
+        hops = parse_compaction_task_state_hops(args.compaction_task_state_hops)
+        agent = {**agent, "bcg": {**(agent.get("bcg") or {}), "compaction_task_state_hops": hops}}
         resolved = {**resolved, "agent": agent}
     settings_factory = BCGSettings.from_react_agent if args.pipeline == "stateful-react-agent" else BCGSettings.from_agent
     settings = settings_factory(agent) if mode in {"bcg", "bcg_no_retrieval", "bcg_compaction"} else None
@@ -736,7 +759,10 @@ def build_config(args: argparse.Namespace, tasks: list[BenchmarkTask]) -> dict[s
     }
     return {
         **clm_config,
-        **({"compaction_turns": settings.compaction_turns} if mode == "bcg_compaction" and settings else {}),
+        **({"compaction_turns": settings.compaction_turns,
+            "compaction_task_state_filter": settings.compaction_task_state_filter,
+            "compaction_task_state_hops": settings.compaction_task_state_hops}
+           if mode == "bcg_compaction" and settings else {}),
         "adapter_revision": _ADAPTER_REVISION,
         "benchmark": args.benchmark,
         "pipeline": args.pipeline,
@@ -914,8 +940,12 @@ def parser() -> argparse.ArgumentParser:
                 help="Outer per-task seconds; 0 disables only this outer limit.",
             )
             child.add_argument("--max-turns", type=int)
-            child.add_argument("--compaction-turns", type=int,
-                               help="BCG Compaction only: number of recent graph-compacted interactions (default: profile or 5).")
+            child.add_argument("--compaction-turns", metavar="N|all",
+                               help="BCG Compaction only: keep the last N graph-compacted interactions or all of them (default: profile or 5).")
+            child.add_argument("--compaction-task-state-filter", action="store_true", default=None,
+                               help="BCG Compaction only: retain only nodes connected within k relation hops of active <task_state> items.")
+            child.add_argument("--compaction-task-state-hops", type=int, default=None, metavar="HOPS",
+                               help="BCG Compaction only: real-relation hop depth for --compaction-task-state-filter (0-10, default: 2).")
             child.add_argument(
                 "--search-calls", type=int, default=20,
                 help="Search query budget per task, shared by all agents (default: 20; 0: unlimited).",

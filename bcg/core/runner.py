@@ -436,7 +436,11 @@ def _bcg_from_construct(
                 int(value) for value in node.get("decision_history") or []
             ],
             metadata={"construct": dict(node)},
-            **{key: node[key] for key in ("task_role", "task_ids", "task_status", "task_annotation_source") if key in node},
+            **{key: node[key] for key in (
+                "task_role", "task_ids", "task_status", "task_annotation_source", "task_scope",
+                "task_refinements", "root_refinement", "gap_quote", "closes_gaps",
+                "next_action_quote", "task_workflow_version",
+            ) if key in node},
         )
         graph.add_belief(payload)
     graph.add_relations(list(snapshot.get("relations") or []))

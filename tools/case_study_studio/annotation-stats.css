@@ -1,14 +1,14 @@
-.stats-page{height:100dvh;display:flex;flex-direction:column;overflow:hidden;background:#f5f7fa}
+.stats-page{height:100dvh;display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
 .stats-header{flex:0 0 auto}.stats-header .runs-actions{flex-wrap:wrap}
 .stats-body{flex:1;min-height:0;position:relative}
-#stats-report{width:100%;height:100%;border:0;background:#f5f7fa}
-.stats-placeholder{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:28px;text-align:center;color:#26364b}
-.stats-placeholder h1{font-size:23px;margin:0}.stats-placeholder p{color:#617083;margin:0;max-width:520px}
-.stats-spinner{width:28px;height:28px;border:3px solid #dce1e9;border-top-color:#7c2945;border-radius:50%;animation:stats-spin .8s linear infinite}
-.stats-feedback{padding:9px 24px;background:#fff2d9;border-bottom:1px solid #ecd6ac;color:#624b25;font-size:14px}
-.stats-summary-status{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 24px;background:#fff;border-bottom:1px solid #e0e5ec;font-size:12px;color:#617083;flex:0 0 auto}
+#stats-report{width:100%;height:100%;border:0;background:var(--bg)}
+.stats-placeholder{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:28px;text-align:center;color:var(--navy)}
+.stats-placeholder h1{font-size:22px;font-weight:650;margin:0}.stats-placeholder p{color:var(--muted);margin:0;max-width:520px;font-size:13px}
+.stats-spinner{width:28px;height:28px;border:2.5px solid var(--line);border-top-color:var(--red);border-radius:50%;animation:stats-spin .8s linear infinite}
+.stats-feedback{padding:10px 26px;background:var(--warning-bg);border-bottom:1px solid var(--warning-line);color:var(--warning);font-size:13px}
+.stats-summary-status{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 28px;background:rgba(255,255,255,.92);border-bottom:1px solid var(--line-subtle);font-size:12px;color:var(--muted);flex:0 0 auto}
 .stats-summary-status .stats-spinner{height:14px;width:14px;border-width:2px;flex:0 0 14px}
-.stats-summary-status .button{padding:5px 10px;font-size:12px}
+.stats-summary-status .button{padding:5px 11px;font-size:12px}
 #summary-status-text{overflow-wrap:anywhere;flex:1;min-width:160px}
 [hidden]{display:none!important}
 @keyframes stats-spin{to{transform:rotate(360deg)}}

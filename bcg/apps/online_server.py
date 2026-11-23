@@ -94,6 +94,7 @@ from bcg.apps.cli_options import add_run_options, add_server_options
 from bcg.config.runtime import resolve_runtime_config
 from bcg.construct.dispatch import DEFAULT_BACKEND, split_backend_args
 from bcg.core.contracts import HTTP_SCHEMA_VERSION
+from bcg.core.errors import DecisionError
 
 
 def _bootstrap_env() -> None:
@@ -312,6 +313,8 @@ def make_handler(manager, trajectory_closed_error: type, *, quiet: bool = False)
                 self._send(400, {"error": f"invalid JSON: {e}"})
             except trajectory_closed_error as e:
                 self._send(409, {"error": str(e)})
+            except DecisionError as e:
+                self._send(502, {"code": "decision_classification_failed", "error": str(e)})
             except KeyError as e:
                 self._send(404, {"error": str(e)})
             except ValueError as e:

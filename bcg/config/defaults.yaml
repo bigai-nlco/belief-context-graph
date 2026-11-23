@@ -24,6 +24,11 @@ models: {}
 # Tool Result, and edge-window settings; hybrid additionally consumes runtime,
 # merge, extractor, chunking, and edge-model routing fields.
 pipeline:
+  classification:
+    mode: graph_model
+    model: gpt-6-luna-decision
+    base_url: https://litellm.mybigai.ac.cn/v1
+    api_key_env: LITELLM_OPENAI_API_KEY
   runtime:
     evidence_mode: chunk
     context_chars: 12000

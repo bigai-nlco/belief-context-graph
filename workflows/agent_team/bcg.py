@@ -134,6 +134,22 @@ class TeamGraphMemory(BCGMemory):
         plan.retained = [messages[i] for i in plan.retained_indices]
         return plan
 
+    def _tag_untracked_loop_nudges(self, messages: list[Message]) -> None:
+        if self._human_user_indices is not None:
+            record = self.team.members.get(self.graph_id) or {}
+            if record.get("job_id"):
+                start = next(
+                    (
+                        i
+                        for i, m in enumerate(messages)
+                        if m.get("role") == "user" and m.get("content") == record.get("question")
+                    ),
+                    None,
+                )
+                if start is not None:
+                    self._human_user_indices.add(start)
+        super()._tag_untracked_loop_nudges(messages)
+
     async def prepare(self, messages: list[Message]) -> list[Message]:
         self.latest_messages = list(messages)
         result = await super().prepare(messages)

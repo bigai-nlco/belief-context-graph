@@ -16,6 +16,11 @@ models:
     device: cpu
     batch_size: 8
 pipeline:
+  classification:
+    mode: graph_model
+    model: gpt-6-luna-decision
+    base_url: https://litellm.mybigai.ac.cn/v1
+    api_key_env: LITELLM_OPENAI_API_KEY
   task_state:
     enabled: true
   runtime:

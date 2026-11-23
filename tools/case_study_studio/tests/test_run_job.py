@@ -19,22 +19,33 @@ from tools.case_study_studio.tests.test_control import build_fixture, request_co
 
 @pytest.mark.parametrize("mode", ["success", "bad_preflight", "cancel", "missing_key", "legacy_benchmark",
                                  "judge_error", "judge_partial", "judge_cancel", "legacy_no_judge", "default", "bcg_no_retrieval", "task_state",
-                                 "qwen_graph", "both_qwen", "qwen_unavailable", "qwen_old_context",
-                                 "legacy_graph_profile", "legacy_qwen_workers", "clm", "bcg_compaction"])
+                                 "qwen_graph", "both_qwen", "qwen_agent_remote_graph_two", "qwen_unavailable", "qwen_old_context",
+                                 "legacy_graph_profile", "legacy_qwen_workers", "clm", "bcg_compaction", "compaction_all",
+                                 "compaction_ts_filter", "compaction_all_ts_filter", "decision_graph"])
 def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
     root = tmp_path / "agent"
     control = build_fixture(root)
     user = control.register("operator")["user"]
     context_mode = mode if mode in ("default", "bcg_no_retrieval", "bcg_compaction", "clm") else "bcg"
+    if mode in {"compaction_all", "compaction_ts_filter", "compaction_all_ts_filter"}:
+        context_mode = "bcg_compaction"
+    compaction_turns = "all" if mode in {"compaction_all", "compaction_all_ts_filter"} else 5
+    compaction_ts_filter = mode in {"compaction_ts_filter", "compaction_all_ts_filter"}
     if mode == "clm":
         from benchmarks.public.reports import clm
 
         monkeypatch.setattr(clm, "installation", lambda: {"available": True, "reason": ""})
         monkeypatch.setattr(clm, "provenance", lambda: {"commit": "b" * 40, "harness_sha256": "c" * 64})
-    local_graph = mode in {"qwen_graph", "both_qwen", "qwen_unavailable", "qwen_old_context", "legacy_qwen_workers"}
-    run = control.create_run(request_config(profile="qwen35-9b" if mode == "both_qwen" else "gpt6-luna",
+    local_graph = mode in {"qwen_graph", "both_qwen", "qwen_unavailable", "qwen_old_context", "legacy_qwen_workers", "decision_graph"}
+    local_agent = mode in {"both_qwen", "qwen_agent_remote_graph_two"}
+    workers = 2 if mode == "qwen_agent_remote_graph_two" else 1
+    task_ids = ["2", "5"] if workers == 2 else ["2"]
+    run = control.create_run(request_config(profile="qwen35-9b" if local_agent else "gpt6-luna",
+        workers=workers, tasks={"drb2": task_ids},
         graph_profile="qwen35-9b" if local_graph or mode == "default" else "gpt6-luna",
-        mode=context_mode, task_state=mode == "task_state", compaction_turns=3), user)
+        mode=context_mode, task_state=mode == "task_state", compaction_turns=compaction_turns,
+        **({"compaction_task_state_filter": True, "compaction_task_state_hops": 3} if compaction_ts_filter else {}),
+        graph_classification="decision_model" if mode == "decision_graph" else "graph_model"), user)
     if mode in {"default", "clm"}:
         # Default must work without the construction profile or Graph dependencies.
         (root / "tools/case_study_studio/profiles/graph.yaml").unlink()
@@ -63,7 +74,7 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         assert json.loads((directory / "batch.json").read_text())["code_version"]["commit"] == "a" * 40
         preflights.append(cmd)
         assert cmd[-1] == "--dry-run"
-        assert cmd[cmd.index("--task-ids") + 1] == "drb2:2"
+        assert cmd[cmd.index("--task-ids") + 1] == "drb2:" + ",".join(task_ids)
         assert cmd[cmd.index("--search-calls") + 1] == "50"
         assert cmd[cmd.index("--fetch-calls") + 1] == "50"
         assert cmd[cmd.index("--pipeline") + 1] == ("clm" if mode == "clm" else "stateful-react-agent")
@@ -93,10 +104,11 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
                 proc.poll = lambda: 0 if proc.stopped else None
                 control.cancel_run(run["id"], user)
             else:
-                write(directory, "drb2/summary.json", {"status_counts": {"completed": 1},
+                write(directory, "drb2/summary.json", {"status_counts": {"completed": len(task_ids)},
                     "rubric": {"complete": mode != "judge_partial"}})
         elif not graph:
-            write(directory, "drb2/summary.json", {"status_counts": {"completed": 1}})
+            assert cmd[cmd.index("--workers") + 1] == str(workers)
+            write(directory, "drb2/summary.json", {"status_counts": {"completed": len(task_ids)}})
         return proc
 
     def stop(proc: SimpleNamespace | None) -> None:
@@ -155,7 +167,9 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
             assert batch["clm"]["runtime"]["commit"] == "b" * 40
             assert batch["clm"]["settings"]["context_budget_tokens"] == 28672
             assert batch["config"]["pipeline"] == "clm" and not batch["config"]["task_state"]
-    elif mode in {"success", "legacy_no_judge", "bcg_no_retrieval", "bcg_compaction", "task_state", "qwen_graph", "both_qwen", "legacy_graph_profile", "legacy_qwen_workers"}:
+    elif mode in {"success", "legacy_no_judge", "bcg_no_retrieval", "bcg_compaction", "compaction_all",
+                  "compaction_ts_filter", "compaction_all_ts_filter", "task_state", "qwen_graph",
+                  "both_qwen", "qwen_agent_remote_graph_two", "legacy_graph_profile", "legacy_qwen_workers", "decision_graph"}:
         assert row["status"] == "finished"
         assert len(preflights) == 1
         assert len(children) == (2 if mode == "legacy_no_judge" else 3)
@@ -166,6 +180,12 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
             assert batch["judge"]["reasoning_effort"] == "high"
         graph = yaml.safe_load((directory / "graph.yaml").read_text())
         agent = yaml.safe_load((directory / "agent.yaml").read_text())
+        arm = "decision_model" if mode == "decision_graph" else "graph_model"
+        assert graph["pipeline"]["classification"]["mode"] == batch["graph"]["classification"] == arm
+        assert control.detail(run["id"])["graph_classification"] == arm
+        if mode == "decision_graph":
+            assert batch["graph"]["classifier_model"] == "gpt-6-luna-decision"
+            assert graph["pipeline"]["classification"]["api_key_env"] == "LITELLM_OPENAI_API_KEY"
         assert graph["models"]["graph"]["reasoning_effort"] == ("low" if local_graph else "none")
         assert batch["graph"]["thinking"] is local_graph
         assert batch["graph"]["provider"] == ("vllm" if local_graph else "litellm")
@@ -182,31 +202,37 @@ def test_worker_launch_and_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPat
             assert batch["local_vllm"]["max_model_len"] == 65536
             assert batch["workers"] == batch["config"]["workers"] == 1
             assert os.environ["BCG_LOCAL_GRAPH_API_KEY"] == "EMPTY"
-            assert len(model_checks) == 1
         else:
             assert graph["models"]["graph"]["base_url"] == "https://litellm.mybigai.ac.cn/"
             assert graph["models"]["graph"]["max_tokens"] == 8192
             assert agent["agent"]["bcg"]["timeout"] == 180
-            assert not model_checks
+        assert model_checks == (["http://127.0.0.1:8001/v1/models"] if local_agent or local_graph else [])
         assert bool((graph.get("pipeline", {}).get("task_state") or {}).get("enabled")) == (context_mode in {"bcg", "bcg_compaction"})
         assert agent["agent"]["bcg"].get("task_state_enabled", False) == (context_mode in {"bcg", "bcg_compaction"})
         assert agent["agent"]["context_mode"] == context_mode and batch["mode"] == context_mode
         if mode == "bcg_no_retrieval":
             assert agent["agent"]["bcg"]["retrieval"] == "all"
             assert batch["code_version"]["graph_sha256"]
-        elif mode == "bcg_compaction":
+        elif context_mode == "bcg_compaction":
             assert agent["agent"]["bcg"]["retrieval"] == "compaction"
-            assert agent["agent"]["bcg"]["compaction_turns"] == 3
-            assert control.detail(run["id"])["compaction_turns"] == 3
+            assert agent["agent"]["bcg"]["compaction_turns"] == batch["config"]["compaction_turns"] == compaction_turns
+            assert agent["agent"]["bcg"]["compaction_task_state_filter"] is compaction_ts_filter
+            assert agent["agent"]["bcg"]["compaction_task_state_hops"] == (3 if compaction_ts_filter else 2)
+            assert control.detail(run["id"])["compaction_turns"] == compaction_turns
+            assert control.detail(run["id"])["compaction_task_state_filter"] is compaction_ts_filter
+            assert control.detail(run["id"])["compaction_task_state_hops"] == (3 if compaction_ts_filter else None)
             assert batch["config"]["task_state"] is True
         else:
             assert agent["agent"]["bcg"]["retrieval"] == "recent_steps"
             assert agent["agent"]["bcg"]["graph_recent_turns"] == 3
             assert batch["config"]["task_state"] is True
-        assert agent["agent"]["bcg"]["recent_turns"] == (0 if mode == "bcg_compaction" else 2)
+        assert agent["agent"]["bcg"]["recent_turns"] == (0 if context_mode == "bcg_compaction" else 2)
         assert graph["models"]["graph"]["api_key_env"] == ("BCG_LOCAL_GRAPH_API_KEY" if local_graph else "LITELLM_OPENAI_API_KEY")
         assert "bcg/construct/unified/stream.py" in batch["source_sha256"]
-        if mode == "both_qwen":
+        if mode == "qwen_agent_remote_graph_two":
+            assert batch["workers"] == batch["config"]["workers"] == 2
+            assert "requested_workers" not in batch
+        if local_agent:
             assert agent["llm"]["extra_body"]["chat_template_kwargs"]["enable_thinking"] is True
             assert agent["llm"]["max_tokens"] == 8192, "Agent output budget is unchanged"
             assert agent["agent"]["max_len"] == 65536

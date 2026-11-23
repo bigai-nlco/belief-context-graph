@@ -89,8 +89,11 @@ function renderLive(parent,html,{reset=false}={}){
   if(reset)parent.replaceChildren(template.content);
   else patchLiveChildren(parent,template.content);
 }
+function classificationLabel(run){return run.graph_classification==='decision_model'?(run.classifier_model?'Decision Model ('+escape(run.classifier_model)+')':'Decision Model'):'原始 BCG';}
+function compactionLabel(turns,filter=false){const base=turns==='all'?'全部轮次（不淘汰）':`最近 ${turns??5} 轮`;return filter?`${base} · Task State 筛选`:base;}
+function runModeLabel(run){return contextModeLabel(run.mode)+(run.mode==='bcg_compaction'?' · '+compactionLabel(run.compaction_turns,run.compaction_task_state_filter):'');}
 function renderList(runs){
-  renderLive($('#run-list'),runs.length?runs.map(run=>`<button class="run-item ${run.id===selected?'selected':''}" data-run="${run.id}" data-live-key="run-${run.id}"><div><strong>${escape(run.number)}</strong>${badge(runDisplayStatus(run))}</div><p class="run-name">${escape(run.title)}</p><small class="run-mode-label">${escape(contextModeLabel(run.mode))}</small><div><small>${run.ended} / ${run.total} 已结束</small><small>${run.reports} 份报告</small></div><small class="run-version-label">${escape(versionLabel(run))}</small></button>`).join(''):'<p class="muted">暂无测试。点击右上角启动测试。</p>');
+  renderLive($('#run-list'),runs.length?runs.map(run=>`<button class="run-item ${run.id===selected?'selected':''}" data-run="${run.id}" data-live-key="run-${run.id}"><div><strong>${escape(run.number)}</strong>${badge(runDisplayStatus(run))}</div><p class="run-name">${escape(run.title)}</p><small class="run-mode-label">${escape(runModeLabel(run))}${run.graph_classification==='decision_model'?' · Decision Model':''}</small><div><small>${run.ended} / ${run.total} 已结束</small><small>${run.reports} 份报告</small></div><small class="run-version-label">${escape(versionLabel(run))}</small></button>`).join(''):'<p class="muted">暂无测试。点击右上角启动测试。</p>');
 }
 function renderRun(run){
   const current=$('#run-content');
@@ -107,7 +110,7 @@ function renderRun(run){
       <h1>${escape(run.title)}</h1>
       <div class="run-heading-actions"><a class="button" href="./annotation-stats.html?run=${run.id}">标注统计</a>${badge(runDisplayStatus(run))}${run.managed&&['queued','starting','running'].includes(run.status)?`<button class="button" id="stop-run" data-run-id="${run.id}" ${run.cancel_requested?'disabled':''}>${run.cancel_requested?'正在停止…':'停止测试'}</button>`:''}<button type="button" class="button delete-run" id="delete-run" data-run-id="${run.id}" data-run-number="${escape(run.number)}" ${run.can_delete?'':'disabled'} title="${escape(run.delete_blocked_reason||'删除该运行及其结果和标注')}">删除运行</button></div>
     </div>
-    <p>模式：${escape(contextModeLabel(run.mode))}${run.mode==='bcg_compaction'?` · 保留 ${escape(run.compaction_turns??5)} 轮压缩交互`:''} · Agent：${escape(modelLabel(run.agent)||'待启动')} · Graph：${['default','clm'].includes(run.mode)?'不启用':escape(modelLabel(run.graph))} · 并发 ${run.workers||'—'}<br>启动时间：${time(run.started_at||run.created_at)}${run.finished_at?` · 结束：${time(run.finished_at)}`:''}</p>
+    <p>模式：${escape(runModeLabel(run))} · Agent：${escape(modelLabel(run.agent)||'待启动')} · Graph：${['default','clm'].includes(run.mode)?'不启用':escape(modelLabel(run.graph))}${['default','clm'].includes(run.mode)?'':` · 分类：${classificationLabel(run)}`} · 并发 ${run.workers||'—'}<br>启动时间：${time(run.started_at||run.created_at)}${run.finished_at?` · 结束：${time(run.finished_at)}`:''}</p>
     ${run.judge?.enabled?`<p>Report 评分：${run.tasks.filter(t=>t.scoring_status==='official_protocol_scored').length} / ${run.tasks.filter(t=>t.status==='completed').length} 份报告${run.judge.model?` · Judge ${escape(modelLabel(run.judge.model))}`:''}</p>`:''}
     ${renderVersion(run)}
     </section>
@@ -235,15 +238,24 @@ function updateLaunchModels(){
   const graph=settings?.graph_profiles?.find(p=>p.id===$('#launch-graph-profile').value);
   const usesGraph=['bcg','bcg_no_retrieval','bcg_compaction'].includes(mode);
   const compaction=mode==='bcg_compaction';
+  const retainAll=$('#launch-compaction-policy').value==='all';
+  const tsFilter=compaction&&$('#launch-compaction-task-state-filter').checked;
   $('#launch-compaction-field').hidden=!compaction;
-  $('#launch-compaction-turns').disabled=!compaction;
+  $('#launch-compaction-policy').disabled=!compaction;
+  $('#launch-compaction-count-field').hidden=!compaction||retainAll;
+  $('#launch-compaction-turns').disabled=!compaction||retainAll;
+  $('#launch-compaction-filter-field').hidden=!compaction;
+  $('#launch-compaction-task-state-filter').disabled=!compaction;
   $('#launch-graph-profile').disabled=!usesGraph||!graph;
+  const canClassify=usesGraph&&!compaction&&settings?.graph_classifications?.includes('decision_model');
+  $('#launch-classification-field').hidden=!canClassify;
+  $('#launch-classification').disabled=!canClassify;
   if(profile){
-    const max=usesGraph&&graph?Math.min(profile.max_workers,graph.max_workers):profile.max_workers;
+    const max=usesGraph&&graph?Math.min(profile.max_workers,graph.max_workers):(profile.max_workers_without_graph??profile.max_workers);
     const workers=$('#launch-form').elements.workers;
     workers.max=max;workers.value=Math.min(Number(workers.value),max);
   }
-  const graphInfo=`建图：${escape(graph?.label||'GPT-6-Luna · LiteLLM · Thinking 关闭')}`;
+  const graphInfo=`建图：${escape(graph?.label||'GPT-6-Luna · LiteLLM · Thinking 关闭')}${canClassify&&$('#launch-classification').value==='decision_model'?' · GPT-6-Luna Decisions 单独分类；正文和证据仍由建图模型抽取':''}`;
   $('#launch-task-state').disabled=true;
   $('#launch-task-state').checked=mode==='bcg'||compaction;
   $('#launch-context-info').innerHTML=mode==='default'
@@ -251,10 +263,10 @@ function updateLaunchModels(){
     :mode==='clm'
     ?'单 Agent CLM · 固定保留 System 和初始用户任务<br>模型通过 Bash 编辑历史 Context 文件，自行整理任务状态和证据；有效输入预算 26,624 tokens，不建图<br>逐轮保存编辑前后 Context 与模型 I/O；报告生成后自动进行同一套 LLM Judge 评分'
     :compaction
-    ?`单 Agent BCG Compaction · 永久保留用户输入 · 每轮完整交互建图后，以 Assistant 消息保留最近 ${escape($('#launch-compaction-turns').value||5)} 轮 Graph，不保留已完成的原始交互<br>仅保留两端都在窗口内的关系；全局 Task State 作为 User 消息放在初始问题后，Graph 使用说明仍在 System<br>${graphInfo} · 报告生成后自动进行 LLM Judge 评分`
+    ?`每次回复及其全部工具结果算一轮。每轮完成后建图，下一次请求按时间顺序放入${escape(compactionLabel(retainAll?'all':$('#launch-compaction-turns').value||5,tsFilter))}的压缩块，不放入已完成的原始交互。${tsFilter?'每轮仅保留与当前活跃 Task State 节点在 2 跳真实关系内连通的节点及其对应工具调用，最近 1 轮完整保留，空轮跳过。':retainAll?'历史持续累积，仍受 Agent 模型上下文上限约束。':''}<br>保留原始用户输入；全局 Task State 紧随初始问题，压缩块使用 User 角色。只展示两端均在保留范围内的关系。<br>${graphInfo} · 原始 BCG 分类（不调用 Decision Model） · 报告生成后进行 LLM Judge 评分`
     :`单 Agent BCG · 永久保留用户输入 · 最近 2 轮完整交互<br>Task state 基于全图维护；近期 Graph 展示这 2 轮之前的 3 轮节点及其内部关系，不做 retrieval<br>${graphInfo} · 报告生成后自动进行 LLM Judge 评分`;
 }
-for(const selector of ['#launch-profile','#launch-graph-profile','#launch-mode'])$(selector).addEventListener('change',updateLaunchModels);
+for(const selector of ['#launch-profile','#launch-graph-profile','#launch-mode','#launch-classification','#launch-compaction-policy','#launch-compaction-task-state-filter'])$(selector).addEventListener('change',updateLaunchModels);
 $('#launch-compaction-turns').addEventListener('input',updateLaunchModels);
 $('#launch-form').addEventListener('submit',async event=>{
   event.preventDefault();const button=event.submitter;button.disabled=true;$('#launch-error').textContent='';
@@ -265,7 +277,12 @@ $('#launch-form').addEventListener('submit',async event=>{
     const tasks={drb2:ids};
     const body={title:form.get('title'),profile:form.get('profile'),mode:form.get('mode'),tasks,task_state:['bcg','bcg_compaction'].includes(form.get('mode'))||form.has('task_state')};
     if(['bcg','bcg_no_retrieval','bcg_compaction'].includes(body.mode)&&form.get('graph_profile'))body.graph_profile=form.get('graph_profile');
-    if(body.mode==='bcg_compaction')body.compaction_turns=Number(form.get('compaction_turns'));
+    if(body.graph_profile&&form.has('graph_classification'))body.graph_classification=form.get('graph_classification');
+    if(body.mode==='bcg_compaction'){
+      body.graph_classification='graph_model';
+      body.compaction_turns=form.get('compaction_policy')==='all'?'all':Number(form.get('compaction_turns'));
+      body.compaction_task_state_filter=$('#launch-compaction-task-state-filter').checked;
+    }
     for(const key of ['workers','timeout','max_turns','search_calls','fetch_calls'])body[key]=Number(form.get(key));
     const run=await api('runs',{method:'POST',body});selected=run.id;history.replaceState(null,'','?run='+selected);event.target.elements.title.value='';suggestedRunTitle='';$('#launch-dialog').close();notice(`${run.number} 已加入队列`);await refresh();
   }catch(error){$('#launch-error').textContent=error.message;}finally{button.disabled=false;}
@@ -305,6 +322,7 @@ $('#delete-form').addEventListener('submit',async event=>{
 try{
   settings=await api('settings');
   $('#launch-compaction-turns').value=settings.default_compaction_turns||5;
+  $('#launch-compaction-policy option[value=all]').disabled=!settings.compaction_retention_modes?.includes('all');
   $('#launch-graph-profile').innerHTML=(settings.graph_profiles||[]).map(p=>`<option value="${escape(p.id)}" title="${escape(p.label)}">${escape(modelLabel(p.model))}</option>`).join('');
   $('#launch-graph-profile').value=settings.default_graph_profile||'gpt6-luna';
   for(const option of $('#launch-mode').options){

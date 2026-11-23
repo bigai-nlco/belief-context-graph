@@ -591,7 +591,9 @@ class ReportSynthesisObserver(BaseObserver):
                 and messages[-1].get("role") == "user"
             ):
                 messages.pop()
-            messages.append(user_msg(report_prompt))
+            report_msg = user_msg(report_prompt)
+            report_msg["bcg_origin"] = "runtime_nudge"
+            messages.append(report_msg)
 
         stream.start()
         cancelled = False
@@ -683,7 +685,9 @@ class ReportSynthesisObserver(BaseObserver):
                 and result.messages[-1].get("role") == "user"
             ):
                 result.messages.pop()
-            result.messages.append(user_msg(report_prompt))
+            final_report_msg = user_msg(report_prompt)
+            final_report_msg["bcg_origin"] = "runtime_nudge"
+            result.messages.append(final_report_msg)
             result.messages.append(
                 assistant_msg_with_reasoning(
                     report, "", thinking_format=self._thinking_format,

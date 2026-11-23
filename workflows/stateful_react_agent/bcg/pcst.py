@@ -21,7 +21,12 @@ from frontier_agent.core.messages import Message
 
 from .client import GraphError
 from .embeddings import RemoteRelevance
-from .messages import assistant_text, tool_calls
+from .messages import (
+    assistant_text,
+    has_explicit_user_provenance,
+    is_human_user_message,
+    tool_calls,
+)
 from .rendering import _nodes, graph_overhead, relation_line, render_graph, styled_node_line
 from .vector_store import TongGraphVectorStore
 
@@ -36,8 +41,9 @@ def retrieval_focus(messages: list[Message]) -> str:
     internal team reports are not human steering. Long reasoning is explicitly
     bounded here and then token-chunked, never silently cut by the encoder.
     """
+    explicit_prov = has_explicit_user_provenance(messages)
     for message in reversed(messages):
-        if message.get("role") == "user" and message.get("bcg_origin") != "agent_report":
+        if is_human_user_message(message, explicit_provenance=explicit_prov):
             break
         if message.get("role") != "assistant":
             continue

@@ -53,16 +53,21 @@ try{
   await shot('clm-queued.png');
   // The same private fixture also verifies BCG Compaction. Scheduling remains
   // disabled; this exercises launch validation and rendering without an LLM.
-  await click('#launch-button');await choose('#launch-mode','bcg_compaction');
+  await click('#launch-button');await choose('#launch-mode','bcg');
+  await choose('#launch-classification','decision_model');
+  await choose('#launch-mode','bcg_compaction');
   assert(await evaluate('!document.querySelector("#launch-graph-profile").disabled'));
   assert(await evaluate('document.querySelector("#launch-task-state").checked'));
   assert(await evaluate('!document.querySelector("#launch-compaction-field").hidden'));
+  assert(await evaluate('document.querySelector("#launch-classification").disabled && getComputedStyle(document.querySelector("#launch-classification-field")).display==="none"'));
+  assert.equal(await evaluate('document.querySelector("#launch-compaction-policy").value'),'recent');
   assert.equal(await evaluate('document.querySelector("#launch-compaction-turns").value'),'5');
   await choose('#launch-mode','default');
   assert(await evaluate('document.querySelector("#launch-compaction-field").hidden&&document.querySelector("#launch-compaction-turns").disabled'));
   await choose('#launch-mode','bcg_compaction');
   await evaluate('document.querySelector("#launch-compaction-turns").value="3";document.querySelector("#launch-compaction-turns").dispatchEvent(new Event("input",{bubbles:true}))');
   assert(await evaluate('document.querySelector("#launch-context-info").textContent.includes("最近 3 轮")'));
+  await evaluate('document.querySelector("#launch-compaction-turns").value="5";document.querySelector("#launch-compaction-turns").dispatchEvent(new Event("input",{bubbles:true}))');
   for(const width of [1440,390]){
     await cmd('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:false});
     assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'));
@@ -73,8 +78,18 @@ try{
   await cmd('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await click('#launch-form [type=submit]');
   await until(()=>evaluate('document.querySelector(".run-heading .eyebrow")?.textContent==="RUN-0003"'),'queued Compaction');
-  assert(await evaluate('document.querySelector(".run-heading").textContent.includes("模式：BCG Compaction · 保留 3 轮压缩交互")'));
+  assert(await evaluate('document.querySelector(".run-heading").textContent.includes("模式：BCG Compaction · 最近 5 轮")'));
+  assert(await evaluate('document.querySelector(".run-heading").textContent.includes("分类：原始 BCG")'));
+  assert(await evaluate('document.querySelector(\'[data-run="3"] .run-mode-label\').textContent.includes("最近 5 轮")'));
   await shot('compaction-queued.png');
+  await click('#launch-button');await choose('#launch-compaction-policy','all');
+  assert(await evaluate('getComputedStyle(document.querySelector("#launch-compaction-count-field")).display==="none" && document.querySelector("#launch-compaction-turns").disabled'));
+  assert(await evaluate('document.querySelector("#launch-context-info").textContent.includes("全部轮次（不淘汰）")'));
+  await click('#launch-form [type=submit]');
+  await until(()=>evaluate('document.querySelector(".run-heading .eyebrow")?.textContent==="RUN-0004"'),'queued all-history Compaction');
+  assert(await evaluate('document.querySelector(".run-heading").textContent.includes("模式：BCG Compaction · 全部轮次（不淘汰）")'));
+  assert(await evaluate('document.querySelector(".run-heading").textContent.includes("分类：原始 BCG")'));
+  assert(await evaluate('document.querySelector(\'[data-run="4"] .run-mode-label\').textContent.includes("全部轮次（不淘汰）")'));
   await click('[data-run="2"]');
   await until(()=>evaluate('document.querySelector(".run-heading .eyebrow")?.textContent==="RUN-0002"'),'return to CLM fixture');
   const trial=join(root,'data/results/studio/RUN-0002/drb2/trials/2');

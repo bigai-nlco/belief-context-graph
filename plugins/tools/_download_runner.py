@@ -133,13 +133,100 @@ def _opener(ip: str) -> urllib.request.OpenerDirector:
     )
 
 
+_TUN_FAKE_IP_NETWORKS = (
+    ipaddress.ip_network("198.18.0.0/15"),
+    ipaddress.ip_network("fc00::/18"),
+)
+_LOCAL_HOST_SUFFIXES = (".localhost", ".local", ".internal", ".arpa", ".home.arpa")
+# Pinned public DoH resolvers (dial IP, HTTPS endpoint) used only when the host
+# OS is in TUN fake-IP mode and returns RFC 2544 / fc00::/18 placeholder IPs.
+_DOH_RESOLVERS: tuple[tuple[str, str], ...] = (
+    ("1.1.1.1", "https://cloudflare-dns.com/dns-query"),
+    ("8.8.8.8", "https://dns.google/resolve"),
+    ("223.5.5.5", "https://dns.alidns.com/resolve"),
+)
+
+
+def _is_ip_literal(hostname: str) -> bool:
+    try:
+        ipaddress.ip_address(hostname)
+        return True
+    except ValueError:
+        return False
+
+
+def _resolve_via_doh(hostname: str, *, timeout: float = 5.0) -> tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, ...]:
+    """Resolve *hostname*'s real A/AAAA records over pinned HTTPS DoH.
+
+    Used strictly when a non-literal public domain resolves to TUN fake-IP space
+    (``198.18.0.0/15`` or ``fc00::/18``) via the OS stub resolver. Dials literal
+    public resolver IPs directly so the lookup bypasses fake-IP interception
+    while keeping full TLS certificate validation on the DoH host.
+    """
+    try:
+        ascii_host = hostname.strip(".").encode("idna").decode("ascii")
+    except UnicodeError as exc:
+        raise DownloadError(f"invalid hostname {hostname}: {exc}") from exc
+    if not ascii_host:
+        raise DownloadError(f"cannot resolve {hostname}")
+
+    last_transport_error: Exception | None = None
+    for resolver_ip, endpoint in _DOH_RESOLVERS:
+        opener = _opener(resolver_ip)
+        found: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
+        try:
+            for rrtype in (1, 28):  # A, then AAAA
+                query = urllib.parse.urlencode({"name": ascii_host, "type": rrtype})
+                req = urllib.request.Request(
+                    f"{endpoint}?{query}",
+                    headers={
+                        "Accept": "application/dns-json",
+                        "User-Agent": "FrontierAgent-download/1.0",
+                    },
+                )
+                with opener.open(req, timeout=timeout) as resp:
+                    payload = json.loads(resp.read(65536).decode("utf-8"))
+                if not isinstance(payload, dict):
+                    raise DownloadError(f"invalid DoH response for {hostname}")
+                status = payload.get("Status")
+                if status == 3:  # NXDOMAIN: fail closed without trying other resolvers
+                    raise DownloadError(f"cannot resolve {hostname}: NXDOMAIN")
+                if status not in (0, None):
+                    raise OSError(f"DoH status {status} from {resolver_ip}")
+                for answer in payload.get("Answer") or ():
+                    if not isinstance(answer, dict) or answer.get("type") not in {1, 28}:
+                        continue
+                    data = str(answer.get("data") or "").strip()
+                    if data:
+                        found.append(ipaddress.ip_address(data))
+        except DownloadError:
+            raise
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+            last_transport_error = exc
+            continue
+
+        if not found:
+            raise DownloadError(f"cannot resolve public address for {hostname}")
+        for ip in found:
+            if not ip.is_global:
+                raise DownloadError(f"refusing non-public address for {hostname}: {ip}")
+        return tuple(dict.fromkeys(found))
+
+    raise DownloadError(
+        f"cannot verify public address for {hostname} under TUN fake-IP: {last_transport_error}"
+    )
+
+
 def _validate_public_url(url: str) -> tuple[str, ...]:
     """Vet *url* and return every public IP the request may be sent to.
 
     Every resolved address must be global — retaining only the usable-looking
-    answers would let a split-horizon answer through. IPv4 is attempted first
-    because task containers commonly have no IPv6 route; all other vetted
-    addresses remain available for connection failover.
+    answers would let a split-horizon answer through. When the host OS uses TUN
+    fake-IP mode (returning ``198.18.0.0/15`` or ``fc00::/18`` for domain names),
+    the domain's real A/AAAA records are verified via pinned DoH and returned
+    for socket pinning so neither SSRF targets nor DNS rebinding can slip through.
+    IPv4 is attempted first because task containers commonly have no IPv6 route;
+    all other vetted addresses remain available for connection failover.
     """
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme not in {"http", "https"}:
@@ -161,9 +248,18 @@ def _validate_public_url(url: str) -> tuple[str, ...]:
     addresses = tuple(dict.fromkeys(str(item[4][0]) for item in resolved))
     if not addresses:
         raise DownloadError(f"cannot resolve {parsed.hostname}")
+    ip_objs = [ipaddress.ip_address(address) for address in addresses]
+    host_lower = parsed.hostname.strip(".").lower()
+    if (
+        not all(ip.is_global for ip in ip_objs)
+        and not _is_ip_literal(parsed.hostname)
+        and host_lower != "localhost"
+        and not host_lower.endswith(_LOCAL_HOST_SUFFIXES)
+        and all(any(ip in net for net in _TUN_FAKE_IP_NETWORKS) for ip in ip_objs)
+    ):
+        ip_objs = list(_resolve_via_doh(parsed.hostname))
     validated: list[tuple[int, str]] = []
-    for address in addresses:
-        ip = ipaddress.ip_address(address)
+    for ip in ip_objs:
         if not ip.is_global:
             raise DownloadError(
                 f"refusing non-public address for {parsed.hostname}: {ip}",

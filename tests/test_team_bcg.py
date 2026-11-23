@@ -355,13 +355,27 @@ async def test_fail_open_preserves_all_messages_and_task_board(tmp_path):
 
 @pytest.mark.asyncio
 async def test_job_reuse_does_not_reextract_previous_assignment(tmp_path):
+    from workflows.agent_team.bcg import TeamObserver
+
     registry = team(tmp_path)
     memory = registry.job_memory("job2", "same-specialist", "New assignment")
     old = history(3, "Old assignment")
     current = [{"role": "user", "content": "New assignment"}, *step("new")]
-    projected = await memory.prepare(old + current)
+    observer = TeamObserver(memory)
+    ctx = SimpleNamespace(messages=old + current, metadata={})
+    await observer.on_before_llm(ctx)
+    # A mid-job loop/observer retry nudge must age out without entering the graph,
+    # while the reused session's "New assignment" stays pinned and unmutated.
+    nudge = {"role": "user", "content": "Every turn must end with a tool call."}
+    ctx.messages.extend([nudge, *step("after-nudge"), *step("later-1"), *step("later-2")])
+    await observer.on_before_llm(ctx)
+    projected = await memory.prepare(ctx.messages)
+    assert nudge["bcg_origin"] == "runtime_nudge"
     assert not any(m.get("content") == "Old assignment" for m in projected)
+    assert any(m == {"role": "user", "content": "New assignment"} for m in projected)
+    assert not any(m.get("content") == nudge["content"] for m in projected)
     assert "Old assignment" not in str(memory.acknowledged)
+    assert nudge["content"] not in str(memory.acknowledged)
     assert memory.acknowledged[1]["content"] == "New assignment"
     await registry.close()
 

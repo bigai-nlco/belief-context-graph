@@ -1,0 +1,9 @@
+{
+  "inherit": "v4",
+  "provenance": true,
+  "edge_probes": {
+    "clash": "Do both A and B assert propositions that cannot both be true for the SAME subject, measure, scope and time? Different entities, time periods, estimated versus realized figures, methods, blocked attempts, intentions, and requests without a factual assertion are not a clash.",
+    "uses": "In the literal direction A relies on B, is B a SPECIFIC premise, input, instruction, or previously found resource actually used by A? Would removing that specific item take away A's stated basis? If A merely supplies a fact requested by B, that is not use of B as a premise. A tool being called before a result is not sufficient.",
+    "adds": "Does A add a concrete new detail that directly develops a specific claim, named lead, question or explicitly identified gap in B? Examples of qualifying details: a wanted value, a named relevant source, or a substantive part of the requested answer. Generic topics, identical content and the reverse direction do not qualify."
+  }
+}

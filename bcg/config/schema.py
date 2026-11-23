@@ -188,6 +188,13 @@ class TaskStateSettings(_ForbidExtra):
     enabled: StrictBool
 
 
+class ClassificationSettings(_ForbidExtra):
+    mode: Literal["graph_model", "decision_model"]
+    model: str = Field(min_length=1)
+    base_url: str = Field(min_length=1)
+    api_key_env: str = Field(min_length=1)
+
+
 class PipelineSettings(_ForbidExtra):
     extractor: ExtractorSettings | None = None
     stance: StanceSettings | None = None
@@ -199,6 +206,7 @@ class PipelineSettings(_ForbidExtra):
     confidence: ConfidenceSettings | None = None
     chunking: ChunkingSettings | None = None
     task_state: TaskStateSettings | None = None
+    classification: ClassificationSettings | None = None
 
 
 class RunnerSettings(_ForbidExtra):
@@ -234,6 +242,8 @@ class BCGSettings(_ForbidExtra):
             )
         if self.backend != "unified" and self.pipeline.task_state and self.pipeline.task_state.enabled:
             raise ValueError("task_state currently requires the unified backend")
+        if self.backend != "unified" and self.pipeline.classification and self.pipeline.classification.mode == "decision_model":
+            raise ValueError("decision_model classification requires the unified backend")
         return self
 
 

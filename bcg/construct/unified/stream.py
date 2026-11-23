@@ -117,11 +117,16 @@ class StreamOptions:
     stance_config: dict[str, Any] = field(default_factory=dict)
     entity_config: dict[str, Any] = field(default_factory=dict)
     confidence_config: dict[str, Any] = field(default_factory=dict)
+    classification: dict[str, Any] = field(default_factory=dict)
 
     def apply_belief_graph_config(self, cfg: dict[str, Any] | None) -> None:
         """Apply shared relation-propagation settings from model_config.json."""
         if not isinstance(cfg, dict):
             return
+        if cfg.get("classification") is not None:
+            from bcg.config.schema import ClassificationSettings
+
+            self.classification = ClassificationSettings.model_validate(cfg["classification"]).model_dump()
         task_cfg = cfg.get("task_state") or {}
         if isinstance(task_cfg, dict) and "enabled" in task_cfg:
             if type(task_cfg["enabled"]) is not bool:
@@ -208,6 +213,7 @@ class StreamOptions:
             "stance": normalize_stance_config(self.stance_config),
             "entities": normalize_entity_config(self.entity_config),
             "confidence_config": normalize_confidence_config(self.confidence_config),
+            **({"classification": dict(self.classification)} if self.classification.get("mode") == "decision_model" else {}),
         }
 
 
@@ -232,6 +238,11 @@ class StreamingBeliefBuilder:
         self.item_meta = item_meta or {}
         self.max_tokens = max_tokens
         self.options = options or StreamOptions()
+        self.classifier = None
+        if self.options.classification.get("mode") == "decision_model":
+            from .decisions import DecisionClassifier
+
+            self.classifier = DecisionClassifier(self.options.classification)
         self.options.max_previous_windows = max(
             1, int(self.options.max_previous_windows)
         )
@@ -264,6 +275,7 @@ class StreamingBeliefBuilder:
 
         self._trajectory: list[dict[str, Any]] = []  # flat, ALL turns (incl. system)
         self._flat_turn = 0
+        self._initial_user_turn: int | None = None
         # The first user turn establishes the problem beliefs.  Those beliefs
         # intentionally remain an unconnected root layer: relation generation
         # starts only when a later turn can connect new evidence/reasoning back
@@ -320,11 +332,17 @@ class StreamingBeliefBuilder:
             if (node.get("source") or {}).get("turn_id") in retained_turn_ids
         ]
 
-    def _formatted_node_extraction_history(self) -> str:
-        if self.options.task_state_enabled:
+    def _workflow_root(self) -> str:
+        if self.classifier is None and self._initial_user_turn is not None:
+            return self._trajectory[self._initial_user_turn]["content"]
+        return ""
+
+    def _formatted_node_extraction_history(self, *, include_task_state: bool = True, assistant: bool = False) -> str:
+        if self.options.task_state_enabled and include_task_state:
             from .task_state import task_history
 
-            return task_history(self._node_extraction_history(), self.graph.active(), self.options.context_chars)
+            return task_history(self._node_extraction_history(), self.graph.active(), self.options.context_chars,
+                                original_task=self._workflow_root() if assistant else "")
         return format_extraction_nodes(
             self._node_extraction_history(),
             char_budget=self.options.context_chars,
@@ -359,6 +377,10 @@ class StreamingBeliefBuilder:
         content = content or ""
         raw_role = (role or "user").strip().lower()
         eff_role = normalize_role(raw_role)
+        # The first non-empty user input is already the main task. Identify the
+        # message itself, not the first successful extraction or trajectory row 0.
+        if eff_role == "user" and content.strip() and self._initial_user_turn is None:
+            self._initial_user_turn = flat_idx
 
         traj_entry: dict[str, Any] = {
             "role": raw_role,
@@ -435,6 +457,8 @@ class StreamingBeliefBuilder:
                 "effective_role": eff_role,
                 "content_chars": len(content),
                 "skip_reason": skip_reason,
+                **({"task_state_extraction": "skipped_initial_user"}
+                   if self.options.task_state_enabled and flat_idx == self._initial_user_turn else {}),
                 "semantic_tool_result_calls": self._semantic_tool_result_calls,
                 "split": report.get("split"),
                 "raw_output": report.get("raw_output"),
@@ -517,6 +541,7 @@ class StreamingBeliefBuilder:
                 self.client,
                 self.model,
                 items=batch_items[:semantic_count],
+                classifier=self.classifier,
                 mode=opt.evidence_mode,
                 max_results=opt.tool_result_max_search_results,
                 max_snippet_chars=opt.tool_result_max_snippet_chars,
@@ -694,8 +719,9 @@ class StreamingBeliefBuilder:
                 role="assistant",
                 mode=opt.evidence_mode,
                 content=thinking_content,
+                classifier=self.classifier,
                 sentences=thinking_sentences,
-                graph_nodes_str=self._formatted_node_extraction_history(),
+                graph_nodes_str=self._formatted_node_extraction_history(assistant=True),
                 graph_edges_str="[]",
                 max_tokens=self.max_tokens,
                 reasoning_effort=opt.reasoning_effort,
@@ -736,6 +762,7 @@ class StreamingBeliefBuilder:
                 self.client,
                 self.model,
                 items=flat_items[:semantic_count],
+                classifier=self.classifier,
                 mode=opt.evidence_mode,
                 max_results=opt.tool_result_max_search_results,
                 max_snippet_chars=opt.tool_result_max_snippet_chars,
@@ -883,6 +910,7 @@ class StreamingBeliefBuilder:
                     self.client,
                     self.model,
                     items=items[:semantic_count],
+                    classifier=self.classifier,
                     mode=mode,
                     max_results=opt.tool_result_max_search_results,
                     max_snippet_chars=opt.tool_result_max_snippet_chars,
@@ -982,7 +1010,8 @@ class StreamingBeliefBuilder:
         # Node extraction receives the newest historical nodes that fit the same
         # context budget used by relation extraction. Historical edges belong
         # exclusively to the separate relation phase and are omitted here.
-        graph_nodes_str = self._formatted_node_extraction_history()
+        annotate_tasks = opt.task_state_enabled and flat_idx != self._initial_user_turn
+        graph_nodes_str = self._formatted_node_extraction_history(include_task_state=annotate_tasks, assistant=role == "assistant")
         graph_edges_str = "[]"
 
         # ---- prepare evidence mode
@@ -1030,6 +1059,7 @@ class StreamingBeliefBuilder:
                     content=content,
                     mode=opt.evidence_mode,
                     query=tool_result_query,
+                    classifier=self.classifier,
                     sentences=sentences,
                     max_results=opt.tool_result_max_search_results,
                     max_snippet_chars=opt.tool_result_max_snippet_chars,
@@ -1066,7 +1096,8 @@ class StreamingBeliefBuilder:
                 current_date=date,
                 max_tokens=self.max_tokens,
                 reasoning_effort=opt.reasoning_effort,
-                task_state_enabled=opt.task_state_enabled,
+                task_state_enabled=annotate_tasks,
+                classifier=self.classifier,
             )
         local_node_seconds = time.perf_counter() - _t_nodes
         if prepared is None:
@@ -1101,9 +1132,12 @@ class StreamingBeliefBuilder:
                 node["stance_confidence"] = 0.0
                 node["stance_scores"] = {}
                 node["stance_model"] = f"graph_model:{self.model}"
+                if self.classifier:
+                    node["stance_model"] = ("rule_tool_result" if node.get("extraction_method") == "rule_tool_result"
+                                            else f"decision_model:{self.classifier.model}")
         report["stance_classification"] = {
-            "source": "graph_model",
-            "model": self.model,
+            "source": "decision_model" if self.classifier else "graph_model",
+            "model": self.classifier.model if self.classifier else self.model,
             "stances": [node.get("stance", "unknown") for node in extracted_nodes],
         }
 
@@ -1113,7 +1147,7 @@ class StreamingBeliefBuilder:
         new_node_ids: set = set()
         for cb in extracted_nodes:
             evid = self._evidence_for(cb, content, src, opt.evidence_mode, role)
-            node = self._make_node(cb, src, evid, role, content)
+            node = self._make_node(cb, src, evid, role, content, annotate_tasks=annotate_tasks)
             tmp_to_gid[cb["tmp_id"]] = node["id"]
             new_nodes.append(node)
             new_node_ids.add(node["id"])
@@ -1147,7 +1181,7 @@ class StreamingBeliefBuilder:
                 # ledger; semantic dedup must not erase an earlier state.
                 decision_ids |= {node["id"] for node in self.graph.active()
                                  if canonical_task_role(node.get("task_role")) in ANCHOR_ROLES | {"plan", "progress"}
-                                 or node.get("task_ids")}
+                                 or node.get("task_ids") or node.get("gap_quote") or node.get("closes_gaps")}
             inc = run_merge_pass(
                 graph=self.graph,
                 strategy="embedding",
@@ -1678,6 +1712,7 @@ class StreamingBeliefBuilder:
                 new_node_ids=displayed_new_ids,
                 candidate_layers=displayed_layers,
                 validation_feedback=feedback,
+                classifier=self.classifier,
                 max_tokens=self.max_tokens,
                 reasoning_effort=self.options.reasoning_effort,
             )
@@ -1910,6 +1945,7 @@ class StreamingBeliefBuilder:
             previous_nodes_str=previous_nodes_post,
             current_nodes_str=current_nodes_post,
             new_node_ids=surviving_new_ids,
+            classifier=self.classifier,
             current_date=date,
             max_tokens=self.max_tokens,
             reasoning_effort=self.options.reasoning_effort,
@@ -2120,7 +2156,7 @@ class StreamingBeliefBuilder:
         if not inserted:
             node[text_key] = text
 
-    def _make_node(self, cleaned, src, evid, role, content="") -> dict[str, Any]:
+    def _make_node(self, cleaned, src, evid, role, content="", *, annotate_tasks: bool = True) -> dict[str, Any]:
         node_type = cleaned.get("node_type", "belief")
         source_meta = tool_source_metadata(
             cleaned, evid, content, self.options.confidence_config
@@ -2199,14 +2235,23 @@ class StreamingBeliefBuilder:
             )
         if node_type == "decision":
             node["decision_history"] = []
-        if self.options.task_state_enabled:
+        if self.options.task_state_enabled and not annotate_tasks:
+            # Keep the enabled schema's neutral label; never accept a volunteered
+            # task, parent, status or refinement from the opening user query.
+            node.update(task_role="other", task_ids=[], task_annotation_source="source_role")
+        elif self.options.task_state_enabled:
             from .task_state import classify_node
 
             supported = bool(cleaned.get("supporting_sentence_indices") or cleaned.get("supporting_excerpts"))
             supported = supported and bool(evid) and all(
                 ev.get("match") in {"exact", "normalized"} for ev in evid
             )
-            classify_node(node, cleaned if supported else {}, self.graph.active())
+            classify_node(node, cleaned if supported else {}, self.graph.active(),
+                          original_task=self._workflow_root() if role == "assistant" else "")
+            if (self.classifier and supported and role in {"user", "assistant"}
+                    and cleaned.get("task_role") == node.get("task_role")
+                    and node["task_role"] not in {"decision", "tool_action"}):
+                node["task_annotation_source"] = f"decision_model:{self.classifier.model}"
         init_belief_confidence(node, self.options.confidence_config)
         recompute_evidence_confidence_from_node(
             node,

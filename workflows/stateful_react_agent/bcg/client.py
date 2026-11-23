@@ -15,6 +15,9 @@ class GraphError(RuntimeError):
     """A graph operation was not acknowledged or its result was invalid."""
 
 
+class DecisionGraphError(GraphError):
+    """A classification experiment cannot silently continue as a full-context run."""
+
 class GraphBackend(Protocol):
     async def push(self, problem_id: str, turns: list[dict[str, str]]) -> dict[str, Any]: ...
     async def get(self, problem_id: str) -> dict[str, Any] | None: ...
@@ -53,6 +56,10 @@ class HttpGraphBackend:
             )
             if method == "GET" and response.status_code == 404:
                 return None
+            if response.status_code == 502:
+                body = response.json()
+                if isinstance(body, dict) and body.get("code") == "decision_classification_failed":
+                    raise DecisionGraphError("decision_classification_failed")
             response.raise_for_status()
             value = response.json()
             if not isinstance(value, dict):

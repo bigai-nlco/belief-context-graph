@@ -651,6 +651,7 @@ class TerminalObserver(BaseObserver):
         if not steers:
             return None
         self.r.note("⤷ steering: " + " / ".join(steers))
+        ctx.metadata.setdefault("_bcg_human_steers", []).extend(steers)
         return Intervention(inject_messages=steers)
 
     async def on_turn_end(self, ctx: TurnContext) -> Intervention | None:
@@ -676,6 +677,7 @@ class TerminalObserver(BaseObserver):
             steers = self.steer_inbox.drain()
             if steers:
                 self.r.note("⤷ steering: " + " / ".join(steers))
+                ctx.metadata.setdefault("_bcg_human_steers", []).extend(steers)
                 return Intervention(inject_messages=steers)
         # Periodic plan reminder: if a todo list exists but hasn't been touched
         # for a while, re-inject it so a long run doesn't drift off-plan.

@@ -49,6 +49,25 @@ def read_json(path: Path) -> dict:
         return {}
 
 
+def _read_batch(path: Path) -> dict:
+    """Read both CLI model labels and Studio model records without rewriting a manifest."""
+    batch = read_json(path)
+    for key in ("agent", "graph"):
+        spec = batch.get(key)
+        if not isinstance(spec, dict):
+            batch[key] = {"model": spec.strip()} if isinstance(spec, str) else {}
+    if not isinstance(batch.get("config"), dict):
+        batch["config"] = {}
+    return batch
+
+
+def task_worker_limit(agent: dict, graph: dict | None) -> int:
+    """Capacity for concurrent tasks, not concurrent local vLLM sequences."""
+    if graph is None:
+        return agent.get("max_workers_without_graph", agent["max_workers"])
+    return min(agent["max_workers"], graph["max_workers"])
+
+
 def safe_child(root: Path, *parts: str) -> Path:
     path = root.joinpath(*parts).resolve()
     if not path.is_relative_to(root.resolve()):
@@ -140,7 +159,7 @@ class Control:
     def profiles(self) -> dict:
         return {
             "qwen35-9b": {"label": "Qwen3.5-9B · 本机 vLLM · Thinking 开启",
-                "agent": "Qwen3.5-9B", "max_workers": 1,
+                "agent": "Qwen3.5-9B", "max_workers": 2, "max_workers_without_graph": 1, "default_workers": 1,
                 "source": "tools/case_study_studio/profiles/qwen35-9b.yaml"},
             "gpt6-luna": {"label": "GPT-6-Luna · LiteLLM · low",
                 "agent": "gpt-6-luna", "max_workers": 6,
@@ -157,10 +176,14 @@ class Control:
             if safe_child(self.root, value["source"]).is_file()],
             "default_tasks": DEFAULT_IDS, "context_modes": ["bcg", "bcg_no_retrieval", "bcg_compaction", "default", "clm"],
             "default_compaction_turns": 5,
+            "compaction_retention_modes": ["recent", "all"],
+            "compaction_task_state_filter_supported": True,
+            "default_compaction_task_state_hops": 2,
             "clm": {"available": clm["available"], "reason": clm["reason"]},
             "task_state_supported": True,
             "graph_model": "gpt-6-luna", "graph_effort": "none",
             "default_graph_profile": "gpt6-luna",
+            "graph_classifications": ["graph_model", "decision_model"],
             "graph_profiles": [{"id": key, **{k: v for k, v in value.items()
                                 if k not in {"base_url", "api_key_env"}}}
                                for key, value in self.graph_profiles().items()],
@@ -218,13 +241,13 @@ class Control:
         for path in self.results.glob("*/batch.json"):
             if path.parent.name.startswith(".") or path.is_symlink() or not path.resolve().is_relative_to(self.results.resolve()):
                 continue
-            data = read_json(path)
             if not any((path.parent / name / "run.json").is_file() for name in DEFAULT_IDS):
                 continue
-            candidates.append((str(data.get("started_at") or ""), path.parent))
+            data = _read_batch(path)
+            candidates.append((str(data.get("started_at") or ""), path.parent, data["agent"].get("model") or "历史实验"))
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            for created, folder in sorted(candidates):
+            for created, folder, model in sorted(candidates):
                 # Deletion may have completed while scan was waiting for the DB.
                 if not (folder / "batch.json").is_file():
                     continue
@@ -233,8 +256,6 @@ class Control:
                 # Polling must not consume run numbers.
                 if db.execute("SELECT 1 FROM runs WHERE source=?", (source,)).fetchone():
                     continue
-                data = read_json(folder / "batch.json")
-                model = (data.get("agent") or {}).get("model") or "历史实验"
                 title = f"{model} · Deep Research · {created[:10]}"
                 db.execute("INSERT INTO runs(source,title,created_at,status) VALUES (?,?,?,?)",
                     (source, title, created or now(), "external"))
@@ -294,8 +315,9 @@ class Control:
     def detail(self, run_id: int, user: dict | None = None) -> dict:
         row = self.row(run_id)
         root = self.directory(row)
-        batch = read_json(root / "batch.json")
+        batch = _read_batch(root / "batch.json")
         config = json.loads(row["config"])
+        recorded = {**config, **batch["config"]}
         mode = config.get("mode", batch.get("mode", "bcg"))
         ai_reviews = self.ai_reviews.statuses(run_id)
         status = row["status"] if row["managed"] else batch.get("status", "unknown")
@@ -311,6 +333,12 @@ class Control:
         tasks = []
         for benchmark in DEFAULT_IDS:
             run = read_json(root / benchmark / "run.json")
+            if not row["managed"]:
+                # CLI runs can store these directly in batch.json or the benchmark run.json.
+                for key in ("compaction_turns", "compaction_task_state_filter", "compaction_task_state_hops", "task_state"):
+                    runner_key = "task_state_enabled" if key == "task_state" else key
+                    if key in batch or runner_key in run:
+                        recorded.setdefault(key, batch.get(key, run.get(runner_key)))
             ids = run.get("task_ids", config.get("tasks", {}).get(benchmark, []))
             for task_id in ids:
                 if not isinstance(task_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", task_id):
@@ -354,16 +382,22 @@ class Control:
                     "ai_review": ai_reviews.get((benchmark, task_id), {"status": "not_started"}),
                     "annotatable": task_status == "completed"})
         ended = sum(t["status"] in TERMINAL for t in tasks)
+        ts_filter = bool(recorded.get("compaction_task_state_filter")) if mode == "bcg_compaction" else None
         return {"id": run_id, "number": self.label(run_id), "title": row["title"], "status": status,
             "mode": mode,
-            "compaction_turns": batch.get("config", {}).get("compaction_turns", config.get("compaction_turns", 5)) if mode == "bcg_compaction" else None,
-            "task_state": bool(batch.get("config", {}).get("task_state", config.get("task_state", False))),
+            "compaction_turns": recorded.get("compaction_turns", 5) if mode == "bcg_compaction" else None,
+            "compaction_task_state_filter": ts_filter,
+            "compaction_task_state_hops": recorded.get("compaction_task_state_hops", 2) if ts_filter else None,
+            "task_state": bool(recorded.get("task_state", False)),
+            "graph_classification": (batch["graph"].get("classification") or config.get("graph_classification", "graph_model"))
+                                    if mode in {"bcg", "bcg_no_retrieval", "bcg_compaction"} else None,
+            "classifier_model": batch["graph"].get("classifier_model"),
             "code_version": public_version(batch.get("code_version")),
             "managed": bool(row["managed"]), "created_at": row["created_at"],
             "started_at": row["started_at"] or batch.get("started_at"),
             "finished_at": row["finished_at"] or batch.get("finished_at"),
-            "agent": batch.get("agent", {}).get("model") or config.get("agent_model", ""),
-            "graph": (batch.get("graph", {}).get("model") or config.get("graph_model")
+            "agent": batch["agent"].get("model") or config.get("agent_model", ""),
+            "graph": (batch["graph"].get("model") or config.get("graph_model")
                       or "gpt-6-luna") if mode in {"bcg", "bcg_no_retrieval", "bcg_compaction"} else None,
             "workers": batch.get("workers") or config.get("workers"),
             "phase": batch.get("phase"),
@@ -561,6 +595,11 @@ class Control:
             raise APIError(400, "请选择服务器已配置的 Agent 模型")
         graph_profile_id = data.get("graph_profile", "gpt6-luna")
         graph_profile = None
+        classification = data.get("graph_classification", "graph_model")
+        if classification not in ("graph_model", "decision_model"):
+            raise APIError(400, "未知的建图分类方案")
+        if mode in ("default", "clm") and classification != "graph_model":
+            raise APIError(400, "只有建图模式能启用 Decision Model 分类")
         if mode in {"bcg", "bcg_no_retrieval", "bcg_compaction"}:
             graph_profile = self.graph_profiles().get(graph_profile_id) if isinstance(graph_profile_id, str) else None
             if not graph_profile:
@@ -568,8 +607,8 @@ class Control:
         title = data.get("title", "")
         if not isinstance(title, str) or not 1 <= len(title.strip()) <= 100:
             raise APIError(400, "填写 1–100 字的测试名称")
-        max_workers = min(profile["max_workers"], graph_profile["max_workers"]) if graph_profile else profile["max_workers"]
-        workers = data.get("workers", min(2, max_workers))
+        max_workers = task_worker_limit(profile, graph_profile)
+        workers = data.get("workers", min(profile.get("default_workers", 2), max_workers))
         if type(workers) is not int or not 1 <= workers <= max_workers:
             raise APIError(400, f"当前 Agent / 建图模型组合的并发范围为 1–{max_workers}")
         tasks = data.get("tasks")
@@ -590,13 +629,24 @@ class Control:
         config = {"profile": data["profile"], "agent_model": profile["agent"],
                   "mode": mode, "task_state": task_state, "tasks": tasks, "workers": workers,
                   "pipeline": "clm" if mode == "clm" else "stateful-react-agent", "judge_reports": True}
+        ts_filter = data.get("compaction_task_state_filter", False)
+        if type(ts_filter) is not bool:
+            raise APIError(400, "按 Task State 筛选压缩节点开关必须是布尔值")
+        if mode != "bcg_compaction" and ts_filter:
+            raise APIError(400, "按 Task State 筛选压缩节点仅适用于 BCG Compaction 模式")
         if mode == "bcg_compaction":
             count = data.get("compaction_turns", 5)
-            if type(count) is not int or not 1 <= count <= 300:
-                raise APIError(400, "压缩交互保留轮数的范围为 1–300")
+            if count != "all" and (type(count) is not int or not 1 <= count <= 300):
+                raise APIError(400, "压缩交互保留轮数应为 1–300 的整数，或 all（全部轮次）")
             config["compaction_turns"] = count
+            config["compaction_task_state_filter"] = ts_filter
+            ts_hops = data.get("compaction_task_state_hops", 2)
+            if type(ts_hops) is not int or not 0 <= ts_hops <= 10:
+                raise APIError(400, "Task State 筛选跳数应为 0–10 的整数")
+            if ts_filter or "compaction_task_state_hops" in data:
+                config["compaction_task_state_hops"] = ts_hops
         if graph_profile:
-            config.update(graph_profile=graph_profile_id, graph_model=graph_profile["model"])
+            config.update(graph_profile=graph_profile_id, graph_model=graph_profile["model"], graph_classification=classification)
         for key, default, minimum, maximum in (("timeout", 3600, 60, 14400),
                 ("max_turns", 200, 1, 300), ("search_calls", 50, 0, 2000), ("fetch_calls", 50, 0, 2000)):
             value = data.get(key, default)

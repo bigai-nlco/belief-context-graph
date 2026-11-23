@@ -24,20 +24,20 @@ RULES = [
     "关键过程类别、搜索判断与证据强度仅使用显式标签，不从文字推断；同组归并后的过程不拆成多个事件。统计不生成综合分数或因果结论。",
 ]
 STYLE = """
-:root{color-scheme:light;--ink:#26364b;--muted:#617083;--line:#e0e5ec;--accent:#7c2945}
-*{box-sizing:border-box}body{margin:0;background:#f5f7fa;color:var(--ink);font:15px/1.65 system-ui,-apple-system,'Segoe UI',sans-serif}
-main{max-width:1400px;margin:auto;padding:32px}h1,h2,h3,p{margin:0}h1{font-size:30px;line-height:1.3}h2{font-size:22px}h3{font-size:17px}
-.eyebrow{font-size:12px;font-weight:700;letter-spacing:.15em;color:var(--accent)}.subtitle{margin-top:10px;color:var(--muted);overflow-wrap:anywhere}
-.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin:24px 0}.metric,.card,.rules,.audit{background:white;border:1px solid var(--line);border-radius:12px;padding:20px}
-.metric span{display:block;color:var(--muted);font-size:13px}.metric strong{font-size:30px;line-height:1.5;font-variant-numeric:tabular-nums}
-.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;margin:18px 0 28px}.wide{grid-column:1/-1}.card{min-width:0}.card p{font-size:13px;color:var(--muted);margin:6px 0 12px}
-.chart{overflow-x:auto}.chart svg{display:block;width:100%;min-width:500px;height:auto}.cohort{margin:34px 0;scroll-margin-top:12px}.cohort-title{overflow-wrap:anywhere;border-left:4px solid var(--accent);padding-left:14px}
-.cohort-title p{font-size:13px;color:var(--muted);margin-top:4px}.note{color:var(--muted);font-size:13px}.empty{padding:32px;text-align:center;background:#fff;border:1px dashed #ccd4df;border-radius:12px;margin:20px 0}
-.rules{margin:20px 0}summary{cursor:pointer;font-weight:600}ol{padding-left:24px}li{margin:7px 0}.table-wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px;margin-top:14px}th,td{border-bottom:1px solid var(--line);padding:9px 12px;text-align:left;white-space:nowrap}th{background:#f4f6f9}td.wrap{white-space:normal;min-width:200px;overflow-wrap:anywhere}
-a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}.toc{display:flex;flex-wrap:wrap;gap:10px 22px;margin-top:16px}code{font-size:12px;overflow-wrap:anywhere}.warnings{border-left:4px solid #b89d64}.footer{margin-top:28px;color:var(--muted);font-size:12px}
+:root{color-scheme:light;--ink:#182330;--navy:#162638;--muted:#4a5663;--line:#d8dee3;--line-subtle:#e5eaee;--accent:#9f343c;--accent-soft:#f7eff0;--accent-line:#d8b7bb;--shadow:0 2px 8px -2px rgba(22,38,56,.06),0 1px 3px rgba(22,38,56,.03)}
+*{box-sizing:border-box}body{margin:0;background:#f4f6f7;color:var(--ink);font:14.5px/1.65 Inter,"Noto Sans SC","Microsoft YaHei",system-ui,-apple-system,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased}
+main{max-width:1440px;margin:auto;padding:32px 36px 44px}h1,h2,h3,p{margin:0}h1{font-size:28px;font-weight:660;letter-spacing:-.5px;line-height:1.3;color:var(--navy)}h2{font-size:21px;font-weight:650;color:var(--navy)}h3{font-size:16px;font-weight:650;color:var(--navy)}
+.eyebrow{display:inline-flex;padding:3px 9px;border-radius:6px;background:var(--accent-soft);border:1px solid var(--accent-line);font-size:10.5px;font-weight:700;letter-spacing:.14em;color:#78262d;margin-bottom:10px}.subtitle{margin-top:8px;color:var(--muted);font-size:13.5px;overflow-wrap:anywhere}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:15px;margin:22px 0}.metric,.card,.rules,.audit{background:white;border:1px solid var(--line-subtle);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow)}
+.metric span{display:block;color:var(--muted);font-size:12.5px;font-weight:500}.metric strong{display:block;margin-top:6px;font-size:29px;font-weight:650;letter-spacing:-.6px;color:var(--navy);line-height:1.4;font-variant-numeric:tabular-nums}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin:18px 0 28px}.wide{grid-column:1/-1}.card{min-width:0}.card p{font-size:12.5px;color:var(--muted);margin:6px 0 12px}
+.chart{overflow-x:auto}.chart svg{display:block;width:100%;min-width:500px;height:auto}.cohort{margin:34px 0;scroll-margin-top:12px}.cohort-title{overflow-wrap:anywhere;border-left:3.5px solid var(--accent);padding-left:14px}
+.cohort-title p{font-size:13px;color:var(--muted);margin-top:4px}.note{color:var(--muted);font-size:12.5px}.empty{padding:36px;text-align:center;background:#fff;border:1.5px dashed var(--line);border-radius:14px;box-shadow:var(--shadow);margin:20px 0}
+.rules,.audit{margin:16px 0}summary{cursor:pointer;font-weight:620;color:var(--navy)}ol{padding-left:24px}li{margin:7px 0}.table-wrap{overflow-x:auto;border:1px solid var(--line-subtle);border-radius:10px;margin-top:14px}table{border-collapse:collapse;width:100%;font-size:12.5px}th,td{border-bottom:1px solid var(--line-subtle);padding:10px 13px;text-align:left;white-space:nowrap}tr:last-child td{border-bottom:0}th{background:linear-gradient(180deg,#fafbfc 0%,#f1f5f8 100%);color:var(--navy);font-weight:620;border-bottom:1.5px solid var(--line)}td.wrap{white-space:normal;min-width:200px;overflow-wrap:anywhere}
+a{color:#78262d;text-decoration:none}a:hover{text-decoration:underline}.toc{display:flex;flex-wrap:wrap;gap:8px 12px;margin-top:16px}.toc a{padding:5px 12px;background:#fff;border:1px solid var(--line-subtle);border-radius:999px;font-size:12.5px;box-shadow:0 1px 2px rgba(22,38,56,.04)}code{font-size:12px;background:#f8fafb;border:1px solid var(--line-subtle);padding:2px 6px;border-radius:5px;overflow-wrap:anywhere}.warnings{border-left:4px solid #b89d64}.footer{margin-top:28px;color:var(--muted);font-size:12px}
 @media(max-width:1000px){.grid{grid-template-columns:1fr}.wide{grid-column:auto}}
-@media(max-width:600px){main{padding:18px 12px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.metric,.card,.rules,.audit{padding:14px}.metric strong{font-size:26px}h1{font-size:25px}h2{font-size:20px}.chart svg{min-width:510px}}
-@media print{body{background:white}main{padding:0}.card,.metric,.rules{break-inside:avoid}.cohort{break-before:page}.chart{overflow:visible}.chart svg{min-width:0}.grid{display:block}.card{margin:12px 0}}
+@media(max-width:600px){main{padding:18px 12px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.metric,.card,.rules,.audit{padding:14px}.metric strong{font-size:25px}h1{font-size:24px}h2{font-size:19px}.chart svg{min-width:510px}}
+@media print{body{background:white}main{padding:0}.card,.metric,.rules{break-inside:avoid;box-shadow:none}.cohort{break-before:page}.chart{overflow:visible}.chart svg{min-width:0}.grid{display:block}.card{margin:12px 0}}
 """
 
 

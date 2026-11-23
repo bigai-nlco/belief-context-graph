@@ -29,10 +29,14 @@ class BCGBackendError(BCGError, RuntimeError):
     """Construct backend failures (model calls, merges, sessions)."""
 
 
+class DecisionError(BCGBackendError):
+    """An experimental Decisions operation did not produce usable classifications."""
+
 __all__ = [
     "BCGArtifactError",
     "BCGBackendError",
     "BCGConfigError",
     "BCGError",
     "BCGUsageError",
+    "DecisionError",
 ]

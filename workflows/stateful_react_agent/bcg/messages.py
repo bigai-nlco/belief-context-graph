@@ -186,12 +186,29 @@ class Projection:
     evicted_step_message_indices: list[int] = field(default_factory=list)
 
 
+def has_explicit_user_provenance(messages: list[Message]) -> bool:
+    """True when the loop stamped genuine human inputs with ``bcg_origin='user'``."""
+    return any(m.get("bcg_origin") == "user" for m in messages)
+
+
+def is_human_user_message(message: Message, *, explicit_provenance: bool = False) -> bool:
+    """Distinguish genuine human turns from runtime/observer control nudges and reports."""
+    if message.get("role") != "user":
+        return False
+    origin = message.get("bcg_origin")
+    if origin in {"agent_report", "runtime_nudge"} or message.get("transient"):
+        return False
+    return origin == "user" if explicit_provenance else True
+
+
 def partition(messages: list[Message], recent_turns: int, *, include_trailing_users: bool = False) -> Projection:
-    """Pin human inputs; only trusted host-tagged reports may age out with steps."""
+    """Pin human inputs; runtime nudges and host-tagged reports age out with steps."""
+    explicit_prov = has_explicit_user_provenance(messages)
     steps: list[Step] = []
     active: Step | None = None
     users: list[tuple[int, str]] = []
     reports: list[tuple[int, str]] = []
+    nudges: list[int] = []
     seen_calls: set[str] = set()
     for index, message in enumerate(messages):
         role = message.get("role")
@@ -215,9 +232,15 @@ def partition(messages: list[Message], recent_turns: int, *, include_trailing_us
             steps.append(active)
             active = None
         if role == "user":
-            # This is host metadata, never inferred from user-supplied text.
-            target = reports if message.get("bcg_origin") == "agent_report" else users
-            target.append((index, text_content(message.get("content"))))
+            # Host metadata separates human inputs, subagent reports, and transient
+            # loop/observer control nudges without inspecting user-supplied text.
+            text = text_content(message.get("content"))
+            if message.get("bcg_origin") == "agent_report":
+                reports.append((index, text))
+            elif is_human_user_message(message, explicit_provenance=explicit_prov):
+                users.append((index, text))
+            else:
+                nudges.append(index)
         else:
             assistant_text(message)  # validate without touching provider blocks
             calls = tool_calls(message)
@@ -238,10 +261,11 @@ def partition(messages: list[Message], recent_turns: int, *, include_trailing_us
         + [index for step in evicted for index in step.indices],
         default=-1,
     )
-    # A report after the frontier has not aged past a completed model step.
-    # In particular, a newly delivered report cannot disappear before a model
-    # has had an opportunity to read it, including with recent_turns=0.
+    # Reports and runtime control nudges after the frontier remain visible for
+    # the immediate next model call, then age out once a step completes after
+    # them. Runtime nudges never enter graph construction.
     removed.update(index for index, _ in reports if index <= frontier)
+    removed.update(index for index in nudges if index <= frontier)
     retained_indices = [index for index in range(len(messages)) if index not in removed]
     events = [
         # Compaction ingests new human follow-ups immediately while still
